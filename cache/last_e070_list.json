@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "system": "S4D",
+    "user": "CSILVA",
+    "generated_at": "2026-03-17 12:45:22"
+  },
+  "items": [
+    {
+      "idx": 1,
+      "TRKORR": "S4DK951499",
+      "AS4TEXT": "TESTE (NÃO TRANSPORTAR)"
+    },
+    {
+      "idx": 2,
+      "TRKORR": "S4DK951811",
+      "AS4TEXT": "WS - Sumarização 77161 - Compactação de lançamentos Financei"
+    },
+    {
+      "idx": 3,
+      "TRKORR": "S4DK951813",
+      "AS4TEXT": "WS - Sumarização Fi nota 77161 - Compactação de lançamentos"
+    },
+    {
+      "idx": 4,
+      "TRKORR": "S4DK952000",
+      "AS4TEXT": "WS- FUNÇÕES DO PROJETO PERFIL DE AUTORIZAÇÃO"
+    },
+    {
+      "idx": 5,
+      "TRKORR": "S4DK952206",
+      "AS4TEXT": "IZ-53180 Criação de tipo de movimento no TRM"
+    },
+    {
+      "idx": 6,
+      "TRKORR": "S4DK952743",
+      "AS4TEXT": "COMPACTAÇÂO FI"
+    },
+    {
+      "idx": 7,
+      "TRKORR": "S4DK952780",
+      "AS4TEXT": ""
+    },
+    {
+      "idx": 8,
+      "TRKORR": "S4DK952816",
+      "AS4TEXT": "IZ-55754 Código de IVA TaxPT"
+    },
+    {
+      "idx": 9,
+      "TRKORR": "S4DK952821",
+      "AS4TEXT": "WS- FUNÇÕES DO PROJETO PERFIL DE AUTORIZAÇÃO"
+    },
+    {
+      "idx": 10,
+      "TRKORR": "S4DK952823",
+      "AS4TEXT": "IZ-52936 Projeto gestão de perfil SAP"
+    }
+  ]
+}

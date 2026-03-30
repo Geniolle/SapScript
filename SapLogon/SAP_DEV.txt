@@ -1,0 +1,9 @@
+[System]
+Name=DESENVOLVIMENTO (S4H)
+ApplicationServer=172.19.66.4
+SystemNumber=00
+SystemID=S4D
+Client=100
+User=
+Language=PT
+Description=DESENVOLVIMENTO (S4H)
