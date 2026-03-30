@@ -15,51 +15,34 @@ import re
 import pythoncom
 import pywintypes
 
-# Caminhos
-base_dir = r"C:\SAP Script"
-processos_dir = os.path.join(base_dir, "Processos")
-saplogon_path = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
+from app.config import (
+    PROCESSOS_DIR,
+    SAPLOGON_PATH,
+    MSG_RZ11_SCRIPTING,
+    PESQUISAR_REQUEST_PATH,
+    AMBIENTES,
+    MAPA_SISTEMA,
+    CLIENTES_POR_AMBIENTE,
+    SLEEP_UI,
+    SLEEP_ACTION,
+    SCAN_MAX_DEPTH,
+    SCAN_MAX_NODES,
+    REQ_PATTERNS,
+)
 
-# Texto exigido (sem ícone). O ícone é aplicado no logger.
-MSG_RZ11_SCRIPTING = 'Ativar na transação RZ11 o nome do parametro "sapgui/user_scripting" alterar para "TRUE"'
-
-# Módulo de lista/pesquisa de requests
-pesquisar_request_path = os.path.join(processos_dir, "pesquisar_request.py")
-
-# Ambientes SAP
-ambientes = {
-    "1": ("DEV", "DESENVOLVIMENTO (S4H)"),
-    "2": ("QAD", "QUALIDADE (S4H)"),
-    "3": ("PRD", "PRODUÇÃO (S4H)"),
-    "4": ("CUA", "CUA (PRD)")
-}
-
-mapa_sistema = {
-    "DEV": "S4D",
-    "QAD": "S4Q",
-    "PRD": "S4P",
-    "CUA": "SPA"
-}
-
-clientes_por_ambiente = {
-    "DEV": "100",
-    "QAD": "100",
-    "PRD": "100",
-    "CUA": "001"
-}
-
-# Sleeps (ajusta se o SAP “se perder” nos inputs)
-SLEEP_UI = 0.25
-SLEEP_ACTION = 0.40
-
-# Scan para extrair TRKORR do ecrã (sem status bar)
-SCAN_MAX_DEPTH = 6
-SCAN_MAX_NODES = 2500
-
-_REQ_PATTERNS = [
-    re.compile(r"\b[A-Z0-9]{3,4}K\d{6,}\b"),      # ex.: S4QK900416 / S4DK951499
-    re.compile(r"\b[A-Z0-9]{3,4}[A-Z]\d{6,}\b"),  # fallback
-]
+from app.ui import (
+    console,
+    mostrar_titulo,
+    mostrar_ambientes,
+    mostrar_processos,
+    mostrar_subprocessos,
+    info,
+    ok,
+    warn,
+    erro,
+    destaque,
+    linha,
+)
 
 
 ###################################################################################
@@ -86,23 +69,19 @@ def ler_texto(prompt: str, oculto: bool = False) -> str:
     while True:
         ch = msvcrt.getwch()
 
-        # ENTER
         if ch in ("\r", "\n"):
             print()
             return "".join(buf)
 
-        # BACKSPACE
         if ch in ("\b", "\x7f"):
             if buf:
                 buf.pop()
                 print("\b \b", end="", flush=True)
             continue
 
-        # CTRL+C
         if ch == "\x03":
             raise KeyboardInterrupt
 
-        # ignora outros control chars
         if ord(ch) < 32:
             continue
 
@@ -113,46 +92,42 @@ def ler_texto(prompt: str, oculto: bool = False) -> str:
 def selecionar_ambiente():
     if len(sys.argv) > 1:
         ambiente_recebido = sys.argv[1].upper()
-        if ambiente_recebido in mapa_sistema:
+        if ambiente_recebido in MAPA_SISTEMA:
             return ambiente_recebido
-        print(f"❌ Ambiente '{ambiente_recebido}' inválido via argumento.")
+        erro(f"Ambiente '{ambiente_recebido}' inválido via argumento.")
         sys.exit(1)
 
-    print("\n🌐 Ambientes disponíveis:")
-    for k, (sigla, nome) in ambientes.items():
-        print(f"{k}: {sigla} → {nome}")
+    mostrar_titulo()
+    mostrar_ambientes(AMBIENTES)
 
     opcao = input("\nDigite o número do ambiente que deseja atualizar: ").strip()
-    if opcao not in ambientes:
-        print("❌ Opção inválida.")
+    if opcao not in AMBIENTES:
+        erro("Opção inválida.")
         sys.exit(1)
 
-    return ambientes[opcao][0]
+    return AMBIENTES[opcao][0]
 
 
 def selecionar_pasta_processo():
-    print("\n📂 Processos disponíveis:")
-    pastas = [
-        p for p in os.listdir(processos_dir)
-        if os.path.isdir(os.path.join(processos_dir, p)) and p != "__pycache__"
-    ]
+    pastas = sorted(
+        [
+            p for p in os.listdir(PROCESSOS_DIR)
+            if os.path.isdir(os.path.join(PROCESSOS_DIR, p)) and p != "__pycache__"
+        ]
+    )
 
-    for i, pasta in enumerate(pastas, 1):
-        print(f"{i}: {pasta}")
+    mostrar_processos(pastas)
 
     try:
         escolha = int(input("\nDigite o número do processo que deseja abrir: ")) - 1
         pasta_escolhida = pastas[escolha]
-        return os.path.join(processos_dir, pasta_escolhida)
+        return os.path.join(PROCESSOS_DIR, pasta_escolhida)
     except (ValueError, IndexError):
-        print("❌ Seleção inválida.")
+        erro("Seleção inválida.")
         sys.exit(1)
 
 
 def validar_request(valor: str) -> str:
-    """
-    Exemplo: S4QK900396 / S4DK951499 (3-4 chars + K + 6+ dígitos)
-    """
     v = (valor or "").strip().upper().replace(" ", "")
     if not v:
         return ""
@@ -162,36 +137,29 @@ def validar_request(valor: str) -> str:
 
 
 def carregar_pesquisar_request():
-    """
-    Carrega dinamicamente o ficheiro pesquisar_request.py
-    """
-    if not os.path.exists(pesquisar_request_path):
-        print(f"❌ Ficheiro não encontrado: {pesquisar_request_path}")
+    if not os.path.exists(PESQUISAR_REQUEST_PATH):
+        erro(f"Ficheiro não encontrado: {PESQUISAR_REQUEST_PATH}")
         return None
 
-    spec = importlib.util.spec_from_file_location("pesquisar_request", pesquisar_request_path)
+    spec = importlib.util.spec_from_file_location("pesquisar_request", PESQUISAR_REQUEST_PATH)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
 def escolher_request_por_linha(lista_resultados):
-    """
-    lista_resultados: list[(TRKORR, AS4TEXT)]
-    Retorna (trkorr, as4text) escolhido.
-    """
     if not lista_resultados:
         return ("", "")
 
     while True:
         raw = input(f"\nDigite o número da linha da request (1-{len(lista_resultados)}): ").strip()
         if not raw.isdigit():
-            print("❌ Digite apenas números.")
+            erro("Digite apenas números.")
             continue
 
         idx = int(raw)
         if idx < 1 or idx > len(lista_resultados):
-            print("❌ Número fora do intervalo.")
+            erro("Número fora do intervalo.")
             continue
 
         trkorr, as4text = lista_resultados[idx - 1]
@@ -262,7 +230,7 @@ def _extract_request_number_from_text(text):
     if not text:
         return None
     t = str(text).strip()
-    for rgx in _REQ_PATTERNS:
+    for rgx in REQ_PATTERNS:
         m = rgx.search(t)
         if m:
             return m.group(0)
@@ -353,34 +321,34 @@ def _select_radio_if_exists(session, sap_id: str) -> bool:
 def _criar_nova_request_no_sap(session) -> tuple[str, str, str]:
     _ensure_se10(session)
 
+    linha()
+    destaque("CRIAR NOVA REQUEST")
     print("\nTipo da ordem:")
-    print('1 - Ordem customizing')
-    print('2 - Ordem workbench')
+    print("1 - Ordem customizing")
+    print("2 - Ordem workbench")
 
     while True:
         tipo = input("Digite a opção (1/2): ").strip()
         if tipo in ("1", "2"):
             break
-        print("❌ Opção inválida. Use apenas 1 ou 2.")
+        erro("Opção inválida. Use apenas 1 ou 2.")
 
     desc = input("Descrição da request (máx 60): ").strip()
     if not desc:
         desc = "REQUEST CRIADA VIA SCRIPT"
     desc = desc[:60]
 
-    _press(session, "wnd[0]/tbar[1]/btn[6]")  # criar
+    _press(session, "wnd[0]/tbar[1]/btn[6]")
 
     if tipo == "2":
         _select_radio_if_exists(session, "wnd[1]/usr/radKO042-REQ_CONS_K")
 
-    _press(session, "wnd[1]/tbar[0]/btn[0]")  # OK tipo
-
+    _press(session, "wnd[1]/tbar[0]/btn[0]")
     _set_text(session, "wnd[1]/usr/txtKO013-AS4TEXT", desc, caret_pos=len(desc))
-    _press(session, "wnd[1]/tbar[0]/btn[0]")  # OK desc
+    _press(session, "wnd[1]/tbar[0]/btn[0]")
 
     trkorr = _get_created_request_number(session)
 
-    # voltar (/n)
     okcd = _safe_find(session, "wnd[0]/tbar[0]/okcd")
     if okcd:
         okcd.text = "/n"
@@ -388,38 +356,38 @@ def _criar_nova_request_no_sap(session) -> tuple[str, str, str]:
 
     tipo_txt = "Customizing" if tipo == "1" else "Workbench"
 
-    print("\n✅ Request criada.")
-    print(f"Tipo: {tipo_txt}")
-    print(f"Descrição: {desc}")
+    ok("Request criada.")
+    info(f"Tipo: {tipo_txt}")
+    info(f"Descrição: {desc}")
 
     if not trkorr:
         trkorr = input("Não consegui extrair a request automaticamente. Cole aqui (ex.: S4QK900416): ").strip().upper()
 
-    print(f"Request: {trkorr}")
+    info(f"Request: {trkorr}")
     return (trkorr, desc, tipo_txt)
 
 
 ###################################################################################
-# Request menu (apenas quando o processo realmente precisa)
+# Request menu
 ###################################################################################
 
 def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
-    print("\n============================================================")
-    print("🚚 Opções de configuração de Transporte.\n")
-    print("   1 - Escreva o número da Request")
-    print("   2 - Criar nova ordem de transporte")
-    print("   3 - Pesquisar suas request criadas.")
-    print("   4 - Prima [Enter] vazio para NÃO transportar")
-    print("============================================================")
+    linha()
+    destaque("OPÇÕES DE TRANSPORTE")
+    print("1 - Escreva o número da Request")
+    print("2 - Criar nova ordem de transporte")
+    print("3 - Pesquisar suas request criadas")
+    print("4 - Prima [Enter] vazio para NÃO transportar")
+    linha()
 
     while True:
-        opc = input("\n👉 Opção: ").strip()
-        
+        opc = input("\nOpção: ").strip()
+
         if opc in ("1", "2", "3", "4", ""):
             if opc == "":
                 opc = "4"
             break
-        print("❌ Opção inválida. Use 1, 2, 3, 4 ou apenas pressione Enter.")
+        erro("Opção inválida. Use 1, 2, 3, 4 ou apenas pressione Enter.")
 
     ctx = {
         "request_option": opc,
@@ -430,12 +398,12 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
 
     if opc == "1":
         while True:
-            num_raw = input("🔢 Numero da Request (ex: S4QK900396): ").strip()
+            num_raw = input("Numero da Request (ex: S4QK900396): ").strip()
             num = validar_request(num_raw)
             if num:
                 ctx["request_number"] = num
                 break
-            print("❌ Request inválida. Exemplo válido: S4QK900396")
+            erro("Request inválida. Exemplo válido: S4QK900396")
 
     elif opc == "2":
         trkorr, desc, _tipo_txt = _criar_nova_request_no_sap(session)
@@ -445,7 +413,7 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
     elif opc == "3":
         mod_pesq = carregar_pesquisar_request()
         if not mod_pesq or not hasattr(mod_pesq, "listar_requests"):
-            print("❌ Módulo pesquisar_request.py não carregado ou função listar_requests não encontrada.")
+            erro("Módulo pesquisar_request.py não carregado ou função listar_requests não encontrada.")
             return ctx
 
         try:
@@ -460,21 +428,21 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
         except TypeError:
             lista = mod_pesq.listar_requests(system_name=sistema_desejado, max_rows="5000")
         except Exception as e:
-            print(f"❌ Falha ao gerar lista (pesquisar_request.py): {e}")
+            erro(f"Falha ao gerar lista (pesquisar_request.py): {e}")
             return ctx
 
         if not lista:
-            print("❌ Nenhuma request encontrada na lista.")
+            warn("Nenhuma request encontrada na lista.")
             return ctx
 
         trkorr, as4text = escolher_request_por_linha(lista)
         if trkorr:
             ctx["request_number"] = trkorr
             ctx["request_desc"] = as4text
-            print(f"\n✅ Request selecionada: {trkorr} | {as4text}")
+            ok(f"Request selecionada: {trkorr} | {as4text}")
 
     elif opc == "4":
-        print("⏭️  Nenhuma request selecionada (Transporte ignorado).")
+        warn("Nenhuma request selecionada (Transporte ignorado).")
         ctx["request_number"] = ""
 
     os.environ["SAP_REQUEST_OPTION"] = ctx["request_option"]
@@ -486,7 +454,7 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
 
 
 ###################################################################################
-# Execução de processos (compatível + “file first” + dinâmico)
+# Execução de processos
 ###################################################################################
 
 def _analisar_exec_signature(func):
@@ -521,15 +489,12 @@ def _analisar_exec_signature(func):
 
 def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session):
     while True:
-        scripts_py = [f for f in os.listdir(caminho_pasta) if f.endswith(".py") and not f.startswith("~$")]
+        scripts_py = sorted([f for f in os.listdir(caminho_pasta) if f.endswith(".py") and not f.startswith("~$")])
         if not scripts_py:
-            print("❌ Nenhum script .py encontrado na pasta selecionada.")
+            erro("Nenhum script .py encontrado na pasta selecionada.")
             return
 
-        print("\n📂 Sub-Processos disponíveis:")
-        for i, script in enumerate(scripts_py, 1):
-            print(f"{i}: {script}")
-        print(f"{len(scripts_py)+1}: 🔙 Voltar ao menu de Processos")
+        mostrar_subprocessos(scripts_py)
 
         try:
             escolha = int(input("\nDigite o número do sub-processo que deseja executar: ")) - 1
@@ -537,12 +502,12 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
                 return "voltar"
             processo_escolhido = scripts_py[escolha]
         except (ValueError, IndexError):
-            print("❌ Seleção inválida. Tente novamente.\n")
+            erro("Seleção inválida. Tente novamente.")
             continue
 
         _resetar_env_request()
 
-        print(f"\n✅ Processo selecionado: {processo_escolhido}")
+        ok(f"Processo selecionado: {processo_escolhido}")
 
         caminho_script = os.path.join(caminho_pasta, processo_escolhido)
         spec = importlib.util.spec_from_file_location("modulo_processo", caminho_script)
@@ -550,16 +515,16 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
         spec.loader.exec_module(modulo)
 
         if not hasattr(modulo, "executar"):
-            print(f"⚠️ O ficheiro '{processo_escolhido}' não contém a função 'executar()'.")
+            warn(f"O ficheiro '{processo_escolhido}' não contém a função 'executar()'.")
             continue
 
         exec_fn = modulo.executar
-        info = _analisar_exec_signature(exec_fn)
+        info_exec = _analisar_exec_signature(exec_fn)
 
         precisa_request_agora = False
-        if info["p_request_ctx"] and not info["request_ctx_is_optional"]:
+        if info_exec["p_request_ctx"] and not info_exec["request_ctx_is_optional"]:
             precisa_request_agora = True
-        elif info["p_request_transp"] and not info["request_transp_is_optional"] and not info["file_is_optional"]:
+        elif info_exec["p_request_transp"] and not info_exec["request_transp_is_optional"] and not info_exec["file_is_optional"]:
             precisa_request_agora = True
 
         request_ctx = {"request_option": "", "request_number": "", "request_desc": "", "search_text": ""}
@@ -568,22 +533,17 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
 
         kwargs = {}
 
-        # ---> Nome da Aba (Sheet) dinâmico baseado no nome do script <---
-        if info["p_pfcg"]:
-            # 1. Remove a extensão .py
-            nome_sem_ext = processo_escolhido.replace('.py', '').strip()
-            
-            # 2. Divide a string no primeiro ponto e fica com a parte da direita
-            if '.' in nome_sem_ext:
-                aba_calculada = nome_sem_ext.split('.', 1)[1].strip()
+        if info_exec["p_pfcg"]:
+            nome_sem_ext = processo_escolhido.replace(".py", "").strip()
+            if "." in nome_sem_ext:
+                aba_calculada = nome_sem_ext.split(".", 1)[1].strip()
             else:
                 aba_calculada = nome_sem_ext
-            
-            print(f"👉 Aba do Excel detetada automaticamente: '{aba_calculada}'")
-            kwargs[info["p_pfcg"].name] = aba_calculada
 
-        # Se for preciso abrir ficheiro via popup
-        if info["p_file"] and not info["file_is_optional"]:
+            info(f"Aba do Excel detetada automaticamente: '{aba_calculada}'")
+            kwargs[info_exec["p_pfcg"].name] = aba_calculada
+
+        if info_exec["p_file"] and not info_exec["file_is_optional"]:
             try:
                 import tkinter as tk
                 from tkinter import filedialog
@@ -596,26 +556,26 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
                 )
                 root.destroy()
                 if not path:
-                    print("❌ Operação cancelada (ficheiro não selecionado).")
+                    erro("Operação cancelada (ficheiro não selecionado).")
                     continue
-                kwargs[info["p_file"].name] = path
+                kwargs[info_exec["p_file"].name] = path
             except Exception as e:
-                print(f"❌ Falha ao abrir popup de ficheiro: {e}")
+                erro(f"Falha ao abrir popup de ficheiro: {e}")
                 continue
 
-        if info["p_request_ctx"]:
-            kwargs[info["p_request_ctx"].name] = request_ctx
+        if info_exec["p_request_ctx"]:
+            kwargs[info_exec["p_request_ctx"].name] = request_ctx
 
-        if info["p_request_transp"] and request_ctx.get("request_number"):
+        if info_exec["p_request_transp"] and request_ctx.get("request_number"):
             if precisa_request_agora:
-                kwargs[info["p_request_transp"].name] = request_ctx["request_number"]
+                kwargs[info_exec["p_request_transp"].name] = request_ctx["request_number"]
 
         try:
             exec_fn(ambiente_cockpit, **kwargs)
         except TypeError:
             exec_fn(ambiente_cockpit)
         except Exception as e:
-            print(f"❌ Erro ao executar '{processo_escolhido}': {e}")
+            erro(f"Erro ao executar '{processo_escolhido}': {e}")
             continue
 
 
@@ -641,14 +601,14 @@ def _is_scripting_disabled_error(exc: Exception) -> bool:
 
 
 def _log_alerta_rz11():
-    print(f"⚠️  {MSG_RZ11_SCRIPTING}")
+    warn(MSG_RZ11_SCRIPTING)
 
 
 def _erro_scripting_inativo(exc: Exception | None = None):
-    print("❌ O scripting do SAP GUI não está ativo ou não foi possível inicializar o objeto SAPGUI.")
+    erro("O scripting do SAP GUI não está ativo ou não foi possível inicializar o objeto SAPGUI.")
     _log_alerta_rz11()
     if exc:
-        print(f"🔧 Detalhes técnicos: {exc}")
+        erro(f"Detalhes técnicos: {exc}")
     sys.exit(1)
 
 
@@ -670,8 +630,8 @@ def _aguardar_login(session, cliente_esperado: str, timeout_s: int = 20) -> bool
 
 def _log_scripting_status_apenas_quando_logado(session, cliente_esperado: str):
     if _is_sap_logado(session, cliente_esperado):
-        print("🔍 A verificar disponibilidade do SAP GUI Scripting...")
-        print("✅ SAP GUI Scripting está ativo.")
+        info("A verificar disponibilidade do SAP GUI Scripting...")
+        ok("SAP GUI Scripting está ativo.")
 
 
 def _tem_alguma_sessao_ativa(application) -> bool:
@@ -709,24 +669,29 @@ def _encontrar_sessao_do_sistema(application, sistema_desejado: str):
 
 
 ###################################################################################
-# Execução Principal - Com tratamento de erro de conexão inicial
+# Execução Principal
 ###################################################################################
 
 ambiente_cockpit = selecionar_ambiente()
-sistema_desejado = mapa_sistema.get(ambiente_cockpit)
-cliente_esperado = clientes_por_ambiente.get(ambiente_cockpit, "100")
-nome_logon = dict((v[0], v[1]) for v in ambientes.values()).get(ambiente_cockpit, ambiente_cockpit)
+sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
+cliente_esperado = CLIENTES_POR_AMBIENTE.get(ambiente_cockpit, "100")
+nome_logon = dict((v[0], v[1]) for v in AMBIENTES.values()).get(ambiente_cockpit, ambiente_cockpit)
 
-print(f"\n🌍 Ambiente selecionado: {ambiente_cockpit} ({nome_logon})")
-print("\n🔄 A verificar se já existe uma sessão aberta no ambiente desejado...")
+mostrar_titulo(
+    ambiente=f"{ambiente_cockpit} ({nome_logon})",
+    sistema=sistema_desejado,
+    cliente=cliente_esperado,
+)
+
+info("A verificar se já existe uma sessão aberta no ambiente desejado...")
 
 try:
     pythoncom.CoInitialize()
     try:
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
     except Exception:
-        print("🚀 SAP Logon não detectado. Iniciando executável...")
-        subprocess.Popen(saplogon_path)
+        warn("SAP Logon não detectado. Iniciando executável...")
+        subprocess.Popen(SAPLOGON_PATH)
         time.sleep(5)
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
 
@@ -741,11 +706,11 @@ session, connection = _encontrar_sessao_do_sistema(application, sistema_desejado
 
 if session is None:
     if not _tem_alguma_sessao_ativa(application):
-        usuario = input("👤 Utilizador: ").strip()
-        senha = ler_texto("🔒 Senha: ", oculto=True).strip()
+        usuario = input("Utilizador: ").strip()
+        senha = ler_texto("Senha: ", oculto=True).strip()
 
         try:
-            print(f"📡 Abrindo conexão: {nome_logon}...")
+            info(f"Abrindo conexão: {nome_logon}...")
             connection = application.OpenConnection(nome_logon, True)
 
             tentativas = 0
@@ -754,7 +719,7 @@ if session is None:
                 tentativas += 1
 
             if connection.Children.Count == 0:
-                print("\n❌ A sessão SAP não foi iniciada corretamente.")
+                erro("A sessão SAP não foi iniciada corretamente.")
                 _log_alerta_rz11()
                 sys.exit(1)
 
@@ -762,7 +727,7 @@ if session is None:
 
             try:
                 if str(session.Info.SystemName).upper() != str(sistema_desejado).upper():
-                    print(f"\n❌ A sessão SAP aberta não pertence ao ambiente '{ambiente_cockpit}'.")
+                    erro(f"A sessão SAP aberta não pertence ao ambiente '{ambiente_cockpit}'.")
                     sys.exit(1)
             except Exception:
                 pass
@@ -777,40 +742,45 @@ if session is None:
             if _is_scripting_disabled_error(e):
                 _erro_scripting_inativo(e)
             else:
-                print("\n❌ Erro ao tentar abrir a ligação SAP.")
-                print("📡 Verifique se o servidor SAP está ligado e disponível.")
-                print(f"🔧 Detalhes técnicos: {e}")
+                erro("Erro ao tentar abrir a ligação SAP.")
+                erro("Verifique se o servidor SAP está ligado e disponível.")
+                erro(f"Detalhes técnicos: {e}")
                 sys.exit(1)
 
         if not _aguardar_login(session, cliente_esperado, timeout_s=20):
-            print("\n❌ Login não foi confirmado (User/Client não disponíveis).")
-            print("ℹ️  Verifique se o SAP pediu pop-up, senha extra, ou se o login falhou.")
+            erro("Login não foi confirmado (User/Client não disponíveis).")
+            warn("Verifique se o SAP pediu pop-up, senha extra, ou se o login falhou.")
             sys.exit(1)
 
     else:
-        print("\n⚠️ Existe uma sessão SAP ativa, mas não é do ambiente selecionado.")
-        print(f"ℹ️  Abra manualmente a ligação do ambiente '{nome_logon}' no SAP Logon e faça login (se necessário).")
-        input("🕑 Pressione ENTER quando a sessão do ambiente estiver aberta...")
+        warn("Existe uma sessão SAP ativa, mas não é do ambiente selecionado.")
+        info(f"Abra manualmente a ligação do ambiente '{nome_logon}' no SAP Logon e faça login (se necessário).")
+        input("Pressione ENTER quando a sessão do ambiente estiver aberta...")
 
         session, connection = _encontrar_sessao_do_sistema(application, sistema_desejado)
         if session is None:
-            print("❌ Não foi encontrada uma sessão do ambiente selecionado após confirmação. A encerrar.")
+            erro("Não foi encontrada uma sessão do ambiente selecionado após confirmação. A encerrar.")
             sys.exit(1)
 
 if not _is_sap_logado(session, cliente_esperado):
-    print(f"\n⚠️ Sessão do ambiente '{ambiente_cockpit}' encontrada, mas sem login ou client incorreto (esperado: {cliente_esperado}).")
-    print("🔁 Faça o login manualmente no SAP GUI (e ajuste o client se necessário).")
-    input("🕑 Pressione ENTER assim que tiver terminado o login...")
+    warn(f"Sessão do ambiente '{ambiente_cockpit}' encontrada, mas sem login ou client incorreto (esperado: {cliente_esperado}).")
+    info("Faça o login manualmente no SAP GUI (e ajuste o client se necessário).")
+    input("Pressione ENTER assim que tiver terminado o login...")
 
     if not _aguardar_login(session, cliente_esperado, timeout_s=20):
-        print("❌ O login ainda não foi detectado corretamente após confirmação. A encerrar.")
+        erro("O login ainda não foi detectado corretamente após confirmação. A encerrar.")
         sys.exit(1)
 
 _log_scripting_status_apenas_quando_logado(session, cliente_esperado)
 
 try:
-    print(f"✅ Sessão SAP pronta no sistema: {session.Info.SystemName}")
-    print(f"👤 Utilizador SAP: {session.Info.User} | Cliente: {session.Info.Client}")
+    mostrar_titulo(
+        ambiente=f"{ambiente_cockpit} ({nome_logon})",
+        sistema=session.Info.SystemName,
+        cliente=session.Info.Client,
+        utilizador=session.Info.User,
+    )
+    ok(f"Sessão SAP pronta no sistema: {session.Info.SystemName}")
 except Exception:
     pass
 

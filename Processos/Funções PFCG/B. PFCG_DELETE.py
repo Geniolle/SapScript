@@ -3,6 +3,7 @@
 ###################################################################################
 # BLOCO: ELIMINAÇÃO EM MASSA DE FUNÇÕES VIA /NPFCGMASSDELETE
 # Mantém a formatação do Excel intacta escrevendo célula a célula via openpyxl.
+# Com barra de progresso Rich.
 ###################################################################################
 def executar(
     ambiente_cockpit,
@@ -19,6 +20,7 @@ def executar(
     import win32com.client
     import pyperclip
     from openpyxl import load_workbook
+    from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 
     # --- CORREÇÃO DA ESTRUTURA DE PASTAS PARA IMPORTAR O PESQUISAR_REQUEST ---
     dir_atual = os.path.dirname(os.path.abspath(__file__))
@@ -39,12 +41,12 @@ def executar(
     TIMEOUT_SAP_BUSY = 180.0
 
     COL_ID        = "ID"
-    COL_AGR_NAME  = "AGR_NAME"     
-    COL_TEXT      = "TEXT"         
+    COL_AGR_NAME  = "AGR_NAME"
+    COL_TEXT      = "TEXT"
     COL_STATUS    = "STATUS"
     COL_MSG       = "MSG"
     COL_TIMESTAMP = "TIMESTEMP"
-    
+
     COLUNAS_OBRIGATORIAS = {COL_ID, COL_AGR_NAME, COL_STATUS, COL_MSG, COL_TIMESTAMP}
 
     def agora_ts():
@@ -57,14 +59,18 @@ def executar(
     # HELPERS: NORMALIZAÇÃO
     ###################################################################################
     def norm_col(s):
-        if s is None: return ""
+        if s is None:
+            return ""
         return unicodedata.normalize("NFKD", str(s)).encode("ASCII", "ignore").decode("utf-8").strip().upper()
 
     def traduzir_nome_coluna(s):
         s = norm_col(s)
-        if s in ["NOME FUNCAO", "NOME FUNÇÂO", "NOME FUNÇAO"]: return COL_AGR_NAME
-        if s in ["DESCRITIVO", "DESCRITIVO FUNCAO", "DESCRICAO", "DESCRIÇÃO"]: return COL_TEXT
-        if s == "TIMESTAMP": return COL_TIMESTAMP
+        if s in ["NOME FUNCAO", "NOME FUNÇÂO", "NOME FUNÇAO"]:
+            return COL_AGR_NAME
+        if s in ["DESCRITIVO", "DESCRITIVO FUNCAO", "DESCRICAO", "DESCRIÇÃO"]:
+            return COL_TEXT
+        if s == "TIMESTAMP":
+            return COL_TIMESTAMP
         return s
 
     ###################################################################################
@@ -74,35 +80,42 @@ def executar(
         try:
             session.findById(obj_id)
             return True
-        except: return False
+        except:
+            return False
 
     def esperar_sap_livre(session, timeout=120.0, pausa=0.2):
         limite = time.time() + timeout
         while time.time() < limite:
-            try: busy = bool(getattr(session, "Busy", False))
-            except: busy = False
-            if not busy: return True
+            try:
+                busy = bool(getattr(session, "Busy", False))
+            except:
+                busy = False
+            if not busy:
+                return True
             time.sleep(pausa)
         return False
 
     def esperar_janela(session, wnd_idx, timeout=10.0, pausa=0.2):
         limite = time.time() + timeout
         while time.time() < limite:
-            if existe(session, f"wnd[{wnd_idx}]"): return True
+            if existe(session, f"wnd[{wnd_idx}]"):
+                return True
             time.sleep(pausa)
         return False
 
     def fechar_popups(session, timeout=10.0, pausa=0.2, prefer_yes=True):
         limite = time.time() + timeout
         while time.time() < limite:
-            if any(existe(session, f"wnd[{i}]") for i in (1, 2, 3)): break
+            if any(existe(session, f"wnd[{i}]") for i in (1, 2, 3)):
+                break
             time.sleep(pausa)
 
         fechou = False
         for _ in range(40):
             algum = False
             for i in (3, 2, 1):
-                if not existe(session, f"wnd[{i}]"): continue
+                if not existe(session, f"wnd[{i}]"):
+                    continue
                 algum = True
                 try:
                     if existe(session, f"wnd[{i}]/tbar[0]/btn[0]"):
@@ -114,9 +127,11 @@ def executar(
                     else:
                         session.findById(f"wnd[{i}]").sendVKey(0)
                     fechou = True
-                except: pass
+                except:
+                    pass
                 time.sleep(pausa)
-            if not algum: break
+            if not algum:
+                break
         return fechou
 
     def mensagem_sem_resultado(msg):
@@ -134,7 +149,6 @@ def executar(
         return "voltar"
 
     try:
-        # data_only=False preserva estilos, formatação condicional, etc.
         wb = load_workbook(caminho_ficheiro, data_only=False)
     except Exception as e:
         log(f"❌ Erro ao abrir o ficheiro Excel: {e}")
@@ -156,11 +170,12 @@ def executar(
     for r in range(1, SEARCH_HEADER_IN_FIRST_ROWS + 1):
         row_vals = [traduzir_nome_coluna(c.value) for c in ws[r]]
         colunas_encontradas = set(row_vals).intersection(COLUNAS_OBRIGATORIAS)
-        
+
         if len(colunas_encontradas) >= len(COLUNAS_OBRIGATORIAS):
             header_row = r
             for idx, name in enumerate(row_vals, start=1):
-                if name: header_map[name] = idx
+                if name:
+                    header_map[name] = idx
             break
 
     if not header_row:
@@ -171,8 +186,10 @@ def executar(
 
     # Extrair os dados para processamento
     records = []
+
     def get_cell(row_idx, col_name):
-        if col_name not in header_map: return ""
+        if col_name not in header_map:
+            return ""
         v = ws.cell(row=row_idx, column=header_map[col_name]).value
         return "" if v is None else str(v).strip()
 
@@ -181,11 +198,11 @@ def executar(
         status = get_cell(r, COL_STATUS).upper()
 
         # Filtra logo linhas vazias ou já concluídas
-        if not agr or status == "CONCLUÍDO" or status == "CONCLUIDO": 
+        if not agr or status == "CONCLUÍDO" or status == "CONCLUIDO":
             continue
 
         records.append({
-            "_row": r, # Guardamos a linha do Excel para escrever de volta nela!
+            "_row": r,
             COL_AGR_NAME: agr
         })
 
@@ -194,7 +211,7 @@ def executar(
         log("⚠️ Nenhuma linha válida pendente encontrada na aba.")
         return "voltar"
 
-    # Extrair lista de roles e copiar para o Clipboard (para a Múltipla Seleção do SAP)
+    # Extrair lista de roles e copiar para o Clipboard
     funcoes = [rec[COL_AGR_NAME] for rec in records]
     pyperclip.copy("\r\n".join(funcoes))
 
@@ -205,7 +222,10 @@ def executar(
         log("🔌 A localizar sessão SAP...")
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
         app = SapGuiAuto.GetScriptingEngine
-        session = next((sess for conn in app.Children for sess in conn.Children if sess.Info.SystemName.upper() == (sistema_desejado or "")), None)
+        session = next(
+            (sess for conn in app.Children for sess in conn.Children if sess.Info.SystemName.upper() == (sistema_desejado or "")),
+            None
+        )
     except Exception:
         session = None
 
@@ -224,11 +244,12 @@ def executar(
             time.sleep(0.8)
 
             print("\nTipo da ordem:")
-            print('1 - Ordem customizing')
-            print('2 - Ordem workbench')
+            print("1 - Ordem customizing")
+            print("2 - Ordem workbench")
             while True:
                 tipo = input("Digite a opção (1/2): ").strip()
-                if tipo in ("1", "2"): break
+                if tipo in ("1", "2"):
+                    break
                 print("❌ Opção inválida. Use apenas 1 ou 2.")
 
             desc = input("Descrição da request (máx 60): ").strip()
@@ -238,15 +259,19 @@ def executar(
             time.sleep(0.4)
 
             if tipo == "2":
-                try: session.findById("wnd[1]/usr/radKO042-REQ_CONS_K").select()
-                except: pass
+                try:
+                    session.findById("wnd[1]/usr/radKO042-REQ_CONS_K").select()
+                except:
+                    pass
 
             session.findById("wnd[1]/tbar[0]/btn[0]").press()
             time.sleep(0.4)
 
-            try: session.findById("wnd[1]/usr/txtKO013-AS4TEXT").text = desc
-            except: pass
-            
+            try:
+                session.findById("wnd[1]/usr/txtKO013-AS4TEXT").text = desc
+            except:
+                pass
+
             session.findById("wnd[1]/tbar[0]/btn[0]").press()
             time.sleep(0.6)
 
@@ -255,9 +280,12 @@ def executar(
                 try:
                     txt = session.findById(sap_id).Text
                     match = re.search(r"\b[A-Z0-9]{3,4}K\d{6,}\b", txt)
-                    if match: trkorr = match.group(0)
-                except: pass
-                if trkorr: break
+                    if match:
+                        trkorr = match.group(0)
+                except:
+                    pass
+                if trkorr:
+                    break
 
             session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
             session.findById("wnd[0]").sendVKey(0)
@@ -276,17 +304,18 @@ def executar(
         print("   3 - Pesquisar suas request criadas.")
         print("   4 - Prima [Enter] vazio para NÃO transportar")
         print("============================================================")
-        
+
         while True:
             req_input = input("\n👉 Opção: ").strip()
             if req_input in ("1", "2", "3", "4", ""):
-                if req_input == "": req_input = "4"
+                if req_input == "":
+                    req_input = "4"
                 break
             print("❌ Opção inválida. Use 1, 2, 3, 4 ou apenas pressione Enter.")
-        
+
         if req_input == "1":
             request_transporte = input("🔢 Numero da Request (ex: S4QK900396): ").strip().upper()
-        
+
         elif req_input == "2":
             request_transporte = _criar_nova_request_no_sap_local()
 
@@ -295,8 +324,11 @@ def executar(
                 import pesquisar_request
                 print("\n🔍 A abrir nova sessão em segundo plano para pesquisar (SE16H)...")
                 resultados_pesquisa = pesquisar_request.listar_requests(
-                    system_name=sistema_desejado, include_requests=True, 
-                    use_new_mode=True, minimize=True, close_after=True       
+                    system_name=sistema_desejado,
+                    include_requests=True,
+                    use_new_mode=True,
+                    minimize=True,
+                    close_after=True
                 )
                 if resultados_pesquisa:
                     escolha = input("\n👉 Digite o número (N) da Request que deseja utilizar (ou Enter para cancelar): ").strip()
@@ -309,7 +341,7 @@ def executar(
                     print("⚠️ Não foram encontradas Requests abertas.")
             except Exception as e:
                 print(f"❌ Erro na pesquisa: {e}")
-        
+
         elif req_input == "4":
             print("⏭️  Nenhuma request selecionada (Transporte ignorado).")
             request_transporte = None
@@ -335,7 +367,7 @@ def executar(
 
     try:
         session.findById("wnd[0]").maximize()
-        if not esperar_sap_livre(session):
+        if not esperar_sap_livre(session, timeout=TIMEOUT_SAP_BUSY):
             raise RuntimeError("SAP bloqueado antes de iniciar.")
 
         log("➡️ A abrir /NPFCGMASSDELETE ...")
@@ -345,19 +377,19 @@ def executar(
         if existe(session, "wnd[0]/usr/radMOD_EXE"):
             session.findById("wnd[0]/usr/radMOD_EXE").select()
 
-        # Abrir lista múltipla e colar as funções (clipboard)
+        # Abrir lista múltipla e colar as funções
         log("🧾 A carregar lista de funções...")
         session.findById("wnd[0]/usr/btn%_ROLE_%_APP_%-VALU_PUSH").press()
         time.sleep(0.5)
-        session.findById("wnd[1]").sendVKey(24) # Shift+F12 (Colar)
+        session.findById("wnd[1]").sendVKey(24)  # Shift+F12 (Colar)
         time.sleep(0.3)
-        session.findById("wnd[1]/tbar[0]/btn[8]").press() # Executar Múltipla Seleção
+        session.findById("wnd[1]/tbar[0]/btn[8]").press()
         time.sleep(0.3)
 
         log("▶️ Executar eliminação...")
-        session.findById("wnd[0]/tbar[1]/btn[8]").press() # F8 Executar Deleção
-        
-        # Gestão de Popups (Transporte e Confirmações)
+        session.findById("wnd[0]/tbar[1]/btn[8]").press()
+
+        # Gestão de Popups
         timeout = time.time() + 15.0
         while time.time() < timeout:
             time.sleep(0.5)
@@ -387,23 +419,28 @@ def executar(
                         if v:
                             msg_alv = v
                             break
-                    except: pass
-        except: pass
+                    except:
+                        pass
+        except:
+            pass
 
         msg_barra = ""
-        try: msg_barra = session.findById("wnd[0]/sbar").Text.strip()
-        except: pass
+        try:
+            msg_barra = session.findById("wnd[0]/sbar").Text.strip()
+        except:
+            pass
 
         msg_final = msg_alv or msg_barra or "Execução concluída (Verificada no Log ALV)"
         msg_transporte = f" [Req: {request_transporte}]" if request_transporte else ""
-        
-        # Voltar ao ecrã base para fechar o processo SAP em segurança
+
+        # Voltar ao ecrã base
         try:
             if existe(session, "wnd[0]/tbar[0]/btn[3]"):
-                session.findById("wnd[0]/tbar[0]/btn[3]").press() # F3 Voltar
+                session.findById("wnd[0]/tbar[0]/btn[3]").press()
             session.findById("wnd[0]/tbar[0]/okcd").text = "/N"
             session.findById("wnd[0]").sendVKey(0)
-        except: pass
+        except:
+            pass
 
         if mensagem_sem_resultado(msg_final):
             status_geral = "ERRO"
@@ -421,26 +458,44 @@ def executar(
         try:
             session.findById("wnd[0]/tbar[0]/okcd").text = "/N"
             session.findById("wnd[0]").sendVKey(0)
-        except: pass
+        except:
+            pass
 
     ###################################################################################
-    # GRAVAÇÃO CÉLULA A CÉLULA VIA OPENPYXL (Para não quebrar formatações e tabelas)
+    # GRAVAÇÃO CÉLULA A CÉLULA VIA OPENPYXL (Com barra de progresso)
     ###################################################################################
     log("💾 A gravar resultados no Excel preservando formatações...")
     try:
         col_st = header_map.get(COL_STATUS)
         col_ms = header_map.get(COL_MSG)
         col_tm = header_map.get(COL_TIMESTAMP)
-        
+
         ts_final = agora_ts()
 
-        for rec in records:
-            linha_excel = rec["_row"]
-            
-            # Grava direto na célula do openpyxl (Mantém cores e estilos intactos)
-            if col_st: ws.cell(row=linha_excel, column=col_st).value = status_geral
-            if col_ms: ws.cell(row=linha_excel, column=col_ms).value = msg_final
-            if col_tm: ws.cell(row=linha_excel, column=col_tm).value = ts_final
+        with Progress(
+            TextColumn("[bold cyan]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("({task.completed}/{task.total})"),
+            TimeElapsedColumn(),
+            transient=False,
+        ) as progress:
+            task_excel = progress.add_task("A atualizar Excel...", total=len(records))
+
+            for rec in records:
+                linha_excel = rec["_row"]
+                nome_role = rec[COL_AGR_NAME]
+
+                progress.update(task_excel, description=f"A atualizar Excel: {nome_role}")
+
+                if col_st:
+                    ws.cell(row=linha_excel, column=col_st).value = status_geral
+                if col_ms:
+                    ws.cell(row=linha_excel, column=col_ms).value = msg_final
+                if col_tm:
+                    ws.cell(row=linha_excel, column=col_tm).value = ts_final
+
+                progress.advance(task_excel)
 
         wb.save(caminho_ficheiro)
         print(f"✅ Ficheiro atualizado com os resultados na aba '{NOME_SHEET}'.")
