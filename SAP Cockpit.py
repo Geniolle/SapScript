@@ -46,7 +46,7 @@ from app.ui import (
 
 
 ###################################################################################
-# Funções auxiliares (I/O e menus)
+# Funções auxiliares (I/O, .env e menus)
 ###################################################################################
 
 def limpar_buffer_teclado():
@@ -87,6 +87,119 @@ def ler_texto(prompt: str, oculto: bool = False) -> str:
 
         buf.append(ch)
         print("*" if oculto else ch, end="", flush=True)
+
+
+def _parse_env_line(linha: str):
+    """
+    Faz parse simples de uma linha KEY=VALUE.
+    Ignora linhas vazias e comentários.
+    Mantém o valor como texto literal, removendo apenas aspas externas simples/duplas.
+    """
+    if not linha:
+        return None, None
+
+    linha = linha.strip()
+    if not linha or linha.startswith("#"):
+        return None, None
+
+    if "=" not in linha:
+        return None, None
+
+    chave, valor = linha.split("=", 1)
+    chave = chave.strip()
+    valor = valor.strip()
+
+    if not chave:
+        return None, None
+
+    if len(valor) >= 2 and (
+        (valor.startswith('"') and valor.endswith('"')) or
+        (valor.startswith("'") and valor.endswith("'"))
+    ):
+        valor = valor[1:-1]
+
+    return chave, valor
+
+
+def _carregar_dotenv_manual():
+    """
+    Carrega manualmente variáveis de um ficheiro .env sem depender de python-dotenv.
+    Procura nesta ordem:
+      1) diretório atual
+      2) diretório do ficheiro atual
+      3) diretório pai do ficheiro atual
+    Não sobrescreve variáveis já existentes no ambiente do processo.
+    """
+    base_atual = os.getcwd()
+    base_script = os.path.dirname(os.path.abspath(__file__))
+    base_script_pai = os.path.dirname(base_script)
+
+    candidatos = [
+        os.path.join(base_atual, ".env"),
+        os.path.join(base_script, ".env"),
+        os.path.join(base_script_pai, ".env"),
+    ]
+
+    vistos = set()
+    for caminho in candidatos:
+        caminho_norm = os.path.abspath(caminho)
+        if caminho_norm in vistos:
+            continue
+        vistos.add(caminho_norm)
+
+        if not os.path.exists(caminho_norm):
+            continue
+
+        with open(caminho_norm, "r", encoding="utf-8-sig") as f:
+            for linha in f:
+                chave, valor = _parse_env_line(linha)
+                if not chave:
+                    continue
+
+                if chave not in os.environ:
+                    os.environ[chave] = valor
+        return caminho_norm
+
+    return None
+
+
+def _carregar_dotenv():
+    caminho = _carregar_dotenv_manual()
+    if caminho:
+        info(f"Ficheiro .env carregado: {caminho}")
+    else:
+        warn("Ficheiro .env não encontrado nos caminhos esperados.")
+
+
+def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tuple[str, str, str, str]:
+    """
+    Lê as credenciais do .env usando:
+      SAP_USER
+      SAP_LANGUAGE (opcional, default PT)
+      SAP_PASSWORD_{SISTEMA}CLNT{CLIENTE}
+
+    Exemplo:
+      SAP_PASSWORD_S4QCLNT100
+    """
+    _carregar_dotenv()
+
+    sistema = str(sistema_desejado or "").strip().upper()
+    cliente = str(cliente_esperado or "").strip()
+    usuario = os.getenv("SAP_USER", "").strip()
+    idioma = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
+
+    chave_password = f"SAP_PASSWORD_{sistema}CLNT{cliente}"
+    senha = os.getenv(chave_password, "").strip()
+
+    if not usuario:
+        raise RuntimeError("Variável SAP_USER não encontrada ou vazia no ficheiro .env.")
+
+    if not senha:
+        raise RuntimeError(
+            f"Variável '{chave_password}' não encontrada ou vazia no ficheiro .env."
+        )
+
+    return usuario, senha, idioma, chave_password
 
 
 def selecionar_ambiente():
@@ -706,8 +819,15 @@ session, connection = _encontrar_sessao_do_sistema(application, sistema_desejado
 
 if session is None:
     if not _tem_alguma_sessao_ativa(application):
-        usuario = input("Utilizador: ").strip()
-        senha = ler_texto("Senha: ", oculto=True).strip()
+        try:
+            usuario, senha, idioma, chave_password = _obter_credenciais_env(
+                sistema_desejado=sistema_desejado,
+                cliente_esperado=cliente_esperado
+            )
+            info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
+        except Exception as e:
+            erro(f"Falha ao carregar credenciais do .env: {e}")
+            sys.exit(1)
 
         try:
             info(f"Abrindo conexão: {nome_logon}...")
@@ -735,7 +855,7 @@ if session is None:
             session.findById("wnd[0]/usr/txtRSYST-MANDT").text = cliente_esperado
             session.findById("wnd[0]/usr/txtRSYST-BNAME").text = usuario
             session.findById("wnd[0]/usr/pwdRSYST-BCODE").text = senha
-            session.findById("wnd[0]/usr/txtRSYST-LANGU").text = "PT"
+            session.findById("wnd[0]/usr/txtRSYST-LANGU").text = idioma
             session.findById("wnd[0]").sendVKey(0)
 
         except Exception as e:

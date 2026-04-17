@@ -4,9 +4,14 @@
 # 1. Z062 é estritamente POSITIVO (+).
 # 2. Z063 é estritamente NEGATIVO (-).
 # 3. Inclui lógica "CHAVE REF 1" -> EBFNAM2/EBFVAL2.
+# 4. Não pede mais a request por input(); usa o processo padrão de request do cockpit.
 ###################################################################################
 
-def executar(ambiente_cockpit):
+def executar(
+    ambiente_cockpit,
+    request_ctx,                 # OBRIGATÓRIO: força o cockpit a chamar o processo da request
+    request_transporte=None
+):
     ###################################################################################
     # BLOCO 1: IMPORTAÇÕES / CONFIG GERAL
     ###################################################################################
@@ -18,13 +23,17 @@ def executar(ambiente_cockpit):
     import win32com.client
     import tkinter as tk
     from tkinter import filedialog
-    import sys  # Importado para sair de forma limpa em caso de erro de permissão
+    import sys
 
     warnings.simplefilter("ignore", UserWarning)
     warnings.simplefilter("ignore", FutureWarning)
 
     MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
     SISTEMA_DESEJADO = MAPA_SISTEMA.get(ambiente_cockpit)
+
+    if not SISTEMA_DESEJADO:
+        print(f"❌ Ambiente inválido: {ambiente_cockpit}")
+        return
 
     ###################################################################################
     # BLOCO 2: HELPERS / UTILITÁRIOS
@@ -50,16 +59,42 @@ def executar(ambiente_cockpit):
     def map_sign_free(val: str) -> str:
         """Normaliza sinais de livre-tecla para '+' ou '-'."""
         v = (val or "").strip().upper()
-        if v in {"+", "PLUS", "POS", "P"}: return "+"
-        if v in {"-", "MINUS", "NEG", "M"}: return "-"
+        if v in {"+", "PLUS", "POS", "P"}:
+            return "+"
+        if v in {"-", "MINUS", "NEG", "M"}:
+            return "-"
         return ""
+
+    def validar_request(valor: str) -> str:
+        v = (valor or "").strip().upper().replace(" ", "")
+        if not v:
+            return ""
+        if re.match(r"^[A-Z0-9]{3,4}K\d{6,}$", v):
+            return v
+        return ""
+
+    def resolver_request_recebida(request_transporte_param, request_ctx_param):
+        """
+        Prioridade:
+        1) request_transporte recebido diretamente
+        2) request_ctx['request_number']
+        """
+        numero = validar_request(request_transporte_param)
+
+        desc = ""
+        if isinstance(request_ctx_param, dict):
+            if not numero:
+                numero = validar_request(request_ctx_param.get("request_number", ""))
+            desc = str(request_ctx_param.get("request_desc", "") or "").strip()
+
+        return numero, desc
 
     # ----- Tabela fixa BASE -> sinal (apenas para EBVGINT) -----
     # ATENÇÃO: Z062 fixo em + e Z063 fixo em -
     _base_sign_pairs = [
         ("CP0100000000000", "-"),
         ("Z001", "+"),
-        ("Z002", "+"), ("Z002", "-"), # Z002 continua flexível
+        ("Z002", "+"), ("Z002", "-"),
         ("Z006", "+"),
         ("Z007", "-"),
         ("Z021", "-"),
@@ -74,12 +109,8 @@ def executar(ambiente_cockpit):
         ("Z057", "-"),
         ("Z060", "+"),
         ("Z061", "-"),
-        
-        # --- AJUSTE SOLICITADO ---
-        ("Z062", "+"), # Apenas Positivo
-        ("Z063", "-"), # Apenas Negativo
-        # -------------------------
-
+        ("Z062", "+"),
+        ("Z063", "-"),
         ("Z118", "+"),
         ("Z119", "-"),
         ("ZDD3", "+"),
@@ -107,19 +138,26 @@ def executar(ambiente_cockpit):
         inv = {}
         for orig, n in cols_norm.items():
             inv.setdefault(n, orig)
+
         resolvidas, faltantes = {}, []
         for canonico, sinonimos in COL_NECESSARIAS.items():
             s_norm = {norm(x) for x in sinonimos}
             match = next((inv[nc] for nc in s_norm if nc in inv), None)
-            if match: resolvidas[canonico] = match
-            else:     faltantes.append(canonico)
+            if match:
+                resolvidas[canonico] = match
+            else:
+                faltantes.append(canonico)
+
         return resolvidas, faltantes
 
     def selecionar_ficheiro_excel() -> str:
         print("📁 Selecione o ficheiro Excel (janela foi colocada em primeiro plano)...")
         root = tk.Tk()
         root.withdraw()
-        root.lift(); root.attributes("-topmost", True); root.focus_force(); root.update()
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        root.update()
         try:
             caminho = filedialog.askopenfilename(
                 parent=root,
@@ -127,8 +165,10 @@ def executar(ambiente_cockpit):
                 filetypes=[("Ficheiros Excel", "*.xlsx"), ("Todos os ficheiros", "*.*")],
             )
         finally:
-            try: root.attributes("-topmost", False)
-            except: pass
+            try:
+                root.attributes("-topmost", False)
+            except Exception:
+                pass
             root.destroy()
         return caminho
 
@@ -170,7 +210,7 @@ def executar(ambiente_cockpit):
                 ctrl = session.findById(ctrl_id)
                 setattr(ctrl, prop, val)
                 return True
-            except:
+            except Exception:
                 continue
         return False
 
@@ -183,7 +223,7 @@ def executar(ambiente_cockpit):
             try:
                 ctrl = session.findById(ctrl_id)
                 return getattr(ctrl, attr)
-            except:
+            except Exception:
                 continue
         return ""
 
@@ -200,7 +240,7 @@ def executar(ambiente_cockpit):
                 time.sleep(0.1)
                 ok = (ctrl.text or "").strip().upper() == str(key_expected).strip().upper()
             return ok
-        except:
+        except Exception:
             return set_cell_any(session, table_base_id, field_name, col_index, row_index, key_expected)
 
     def sbar_error(session) -> str:
@@ -208,9 +248,24 @@ def executar(ambiente_cockpit):
             bar = session.findById("wnd[0]/sbar")
             if getattr(bar, "MessageType", "") in ("E", "A"):
                 return bar.Text.strip()
-        except:
+        except Exception:
             pass
         return ""
+
+    ###################################################################################
+    # BLOCO 2.1: REQUEST RECEBIDA DO PROCESSO PADRÃO
+    ###################################################################################
+    request_number, request_desc = resolver_request_recebida(request_transporte, request_ctx)
+
+    if not request_number:
+        print("❌ Nenhuma request foi recebida do processo de transporte.")
+        print("👉 Execute este script pelo cockpit ou informe uma request válida.")
+        return
+
+    if request_desc:
+        print(f"✅ Request recebida do cockpit: {request_number} | {request_desc}")
+    else:
+        print(f"✅ Request recebida do cockpit: {request_number}")
 
     ###################################################################################
     # BLOCO 3: LEITURA / PREPARAÇÃO
@@ -225,22 +280,25 @@ def executar(ambiente_cockpit):
     cols_map, faltantes = resolver_colunas(df)
     if faltantes:
         print("❌ Colunas obrigatórias em falta após normalização:")
-        for c in faltantes: print(f"   - {c}")
+        for c in faltantes:
+            print(f"   - {c}")
         print("🔎 Cabeçalhos detetados:", ", ".join(df.columns))
         return
 
-    C_NOME   = cols_map["NOME CADEIA DE PESQUISA"]
-    C_EMP    = cols_map["EMPRESA"]
-    C_BANCO  = cols_map["BANCO"]
-    C_IDCT   = cols_map["ID CONTA"]
-    C_OPEXT  = cols_map["OPERAÇÃO EXTERNA"]
-    C_SINAL  = cols_map["SINAL (+/-)"]
-    C_NDEST  = cols_map["NOME DO CAMPO DESTINO"]
-    C_DEST   = cols_map["CAMPO DESTINO"]
-    C_BASE   = cols_map["BASE DE MAPEAMENTO"]
+    C_NOME = cols_map["NOME CADEIA DE PESQUISA"]
+    C_EMP = cols_map["EMPRESA"]
+    C_BANCO = cols_map["BANCO"]
+    C_IDCT = cols_map["ID CONTA"]
+    C_OPEXT = cols_map["OPERAÇÃO EXTERNA"]
+    C_SINAL = cols_map["SINAL (+/-)"]
+    C_NDEST = cols_map["NOME DO CAMPO DESTINO"]
+    C_DEST = cols_map["CAMPO DESTINO"]
+    C_BASE = cols_map["BASE DE MAPEAMENTO"]
 
-    if "STATUS" not in df.columns: df["STATUS"] = ""
-    if "MSG"  not in df.columns: df["MSG"] = ""
+    if "STATUS" not in df.columns:
+        df["STATUS"] = ""
+    if "MSG" not in df.columns:
+        df["MSG"] = ""
 
     df_filtrado = df[df["STATUS"].astype(str).map(norm) != "CONCLUIDO"].copy()
     if df_filtrado.empty:
@@ -262,23 +320,19 @@ def executar(ambiente_cockpit):
     # BLOCO 4: CONSTRUÇÃO DAS LINHAS (REGRAS)
     ###################################################################################
     col_nome_dest_norm = df_filtrado[C_NDEST].apply(norm)
-    
-    is_bp           = col_nome_dest_norm == "BP"
-    is_centro       = col_nome_dest_norm == "CENTRO"
-    is_centro_lucro = col_nome_dest_norm == "CENTRO DE LUCRO"
-    is_regra_cont   = col_nome_dest_norm.str.contains("REGRA DE CONTABILIZACAO")
-    
-    # [NOVA REGRA] Detetar "CHAVE REF 1"
-    is_xref1        = col_nome_dest_norm == "CHAVE REF 1"
 
-    df_bp           = df_filtrado[is_bp].copy()
-    df_centro       = df_filtrado[is_centro].copy()
+    is_bp = col_nome_dest_norm == "BP"
+    is_centro = col_nome_dest_norm == "CENTRO"
+    is_centro_lucro = col_nome_dest_norm == "CENTRO DE LUCRO"
+    is_regra_cont = col_nome_dest_norm.str.contains("REGRA DE CONTABILIZACAO")
+    is_xref1 = col_nome_dest_norm == "CHAVE REF 1"
+
+    df_bp = df_filtrado[is_bp].copy()
+    df_centro = df_filtrado[is_centro].copy()
     df_centro_lucro = df_filtrado[is_centro_lucro].copy()
-    df_regra_cont   = df_filtrado[is_regra_cont].copy()
-    df_xref1        = df_filtrado[is_xref1].copy()
-    
-    # [ATUALIZADO] Outros agora exclui também o xref1
-    df_outros       = df_filtrado[~(is_bp | is_centro | is_centro_lucro | is_regra_cont | is_xref1)].copy()
+    df_regra_cont = df_filtrado[is_regra_cont].copy()
+    df_xref1 = df_filtrado[is_xref1].copy()
+    df_outros = df_filtrado[~(is_bp | is_centro | is_centro_lucro | is_regra_cont | is_xref1)].copy()
 
     blocos = []
 
@@ -286,21 +340,20 @@ def executar(ambiente_cockpit):
     if not df_outros.empty:
         blocos.append(df_outros)
 
-    # 4.2 BP → pares +/- (NOVA REGRA: EBAVKOA com PREFIX = "D" se existir Regra de Contabilização com BASE ∈ {ZDD5,ZDD6} na mesma chave; senão "K")
+    # 4.2 BP → pares +/- (NOVA REGRA)
     if not df_bp.empty:
         dd_keys_with_D = set()
         if not df_regra_cont.empty:
             df_regra_cont_chk = df_regra_cont.copy()
 
-            # garantir coluna C_BASE
             if C_BASE not in df_regra_cont_chk.columns:
-                raise KeyError(f"Coluna '{C_BASE}' não encontrada em df_regra_cont (Regra de Contabilização). "
-                               f"Cabeçalhos: {list(df_regra_cont_chk.columns)}")
+                raise KeyError(
+                    f"Coluna '{C_BASE}' não encontrada em df_regra_cont (Regra de Contabilização). "
+                    f"Cabeçalhos: {list(df_regra_cont_chk.columns)}"
+                )
 
-            # normalização robusta
             df_regra_cont_chk[C_BASE] = series_to_upper_clean(df_regra_cont_chk[C_BASE])
 
-            # máscara ZDD5/ZDD6
             mask_dd = df_regra_cont_chk[C_BASE].isin({"ZDD5", "ZDD6"})
             if mask_dd.any():
                 for _, r in df_regra_cont_chk[mask_dd].iterrows():
@@ -325,8 +378,13 @@ def executar(ambiente_cockpit):
 
             prefix_for_k = "D" if grp_key in dd_keys_with_D else "K"
 
-            k = t.copy(); k[C_DEST] = "EBAVKOA"; k[C_BASE] = prefix_for_k
-            v = t.copy(); v[C_DEST] = "EBAVKON"; v[C_BASE] = base_original
+            k = t.copy()
+            k[C_DEST] = "EBAVKOA"
+            k[C_BASE] = prefix_for_k
+
+            v = t.copy()
+            v[C_DEST] = "EBAVKON"
+            v[C_BASE] = base_original
 
             blocos.append(pd.DataFrame(
                 [dict(k, **{C_SINAL: "+"}), dict(k, **{C_SINAL: "-"}),
@@ -339,27 +397,32 @@ def executar(ambiente_cockpit):
         for _, grupo in df_centro.groupby([C_NOME, C_EMP, C_BANCO, C_IDCT, C_OPEXT], dropna=False):
             t = grupo.iloc[0].copy()
             base_original = t[C_BASE]
-            fx = t.copy(); fx[C_DEST] = "EBFNAM1"; fx[C_BASE] = "COBL-WERKS"
-            vr = t.copy(); vr[C_DEST] = "EBFVAL1"; vr[C_BASE] = base_original
+
+            fx = t.copy()
+            fx[C_DEST] = "EBFNAM1"
+            fx[C_BASE] = "COBL-WERKS"
+
+            vr = t.copy()
+            vr[C_DEST] = "EBFVAL1"
+            vr[C_BASE] = base_original
+
             blocos.append(pd.DataFrame(
                 [dict(fx, **{C_SINAL: "+"}), dict(fx, **{C_SINAL: "-"}),
                  dict(vr, **{C_SINAL: "+"}), dict(vr, **{C_SINAL: "-"})],
                 index=[t.name] * 4
             ))
-    
-    # 4.3b CHAVE REF 1 -> EBFNAM2 (Fixo BSEG-XREF1) / EBFVAL2 (Valor do Excel)
+
+    # 4.3b CHAVE REF 1 -> EBFNAM2 / EBFVAL2
     if not df_xref1.empty:
         print(f"🔎 Processando 'Chave Ref 1' para EBFNAM2/EBFVAL2 ({len(df_xref1)} registos de origem)...")
         for _, grupo in df_xref1.groupby([C_NOME, C_EMP, C_BANCO, C_IDCT, C_OPEXT], dropna=False):
             t = grupo.iloc[0].copy()
-            base_original = t[C_BASE] # Valor dinâmico do Excel (ex: Z045)
+            base_original = t[C_BASE]
 
-            # 1. Definição do campo (fixo)
             fx = t.copy()
             fx[C_DEST] = "EBFNAM2"
             fx[C_BASE] = "BSEG-XREF1"
 
-            # 2. Valor do campo (do Excel)
             vr = t.copy()
             vr[C_DEST] = "EBFVAL2"
             vr[C_BASE] = base_original
@@ -390,15 +453,10 @@ def executar(ambiente_cockpit):
             b = safe_value(base_val).upper()
             allowed = BASE_TO_ALLOWED_SIGNS.get(b)
             if allowed:
-                # Se só existir UM sinal permitido, força esse sinal (ignora Excel)
                 if len(allowed) == 1:
                     return next(iter(allowed))
-                # Se existirem DOIS (o que não acontece mais para Z062/Z063), confia no Excel
                 sf = map_sign_free(sinal_ficheiro)
-                # Se Excel vazio, retorna "+"
                 return sf if (sf in allowed and sf) else "+"
-            
-            # Se não estiver no dicionário, confia no Excel ou "+"
             sf = map_sign_free(sinal_ficheiro)
             return sf if sf else "+"
 
@@ -413,7 +471,7 @@ def executar(ambiente_cockpit):
     df_final = pd.concat(blocos, ignore_index=False)
 
     ###################################################################################
-    # BLOCO 5: DEDUP + PRÉ-VISUALIZAÇÃO (logger alinhado + avisos únicos)
+    # BLOCO 5: DEDUP + PRÉ-VISUALIZAÇÃO
     ###################################################################################
     CHAVE = [C_EMP, C_BANCO, C_IDCT, C_OPEXT, C_SINAL, "PANAM_EFETIVO", C_DEST, C_BASE]
     df_final = df_final[(df_final[C_DEST].astype(str) != "") & (df_final[C_BASE].astype(str) != "")]
@@ -423,7 +481,6 @@ def executar(ambiente_cockpit):
     print(f"\n📊 Total de linhas no ficheiro original: {len(df)}")
     print(f"📋 Linhas a processar após regras (antes da gravação): {len(df_final)}")
 
-    # ordem e larguras fixas por coluna para uma saída estável
     cols_out = [
         (C_NOME, 26),
         ("PANAM_EFETIVO", 22),
@@ -434,12 +491,13 @@ def executar(ambiente_cockpit):
         (C_SINAL, 2),
         (C_NDEST, 25),
         (C_DEST, 9),
-        (C_BASE, 15), # Aumentado um pouco para caber BSEG-XREF1
+        (C_BASE, 15),
     ]
 
     def _fmt(val, width):
         v = safe_value(val)
-        if v == "": v = "-"
+        if v == "":
+            v = "-"
         v = str(v)
         if len(v) > width:
             return v[:width]
@@ -453,7 +511,6 @@ def executar(ambiente_cockpit):
             line = " ".join(_fmt(r[c], w) for c, w in cols_out)
             print(line)
 
-        # Aviso consolidado para EBAVKOA com PREFIX = D (sem duplicar por + / -)
         marcados = subset[
             (subset[C_DEST].astype(str).str.upper() == "EBAVKOA") &
             (subset[C_BASE].astype(str).str.upper() == "D")
@@ -469,7 +526,7 @@ def executar(ambiente_cockpit):
                 )
                 uniq.add(k)
 
-            print("")  # separador visual
+            print("")
             print("   ⚙️  Regra aplicada (EBAVKOA com PREFIX = 'D') para as chaves:")
             for emp, bco, idc, opx in sorted(uniq):
                 emp = emp if emp else "-"
@@ -481,11 +538,6 @@ def executar(ambiente_cockpit):
     resp = input("\n➡️  Confirmar lançamento no SAP com a TABELA FINAL acima? [S/N]: ").strip().upper()
     if resp != "S":
         print("❌ Lançamento cancelado pelo utilizador.")
-        return
-
-    request_number = input("📝 Introduza a ordem de transporte (TRKORR): ").strip().upper()
-    if not request_number:
-        print("❌ Número da Request não informado. Cancelando a execução.")
         return
 
     ###################################################################################
@@ -502,9 +554,11 @@ def executar(ambiente_cockpit):
                     break
             if session:
                 break
+
         if not session:
             print(f"❌ Nenhuma sessão encontrada para o ambiente '{ambiente_cockpit}'.")
             return
+
         print(f"\n✅ Conectado ao SAP: {session.Info.SystemName} (ambiente {ambiente_cockpit})")
         print(f"👤 Utilizador SAP: {session.Info.User} | Cliente: {session.Info.Client}")
     except Exception as e:
@@ -521,7 +575,6 @@ def executar(ambiente_cockpit):
         print(f"\n🔧 Atribuindo função '{funcao}' ({len(subset)} linha(s))")
 
         try:
-            # /NOTPM -> manutenção
             session.findById("wnd[0]/tbar[0]/okcd").text = "/nOTPM"
             session.findById("wnd[0]").sendVKey(0)
             session.findById("wnd[0]/shellcont/shell").selectItem("02", "Column1")
@@ -530,41 +583,38 @@ def executar(ambiente_cockpit):
             session.findById("wnd[0]/tbar[1]/btn[5]").press()
 
             for i, (_, row) in enumerate(subset.iterrows()):
-                set_cell_any(session, TBL, "V_T028P-BUKRS",  0, i, safe_value(row[C_EMP]))
-                set_cell_any(session, TBL, "V_T028P-HBKID",  1, i, safe_value(row[C_BANCO]))
-                set_cell_any(session, TBL, "V_T028P-HKTID",  2, i, safe_value(row[C_IDCT]))
-                set_cell_any(session, TBL, "V_T028P-VGEXT",  3, i, safe_value(row[C_OPEXT]))
-                set_cell_any(session, TBL, "V_T028P-VOZPM",  4, i, safe_value(row[C_SINAL]))
+                set_cell_any(session, TBL, "V_T028P-BUKRS", 0, i, safe_value(row[C_EMP]))
+                set_cell_any(session, TBL, "V_T028P-HBKID", 1, i, safe_value(row[C_BANCO]))
+                set_cell_any(session, TBL, "V_T028P-HKTID", 2, i, safe_value(row[C_IDCT]))
+                set_cell_any(session, TBL, "V_T028P-VGEXT", 3, i, safe_value(row[C_OPEXT]))
+                set_cell_any(session, TBL, "V_T028P-VOZPM", 4, i, safe_value(row[C_SINAL]))
 
-                # 1) CAMPO DE DESTINO PRIMEIRO (combo .key com verificação)
                 targfi = safe_value(row[C_DEST])
                 ok_combo = set_combo_key_then_check(session, TBL, "V_T028P-TARGFI", 7, i, targfi)
                 if not ok_combo:
                     lido = get_cell_text(session, TBL, "V_T028P-TARGFI", 7, i)
                     raise RuntimeError(f"Não foi possível definir TARGFI='{targfi}' (ficou '{lido}')")
-                # leitura redundante para garantir persistência
+
                 lido = get_cell_text(session, TBL, "V_T028P-TARGFI", 7, i)
                 if (lido or "").strip().upper() not in {targfi.strip().upper()}:
                     raise RuntimeError(f"TARGFI não persistiu: esperado '{targfi}', lido '{lido}'")
 
-                # Base de mapeamento (PREFIX)
                 set_cell_any(session, TBL, "V_T028P-PREFIX", 9, i, safe_value(row[C_BASE]))
 
-                # 2) Nome da cadeia (PANAM) por último, com validação da status bar
                 panam_val = safe_value(row["PANAM_EFETIVO"])
-                set_cell_any(session, TBL, "V_T028P-PANAM",  6, i, panam_val)
+                set_cell_any(session, TBL, "V_T028P-PANAM", 6, i, panam_val)
                 session.findById("wnd[0]").sendVKey(0)
+
                 err = sbar_error(session)
                 if err:
                     raise RuntimeError(f"PANAM inválido '{panam_val}' no lote '{funcao}': {err}")
 
-                # Ativo
                 try:
                     session.findById(f"{TBL}/chkV_T028P-ENABLED[8,{i}]").selected = True
-                except:
+                except Exception:
                     pass
 
-            # Grava + TRKORR
+            # Grava + TRKORR vindo do cockpit
             session.findById("wnd[0]/tbar[0]/btn[11]").press()
             session.findById("wnd[1]/usr/ctxtKO008-TRKORR").text = request_number
             session.findById("wnd[1]/tbar[0]/btn[0]").press()
@@ -588,3 +638,25 @@ def executar(ambiente_cockpit):
         print(f"\n💾 Ficheiro de controlo atualizado com sucesso: {caminho_ficheiro}")
     except Exception as e:
         print(f"❌ Erro ao guardar o ficheiro de controlo: {e}")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD"], required=True)
+    parser.add_argument("--request", help="Request opcional para execução direta fora do cockpit.")
+    args = parser.parse_args()
+
+    ctx = {
+        "request_option": "1" if args.request else "4",
+        "request_number": (args.request or "").strip().upper(),
+        "request_desc": "",
+        "search_text": "",
+    }
+
+    executar(
+        ambiente_cockpit=args.ambiente,
+        request_ctx=ctx,
+        request_transporte=args.request,
+    )

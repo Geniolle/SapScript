@@ -1,235 +1,809 @@
-import pandas as pd
-from pathlib import Path
-import win32com.client
-import time
-import unicodedata
-import re
-# Bibliotecas para o seletor de ficheiros
-import tkinter as tk
-from tkinter import filedialog
+# -*- coding: utf-8 -*-
 
 ###################################################################################
-# BLOCO 1: FUNÇÕES UTILITÁRIAS
+# Criar Cadeia de Pesquisa.py
+#
+# Objetivo:
+#  - Ler um Excel com cabeçalho do tipo:
+#       NOME CADEIA DE PESQUISA | ... | STATUS | MSG
+#  - Processar apenas linhas com STATUS vazio
+#  - Criar a cadeia no SAP
+#  - Capturar sempre a mensagem real do SAP em wnd[0]/sbar para preencher MSG
+#  - Gravar STATUS e MSG no próprio Excel
+#
+# Regras:
+#  - Não usa pandas
+#  - Procura o cabeçalho nas primeiras linhas
+#  - Procura em todas as folhas e para na primeira que tenha cabeçalho completo
+#    e linhas pendentes para processar
+#  - Aceita qualquer posição das colunas, desde que pelo nome
+#  - Atualiza todas as linhas com o mesmo "NOME CADEIA DE PESQUISA"
+#  - Integra pesquisa de request via pesquisar_request.py
 ###################################################################################
 
-def normalizar_texto(s: str) -> str:
-    """Remove acentos, espaços duplicados e coloca em MAIÚSCULAS."""
-    s = "" if s is None else str(s)
-    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
-    s = re.sub(r"\s+", " ", s.strip())
-    return s.upper()
 
-def encontrar_coluna_nome(df: pd.DataFrame) -> tuple[str, str] | tuple[None, None]:
-    """
-    Procura a coluna 'NOME CADEIA DE PESQUISA' no DF.
-    Devolve (nome_coluna_original, nome_coluna_normalizado) ou (None, None).
-    """
-    alvo_norm = "NOME CADEIA DE PESQUISA"
-    m = {col: normalizar_texto(col) for col in df.columns}
-    for original, norm in m.items():
-        if alvo_norm == norm:
-            return original, norm
-    # fallback tolerante: contém as palavras NOME+CADEIA+PESQUISA
-    for original, norm in m.items():
-        if all(p in norm for p in ["NOME", "CADEIA", "PESQUISA"]):
-            return original, norm
-    return None, None
+def executar(
+    ambiente_cockpit,
+    caminho_ficheiro=None,
+    request_transporte=None,   # compatibilidade com o cockpit
+    request_ctx=None,          # compatibilidade com o cockpit
+    modo_nao_interativo=False,
+    pedir_confirmacao=True
+):
+    import os
+    import re
+    import time
+    import unicodedata
+    import tkinter as tk
+    import importlib.util
 
-def carregar_df_cadeias(caminho: Path) -> tuple[pd.DataFrame, str, str]:
-    """
-    Lê o Excel e encontra a folha que contém 'NOME CADEIA DE PESQUISA'.
-    Tenta primeiro cabeçalho padrão; se falhar, usa a primeira linha como cabeçalho.
-    Devolve (df, sheet_name_usado, nome_coluna_original).
-    Lança ValueError se não encontrar.
-    """
-    xls = pd.ExcelFile(caminho)
-    erros = []
+    import win32com.client
+    from tkinter import filedialog
+    from openpyxl import load_workbook
+    from datetime import datetime
 
-    for folha in xls.sheet_names:
-        # 1) Tentativa normal (cabeçalho na 1ª linha)
+    ###################################################################################
+    # CONFIG
+    ###################################################################################
+    NOME_SHEET_PREFERENCIAL = None
+    SEARCH_HEADER_IN_FIRST_ROWS = 20
+
+    COLUNAS_OBRIGATORIAS = {
+        "NOME CADEIA DE PESQUISA",
+        "STATUS",
+        "MSG",
+    }
+
+    MAPA_SISTEMA = {
+        "DEV": "S4D",
+        "QAD": "S4Q",
+        "PRD": "S4P",
+    }
+
+    SISTEMA_ESPERADO = MAPA_SISTEMA.get(str(ambiente_cockpit).strip().upper(), None)
+    if not SISTEMA_ESPERADO:
+        raise ValueError(f"Ambiente inválido: '{ambiente_cockpit}'. Use DEV, QAD ou PRD.")
+
+    PESQUISAR_REQUEST_FILENAME = "pesquisar_request.py"
+    PESQUISAR_REQUEST_CAMINHOS_FIXOS = [
+        r"G:\O meu disco\python\SAP Script\pesquisar_request.py",
+        r"G:\O meu disco\python\SAP Script\Processos\pesquisar_request.py",
+    ]
+
+    ###################################################################################
+    # HELPERS GERAIS
+    ###################################################################################
+    def now_ts():
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def norm_txt(s):
+        if s is None:
+            s = ""
+        s = str(s)
+        s = unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("utf-8")
+        s = re.sub(r"\s+", " ", s.strip())
+        return s.upper()
+
+    def escolher_ficheiro():
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            title="Selecione o ficheiro Excel de Cadeias de Pesquisa",
+            filetypes=(("Ficheiros Excel", "*.xlsx"), ("Todos os ficheiros", "*.*"))
+        )
+        root.destroy()
+        return path
+
+    def obter_valor_celula(ws, row, col):
+        v = ws.cell(row=row, column=col).value
+        return "" if v is None else str(v).strip()
+
+    def encontrar_header_map(ws):
+        melhor_linha = 0
+        max_matches = 0
+
+        for r in range(1, min(ws.max_row, SEARCH_HEADER_IN_FIRST_ROWS) + 1):
+            linha = [norm_txt(c.value) for c in ws[r]]
+            encontrados = set(linha).intersection(COLUNAS_OBRIGATORIAS)
+            qtd = len(encontrados)
+
+            if qtd > max_matches:
+                max_matches = qtd
+                melhor_linha = r
+
+            if qtd == len(COLUNAS_OBRIGATORIAS):
+                header_map = {}
+                for idx, nome in enumerate(linha, start=1):
+                    if nome:
+                        header_map[nome] = idx
+                return r, header_map, melhor_linha, max_matches
+
+        return None, {}, melhor_linha, max_matches
+
+    def contar_linhas_pendentes(ws, header_row, header_map):
+        col_nome = header_map.get("NOME CADEIA DE PESQUISA")
+        col_status = header_map.get("STATUS")
+
+        if not col_nome or not col_status:
+            return 0
+
+        total = 0
+        for r in range(header_row + 1, ws.max_row + 1):
+            nome_cadeia = obter_valor_celula(ws, r, col_nome)
+            status = obter_valor_celula(ws, r, col_status)
+
+            if not nome_cadeia:
+                continue
+
+            if not status.strip():
+                total += 1
+
+        return total
+
+    def contar_linhas_com_nome(ws, header_row, header_map):
+        col_nome = header_map.get("NOME CADEIA DE PESQUISA")
+        if not col_nome:
+            return 0
+
+        total = 0
+        for r in range(header_row + 1, ws.max_row + 1):
+            nome_cadeia = obter_valor_celula(ws, r, col_nome)
+            if nome_cadeia:
+                total += 1
+
+        return total
+
+    def encontrar_folha_correta(workbook):
+        """
+        Regras:
+          1) Percorre todas as folhas
+          2) Se encontrar uma folha com cabeçalho completo e linhas pendentes, usa essa e para
+          3) Se nenhuma tiver pendentes, usa a primeira que tiver cabeçalho completo
+        """
+        folhas_a_testar = []
+        if NOME_SHEET_PREFERENCIAL and NOME_SHEET_PREFERENCIAL in workbook.sheetnames:
+            folhas_a_testar.append(NOME_SHEET_PREFERENCIAL)
+
+        for nome in workbook.sheetnames:
+            if nome not in folhas_a_testar:
+                folhas_a_testar.append(nome)
+
+        melhor_global = ("", 0, 0)
+        primeira_folha_com_header = None
+
+        for nome_folha in folhas_a_testar:
+            ws = workbook[nome_folha]
+            header_row, header_map, melhor_linha, max_matches = encontrar_header_map(ws)
+
+            if max_matches > melhor_global[2]:
+                melhor_global = (nome_folha, melhor_linha, max_matches)
+
+            if not header_row:
+                continue
+
+            total_com_nome = contar_linhas_com_nome(ws, header_row, header_map)
+            total_pendentes = contar_linhas_pendentes(ws, header_row, header_map)
+
+            if primeira_folha_com_header is None:
+                primeira_folha_com_header = (
+                    ws,
+                    nome_folha,
+                    header_row,
+                    header_map,
+                    melhor_global,
+                    total_pendentes,
+                    total_com_nome,
+                )
+
+            if total_pendentes > 0:
+                return (
+                    ws,
+                    nome_folha,
+                    header_row,
+                    header_map,
+                    melhor_global,
+                    total_pendentes,
+                    total_com_nome,
+                )
+
+        if primeira_folha_com_header:
+            return primeira_folha_com_header
+
+        return None, None, None, None, melhor_global, 0, 0
+
+    def obter_sessao_sap():
         try:
-            df = pd.read_excel(caminho, sheet_name=folha, engine="openpyxl", dtype=str).fillna("")
-            # normaliza visualmente os cabeçalhos (sem alterar df.columns ainda)
-            df.columns = [re.sub(r"\s+", " ", str(c).strip()) for c in df.columns]
-            nome_col_or, _ = encontrar_coluna_nome(df)
-            if nome_col_or:
-                return df, folha, nome_col_or
-        except Exception as e:
-            erros.append((folha, f"header padrão: {e}"))
+            sap_gui_auto = win32com.client.GetObject("SAPGUI")
+            application = sap_gui_auto.GetScriptingEngine
 
-        # 2) Tentativa alternativa (primeira linha como cabeçalho)
+            for conn in application.Children:
+                for sess in conn.Children:
+                    if str(sess.Info.SystemName).strip().upper() == SISTEMA_ESPERADO:
+                        return sess
+            return None
+        except Exception:
+            return None
+
+    def validar_request(valor):
+        v = (valor or "").strip().upper().replace(" ", "")
+        if not v:
+            return ""
+        if re.match(r"^[A-Z0-9]{3,4}K\d{6,}$", v):
+            return v
+        return ""
+
+    def localizar_pesquisar_request():
+        base_script = os.path.dirname(os.path.abspath(__file__))
+        base_pai = os.path.dirname(base_script)
+        base_avo = os.path.dirname(base_pai)
+
+        candidatos = [
+            os.environ.get("SAP_PESQUISAR_REQUEST_PATH", "").strip(),
+            os.path.join(base_script, PESQUISAR_REQUEST_FILENAME),
+            os.path.join(base_pai, PESQUISAR_REQUEST_FILENAME),
+            os.path.join(base_avo, PESQUISAR_REQUEST_FILENAME),
+            os.path.join(os.getcwd(), PESQUISAR_REQUEST_FILENAME),
+            os.path.join(os.getcwd(), "SAP Script", PESQUISAR_REQUEST_FILENAME),
+            os.path.join(os.getcwd(), "Processos", PESQUISAR_REQUEST_FILENAME),
+        ] + PESQUISAR_REQUEST_CAMINHOS_FIXOS
+
+        vistos = set()
+        for caminho in candidatos:
+            if not caminho:
+                continue
+
+            caminho_abs = os.path.abspath(caminho)
+            if caminho_abs in vistos:
+                continue
+            vistos.add(caminho_abs)
+
+            if os.path.exists(caminho_abs) and os.path.isfile(caminho_abs):
+                return caminho_abs
+
+        return None
+
+    def carregar_pesquisar_request():
+        caminho = localizar_pesquisar_request()
+        if not caminho:
+            raise FileNotFoundError(
+                "Não encontrei o ficheiro pesquisar_request.py. "
+                "Defina SAP_PESQUISAR_REQUEST_PATH ou coloque o ficheiro numa pasta conhecida."
+            )
+
+        spec = importlib.util.spec_from_file_location("pesquisar_request", caminho)
+        if not spec or not spec.loader:
+            raise RuntimeError(f"Falha ao carregar o módulo em: {caminho}")
+
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod, caminho
+
+    def escolher_request_por_linha(lista_resultados):
+        if not lista_resultados:
+            return ("", "")
+
+        while True:
+            raw = input(f"\nDigite o número da linha da request (1-{len(lista_resultados)}): ").strip()
+            if not raw.isdigit():
+                print("❌ Digite apenas números.")
+                continue
+
+            idx = int(raw)
+            if idx < 1 or idx > len(lista_resultados):
+                print("❌ Número fora do intervalo.")
+                continue
+
+            trkorr, as4text = lista_resultados[idx - 1]
+            trkorr = validar_request(trkorr)
+            as4text = "" if as4text is None else str(as4text).strip()
+            return (trkorr, as4text)
+
+    def listar_requests_via_modulo():
+        mod, caminho_modulo = carregar_pesquisar_request()
+
+        if not hasattr(mod, "listar_requests"):
+            raise AttributeError(f"O módulo '{caminho_modulo}' não contém a função listar_requests().")
+
         try:
-            bruto = pd.read_excel(caminho, sheet_name=folha, engine="openpyxl", header=None, dtype=str).fillna("")
-            if bruto.shape[0] >= 2:
-                cabecalhos = [re.sub(r"\s+", " ", str(v).strip()) for v in bruto.iloc[0].tolist()]
-                df2 = bruto.iloc[1:].copy()
-                df2.columns = cabecalhos
-                df2 = df2.reset_index(drop=True).astype(str).fillna("")
-                nome_col_or, _ = encontrar_coluna_nome(df2)
-                if nome_col_or:
-                    return df2, folha, nome_col_or
-        except Exception as e:
-            erros.append((folha, f"linha como header: {e}"))
+            lista = mod.listar_requests(
+                system_name=SISTEMA_ESPERADO,
+                max_rows="5000",
+                include_requests=False,
+                use_new_mode=True,
+                minimize=True,
+                close_after=True
+            )
+        except TypeError:
+            lista = mod.listar_requests(
+                system_name=SISTEMA_ESPERADO,
+                max_rows="5000"
+            )
 
-    detalhes = "; ".join([f"[{f}: {msg}]" for f, msg in erros]) or "Sem detalhes."
-    raise ValueError(f"Não foi possível encontrar a coluna 'NOME CADEIA DE PESQUISA' em nenhuma folha. {detalhes}")
+        if not lista:
+            return [], caminho_modulo
 
-def obter_sessao_sap(ambiente: str):
-    """Obtém uma sessão SAP ativa no ambiente desejado (S4D/S4Q/S4P)."""
-    mapa = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
-    sistema = mapa.get(ambiente)
-    if not sistema:
-        print(f"❌ Ambiente '{ambiente}' não reconhecido. Use DEV, QAD ou PRD.")
+        return lista, caminho_modulo
+
+    def perguntar_request_transporte():
+        if modo_nao_interativo:
+            return "", ""
+
+        print("\n======================================================================")
+        print("OPÇÕES DE TRANSPORTE")
+        print("1 - Escrever o número da Request")
+        print("2 - Pesquisar suas requests criadas")
+        print("3 - Prima [Enter] vazio para NÃO selecionar agora")
+        print("======================================================================")
+
+        while True:
+            opc = input("\nOpção: ").strip()
+
+            if opc in ("1", "2", "3", ""):
+                if opc == "" or opc == "3":
+                    return "", ""
+
+                if opc == "1":
+                    while True:
+                        num_raw = input("Número da Request (ex: S4QK900396): ").strip()
+                        num = validar_request(num_raw)
+                        if num:
+                            return num, ""
+                        print("❌ Request inválida. Exemplo válido: S4QK900396")
+
+                if opc == "2":
+                    try:
+                        lista, caminho_modulo = listar_requests_via_modulo()
+                        print(f"✅ Módulo de pesquisa carregado: {caminho_modulo}")
+                    except Exception as e:
+                        print(f"❌ Falha ao pesquisar requests: {e}")
+                        continue
+
+                    if not lista:
+                        print("⚠️ Nenhuma request encontrada.")
+                        continue
+
+                    trkorr, as4text = escolher_request_por_linha(lista)
+                    if trkorr:
+                        print(f"✅ Request selecionada: {trkorr} | {as4text}")
+                        return trkorr, as4text
+
+                    continue
+
+            print("❌ Opção inválida. Use 1, 2, 3 ou apenas pressione Enter.")
+
+    ###################################################################################
+    # HELPERS SAP
+    ###################################################################################
+    def _safe_find(sess, sap_id):
+        try:
+            return sess.findById(sap_id)
+        except Exception:
+            return None
+
+    def _sap_busy(sess):
+        try:
+            return bool(getattr(sess, "Busy", False))
+        except Exception:
+            return False
+
+    def _esperar_sap_livre(sess, timeout=8.0, pausa=0.05):
+        limite = time.time() + timeout
+        while time.time() < limite:
+            if not _sap_busy(sess):
+                return True
+            time.sleep(pausa)
+        return False
+
+    def _esperar_objeto(sess, sap_id, timeout=4.0, pausa=0.05):
+        limite = time.time() + timeout
+        while time.time() < limite:
+            obj = _safe_find(sess, sap_id)
+            if obj:
+                return obj
+            time.sleep(pausa)
         return None
 
-    try:
-        SapGuiAuto = win32com.client.GetObject("SAPGUI")
-        application = SapGuiAuto.GetScriptingEngine
-        for conn in application.Children:
-            for sess in conn.Children:
-                if str(sess.Info.SystemName).upper() == sistema:
-                    return sess
-        print(f"❌ Nenhuma sessão SAP encontrada para '{ambiente}' (Sistema: {sistema}).")
-        print("   Abra o SAP Logon e inicie sessão no sistema correto.")
-        return None
-    except Exception as e:
-        print("❌ SAP GUI não disponível ou ocorreu um erro inesperado na ligação.")
-        print(f"   Detalhes: {e}")
-        return None
+    def _send_vkey(sess, vkey, wait_after=True):
+        sess.findById("wnd[0]").sendVKey(vkey)
+        if wait_after:
+            _esperar_sap_livre(sess)
 
-###################################################################################
-# BLOCO 2: EXECUÇÃO PRINCIPAL CHAMADA PELO COCKPIT
-###################################################################################
+    def get_statusbar(sess):
+        try:
+            sbar = sess.findById("wnd[0]/sbar")
+            tipo = str(getattr(sbar, "MessageType", "") or "").strip().upper()
+            texto = str(getattr(sbar, "Text", "") or "").strip()
+            return tipo, texto
+        except Exception:
+            return "", ""
 
-def executar(ambiente):
-    print(f"\n🚀 Iniciando criação de cadeias de pesquisa com STATUS VAZIO ({ambiente})")
-
-    # --- SELEÇÃO DE FICHEIRO FLEXÍVEL ---
-    print("Por favor, selecione o ficheiro Excel de Cadeias de Pesquisa na janela que abriu...")
-    root = tk.Tk(); root.withdraw()
-    caminho_str = filedialog.askopenfilename(
-        title="Selecione o ficheiro de Cadeias de Pesquisa",
-        filetypes=[("Ficheiros Excel", "*.xlsx"), ("Todos os ficheiros", "*.*")]
-    )
-    if not caminho_str:
-        print("❌ Nenhum ficheiro selecionado. A execução foi cancelada.")
-        return
-    CAMINHO_EXCEL = Path(caminho_str)
-    print(f"✅ Ficheiro a processar: {CAMINHO_EXCEL}")
-
-    if not CAMINHO_EXCEL.exists():
-        print(f"❌ Ficheiro não encontrado: {CAMINHO_EXCEL}")
-        return
-
-    # --- LEITURA ROBUSTA DO EXCEL ---
-    print("\nLendo cabeçalhos do ficheiro e a detetar a folha correta...")
-    try:
-        df, folha_usada, nome_coluna = carregar_df_cadeias(CAMINHO_EXCEL)
-    except Exception as e:
-        print(f"❌ {e}")
-        return
-
-    print(f"✅ Folha selecionada: {folha_usada}")
-    print("Cabeçalhos normalizados com sucesso.")
-    # Sanitiza a coluna de nome
-    df[nome_coluna] = df[nome_coluna].astype(str).str.strip()
-
-    # Garante STATUS e MSG
-    if "STATUS" not in df.columns: df["STATUS"] = ""
-    if "MSG" not in df.columns: df["MSG"] = ""
-
-    # Seleciona apenas linhas com STATUS vazio
-    cadeias_a_processar = (
-        df.loc[df["STATUS"].astype(str).str.strip() == "", nome_coluna]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .replace({"nan": ""})
-    )
-    cadeias_a_processar = sorted([c for c in cadeias_a_processar.unique().tolist() if c])
-
-    if not cadeias_a_processar:
-        print("✅ Nenhuma cadeia com STATUS VAZIO para processar.")
-        return
-
-    print(f"\nCadeias a serem criadas ({len(cadeias_a_processar)}): {', '.join(cadeias_a_processar)}")
-    ordem = input("📦 Introduz a ordem de transporte (ex: S4DK951842): ").strip()
-    if not ordem:
-        print("❌ Ordem de transporte não inserida. A execução foi cancelada.")
-        return
-
-    # --- SESSÃO SAP ---
-    print("\n🔎 A procurar uma sessão SAP ativa...")
-    session = obter_sessao_sap(ambiente)
-    if not session:
-        return
-    print(f"✅ Conectado ao SAP: {session.Info.SystemName} (ambiente {ambiente})")
-    print(f"👤 Utilizador SAP: {session.Info.User} | Cliente: {session.Info.Client}")
-
-    # --- EXECUÇÃO ---
-    for nome_cadeia in cadeias_a_processar:
-        # regra técnica: nome da cadeia tem no máximo 20 caracteres no SAP
-        nome_cadeia_limite = str(nome_cadeia)[:20]
-        sucesso = criar_cadeia_sap(session, nome_cadeia_limite, ordem)
-
-        status_val = "CRIADO" if sucesso else "ERRO"
-        msg_val = "Criado com sucesso" if sucesso else "Erro ao criar no SAP"
-
-        df.loc[df[nome_coluna] == nome_cadeia, "STATUS"] = status_val
-        df.loc[df[nome_coluna] == nome_cadeia, "MSG"] = msg_val
-
-    # --- GRAVAÇÃO (apenas na folha usada) ---
-    try:
-        with pd.ExcelWriter(CAMINHO_EXCEL, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-            df.to_excel(writer, index=False, sheet_name=folha_usada)
-        print(f"\n💾 Folha '{folha_usada}' atualizada em: {CAMINHO_EXCEL.name}")
-    except Exception as e:
-        print(f"❌ Erro ao guardar o ficheiro: {e}")
-
-###################################################################################
-# BLOCO 3: MAPEAMENTO SAP GUI (com limpeza de 20 campos fixos)
-###################################################################################
-
-def criar_cadeia_sap(session, nome_cadeia, ordem_transporte):
-    try:
-        session.findById("wnd[0]/tbar[0]/okcd").text = "/NOTPM"
-        session.findById("wnd[0]").sendVKey(0)
-
-        session.findById("wnd[0]/tbar[1]/btn[25]").press()  # Criar
-        session.findById("wnd[0]/tbar[1]/btn[5]").press()   # Modo edição
-
-        session.findById("wnd[0]/usr/txtV_TPAMA-PANAM").text = nome_cadeia
-        session.findById("wnd[0]/usr/txtV_TPAMA-NOTE").text = nome_cadeia
-        session.findById("wnd[0]/usr/txtV_TPAMA-REGEX").text = nome_cadeia
-        session.findById("wnd[0]/usr/txtV_TPAMA-REGEX").setFocus()
-        session.findById("wnd[0]/usr/txtV_TPAMA-REGEX").caretPosition = len(nome_cadeia)
-
-        session.findById("wnd[0]").sendVKey(0)
-
-        # Limpeza das 20 linhas de mapeamento
-        for i in range(20):
-            campo = f"wnd[0]/usr/subSUB_PAMA:SAPLPAMI:0210/tblSAPLPAMITC_MAP/txtT_MAP-MXCHAR[3,{i}]"
+    def fechar_popup_se_existir(sess):
+        caminhos = [
+            "wnd[1]/tbar[0]/btn[0]",
+            "wnd[1]/tbar[0]/btn[11]",
+            "wnd[1]/tbar[0]/btn[12]",
+        ]
+        for p in caminhos:
             try:
-                session.findById(campo).text = ""
-            except:
+                obj = sess.findById(p)
+                obj.press()
+                _esperar_sap_livre(sess)
+                return True
+            except Exception:
                 pass
 
-        session.findById("wnd[0]").sendVKey(0)
-        session.findById("wnd[0]/tbar[0]/btn[11]").press()                     # Guardar
-        session.findById("wnd[1]/usr/ctxtKO008-TRKORR").text = ordem_transporte
-        session.findById("wnd[1]/tbar[0]/btn[0]").press()                      # Confirmar transporte
+        try:
+            sess.findById("wnd[1]").sendVKey(0)
+            _esperar_sap_livre(sess)
+            return True
+        except Exception:
+            return False
 
-        session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
-        session.findById("wnd[0]").sendVKey(0)
+    def limpar_para_home(sess):
+        try:
+            sess.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+            _send_vkey(sess, 0)
+        except Exception:
+            pass
 
-        print(f"✅ Criada cadeia: {nome_cadeia}")
-        return True
+    def try_press(sess, caminhos):
+        for p in caminhos:
+            try:
+                obj = sess.findById(p)
+                obj.press()
+                _esperar_sap_livre(sess)
+                return True
+            except Exception:
+                continue
+        return False
+
+    def preencher_request_no_popup(sess, request_numero):
+        request_numero = validar_request(request_numero)
+        if not request_numero:
+            return False
+
+        caminhos_campo = [
+            "wnd[1]/usr/ctxtKO008-TRKORR",
+            "wnd[1]/usr/ctxtTRWBO_REQUEST-TRKORR",
+            "wnd[1]/usr/ctxtE070-TRKORR",
+        ]
+
+        for caminho in caminhos_campo:
+            try:
+                campo = sess.findById(caminho)
+                campo.text = request_numero
+                try:
+                    campo.setFocus()
+                except Exception:
+                    pass
+                try:
+                    campo.caretPosition = len(request_numero)
+                except Exception:
+                    pass
+                return True
+            except Exception:
+                continue
+
+        return False
+
+    ###################################################################################
+    # RESOLUÇÃO DA REQUEST INICIAL
+    ###################################################################################
+    request_transporte_resolvida = validar_request(request_transporte)
+    request_desc_resolvida = ""
+
+    if isinstance(request_ctx, dict):
+        if not request_transporte_resolvida:
+            request_transporte_resolvida = validar_request(request_ctx.get("request_number", ""))
+        request_desc_resolvida = str(request_ctx.get("request_desc", "") or "").strip()
+
+    ###################################################################################
+    # LÓGICA SAP - CRIAR CADEIA
+    ###################################################################################
+    def criar_cadeia_sap(sess, nome_cadeia):
+        nonlocal request_transporte_resolvida, request_desc_resolvida
+
+        nome_cadeia = (nome_cadeia or "").strip()
+        nome_cadeia_limite = nome_cadeia[:20]
+
+        try:
+            print(f"  ├─ A abrir transação OTPM...")
+            sess.findById("wnd[0]/tbar[0]/okcd").text = "/NOTPM"
+            _send_vkey(sess, 0)
+
+            mt, sb = get_statusbar(sess)
+            if mt in ("E", "A") and sb:
+                return {"ok": False, "status": "ERRO", "msg": sb}
+
+            print(f"  ├─ A clicar em Criar...")
+            if not try_press(sess, [
+                "wnd[0]/tbar[1]/btn[25]",
+                "wnd[0]/tbar[1]/btn[5]",
+            ]):
+                raise Exception("Não consegui clicar no botão Criar.")
+
+            mt, sb = get_statusbar(sess)
+            if mt in ("E", "A") and sb:
+                return {"ok": False, "status": "ERRO", "msg": sb}
+
+            print(f"  ├─ A ativar modo de edição...")
+            try_press(sess, [
+                "wnd[0]/tbar[1]/btn[5]",
+            ])
+
+            campo_nome = _esperar_objeto(sess, "wnd[0]/usr/txtV_TPAMA-PANAM", timeout=3.0)
+            campo_desc = _esperar_objeto(sess, "wnd[0]/usr/txtV_TPAMA-NOTE", timeout=3.0)
+            campo_regex = _esperar_objeto(sess, "wnd[0]/usr/txtV_TPAMA-REGEX", timeout=3.0)
+
+            if not campo_nome or not campo_desc or not campo_regex:
+                raise Exception("Não consegui localizar os campos principais da cadeia no SAP.")
+
+            print(f"  ├─ A preencher dados principais...")
+            campo_nome.text = nome_cadeia_limite
+            campo_desc.text = nome_cadeia_limite
+            campo_regex.text = nome_cadeia_limite
+            campo_regex.setFocus()
+            try:
+                campo_regex.caretPosition = len(nome_cadeia_limite)
+            except Exception:
+                pass
+
+            _send_vkey(sess, 0)
+
+            mt, sb = get_statusbar(sess)
+            if mt in ("E", "A") and sb:
+                return {"ok": False, "status": "ERRO", "msg": sb}
+
+            print(f"  ├─ A limpar até 20 linhas da tabela de mapeamento...")
+            for i in range(20):
+                campo = f"wnd[0]/usr/subSUB_PAMA:SAPLPAMI:0210/tblSAPLPAMITC_MAP/txtT_MAP-MXCHAR[3,{i}]"
+                try:
+                    obj = sess.findById(campo)
+                    obj.text = ""
+                except Exception:
+                    pass
+
+            _send_vkey(sess, 0)
+
+            mt, sb = get_statusbar(sess)
+            if mt in ("E", "A") and sb:
+                return {"ok": False, "status": "ERRO", "msg": sb}
+
+            print(f"  ├─ A guardar...")
+            if not try_press(sess, [
+                "wnd[0]/tbar[0]/btn[11]",
+            ]):
+                raise Exception("Não consegui clicar em Guardar.")
+
+            popup_req = _safe_find(sess, "wnd[1]")
+            if popup_req:
+                print(f"  ├─ Popup SAP detetado após guardar...")
+
+                if not request_transporte_resolvida and not modo_nao_interativo:
+                    print(f"  ├─ Nenhuma request pré-selecionada. A pedir seleção agora...")
+                    request_transporte_resolvida, request_desc_resolvida = perguntar_request_transporte()
+
+                if request_transporte_resolvida:
+                    print(f"  ├─ A preencher request: {request_transporte_resolvida}")
+                    preenchido = preencher_request_no_popup(sess, request_transporte_resolvida)
+                    if not preenchido:
+                        print("  ├─ Não encontrei o campo da request no popup. Vou tentar confirmar assim mesmo...")
+
+                if not try_press(sess, [
+                    "wnd[1]/tbar[0]/btn[0]",
+                    "wnd[1]/tbar[0]/btn[11]",
+                ]):
+                    fechar_popup_se_existir(sess)
+
+            mt, sb = get_statusbar(sess)
+
+            if mt in ("E", "A"):
+                msg = sb or f"Erro ao criar cadeia '{nome_cadeia_limite}'."
+                limpar_para_home(sess)
+                return {"ok": False, "status": "ERRO", "msg": msg}
+
+            msg = sb or f"Cadeia '{nome_cadeia_limite}' criada com sucesso."
+            limpar_para_home(sess)
+            return {"ok": True, "status": "CRIADO", "msg": msg}
+
+        except Exception as e:
+            mt, sb = get_statusbar(sess)
+            msg = sb if sb else str(e)
+
+            try:
+                fechar_popup_se_existir(sess)
+            except Exception:
+                pass
+
+            limpar_para_home(sess)
+            return {"ok": False, "status": "ERRO", "msg": msg}
+
+    ###################################################################################
+    # BLOCO 1: ABRIR EXCEL
+    ###################################################################################
+    if not caminho_ficheiro:
+        if modo_nao_interativo:
+            raise ValueError("Faltou o parâmetro --xlsx em modo não-interativo.")
+        print("📂 Selecione o ficheiro Excel…")
+        caminho_ficheiro = escolher_ficheiro()
+        if not caminho_ficheiro:
+            print("❌ Operação cancelada.")
+            return
+
+    if not os.path.exists(caminho_ficheiro):
+        print(f"❌ Ficheiro não encontrado: {caminho_ficheiro}")
+        return
+
+    try:
+        wb = load_workbook(caminho_ficheiro)
+    except Exception as e:
+        print(f"❌ Não consegui abrir o Excel: {e}")
+        return
+
+    ws, nome_folha, header_row, header_map, melhor_global, total_pendentes, total_com_nome = encontrar_folha_correta(wb)
+
+    if not ws or not header_row:
+        wb.close()
+        nome_melhor, melhor_linha, max_matches = melhor_global
+        print("\n❌ Não encontrei a linha de cabeçalho completa.")
+        if nome_melhor:
+            print(f"   Melhor folha candidata: {nome_melhor}")
+        print(f"   Melhor linha candidata: {melhor_linha} | Matches: {max_matches}/{len(COLUNAS_OBRIGATORIAS)}")
+        return
+
+    print(f"✅ Folha selecionada: {nome_folha}")
+    print(f"✅ Cabeçalho localizado na linha: {header_row}")
+    print(f"✅ Linhas com nome: {total_com_nome}")
+    print(f"✅ Linhas pendentes: {total_pendentes}")
+
+    col_nome = header_map.get("NOME CADEIA DE PESQUISA")
+    col_status = header_map.get("STATUS")
+    col_msg = header_map.get("MSG")
+
+    if not col_nome or not col_status or not col_msg:
+        wb.close()
+        print("❌ Não consegui mapear as colunas obrigatórias.")
+        return
+
+    ###################################################################################
+    # BLOCO 2: LER REGISTOS
+    ###################################################################################
+    records = []
+    nomes_unicos = []
+    vistos = set()
+
+    for r in range(header_row + 1, ws.max_row + 1):
+        nome_cadeia = obter_valor_celula(ws, r, col_nome)
+        status = obter_valor_celula(ws, r, col_status)
+        msg = obter_valor_celula(ws, r, col_msg)
+
+        if not nome_cadeia:
+            continue
+
+        rec = {
+            "_row": r,
+            "NOME CADEIA DE PESQUISA": nome_cadeia,
+            "STATUS": status,
+            "MSG": msg,
+        }
+        records.append(rec)
+
+        if not status.strip():
+            chave = nome_cadeia.strip()
+            if chave not in vistos:
+                vistos.add(chave)
+                nomes_unicos.append(chave)
+
+    if not records:
+        wb.close()
+        print("⚠️ Não encontrei linhas para processar.")
+        return
+
+    if not nomes_unicos:
+        wb.close()
+        print("✅ Nenhuma cadeia com STATUS vazio para processar.")
+        return
+
+    print(f"\n📋 Cadeias a processar: {len(nomes_unicos)}")
+    for nome in nomes_unicos:
+        print(f" - {nome}")
+
+    if pedir_confirmacao and not modo_nao_interativo:
+        resp = input("\nDeseja lançar esses dados no SAP? [S/N]: ").strip().upper()
+        if resp != "S":
+            wb.close()
+            print("⏹️ Operação cancelada pelo utilizador.")
+            return
+
+    ###################################################################################
+    # BLOCO 3: SESSÃO SAP
+    ###################################################################################
+    session = obter_sessao_sap()
+    if not session:
+        wb.close()
+        print(f"❌ Não encontrei sessão ativa do ambiente '{ambiente_cockpit}' ({SISTEMA_ESPERADO}).")
+        return
+
+    print(f"✅ Sessão SAP encontrada: {session.Info.SystemName} | User: {session.Info.User} | Cliente: {session.Info.Client}")
+
+    ###################################################################################
+    # BLOCO 3.1: REQUEST DE TRANSPORTE
+    ###################################################################################
+    if request_transporte_resolvida:
+        if request_desc_resolvida:
+            print(f"✅ Request recebida/selecionada: {request_transporte_resolvida} | {request_desc_resolvida}")
+        else:
+            print(f"✅ Request recebida/selecionada: {request_transporte_resolvida}")
+    elif not modo_nao_interativo:
+        request_transporte_resolvida, request_desc_resolvida = perguntar_request_transporte()
+        if request_transporte_resolvida:
+            if request_desc_resolvida:
+                print(f"✅ Request selecionada para o processamento: {request_transporte_resolvida} | {request_desc_resolvida}")
+            else:
+                print(f"✅ Request selecionada para o processamento: {request_transporte_resolvida}")
+        else:
+            print("ℹ️ Nenhuma request foi pré-selecionada. Se o SAP pedir, será tratado no momento do popup.")
+
+    ###################################################################################
+    # BLOCO 4: EXECUÇÃO
+    ###################################################################################
+    resultados = {}
+
+    for idx, nome_cadeia in enumerate(nomes_unicos, start=1):
+        print("\n======================================================================")
+        print(f"▶ [{idx}/{len(nomes_unicos)}] INICIANDO CADEIA: {nome_cadeia}")
+        print("======================================================================")
+
+        resultado = criar_cadeia_sap(session, nome_cadeia)
+        resultados[nome_cadeia] = {
+            "STATUS": resultado["status"],
+            "MSG": resultado["msg"],
+        }
+
+        print(f"STATUS={resultado['status']} | MSG={resultado['msg']}")
+
+    ###################################################################################
+    # BLOCO 5: GRAVAR EXCEL
+    ###################################################################################
+    try:
+        for rec in records:
+            chave = rec["NOME CADEIA DE PESQUISA"].strip()
+            res = resultados.get(chave)
+            if not res:
+                continue
+
+            ws.cell(row=rec["_row"], column=col_status).value = res["STATUS"]
+            ws.cell(row=rec["_row"], column=col_msg).value = res["MSG"]
+
+        wb.save(caminho_ficheiro)
+        wb.close()
+        print("\n💾 Resultados gravados com sucesso no Excel!")
 
     except Exception as e:
-        print(f"❌ Erro ao criar cadeia '{nome_cadeia}': {e}")
-        try:
-            session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
-            session.findById("wnd[0]").sendVKey(0)
-        except:
-            pass
-        return False
+        print(f"\n❌ Erro a gravar Excel: {e}")
+
+    print("🔁 Fim.")
+    return True
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD"])
+    parser.add_argument("--xlsx")
+    parser.add_argument("--request", help="Request opcional. Se não vier, o script permite digitar ou pesquisar.")
+    parser.add_argument("--auto", action="store_true")
+    parser.add_argument("--no-confirm", action="store_true")
+    args = parser.parse_args()
+
+    env_cli = args.ambiente or (input("Ambiente (DEV/QAD/PRD): ").strip().upper() or "DEV")
+
+    executar(
+        ambiente_cockpit=env_cli,
+        caminho_ficheiro=args.xlsx,
+        request_transporte=args.request,
+        modo_nao_interativo=bool(args.auto),
+        pedir_confirmacao=(not args.no_confirm)
+    )

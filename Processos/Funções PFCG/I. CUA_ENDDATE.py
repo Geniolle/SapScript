@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 
 ###################################################################################
-# PROCESSO: Remover Função SU10 (sheet = nome do .py SEM o prefixo)
+# PROCESSO: Ajustar validade de Função via SU01 (sheet = nome do .py SEM o prefixo)
 # Ex.: "G. CUA_DELROLE.py" → Sheet "CUA_DELROLE"
 #
 # COLUNAS ESPERADAS:
 # ID | UTILIZADOR | SISTEMA | AGR_NAME | STATUS | MSG | TIMESTEMP
+#
+# COLUNAS OPCIONAIS:
+# UPDATE_TO_DAT | VALID_TO | VALIDO_ATE | DATA_FIM
 #
 # REGRAS DE RETORNO:
 # - STATUS    = retorno do wnd[0]/sbar no formato "TIPO - TEXTO"
@@ -38,7 +41,21 @@ except NameError:
     NOME_SCRIPT = "G. CUA_DELROLE"  # fallback
 
 NOME_SHEET = NOME_SCRIPT.split(".", 1)[-1].strip() if "." in NOME_SCRIPT else NOME_SCRIPT
-MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+
+MAPA_SISTEMA = {
+    "DEV": "S4D",
+    "QAD": "S4Q",
+    "PRD": "S4P",
+    "CUA": "SPA",
+}
+
+# Mapeamento para o filtro SUBSYSTEM do grid de Roles na SU01
+MAPA_SUBSYSTEM = {
+    "DEV": "S4DCLNT100",
+    "QAD": "S4QCLNT100",
+    "PRD": "S4PCLNT100",
+    "CUA": "SPACLNT001",
+}
 
 ###################################################################################
 # BLOCO 3: UTILITÁRIOS
@@ -111,6 +128,10 @@ def obter_timempestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def obter_data_hoje_sap():
+    return datetime.now().strftime("%d.%m.%Y")
+
+
 def juntar_textos(*partes):
     itens = []
     vistos = set()
@@ -126,6 +147,33 @@ def juntar_textos(*partes):
             vistos.add(txt)
 
     return " | ".join(itens)
+
+
+def resolver_subsystem(valor_sistema):
+    """
+    Aceita:
+    - DEV / QAD / PRD / CUA
+    - ou já o valor final tipo S4DCLNT100
+    """
+    bruto = str(valor_sistema or "").strip()
+    norm = normalizar_valor(bruto)
+
+    if norm in MAPA_SUBSYSTEM:
+        return MAPA_SUBSYSTEM[norm]
+
+    return bruto
+
+
+def resolver_data_fim(row):
+    """
+    Procura uma coluna opcional de data fim.
+    Se não existir/estiver vazia, usa a data de hoje.
+    """
+    colunas_data = ["UPDATE_TO_DAT", "VALID_TO", "VALIDO_ATE", "DATA_FIM"]
+    for c in colunas_data:
+        if c in row and not valor_em_branco(row.get(c, "")):
+            return str(row.get(c, "")).strip()
+    return obter_data_hoje_sap()
 
 ###################################################################################
 # BLOCO 4: LEITURA DO EXCEL
@@ -155,7 +203,7 @@ def ler_sheet(caminho_ficheiro, nome_sheet):
 
         df.columns = [normalizar_coluna(c) for c in df.columns]
 
-        # Harmonização tolerante, mas o padrão final deste processo é AGR_NAME / TIMESTEMP
+        # Harmonização tolerante
         df.rename(columns={
             "USER": "UTILIZADOR",
             "USERNAME": "UTILIZADOR",
@@ -167,6 +215,8 @@ def ler_sheet(caminho_ficheiro, nome_sheet):
             "NOME FUNÇAO": "AGR_NAME",
             "NOME FUNÇÂO": "AGR_NAME",
             "TIMESTAMP": "TIMESTEMP",
+            "DATA FINAL": "UPDATE_TO_DAT",
+            "DATA_FIM_ROLE": "UPDATE_TO_DAT",
         }, inplace=True)
 
         obrigatorias = ["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME", "STATUS"]
@@ -231,7 +281,7 @@ def existe_objeto(session, obj_id):
         return False
 
 
-def aguardar_objeto(session, obj_id, timeout=10, intervalo=0.5):
+def aguardar_objeto(session, obj_id, timeout=10, intervalo=0.3):
     fim = time.time() + timeout
     while time.time() < fim:
         if existe_objeto(session, obj_id):
@@ -385,49 +435,7 @@ def reset_para_tela_inicial(session):
         pass
 
 ###################################################################################
-# BLOCO 7: CONFIGURAR MODO NA SU10 (DEL)
-###################################################################################
-
-def configurar_modo_su10(session, acao):
-    """
-    Configura o modo correto no separador 'Roles' da SU10:
-    - Seleciona o rádio 'Add' ou 'Remove'
-    - Marca a checkbox 'Change'
-    """
-    base = "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106"
-
-    radios_por_acao = {
-        "ADD": [f"{base}/radGS_NODE_ROLES_X-INS", f"{base}/radG_ROLES_X-INS"],
-        "DEL": [f"{base}/radGS_NODE_ROLES_X-DEL", f"{base}/radG_ROLES_X-DEL"],
-    }
-
-    radio_definido = False
-    for rid in radios_por_acao.get(acao.upper(), []):
-        try:
-            radio_btn = session.findById(rid)
-            radio_btn.select()
-            radio_btn.setFocus()
-            radio_definido = True
-            print(f"🔘 Modo definido: {acao.upper()}")
-            break
-        except Exception:
-            continue
-
-    if not radio_definido:
-        raise Exception(f"Não foi possível definir o modo '{acao.upper()}' na SU10.")
-
-    for cid in [f"{base}/chkGS_NODE_ROLES_X-CHG", f"{base}/chkG_ROLES_X-CHG"]:
-        try:
-            chk = session.findById(cid)
-            if hasattr(chk, "selected") and not chk.selected:
-                chk.select()
-            print("☑️ Checkbox 'Change' marcada.")
-            break
-        except Exception:
-            continue
-
-###################################################################################
-# BLOCO 8: FILTRO DE LINHAS A PROCESSAR
+# BLOCO 7: FILTRO DE LINHAS A PROCESSAR
 ###################################################################################
 
 def status_ja_processado(status):
@@ -468,14 +476,20 @@ def filtrar_pendentes(df):
     if pend.empty:
         print("\n⚠️ Nenhuma linha pendente foi encontrada.")
     else:
+        cols_show = ["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME"]
+        for c in ["UPDATE_TO_DAT", "VALID_TO", "VALIDO_ATE", "DATA_FIM"]:
+            if c in pend.columns:
+                cols_show.append(c)
+                break
+
         print("\n📋 Linhas a processar:")
-        print(pend[["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME"]].fillna("").to_string(index=False))
+        print(pend[cols_show].fillna("").to_string(index=False))
         print()
 
     return pend
 
 ###################################################################################
-# BLOCO 9: VALIDAÇÃO DAS LINHAS
+# BLOCO 8: VALIDAÇÃO DAS LINHAS
 ###################################################################################
 
 def validar_linha(row):
@@ -493,11 +507,139 @@ def validar_linha(row):
     return "; ".join(erros)
 
 ###################################################################################
-# BLOCO 10: EXECUÇÃO (REMOVER FUNÇÃO NO SU10)
+# BLOCO 9: HELPERS DO NOVO MAPEAMENTO SU01
+###################################################################################
+
+def aplicar_filtro_shell(session, shell, coluna, valor_filtro, campo_popup):
+    """
+    Aplica filtro no ALV/GRID através do menu de contexto.
+    Exemplo:
+    - coluna SUBSYSTEM → campo_popup ctxt%%DYN001-LOW
+    - coluna AGR_NAME  → campo_popup ctxt%%DYN002-LOW
+    """
+    shell.currentCellColumn = coluna
+    shell.contextMenu()
+    shell.selectContextMenuItem("&FILTER")
+
+    if not aguardar_objeto(session, campo_popup, timeout=5, intervalo=0.3):
+        raise Exception(f"Popup de filtro não abriu para a coluna {coluna}.")
+
+    campo = session.findById(campo_popup)
+    campo.text = valor_filtro
+    try:
+        campo.setFocus()
+        campo.caretPosition = len(valor_filtro)
+    except Exception:
+        pass
+
+    session.findById("wnd[1]/tbar[0]/btn[0]").press()
+    time.sleep(0.4)
+
+
+def abrir_su01_em_alteracao(session, utilizador):
+    """
+    Abre a SU01 e entra no utilizador em modo alteração.
+    """
+    session.findById("wnd[0]/tbar[0]/okcd").text = "/nsu01"
+    session.findById("wnd[0]").sendVKey(0)
+
+    campo_utilizador = "wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME"
+    if aguardar_objeto(session, campo_utilizador, timeout=8, intervalo=0.3):
+        session.findById(campo_utilizador).text = utilizador
+        try:
+            session.findById(campo_utilizador).setFocus()
+            session.findById(campo_utilizador).caretPosition = len(utilizador)
+        except Exception:
+            pass
+
+    # Botão "Alterar"
+    session.findById("wnd[0]/tbar[1]/btn[18]").press()
+    time.sleep(0.6)
+
+    tab_roles = "wnd[0]/usr/tabsTABSTRIP1/tabpACTG"
+    if not aguardar_objeto(session, tab_roles, timeout=8, intervalo=0.3):
+        raise Exception("Separador 'Roles' não carregou na SU01.")
+
+    session.findById(tab_roles).select()
+    time.sleep(0.4)
+
+
+def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_fim):
+    """
+    Novo mapeamento:
+    - /nsu01
+    - abrir utilizador
+    - tab ACTG
+    - filtrar SUBSYSTEM
+    - filtrar AGR_NAME
+    - alterar UPDATE_TO_DAT
+    - guardar
+    """
+    abrir_su01_em_alteracao(session, utilizador)
+
+    shell_id = (
+        "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/"
+        "ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/"
+        "cntlG_ROLES_CONTAINER/shellcont/shell"
+    )
+
+    if not aguardar_objeto(session, shell_id, timeout=10, intervalo=0.3):
+        raise Exception("Grid de roles não carregou na SU01.")
+
+    shell = session.findById(shell_id)
+
+    # Filtro 1: SUBSYSTEM
+    aplicar_filtro_shell(
+        session=session,
+        shell=shell,
+        coluna="SUBSYSTEM",
+        valor_filtro=subsystem,
+        campo_popup="wnd[1]/usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN001-LOW"
+    )
+
+    # Filtro 2: AGR_NAME
+    aplicar_filtro_shell(
+        session=session,
+        shell=shell,
+        coluna="AGR_NAME",
+        valor_filtro=agr_name,
+        campo_popup="wnd[1]/usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN002-LOW"
+    )
+
+    # Alterar data final
+    shell.modifyCell(0, "UPDATE_TO_DAT", data_fim)
+    shell.currentCellColumn = "UPDATE_TO_DAT"
+    shell.pressEnter()
+    time.sleep(0.5)
+
+    status_antes_save = obter_status_bar(session)
+
+    session.findById("wnd[0]").sendVKey(11)
+    time.sleep(0.5)
+
+    popup_txt = tratar_popup(session, max_tentativas=5, pausa=0.4)
+    time.sleep(0.3)
+
+    status_final = obter_status_bar(session)
+
+    return {
+        "status_antes_save": status_antes_save,
+        "status_final": status_final,
+        "popup_txt": popup_txt,
+    }
+
+###################################################################################
+# BLOCO 10: EXECUÇÃO (AJUSTAR UPDATE_TO_DAT NO SU01)
 ###################################################################################
 
 def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
-    """Remove AGR_NAME do UTILIZADOR via SU10 e atualiza STATUS/MSG/TIMESTEMP."""
+    """
+    Mantido o nome da função por compatibilidade com o chamador,
+    mas agora a lógica executa o novo mapeamento SU01:
+    - filtra SUBSYSTEM
+    - filtra AGR_NAME
+    - altera UPDATE_TO_DAT
+    """
     df_proc = df_filtrado.copy()
 
     for col in ["STATUS", "MSG", "TIMESTEMP"]:
@@ -509,7 +651,7 @@ def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
     total = len(df_proc)
     tempo_total_inicio = time.time()
 
-    resposta = input("Deseja remover essas funções no SAP? [S/N]: ").strip().upper()
+    resposta = input("Deseja atualizar a validade dessas funções no SAP? [S/N]: ").strip().upper()
     if resposta != "S":
         print("❌ Lançamento cancelado pelo utilizador.")
         return df_proc
@@ -519,17 +661,23 @@ def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
 
         linha_id = normalizar_id(row.get("ID", ""))
         utilizador = str(row.get("UTILIZADOR", "")).strip()
-        sistema = str(row.get("SISTEMA", "")).strip()
+        sistema_excel = str(row.get("SISTEMA", "")).strip()
         agr_name = str(row.get("AGR_NAME", "")).strip()
+        subsystem = resolver_subsystem(sistema_excel)
+        data_fim = resolver_data_fim(row)
 
-        print(f"\n🔧 {i}/{total} | ID={linha_id} | UTILIZADOR={utilizador} | SISTEMA={sistema} | AGR_NAME={agr_name}")
+        print(
+            f"\n🔧 {i}/{total} | "
+            f"ID={linha_id} | UTILIZADOR={utilizador} | SISTEMA={sistema_excel} | "
+            f"SUBSYSTEM={subsystem} | AGR_NAME={agr_name} | UPDATE_TO_DAT={data_fim}"
+        )
 
         try:
             erro_validacao = validar_linha(row)
             if erro_validacao:
                 status_validacao = f"E - {erro_validacao}"
                 df_proc.at[idx, "STATUS"] = status_validacao
-                df_proc.at[idx, "MSG"] = "Validação da linha falhou antes da SU10."
+                df_proc.at[idx, "MSG"] = "Validação da linha falhou antes da SU01."
                 df_proc.at[idx, "TIMESTEMP"] = obter_timempestamp()
                 print(f"❌ {status_validacao}")
                 continue
@@ -542,65 +690,22 @@ def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
 
             reset_para_tela_inicial(session)
 
-            session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU10"
-            session.findById("wnd[0]").sendVKey(0)
-
-            grid_input = "wnd[0]/usr/tblSAPLSUID_MAINTENANCETC_USERS"
-            if not aguardar_objeto(session, grid_input, timeout=10, intervalo=0.5):
-                raise Exception("Falha ao abrir SU10.")
-
-            campo_user = grid_input + "/ctxtSUID_ST_BNAME-BNAME[0,0]"
-            session.findById(campo_user).text = utilizador
-            session.findById(campo_user).caretPosition = len(utilizador)
-            session.findById("wnd[0]/tbar[1]/btn[18]").press()
-
-            tab_roles = "wnd[0]/usr/tabsTABSTRIP1/tabpACTG"
-            if not aguardar_objeto(session, tab_roles, timeout=10, intervalo=0.5):
-                raise Exception("Separador 'Roles' não carregou na SU10.")
-
-            session.findById(tab_roles).select()
-
-            ref_user_chk = (
-                "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/"
-                "ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/chkGS_NODE_REFUSER_X-REFUSER"
-            )
-            try:
-                session.findById(ref_user_chk).selected = True
-                print("☑️ Checkbox 'From Reference User' marcada.")
-            except Exception:
-                pass
-
-            configurar_modo_su10(session, acao="DEL")
-
-            shell_id = (
-                "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/"
-                "ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/"
-                "cntlG_ROLES_CONTAINER/shellcont/shell"
+            retorno = atualizar_validade_role_su01(
+                session=session,
+                utilizador=utilizador,
+                subsystem=subsystem,
+                agr_name=agr_name,
+                data_fim=data_fim
             )
 
-            if not aguardar_objeto(session, shell_id, timeout=10, intervalo=0.5):
-                raise Exception("Grid de roles não carregou.")
-
-            shell = session.findById(shell_id)
-            shell.modifyCell(0, "SUBSYSTEM", sistema)
-            shell.modifyCell(0, "AGR_NAME", agr_name)
-            shell.currentCellColumn = "AGR_NAME"
-            shell.pressEnter()
-
-            time.sleep(0.5)
-
-            status_antes_save = obter_status_bar(session)
-
-            session.findById("wnd[0]/tbar[0]/btn[11]").press()
-            time.sleep(0.5)
-
-            popup_txt = tratar_popup(session, max_tentativas=5, pausa=0.4)
-            time.sleep(0.3)
-
-            status_final = obter_status_bar(session)
+            status_antes_save = retorno["status_antes_save"]
+            status_final = retorno["status_final"]
+            popup_txt = retorno["popup_txt"]
 
             status_para_gravar = status_final["status"] or status_antes_save["status"] or "SEM STATUS SAP"
             msg_para_gravar = juntar_textos(
+                f"SUBSYSTEM: {subsystem}",
+                f"UPDATE_TO_DAT: {data_fim}",
                 f"ANTES_SAVE: {status_antes_save['status']}" if status_antes_save["status"] else "",
                 f"POPUP: {popup_txt}" if popup_txt else ""
             )
@@ -611,6 +716,12 @@ def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
 
             duracao = time.time() - inicio
             print(f"✅ STATUS={status_para_gravar} | Tempo: {duracao:.1f}s")
+
+            try:
+                session.findById("wnd[0]/tbar[0]/btn[3]").press()
+                time.sleep(0.3)
+            except Exception:
+                pass
 
             reset_para_tela_inicial(session)
 
@@ -624,6 +735,8 @@ def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
             status_sap = obter_status_bar(session)
             status_para_gravar = status_sap["status"] or f"E - {str(e)}"
             msg_para_gravar = juntar_textos(
+                f"SUBSYSTEM: {subsystem}",
+                f"UPDATE_TO_DAT: {data_fim}",
                 f"POPUP: {popup_txt}" if popup_txt else "",
                 f"EXCECAO: {str(e)}"
             )
@@ -734,7 +847,7 @@ def gravar_retorno_preservando_formatacao(caminho_ficheiro, nome_sheet, df_atual
 def executar(ambiente):
     print(f"✅ Processo selecionado: {NOME_SCRIPT}")
     print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
-    print("▶️ Ação: Remoção de Funções via SU10")
+    print("▶️ Ação: Atualizar UPDATE_TO_DAT da função via SU01")
     print("ℹ️ STATUS será preenchido com o retorno do wnd[0]/sbar.")
 
     caminho = selecionar_ficheiro_excel()
