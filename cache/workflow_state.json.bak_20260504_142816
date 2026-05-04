@@ -1,0 +1,14 @@
+﻿{
+    "processed":  {
+                      "IZ-56680|FI Extracto Cadeias de Pesquisa|21/04/2026":  {
+                                                                                  "status":  "failed",
+                                                                                  "attempts":  2,
+                                                                                  "timestamp":  "2026-04-22T17:32:01",
+                                                                                  "ticket_key":  "IZ-56680",
+                                                                                  "category":  "FI Extracto Cadeias de Pesquisa",
+                                                                                  "request_number":  "S4DK953015",
+                                                                                  "documentation_path":  "C:\\Jira\\IZ-56680\\Documentacao_IZ-56680_FI_Extracto_Cadeias_de_Pesquisa_20260422_172939.docx",
+                                                                                  "error":  "Falha no step \u0027Transportar Request\u0027: Step retornou codigo 1"
+                                                                              }
+                  }
+}
