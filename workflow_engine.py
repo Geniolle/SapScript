@@ -33,10 +33,49 @@ def _step_capture_evidence_enabled(step: Dict[str, Any]) -> bool:
     return False
 
 
+def _pause_before_step_if_enabled(
+    *,
+    workflow_name: str,
+    step_name: str,
+    index: int,
+    total: int,
+    row_context: Dict[str, str],
+) -> None:
+    if not _to_bool(os.getenv("WORKFLOW_STEP_CONFIRM", "false")):
+        return
+
+    ticket_key = str(row_context.get("ticket_key", "") or "").strip() or "-"
+    categoria = str(row_context.get("categoria_sap", "") or "").strip() or workflow_name
+    request_number = str(row_context.get("request_number", "") or "").strip() or "-"
+
+    message = (
+        "\n"
+        "================================================================================\n"
+        "PAUSA DE VALIDAÇÃO DO WORKFLOW\n"
+        f"Ticket: {ticket_key}\n"
+        f"Categoria: {categoria}\n"
+        f"Workflow: {workflow_name}\n"
+        f"Step: {index}/{total} - {step_name}\n"
+        f"Request atual: {request_number}\n"
+        "Pressiona ENTER para executar este step, ou CTRL+C para interromper.\n"
+        "================================================================================\n"
+    )
+
+    if not sys.stdin or not sys.stdin.isatty():
+        logging.warning(
+            "WORKFLOW_STEP_CONFIRM ativo, mas stdin nao e interativo; pausa ignorada para o step '%s'.",
+            step_name,
+        )
+        return
+
+    print(message, flush=True)
+    input()
+
+
 def _load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    with open(path, "r", encoding="utf-8") as file_obj:
+    with open(path, "r", encoding="utf-8-sig") as file_obj:
         return json.load(file_obj)
 
 
@@ -263,6 +302,14 @@ def _run_workflow(
         step_name = str(step.get("name", f"step_{index}"))
         capture_evidence = _step_capture_evidence_enabled(step)
         logging.info("Workflow '%s' | Step %s/%s: %s", workflow_name, index, len(steps), step_name)
+
+        _pause_before_step_if_enabled(
+            workflow_name=workflow_name,
+            step_name=step_name,
+            index=index,
+            total=len(steps),
+            row_context=row_context,
+        )
 
         ok, error, runtime_snapshot = _run_step(
             step=step,
