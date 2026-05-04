@@ -834,12 +834,15 @@ def executar(
                 raise Exception("Não consegui localizar os campos principais da cadeia no SAP.")
 
             print(f"  ├─ A preencher dados principais...")
+            # Regra:
+            # - PANAM tem limite técnico de 20 caracteres no SAP
+            # - NOTE e REGEX devem receber o valor completo vindo do Excel
             campo_nome.text = nome_cadeia_limite
-            campo_desc.text = nome_cadeia_limite
-            campo_regex.text = nome_cadeia_limite
+            campo_desc.text = nome_cadeia
+            campo_regex.text = nome_cadeia
             campo_regex.setFocus()
             try:
-                campo_regex.caretPosition = len(nome_cadeia_limite)
+                campo_regex.caretPosition = len(nome_cadeia)
             except Exception:
                 pass
 
@@ -849,8 +852,12 @@ def executar(
             if mt in ("E", "A") and sb:
                 return {"ok": False, "status": "ERRO", "msg": sb}
 
-            print(f"  ├─ A limpar até 20 linhas da tabela de mapeamento...")
-            for i in range(20):
+            total_linhas_limpeza = max(20, len(nome_cadeia))
+            print(
+                f"  ├─ A limpar até {total_linhas_limpeza} linhas da tabela de mapeamento "
+                f"(baseado no tamanho do REGEX)..."
+            )
+            for i in range(total_linhas_limpeza):
                 campo = f"wnd[0]/usr/subSUB_PAMA:SAPLPAMI:0210/tblSAPLPAMITC_MAP/txtT_MAP-MXCHAR[3,{i}]"
                 try:
                     obj = sess.findById(campo)

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import os
@@ -392,47 +392,29 @@ def _handle_remote_login_popup_if_any(
     pause_s: float,
     debug_map: bool = False,
 ) -> bool:
-    _ = pause_s
+    """
+    Tratamento remoto STMS desativado.
+
+    Regra temporária de validação:
+      - não detectar janela de login remoto
+      - não focar popup
+      - não aguardar timeout
+      - não preencher credenciais
+      - não interagir com janela adicional
+
+    Nesta etapa, o script apenas consulta wnd[0]/sbar para obter
+    a mensagem real do SAP e segue o fluxo normal de validação.
+    """
+    _ = default_system
     _ = default_client
-    _ = _resolve_remote_login_mode()
+    _ = pause_s
+    _ = debug_map
 
-    appear_timeout = int(os.getenv("SAP_STMS_REMOTE_LOGIN_APPEAR_TIMEOUT", "25") or "25")
-    appear_timeout = max(0, appear_timeout)
+    msg_type, msg_text = _status_message(session)
+    if msg_text:
+        print(f"INFO: STMS statusbar | Tipo={msg_type or '-'} | MSG={msg_text}")
 
-    has_login = any(_is_login_window(session, f"wnd[{i}]") for i in (0, 1, 2, 3))
-    if not has_login and appear_timeout > 0:
-        deadline = time.time() + appear_timeout
-        while time.time() < deadline:
-            has_login = any(_is_login_window(session, f"wnd[{i}]") for i in (0, 1, 2, 3))
-            if has_login:
-                break
-            time.sleep(0.5)
-
-    if not has_login:
-        if debug_map:
-            out = _dump_popup_map(session, reason="handle_remote_login_popup_if_any:no_action")
-            print(f"DEBUG: mapa popup gerado em: {out}")
-        return False
-
-    if debug_map:
-        out = _dump_popup_map(session, reason="manual_login_detected")
-        print(f"DEBUG: mapa popup gerado em: {out}")
-
-    _wait_manual_remote_login(
-        session,
-        default_system=default_system,
-        timeout_s=int(os.getenv("SAP_STMS_REMOTE_LOGIN_TIMEOUT", "300") or "300"),
-        poll_s=1.0,
-    )
-    msg_type, msg_text = _wait_statusbar_after_login_close(
-        session,
-        timeout_s=int(os.getenv("SAP_STMS_STATUSBAR_TIMEOUT", "45") or "45"),
-        poll_s=0.5,
-    )
-    if msg_type in {"E", "A"}:
-        raise RuntimeError(f"Erro apos login remoto manual: {msg_text or 'sem detalhe na status bar'}")
-    return True
-
+    return False
 
 def _focus_request_visible_in_list(session, request_number: str) -> bool:
     root = _safe_find(session, "wnd[0]/usr")
