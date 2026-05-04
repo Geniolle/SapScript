@@ -64,6 +64,7 @@ def obter_tickets_da_sheet() -> dict[str, set[str]]:
         dados,
         sheet_main.RESPONSAVEL_ALVO,
         sheet_main.SUPPLIER_ALVO,
+        sheet_main.ESTADO_ALVO,
     )
     pares = sheet_main.extrair_chave_categoria(linhas)
 

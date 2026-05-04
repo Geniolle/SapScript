@@ -14,6 +14,7 @@ services:
       SHEET_NAME: ${SHEET_NAME:-DADOS}
       RESPONSAVEL_ALVO: ${RESPONSAVEL_ALVO:-Clayton Lopes}
       SUPPLIER_ALVO: ${SUPPLIER_ALVO:-Evolutive}
+      ESTADO_ALVO: ${ESTADO_ALVO:-In Review}
       GOOGLE_CREDENTIALS_JSON: /app/credentials.json
       JIRA_DOWNLOAD_DIR: /data/jira
       POLL_SECONDS: ${POLL_SECONDS:-300}

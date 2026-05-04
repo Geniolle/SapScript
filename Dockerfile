@@ -8,6 +8,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py workflow_engine.py workflows.json jira_download_anexos.py jira_sheet_daemon.py ./
+COPY main.py workflow_engine.py workflow_documentation.py workflows.json jira_download_anexos.py jira_sheet_daemon.py sap_session.py ./
 
 CMD ["python", "jira_sheet_daemon.py"]
