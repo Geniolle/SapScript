@@ -26,12 +26,17 @@ def executar(
     ambiente_cockpit,
     caminho_ficheiro=None,
     request_transporte=None,   # compatibilidade com o cockpit
+    request_description="",
     request_ctx=None,          # compatibilidade com o cockpit
     modo_nao_interativo=False,
-    pedir_confirmacao=True
+    pedir_confirmacao=True,
+    cliente_sap=None,
+    chamado_pelo_main=False
 ):
     import os
     import re
+    import subprocess
+    import sys
     import time
     import unicodedata
     import tkinter as tk
@@ -41,6 +46,60 @@ def executar(
     from tkinter import filedialog
     from openpyxl import load_workbook
     from datetime import datetime
+
+    def _parse_env_line(line: str):
+        raw = str(line or "").strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            return None, None
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and (
+            (value.startswith('"') and value.endswith('"'))
+            or (value.startswith("'") and value.endswith("'"))
+        ):
+            value = value[1:-1]
+        return key, value
+
+    def _load_dotenv_manual_local():
+        base_script = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.join(os.getcwd(), ".env"),
+            os.path.join(base_script, ".env"),
+            os.path.join(base_script, "..", "..", ".env"),
+            os.path.join(base_script, "..", "..", "..", ".env"),
+        ]
+        seen = set()
+        for path in candidates:
+            path_abs = os.path.abspath(path)
+            if path_abs in seen:
+                continue
+            seen.add(path_abs)
+            if not os.path.exists(path_abs):
+                continue
+            with open(path_abs, "r", encoding="utf-8-sig") as file_obj:
+                for raw in file_obj:
+                    key, value = _parse_env_line(raw)
+                    if key and key not in os.environ:
+                        os.environ[key] = value or ""
+            return path_abs
+        return None
+
+    _load_dotenv_manual_local()
+
+    called_by_main = bool(chamado_pelo_main) or str(os.getenv("SAP_CALLED_BY_MAIN", "")).strip().lower() in {
+        "1", "true", "yes", "on", "sim", "s"
+    }
+    keep_validation_screen = str(os.getenv("WORKFLOW_CAPTURE_VALIDATION_SCREEN", "")).strip().lower() in {
+        "1", "true", "yes", "on", "sim", "s"
+    }
+    if called_by_main:
+        modo_nao_interativo = True
+        pedir_confirmacao = False
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
     ###################################################################################
     # CONFIG
@@ -61,6 +120,7 @@ def executar(
     }
 
     SISTEMA_ESPERADO = MAPA_SISTEMA.get(str(ambiente_cockpit).strip().upper(), None)
+    CLIENTE_ESPERADO = str(cliente_sap or "").strip()
     if not SISTEMA_ESPERADO:
         raise ValueError(f"Ambiente inválido: '{ambiente_cockpit}'. Use DEV, QAD ou PRD.")
 
@@ -83,6 +143,26 @@ def executar(
         s = unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("utf-8")
         s = re.sub(r"\s+", " ", s.strip())
         return s.upper()
+
+    def aplicar_modo_janela_sap(sess):
+        modo = str(os.getenv("SAP_WINDOW_MODE", "") or "").strip().lower()
+        if not modo and _to_bool(os.getenv("SAP_WINDOW_MINIMIZE", "false")):
+            modo = "minimize"
+        if not modo:
+            modo = "show"
+
+        try:
+            wnd0 = sess.findById("wnd[0]")
+        except Exception:
+            return
+
+        try:
+            if modo in {"minimize", "minimizar", "hidden", "hide", "ocultar", "quiet"}:
+                wnd0.iconify()
+            elif modo in {"show", "mostrar", "visible", "visivel", "exibir"}:
+                wnd0.maximize()
+        except Exception:
+            return
 
     def escolher_ficheiro():
         root = tk.Tk()
@@ -219,8 +299,11 @@ def executar(
 
             for conn in application.Children:
                 for sess in conn.Children:
-                    if str(sess.Info.SystemName).strip().upper() == SISTEMA_ESPERADO:
-                        return sess
+                    if str(sess.Info.SystemName).strip().upper() != SISTEMA_ESPERADO:
+                        continue
+                    if CLIENTE_ESPERADO and str(sess.Info.Client).strip() != CLIENTE_ESPERADO:
+                        continue
+                    return sess
             return None
         except Exception:
             return None
@@ -458,6 +541,142 @@ def executar(
                 continue
         return False
 
+    def _try_set_text(sess, caminhos, valor):
+        for p in caminhos:
+            try:
+                obj = sess.findById(p)
+                obj.text = valor
+                return True
+            except Exception:
+                continue
+        return False
+
+    def _se16h_tem_resultados(sess, max_nodes=7000):
+        raiz = _safe_find(sess, "wnd[0]")
+        if not raiz:
+            return False
+
+        pilha = [raiz]
+        visitados = 0
+
+        while pilha and visitados < max_nodes:
+            obj = pilha.pop()
+            visitados += 1
+
+            try:
+                row_count = int(getattr(obj, "RowCount", 0))
+                if row_count > 0:
+                    return True
+            except Exception:
+                pass
+
+            try:
+                filhos = int(obj.Children.Count)
+            except Exception:
+                filhos = 0
+
+            for idx in range(filhos):
+                try:
+                    pilha.append(obj.Children(idx))
+                except Exception:
+                    continue
+
+        return False
+
+    def _cadeia_existe_em_tpama(sess, nome_cadeia):
+        nome_cadeia = (nome_cadeia or "").strip()[:20]
+        if not nome_cadeia:
+            return False, "Nome da cadeia vazio."
+
+        try:
+            sess.findById("wnd[0]/tbar[0]/okcd").text = "/NSE16H"
+            _send_vkey(sess, 0)
+
+            mt, sb = get_statusbar(sess)
+            if mt in ("E", "A") and sb:
+                return None, sb
+
+            if not _try_set_text(sess, [
+                "wnd[0]/usr/ctxtGD-TAB",
+                "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
+                "wnd[0]/usr/ctxtTABNAME",
+            ], "TPAMA"):
+                return None, "Nao consegui preencher a tabela TPAMA na SE16H."
+
+            _send_vkey(sess, 0)
+            mt, sb = get_statusbar(sess)
+            if mt in ("E", "A") and sb:
+                return None, sb
+
+            campo_panam = _esperar_objeto(
+                sess,
+                "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC/ctxtGS_SELFIELDS-LOW[2,2]",
+                timeout=2.5,
+            )
+            if not campo_panam:
+                return None, "Nao consegui localizar o campo PANAM na TPAMA."
+
+            campo_panam.text = nome_cadeia
+
+            if not try_press(sess, ["wnd[0]/tbar[1]/btn[8]"]):
+                return None, "Nao consegui executar a pesquisa na TPAMA."
+
+            nao_encontrou_tokens = (
+                "NO VALUES",
+                "NOT FOUND",
+                "NENHUM",
+                "NAO ENCONTR",
+                "SEM REGIST",
+            )
+            encontrou_tokens = (
+                "SELECION",
+                "SELECTED",
+                "REGIST",
+                "ENTRAD",
+                "VALUES",
+            )
+
+            # A SE16H pode demorar a preencher statusbar/ALV.
+            for _ in range(20):
+                mt, sb = get_statusbar(sess)
+                msg_norm = norm_txt(sb)
+
+                if msg_norm and any(t in msg_norm for t in nao_encontrou_tokens):
+                    return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA."
+                if msg_norm and any(t in msg_norm for t in encontrou_tokens):
+                    return True, sb
+
+                wnd0 = _safe_find(sess, "wnd[0]")
+                wnd_text = norm_txt(getattr(wnd0, "Text", "") if wnd0 else "")
+                if "ENTRADAS ENCONTRADAS" in wnd_text or "ENTRIES FOUND" in wnd_text:
+                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA."
+
+                if _se16h_tem_resultados(sess):
+                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA."
+
+                time.sleep(0.2)
+
+            return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA."
+        except Exception as e:
+            return None, str(e)
+        finally:
+            if not keep_validation_screen:
+                limpar_para_home(sess)
+
+    def _validar_cadeia_na_tpama(sess, nome_cadeia, tentativas=3, pausa=1.0):
+        ultima_msg = ""
+        for _ in range(max(1, int(tentativas))):
+            existe, msg = _cadeia_existe_em_tpama(sess, nome_cadeia)
+            ultima_msg = msg or ultima_msg
+            if existe is True:
+                return True, msg or f"Cadeia '{nome_cadeia}' confirmada na TPAMA."
+            if existe is None:
+                time.sleep(max(0.0, float(pausa)))
+                continue
+            time.sleep(max(0.0, float(pausa)))
+
+        return False, ultima_msg or f"Cadeia '{nome_cadeia}' nao foi confirmada na TPAMA."
+
     def preencher_request_no_popup(sess, request_numero):
         request_numero = validar_request(request_numero)
         if not request_numero:
@@ -498,6 +717,71 @@ def executar(
             request_transporte_resolvida = validar_request(request_ctx.get("request_number", ""))
         request_desc_resolvida = str(request_ctx.get("request_desc", "") or "").strip()
 
+    def _extrair_request_do_output(output_texto):
+        marker = re.search(r"REQUEST_NUMBER=([A-Z0-9]{3,4}K\d{6,})", output_texto or "")
+        if marker:
+            return validar_request(marker.group(1))
+
+        fallback = re.search(r"\b([A-Z0-9]{3,4}K\d{6,})\b", output_texto or "")
+        if fallback:
+            return validar_request(fallback.group(1))
+        return ""
+
+    def _criar_request_customizing(sess, motivo):
+        nonlocal request_transporte_resolvida
+        if request_transporte_resolvida:
+            return request_transporte_resolvida
+
+        system_name = str(getattr(sess.Info, "SystemName", "") or SISTEMA_ESPERADO).strip().upper()
+        client = CLIENTE_ESPERADO or str(getattr(sess.Info, "Client", "") or "").strip()
+        if not system_name or not client:
+            raise RuntimeError("Nao foi possivel resolver sistema/cliente para criar request.")
+
+        criar_request_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "criar_request.py")
+        )
+        if not os.path.exists(criar_request_path):
+            raise RuntimeError(f"Script de criacao de request nao encontrado: {criar_request_path}")
+
+        descricao = (request_description or "").strip()
+        if not descricao:
+            descricao = (motivo or "").strip()
+        if not descricao:
+            descricao = "Cadeia de Pesquisa"
+        comando = [
+            sys.executable,
+            criar_request_path,
+            "--auto-create",
+            "--order-type",
+            "customizing",
+            "--description",
+            descricao[:72],
+            "--system-name",
+            system_name,
+            "--client",
+            client,
+        ]
+
+        run = subprocess.run(
+            comando,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        output = f"{run.stdout or ''}\n{run.stderr or ''}"
+        req = _extrair_request_do_output(output)
+        if run.returncode != 0 or not req:
+            raise RuntimeError(
+                "Falha ao criar request automaticamente. "
+                f"returncode={run.returncode} | output={output.strip()}"
+            )
+
+        request_transporte_resolvida = req
+        print(f"REQUEST_NUMBER={request_transporte_resolvida}")
+        return request_transporte_resolvida
+
     ###################################################################################
     # LÓGICA SAP - CRIAR CADEIA
     ###################################################################################
@@ -508,6 +792,16 @@ def executar(
         nome_cadeia_limite = nome_cadeia[:20]
 
         try:
+            print("  |- A validar existencia na TPAMA (SE16H)...")
+            existe_tpama, msg_tpama = _cadeia_existe_em_tpama(sess, nome_cadeia_limite)
+            if existe_tpama is True:
+                msg = msg_tpama or f"Cadeia '{nome_cadeia_limite}' ja existe na TPAMA."
+                return {"ok": True, "status": "CONCLUIDO", "msg": msg}
+            if existe_tpama is None:
+                print(f"  |- Aviso: validacao TPAMA indisponivel ({msg_tpama}). Vou seguir com a criacao.")
+            if not request_transporte_resolvida and modo_nao_interativo:
+                print("  |- Sem request no contexto. A criar request automaticamente...")
+                _criar_request_customizing(sess, f"Cadeia Pesquisa | {nome_cadeia_limite}")
             print(f"  ├─ A abrir transação OTPM...")
             sess.findById("wnd[0]/tbar[0]/okcd").text = "/NOTPM"
             _send_vkey(sess, 0)
@@ -603,9 +897,18 @@ def executar(
                 limpar_para_home(sess)
                 return {"ok": False, "status": "ERRO", "msg": msg}
 
-            msg = sb or f"Cadeia '{nome_cadeia_limite}' criada com sucesso."
-            limpar_para_home(sess)
-            return {"ok": True, "status": "CRIADO", "msg": msg}
+            msg_criacao = sb or f"Cadeia '{nome_cadeia_limite}' criada com sucesso."
+            print("  |- A validar criacao na TPAMA (SE16H)...")
+            validada, msg_validacao = _validar_cadeia_na_tpama(sess, nome_cadeia_limite, tentativas=4, pausa=1.0)
+            if not validada:
+                msg = (
+                    f"Criacao executada, mas sem confirmacao na TPAMA. "
+                    f"Criacao SAP='{msg_criacao}' | Validacao='{msg_validacao}'"
+                )
+                return {"ok": False, "status": "ERRO", "msg": msg}
+
+            msg = msg_validacao or msg_criacao
+            return {"ok": True, "status": "CONCLUIDO", "msg": msg}
 
         except Exception as e:
             mt, sb = get_statusbar(sess)
@@ -689,7 +992,8 @@ def executar(
         }
         records.append(rec)
 
-        if not status.strip():
+        incluir_para_execucao = called_by_main or (not status.strip())
+        if incluir_para_execucao:
             chave = nome_cadeia.strip()
             if chave not in vistos:
                 vistos.add(chave)
@@ -702,7 +1006,10 @@ def executar(
 
     if not nomes_unicos:
         wb.close()
-        print("✅ Nenhuma cadeia com STATUS vazio para processar.")
+        if called_by_main:
+            print("✅ Nenhuma cadeia com nome para validar/processar.")
+        else:
+            print("✅ Nenhuma cadeia com STATUS vazio para processar.")
         return
 
     print(f"\n📋 Cadeias a processar: {len(nomes_unicos)}")
@@ -726,6 +1033,7 @@ def executar(
         return
 
     print(f"✅ Sessão SAP encontrada: {session.Info.SystemName} | User: {session.Info.User} | Cliente: {session.Info.Client}")
+    aplicar_modo_janela_sap(session)
 
     ###################################################################################
     # BLOCO 3.1: REQUEST DE TRANSPORTE
@@ -784,19 +1092,33 @@ def executar(
         print(f"\n❌ Erro a gravar Excel: {e}")
 
     print("🔁 Fim.")
+    if request_transporte_resolvida:
+        print(f"REQUEST_NUMBER={request_transporte_resolvida}")
     return True
 
 
 if __name__ == "__main__":
     import argparse
+    import os
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD"])
     parser.add_argument("--xlsx")
     parser.add_argument("--request", help="Request opcional. Se não vier, o script permite digitar ou pesquisar.")
+    parser.add_argument("--request-description", default="", help="Descricao da request. Ex: Chave | Resumo")
     parser.add_argument("--auto", action="store_true")
     parser.add_argument("--no-confirm", action="store_true")
+    parser.add_argument("--client")
+    parser.add_argument("--from-main", action="store_true")
     args = parser.parse_args()
+
+    from_main_cli = bool(args.from_main) or str(os.getenv("SAP_CALLED_BY_MAIN", "")).strip().lower() in {
+        "1", "true", "yes", "on", "sim", "s"
+    }
+    if from_main_cli and not args.ambiente:
+        raise SystemExit("Erro: em modo --from-main informe --ambiente.")
+    if from_main_cli and not args.xlsx:
+        raise SystemExit("Erro: em modo --from-main informe --xlsx.")
 
     env_cli = args.ambiente or (input("Ambiente (DEV/QAD/PRD): ").strip().upper() or "DEV")
 
@@ -804,6 +1126,11 @@ if __name__ == "__main__":
         ambiente_cockpit=env_cli,
         caminho_ficheiro=args.xlsx,
         request_transporte=args.request,
+        request_description=args.request_description,
         modo_nao_interativo=bool(args.auto),
-        pedir_confirmacao=(not args.no_confirm)
+        pedir_confirmacao=(not args.no_confirm),
+        cliente_sap=args.client,
+        chamado_pelo_main=from_main_cli
     )
+
+

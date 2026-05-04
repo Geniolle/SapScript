@@ -6,3 +6,10 @@ build/
 __pycache__/
 .DS_Store
 *.pyc
+cache/workflow_state*.json
+
+credentials.json
+.env
+*.key
+*.pem
+

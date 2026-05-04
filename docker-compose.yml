@@ -1,0 +1,22 @@
+services:
+  jira-sheet-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jira-sheet-daemon
+    restart: unless-stopped
+    environment:
+      JIRA_DADOS_COMP_HASH: ${JIRA_DADOS_COMP_HASH}
+      JIRA_DADOS_HASH: ${JIRA_DADOS_HASH:-rest/api/3}
+      JIRA_EMAIL: ${JIRA_EMAIL}
+      JIRA_TOKEN: ${JIRA_TOKEN}
+      SPREADSHEET_ID: ${SPREADSHEET_ID:-1oYAw6cUP2-tN7Q6fBCJi2JQaahEz4kIZ4rjxWBO_cY8}
+      SHEET_NAME: ${SHEET_NAME:-DADOS}
+      RESPONSAVEL_ALVO: ${RESPONSAVEL_ALVO:-Clayton Lopes}
+      SUPPLIER_ALVO: ${SUPPLIER_ALVO:-Evolutive}
+      GOOGLE_CREDENTIALS_JSON: /app/credentials.json
+      JIRA_DOWNLOAD_DIR: /data/jira
+      POLL_SECONDS: ${POLL_SECONDS:-300}
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - C:/Jira:/data/jira

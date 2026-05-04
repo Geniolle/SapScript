@@ -1,0 +1,72 @@
+{
+  "FI Extracto Cadeias de Pesquisa": {
+    "description": "Valida configuracoes e cria request apenas quando necessario para criar/atribuir cadeia.",
+    "steps": [
+      {
+        "name": "Criar Cadeia de Pesquisa",
+        "script": "Processos/Cadeias de Pesquisa/Criar Cadeia de Pesquisa.py",
+        "required_context": [
+          "xlsx_path",
+          "sap_client"
+        ],
+        "args": [
+          "--ambiente",
+          "{ambiente}",
+          "--client",
+          "{sap_client}",
+          "--xlsx",
+          "{xlsx_path}",
+          "--request={request_number}",
+          "--request-description={request_description}",
+          "--auto",
+          "--no-confirm"
+        ],
+        "capture_request_number": true,
+        "capture_evidence": true
+      },
+      {
+        "name": "Atribuir Cadeias de Pesquisa",
+        "script": "Processos/Cadeias de Pesquisa/Atribuir Cadeias de Pesquisa.py",
+        "required_context": [
+          "xlsx_path",
+          "sap_client"
+        ],
+        "args": [
+          "--ambiente",
+          "{ambiente}",
+          "--client",
+          "{sap_client}",
+          "--xlsx",
+          "{xlsx_path}",
+          "--request={request_number}",
+          "--request-description={request_description}",
+          "--auto",
+          "--no-confirm"
+        ],
+        "capture_request_number": true,
+        "capture_evidence": true
+      },
+      {
+        "name": "Liberar Request",
+        "script": "Processos/Liberar_request.py",
+        "args": [
+          "--request={request_number}",
+          "--system-name={system_name}",
+          "--client={sap_client}",
+          "--from-main"
+        ]
+      },
+      {
+        "name": "Transportar Request",
+        "script": "Processos/transportar_request.py",
+        "args": [
+          "--request={request_number}",
+          "--system-name={system_name}",
+          "--client={sap_client}",
+          "--target-client={sap_client}",
+          "--from-main"
+        ]
+      }
+    ]
+  }
+}

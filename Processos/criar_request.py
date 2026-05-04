@@ -18,6 +18,8 @@ import pywintypes
 # CONFIG
 # =========================
 SAPLOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
+MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+CLIENTES_POR_AMBIENTE = {"DEV": "100", "QAD": "100", "PRD": "100", "CUA": "001"}
 
 SLEEP_UI = 0.25
 SLEEP_ACTION = 0.40
@@ -25,6 +27,88 @@ SLEEP_ACTION = 0.40
 # Quantos níveis/objetos varrer no ecrã para procurar a request
 SCAN_MAX_DEPTH = 6
 SCAN_MAX_NODES = 2500
+
+
+def _to_bool(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "sim", "s"}
+
+
+def _called_from_main_env() -> bool:
+    return _to_bool(os.getenv("SAP_CALLED_BY_MAIN", "false"))
+
+
+def _apply_sap_window_mode(session) -> None:
+    mode = str(os.getenv("SAP_WINDOW_MODE", "") or "").strip().lower()
+    if not mode and _to_bool(os.getenv("SAP_WINDOW_MINIMIZE", "false")):
+        mode = "minimize"
+    if not mode:
+        mode = "show"
+
+    try:
+        wnd0 = session.findById("wnd[0]")
+    except Exception:
+        return
+
+    try:
+        if mode in {"minimize", "minimizar", "hidden", "hide", "ocultar", "quiet"}:
+            wnd0.iconify()
+        elif mode in {"show", "mostrar", "visible", "visivel", "exibir"}:
+            wnd0.maximize()
+    except Exception:
+        return
+
+
+def _parse_env_line(line: str):
+    line = (line or "").strip()
+    if not line or line.startswith("#") or "=" not in line:
+        return None, None
+    key, value = line.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+    if not key:
+        return None, None
+    if len(value) >= 2 and (
+        (value.startswith('"') and value.endswith('"')) or
+        (value.startswith("'") and value.endswith("'"))
+    ):
+        value = value[1:-1]
+    return key, value
+
+
+def _load_dotenv_manual():
+    candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+    ]
+    seen = set()
+    for path in candidates:
+        path_abs = os.path.abspath(path)
+        if path_abs in seen:
+            continue
+        seen.add(path_abs)
+        if not os.path.exists(path_abs):
+            continue
+        with open(path_abs, "r", encoding="utf-8-sig") as file_obj:
+            for raw in file_obj:
+                key, value = _parse_env_line(raw)
+                if key and key not in os.environ:
+                    os.environ[key] = value
+        return path_abs
+    return None
+
+
+def _resolve_target_from_ambiente(ambiente_cockpit="", system_name="", client=""):
+    ambiente = str(ambiente_cockpit or "").strip().upper()
+    resolved_system = str(system_name or "").strip().upper()
+    resolved_client = str(client or "").strip()
+
+    if not resolved_system and ambiente in MAPA_SISTEMA:
+        resolved_system = MAPA_SISTEMA[ambiente]
+    if not resolved_client and ambiente in CLIENTES_POR_AMBIENTE:
+        resolved_client = CLIENTES_POR_AMBIENTE[ambiente]
+
+    return resolved_system, resolved_client
 
 
 # =========================
@@ -41,8 +125,9 @@ def start_saplogon_if_needed():
     except Exception:
         pass
 
-    if os.path.exists(SAPLOGON_PATH):
-        subprocess.Popen([SAPLOGON_PATH], shell=False)
+    saplogon_path = os.getenv("SAPLOGON_PATH", SAPLOGON_PATH).strip() or SAPLOGON_PATH
+    if os.path.exists(saplogon_path):
+        subprocess.Popen([saplogon_path], shell=False)
         time.sleep(2.0)
 
 
@@ -64,7 +149,41 @@ def get_sap_session(connection_index=0, session_index=0):
         raise RuntimeError("Conexão SAP sem sessões. Abra uma sessão e faça login.")
 
     session = connection.Children(session_index)
+    _apply_sap_window_mode(session)
     return session
+
+
+def get_sap_session_by_system_client(system_name="", client=""):
+    pythoncom.CoInitialize()
+
+    expected_system = str(system_name or "").strip().upper()
+    expected_client = str(client or "").strip()
+
+    try:
+        sap_gui_auto = win32com.client.GetObject("SAPGUI")
+        application = sap_gui_auto.GetScriptingEngine
+    except Exception:
+        raise RuntimeError("SAP GUI nao esta aberto ou Scripting nao esta ativo.")
+
+    if application.Children.Count == 0:
+        raise RuntimeError("Nenhuma conexao SAP encontrada. Abra o SAP e faca login primeiro.")
+
+    for connection in application.Children:
+        for session in connection.Children:
+            sess_system = str(getattr(session.Info, "SystemName", "")).strip().upper()
+            sess_client = str(getattr(session.Info, "Client", "")).strip()
+
+            if expected_system and sess_system != expected_system:
+                continue
+            if expected_client and sess_client != expected_client:
+                continue
+            _apply_sap_window_mode(session)
+            return session
+
+    raise RuntimeError(
+        f"Nenhuma sessao encontrada para sistema='{expected_system or '*'}' "
+        f"e mandante='{expected_client or '*'}'."
+    )
 
 
 def safe_find(session, sap_id):
@@ -262,6 +381,44 @@ def criar_nova_request(session):
 
 
 # =========================
+# AUTO CREATE (SEM INPUT)
+# =========================
+def criar_nova_request_auto(session, tipo="1", desc=""):
+    tipo = str(tipo).strip()
+    if tipo not in {"1", "2"}:
+        tipo = "1"
+
+    descricao = (desc or "").strip()[:60]
+    if not descricao:
+        descricao = "REQUEST CRIADA VIA SCRIPT"
+
+    ensure_se10(session)
+
+    press(session, "wnd[0]/tbar[1]/btn[6]")
+    if tipo == "2":
+        select_radio_if_exists(session, "wnd[1]/usr/radKO042-REQ_CONS_K")
+    press(session, "wnd[1]/tbar[0]/btn[0]")
+
+    set_text(session, "wnd[1]/usr/txtKO013-AS4TEXT", descricao, caret_pos=len(descricao))
+    press(session, "wnd[1]/tbar[0]/btn[0]")
+
+    req = get_created_request_number(session)
+    if not req:
+        raise RuntimeError("Nao consegui extrair o numero da request criada automaticamente.")
+
+    try:
+        okcd = session.findById("wnd[0]/tbar[0]/okcd")
+        okcd.text = "/n"
+        session.findById("wnd[0]").sendVKey(0)
+        _sleep(0.5)
+    except Exception:
+        pass
+
+    print(f"REQUEST_NUMBER={req}")
+    return req
+
+
+# =========================
 # OPTION 1/2/3 - MENU
 # =========================
 def ask_choice(prompt, allowed):
@@ -292,18 +449,114 @@ def tratar_request(session):
 
 
 # =========================
+# EXECUTAR (COMPATÍVEL COM SAP COCKPIT)
+# =========================
+def executar(
+    ambiente_cockpit=None,
+    request_ctx=None,
+    request_transporte=None,
+    modo_nao_interativo=False,
+    tipo_ordem="customizing",
+    descricao_request="",
+    connection_index=0,
+    session_index=0,
+    system_name="",
+    client="",
+    chamado_pelo_main=False
+):
+    _load_dotenv_manual()
+    called_by_main = bool(chamado_pelo_main) or _called_from_main_env()
+    if called_by_main:
+        modo_nao_interativo = True
+
+    tipo_map = {
+        "1": "1",
+        "2": "2",
+        "customizing": "1",
+        "workbench": "2",
+    }
+    tipo_forcado = tipo_map.get(str(tipo_ordem or "").strip().lower(), "1")
+
+    req_recebida = ""
+    if isinstance(request_ctx, dict):
+        req_recebida = str(request_ctx.get("request_number", "")).strip().upper()
+    if not req_recebida:
+        req_recebida = str(request_transporte or "").strip().upper()
+
+    if req_recebida:
+        print(f"REQUEST_NUMBER={req_recebida}")
+        return req_recebida
+
+    resolved_system, resolved_client = _resolve_target_from_ambiente(
+        ambiente_cockpit=ambiente_cockpit,
+        system_name=system_name,
+        client=client
+    )
+
+    start_saplogon_if_needed()
+    if resolved_system or resolved_client:
+        session = get_sap_session_by_system_client(
+            system_name=resolved_system,
+            client=resolved_client
+        )
+    else:
+        session = get_sap_session(
+            connection_index=connection_index,
+            session_index=session_index
+        )
+
+    if modo_nao_interativo:
+        req = criar_nova_request_auto(
+            session=session,
+            tipo=tipo_forcado,
+            desc=descricao_request
+        )
+    else:
+        req = tratar_request(session)
+
+    return req
+
+
+# =========================
 # MAIN
 # =========================
 def main():
-    start_saplogon_if_needed()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--auto-create", action="store_true")
+    parser.add_argument(
+        "--order-type",
+        default="customizing",
+        help="customizing|workbench|1|2",
+    )
+    parser.add_argument("--description", default="")
+    parser.add_argument("--connection-index", type=int, default=0)
+    parser.add_argument("--session-index", type=int, default=0)
+    parser.add_argument("--system-name", default="")
+    parser.add_argument("--client", default="")
+    parser.add_argument("--from-main", action="store_true")
+    args = parser.parse_args()
+
     try:
-        session = get_sap_session(connection_index=0, session_index=0)
+        req = executar(
+            ambiente_cockpit=None,
+            request_ctx=None,
+            request_transporte=None,
+            modo_nao_interativo=bool(args.auto_create),
+            tipo_ordem=args.order_type,
+            descricao_request=args.description,
+            connection_index=args.connection_index,
+            session_index=args.session_index,
+            system_name=args.system_name,
+            client=args.client,
+            chamado_pelo_main=bool(args.from_main),
+        )
     except Exception as e:
-        print(f"❌ Erro ao conectar ao SAP: {e}")
+        print(f"Erro ao conectar ao SAP: {e}")
         return
 
-    req = tratar_request(session)
-    print(f"\n➡️ Fluxo segue com a request: {req}")
+    print(f"\nFluxo segue com a request: {req}")
 
 
 if __name__ == "__main__":
