@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAP Script Web</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SAP Script</p>
+        <h1>Cockpit SAP via Web</h1>
+        <p class="subtitle">O botão web cria um pedido; o worker Windows executa o teu Cockpit no SAP GUI e devolve sempre o <code>STATUS</code> lido de <code>wnd[0]/sbar</code>.</p>
+      </div>
+      <div class="badge">Docker + Worker Windows</div>
+    </header>
+
+    <section class="grid">
+      <form id="job-form" class="card">
+        <h2>Novo pedido</h2>
+
+        <label>
+          Rotina
+          <select name="task" required>
+            <option value="sap_cockpit">Executar SAP Cockpit</option>
+            <option value="ping_status">Ler STATUS atual do SAP</option>
+            <option value="open_transaction">Abrir transação</option>
+          </select>
+        </label>
+
+        <label>
+          Ambiente
+          <input name="ambiente" placeholder="Ex.: S4Q">
+        </label>
+
+        <label>
+          Processo / pasta
+          <input name="processo" placeholder="Ex.: 01. Clientes">
+        </label>
+
+        <label>
+          Subprocesso / ficheiro .py
+          <input name="subprocesso" placeholder="Ex.: 01. Atualizar.py">
+        </label>
+
+        <label>
+          Caminho do ficheiro Excel no Windows, se a rotina pedir ficheiro
+          <input name="caminho_ficheiro" placeholder="Ex.: C:\\SAP\\ficheiro.xlsx">
+        </label>
+
+        <label>
+          Opção de request
+          <select name="request_option">
+            <option value="4">Não transportar</option>
+            <option value="1">Usar request existente</option>
+            <option value="2">Criar nova request</option>
+          </select>
+        </label>
+
+        <label>
+          Número da request
+          <input name="request_number" placeholder="Ex.: S4QK900396">
+        </label>
+
+        <label>
+          Descrição da nova request
+          <input name="request_desc" placeholder="Ex.: REQUEST CRIADA VIA WEB">
+        </label>
+
+        <label>
+          Tipo da nova request
+          <select name="request_type">
+            <option value="1">Customizing</option>
+            <option value="2">Workbench</option>
+          </select>
+        </label>
+
+        <label>
+          Transação, para teste rápido
+          <input name="transacao" placeholder="Ex.: SE10">
+        </label>
+
+        <button type="submit">Executar</button>
+        <p id="form-message" class="message"></p>
+      </form>
+
+      <section class="card">
+        <div class="section-header">
+          <h2>Fila / Histórico</h2>
+          <button id="refresh-button" type="button" class="secondary">Atualizar</button>
+        </div>
+        <div id="jobs" class="jobs"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const form = document.querySelector('#job-form');
+    const formMessage = document.querySelector('#form-message');
+    const jobsContainer = document.querySelector('#jobs');
+    const refreshButton = document.querySelector('#refresh-button');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      formMessage.textContent = 'A criar pedido...';
+
+      const response = await fetch('/jobs', {
+        method: 'POST',
+        body: new FormData(form)
+      });
+
+      if (!response.ok) {
+        formMessage.textContent = 'Erro ao criar pedido.';
+        return;
+      }
+
+      const job = await response.json();
+      formMessage.textContent = `Pedido criado: ${job.id}`;
+      await loadJobs();
+    });
+
+    refreshButton.addEventListener('click', loadJobs);
+
+    async function loadJobs() {
+      const response = await fetch('/api/jobs?limit=50');
+      const data = await response.json();
+      jobsContainer.innerHTML = '';
+
+      if (!data.jobs.length) {
+        jobsContainer.innerHTML = '<p class="muted">Ainda não existem pedidos.</p>';
+        return;
+      }
+
+      for (const job of data.jobs) {
+        const article = document.createElement('article');
+        article.className = `job ${job.state}`;
+        article.innerHTML = `
+          <div class="job-top">
+            <strong>${escapeHtml(job.task)}</strong>
+            <span>${escapeHtml(job.state)}</span>
+          </div>
+          <p><b>STATUS:</b> ${escapeHtml(job.status || '')}</p>
+          <details>
+            <summary>Detalhes</summary>
+            <pre>${escapeHtml(JSON.stringify(job.params, null, 2))}\n\n${escapeHtml(job.log || '')}</pre>
+          </details>
+          <small>${escapeHtml(job.created_at)} · ${escapeHtml(job.worker_name || 'sem worker')}</small>
+        `;
+        jobsContainer.appendChild(article);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    loadJobs();
+    setInterval(loadJobs, 3000);
+  </script>
+</body>
+</html>
