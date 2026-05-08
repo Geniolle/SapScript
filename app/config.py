@@ -2,7 +2,7 @@ import os
 import re
 
 # Caminhos
-BASE_DIR = r"C:\SAP Script"
+BASE_DIR = os.environ.get("SAP_SCRIPT_PROJECT_DIR", r"C:\SAP Script")
 PROCESSOS_DIR = os.path.join(BASE_DIR, "Processos")
 SAPLOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 

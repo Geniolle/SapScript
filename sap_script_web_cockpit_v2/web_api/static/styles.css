@@ -7,7 +7,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
-.container { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
+.container { width: 100%; padding: 32px; }
 .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .eyebrow { margin: 0 0 8px; color: #486284; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 h1, h2 { margin: 0; }
@@ -35,3 +35,303 @@ button.secondary { background: #e6edf7; color: #172033; }
 pre { overflow: auto; white-space: pre-wrap; background: #111827; color: #e5e7eb; border-radius: 12px; padding: 12px; }
 small { color: #6b7280; }
 @media (max-width: 860px) { .hero, .grid { display: block; } .badge { display: inline-block; margin-top: 12px; } .card { margin-bottom: 20px; } }
+
+/* SAP Script Web - Excel path picker */
+.field-block {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.field-block > label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.path-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.file-picker-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.file-picker-actions button {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.danger-light {
+  color: #8a1f1f;
+}
+
+.selected-file-box {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid #d8e2f0;
+  border-radius: 10px;
+  background: #f8fbff;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.selected-file-box b {
+  color: #0f2347;
+}
+
+/* SAP Script Web - embedded Windows file picker button */
+.path-picker-control {
+  position: relative;
+  width: 100%;
+}
+
+.path-picker-control .path-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 44px;
+}
+
+.path-picker-icon-button {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0f2347;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.path-picker-icon-button:hover {
+  background: #e9f0fb;
+}
+
+.path-picker-icon-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.compact-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.compact-actions button {
+  width: auto;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* SAP Script Web - esconder caixa redundante de ficheiro selecionado */
+.selected-file-box {
+  display: none !important;
+}
+
+/* SAP Script Web - request option visibility */
+.request-field-hidden {
+  display: none !important;
+}
+
+label[hidden] {
+  display: none !important;
+}
+
+/* SAP Script Web - conteÃºdo dos campos sem negrito */
+input,
+select,
+textarea,
+option {
+  font-weight: 400 !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  font-weight: 400 !important;
+}
+
+/* SAP_SCRIPT_FIELD_FONT_WEIGHT_FORCE_START */
+/* Labels ficam em negrito; conteúdo dos campos fica normal */
+#job-form label,
+#job-form .field-block > label {
+  font-weight: 700 !important;
+}
+
+#job-form input,
+#job-form select,
+#job-form textarea,
+#job-form option,
+#job-form optgroup,
+#job-form .path-input {
+  font-weight: 400 !important;
+  font-variation-settings: "wght" 400 !important;
+}
+
+#job-form input::placeholder,
+#job-form textarea::placeholder {
+  font-weight: 400 !important;
+  font-variation-settings: "wght" 400 !important;
+}
+
+#job-form select * {
+  font-weight: 400 !important;
+}
+/* SAP_SCRIPT_FIELD_FONT_WEIGHT_FORCE_END */
+
+/* SAP_SCRIPT_STANDARD_FIELD_FONT_START */
+/* Padronizar escrita dentro dos campos com a fonte do campo Caminho do ficheiro */
+#job-form input,
+#job-form select,
+#job-form textarea,
+#job-form option,
+#job-form optgroup,
+#job-form .path-input {
+  font-family: Consolas, "Courier New", monospace !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  font-variation-settings: "wght" 400 !important;
+  letter-spacing: 0 !important;
+}
+
+#job-form input::placeholder,
+#job-form textarea::placeholder {
+  font-family: Consolas, "Courier New", monospace !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  font-variation-settings: "wght" 400 !important;
+}
+
+#job-form select * {
+  font-family: Consolas, "Courier New", monospace !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+}
+/* SAP_SCRIPT_STANDARD_FIELD_FONT_END */
+
+
+/* SAP Script Web - browser file input */
+.browser-file-input {
+  display: none !important;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 8px;
+  background: #f4f6fb;
+  padding: 4px;
+  border-radius: 12px;
+}
+.tab {
+  background: transparent;
+  color: #526179;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  border: none;
+}
+.tab:hover {
+  background: #e6edf7;
+  color: #172033;
+}
+.tab.active {
+  background: #fff;
+  color: #172033;
+  box-shadow: 0 1px 3px rgba(23,32,51,.1);
+}
+
+/* Modern Terminal Logs */
+.modern-terminal {
+  background: #0d1117;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border: 1px solid #30363d;
+}
+.modern-terminal-header {
+  background: #161b22;
+  padding: 8px 12px;
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid #30363d;
+}
+.term-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.term-dot.red { background: #ff5f56; }
+.term-dot.yellow { background: #ffbd2e; }
+.term-dot.green { background: #27c93f; }
+.modern-terminal-body {
+  padding: 12px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  color: #c9d1d9;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.log-line {
+  margin-bottom: 4px;
+  word-wrap: break-word;
+}
+.log-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  margin-right: 8px;
+  color: #fff;
+}
+.log-badge.info { background: #0ea5e9; }
+.log-badge.ok { background: #22c55e; }
+.log-badge.warn { background: #eab308; }
+.log-badge.erro { background: #ef4444; }
+.log-step {
+  margin: 12px 0 8px 0;
+  padding: 6px 10px;
+  background: #1f2937;
+  border-left: 4px solid #3b82f6;
+  font-weight: bold;
+  color: #f3f4f6;
+  border-radius: 0 4px 4px 0;
+}
+.cursor-blink {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: #c9d1d9;
+  vertical-align: middle;
+  animation: blink 1s step-end infinite;
+  margin-left: 4px;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

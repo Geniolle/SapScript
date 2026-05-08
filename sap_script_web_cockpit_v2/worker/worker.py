@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import socket
@@ -22,7 +22,7 @@ def headers() -> dict[str, str]:
 
 def claim_next_job() -> dict[str, Any] | None:
     response = requests.get(
-        f"{API_BASE_URL}/api/jobs/next",
+        f"{API_BASE_URL}/api/worker/jobs/next",
         params={"worker_name": WORKER_NAME},
         headers=headers(),
         timeout=30,
@@ -72,3 +72,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

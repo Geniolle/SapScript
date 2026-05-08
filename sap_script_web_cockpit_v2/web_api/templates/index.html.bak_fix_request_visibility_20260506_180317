@@ -1,0 +1,476 @@
+﻿<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAP Script Web</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SAP Script</p>
+        <h1>Cockpit SAP via Web</h1>
+        <p class="subtitle">O botão web cria um pedido; o worker Windows executa o teu Cockpit no SAP GUI e devolve sempre o <code>STATUS</code> lido de <code>wnd[0]/sbar</code>.</p>
+      </div>
+      <div class="badge">Docker + Worker Windows</div>
+    </header>
+
+    <section class="grid">
+      <form id="job-form" class="card">
+        <h2>Novo pedido</h2>
+
+        <label>
+          Rotina
+          <select name="task" required>
+            <option value="sap_cockpit">Executar SAP Cockpit</option>
+            <option value="ping_status">Ler STATUS atual do SAP</option>
+            <option value="open_transaction">Abrir transação</option>
+          </select>
+        </label>
+
+        <label>
+          Ambiente
+          <select name="ambiente">
+            <option value="">Selecione o ambiente</option>
+            {% for ambiente in ambientes %}
+              <option value="{{ ambiente.codigo }}">
+                {{ ambiente.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Processo / pasta
+          <select name="processo" id="processo-select">
+            <option value="">Selecione o processo</option>
+            {% for processo in processos %}
+              <option value="{{ processo.nome }}">
+                {{ processo.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Subprocesso / ficheiro .py
+          <select name="subprocesso" id="subprocesso-select">
+            <option value="">Selecione primeiro o processo</option>
+          </select>
+        </label>
+
+        <div class="field-block">
+          <label for="caminho-ficheiro-input">
+            Caminho do ficheiro
+          </label>
+
+          <div class="path-picker-control">
+            <input
+              name="caminho_ficheiro"
+              id="caminho-ficheiro-input"
+              class="path-input"
+              placeholder="Selecionar ficheiro"
+              autocomplete="off"
+              readonly
+            >
+
+            <button
+              type="button"
+              id="select-excel-button"
+              class="path-picker-icon-button"
+              title="Selecionar ficheiro no Windows"
+              aria-label="Selecionar ficheiro no Windows"
+            >
+              <span aria-hidden="true">□</span>
+            </button>
+          </div>
+
+          <div class="file-picker-actions compact-actions">
+            <button type="button" id="clear-excel-button" class="secondary danger-light">
+              Limpar caminho
+            </button>
+          </div>
+
+          <div id="selected-file-box" class="selected-file-box muted">
+            Nenhum ficheiro selecionado.
+          </div>
+        </div>
+
+        <label>
+          Opção de request
+          <select name="request_option" id="request-option-select">
+            <option value="4">Não transportar</option>
+            <option value="1">Usar request existente</option>
+            <option value="2">Criar nova request</option>
+          </select>
+        </label>
+
+        <label id="request-number-field">
+          Número da request
+          <input name="request_number" id="request-number-input" placeholder="Ex.: S4QK900396">
+        </label>
+
+        <label id="request-desc-field">
+          Descrição da nova request
+          <input name="request_desc" id="request-desc-input" placeholder="Ex.: REQUEST CRIADA VIA WEB">
+        </label>
+
+        <label id="request-type-field">
+          Tipo da nova request
+          <select name="request_type" id="request-type-select">
+            <option value="1">Customizing</option>
+            <option value="2">Workbench</option>
+          </select>
+        </label>
+
+        <label>
+          Transação, para teste rápido
+          <input name="transacao" placeholder="Ex.: SE10">
+        </label>
+
+        <button type="submit">Executar</button>
+        <p id="form-message" class="message"></p>
+      </form>
+
+      <section class="card">
+        <div class="section-header">
+          <h2>Fila / Histórico</h2>
+          <button id="refresh-button" type="button" class="secondary">Atualizar</button>
+        </div>
+        <div id="jobs" class="jobs"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const STORAGE_KEY_EXCEL_PATH = 'sap_script_web_last_excel_path';
+
+    const form = document.querySelector('#job-form');
+    const formMessage = document.querySelector('#form-message');
+    const jobsContainer = document.querySelector('#jobs');
+    const refreshButton = document.querySelector('#refresh-button');
+
+    const processoSelect = document.querySelector('#processo-select');
+    const subprocessoSelect = document.querySelector('#subprocesso-select');
+
+    const caminhoFicheiroInput = document.querySelector('#caminho-ficheiro-input');
+    const selectedFileBox = document.querySelector('#selected-file-box');
+    const selectExcelButton = document.querySelector('#select-excel-button');
+    const clearExcelButton = document.querySelector('#clear-excel-button');
+
+    const requestOptionSelect = document.querySelector('#request-option-select');
+    const requestNumberField = document.querySelector('#request-number-field');
+    const requestDescField = document.querySelector('#request-desc-field');
+    const requestTypeField = document.querySelector('#request-type-field');
+
+    const requestNumberInput = document.querySelector('#request-number-input');
+    const requestDescInput = document.querySelector('#request-desc-input');
+    const requestTypeSelect = document.querySelector('#request-type-select');
+
+    restoreLastExcelPath();
+    updateRequestFieldsVisibility();
+
+    processoSelect.addEventListener('change', async () => {
+      await loadSubprocessos();
+    });
+
+    selectExcelButton.addEventListener('click', async () => {
+      await selectExcelFileOnWindows();
+    });
+
+    clearExcelButton.addEventListener('click', () => {
+      setExcelPath('');
+      formMessage.textContent = 'Caminho do ficheiro limpo.';
+    });
+
+    requestOptionSelect.addEventListener('change', () => {
+      updateRequestFieldsVisibility();
+    });
+
+    function updateRequestFieldsVisibility() {
+      const option = requestOptionSelect.value || '4';
+
+      const isNaoTransportar = option === '4';
+      const isUsarExistente = option === '1';
+      const isCriarNova = option === '2';
+
+      setFieldVisible(requestNumberField, requestNumberInput, isUsarExistente);
+      setFieldVisible(requestDescField, requestDescInput, isCriarNova);
+      setFieldVisible(requestTypeField, requestTypeSelect, isCriarNova);
+
+      requestNumberInput.required = isUsarExistente;
+      requestDescInput.required = false;
+      requestTypeSelect.required = isCriarNova;
+
+      if (isNaoTransportar) {
+        requestNumberInput.value = '';
+        requestDescInput.value = '';
+        requestTypeSelect.value = '1';
+      }
+
+      if (isUsarExistente) {
+        requestDescInput.value = '';
+        requestTypeSelect.value = '1';
+      }
+
+      if (isCriarNova) {
+        requestNumberInput.value = '';
+      }
+    }
+
+    function setFieldVisible(fieldElement, inputElement, visible) {
+      if (visible) {
+        fieldElement.hidden = false;
+        inputElement.disabled = false;
+      }
+      else {
+        fieldElement.hidden = true;
+        inputElement.disabled = true;
+      }
+    }
+
+    function restoreLastExcelPath() {
+      const savedPath = localStorage.getItem(STORAGE_KEY_EXCEL_PATH) || '';
+      setExcelPath(savedPath, false);
+    }
+
+    function setExcelPath(path, persist = true) {
+      const cleanPath = String(path || '').trim();
+
+      caminhoFicheiroInput.value = cleanPath;
+      caminhoFicheiroInput.title = cleanPath;
+
+      if (cleanPath) {
+        selectedFileBox.classList.remove('muted');
+        selectedFileBox.innerHTML = `<b>Selecionado:</b><br>${escapeHtml(cleanPath)}`;
+
+        if (persist) {
+          localStorage.setItem(STORAGE_KEY_EXCEL_PATH, cleanPath);
+        }
+      }
+      else {
+        selectedFileBox.classList.add('muted');
+        selectedFileBox.textContent = 'Nenhum ficheiro selecionado.';
+
+        if (persist) {
+          localStorage.removeItem(STORAGE_KEY_EXCEL_PATH);
+        }
+      }
+    }
+
+    async function selectExcelFileOnWindows() {
+      formMessage.textContent = 'A abrir janela de seleção no Windows...';
+      selectExcelButton.disabled = true;
+      clearExcelButton.disabled = true;
+
+      try {
+        const payload = new FormData();
+        payload.append('task', 'select_excel_file');
+        payload.append('ambiente', '');
+        payload.append('processo', processoSelect.value || '');
+        payload.append('subprocesso', subprocessoSelect.value || '');
+        payload.append('request_option', '4');
+        payload.append('request_number', '');
+        payload.append('request_desc', '');
+        payload.append('request_type', '1');
+        payload.append('caminho_ficheiro', caminhoFicheiroInput.value || '');
+        payload.append('transacao', '');
+
+        const response = await fetch('/jobs', {
+          method: 'POST',
+          body: payload
+        });
+
+        if (!response.ok) {
+          formMessage.textContent = 'Erro ao pedir abertura da janela no Windows.';
+          return;
+        }
+
+        const job = await response.json();
+        const selectedPath = await waitForJobResult(job.id, 180000);
+
+        setExcelPath(selectedPath);
+        formMessage.textContent = 'Ficheiro selecionado com sucesso.';
+
+        await loadJobs();
+      }
+      catch (error) {
+        formMessage.textContent = error.message || 'Erro ao selecionar ficheiro no Windows.';
+      }
+      finally {
+        selectExcelButton.disabled = false;
+        clearExcelButton.disabled = false;
+      }
+    }
+
+    async function waitForJobResult(jobId, timeoutMs) {
+      const startedAt = Date.now();
+
+      while (Date.now() - startedAt <= timeoutMs) {
+        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+
+        if (!response.ok) {
+          throw new Error('Não foi possível consultar a seleção de ficheiro.');
+        }
+
+        const job = await response.json();
+
+        if (job.state === 'succeeded') {
+          const selectedPath = String(job.status || '').trim();
+
+          if (!selectedPath) {
+            throw new Error('O worker concluiu, mas não devolveu caminho de ficheiro.');
+          }
+
+          return selectedPath;
+        }
+
+        if (job.state === 'failed') {
+          const message = job.status || job.log || 'Seleção de ficheiro cancelada ou falhou no worker.';
+          throw new Error(message);
+        }
+
+        await sleep(1000);
+      }
+
+      throw new Error('Tempo esgotado. Confirme se o worker Windows está ligado.');
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function loadSubprocessos() {
+      const processo = processoSelect.value || '';
+
+      subprocessoSelect.innerHTML = '';
+
+      if (!processo) {
+        addSubprocessoOption('', 'Selecione primeiro o processo');
+        return;
+      }
+
+      addSubprocessoOption('', 'A carregar subprocessos...');
+
+      try {
+        const response = await fetch(`/api/subprocesses?processo=${encodeURIComponent(processo)}`);
+
+        if (!response.ok) {
+          subprocessoSelect.innerHTML = '';
+          addSubprocessoOption('', 'Erro ao carregar subprocessos');
+          return;
+        }
+
+        const data = await response.json();
+        const subprocessos = data.subprocesses || [];
+
+        subprocessoSelect.innerHTML = '';
+
+        if (!subprocessos.length) {
+          addSubprocessoOption('', 'Nenhum subprocesso .py encontrado');
+          return;
+        }
+
+        addSubprocessoOption('', 'Selecione o subprocesso');
+
+        for (const subprocesso of subprocessos) {
+          addSubprocessoOption(subprocesso.nome, subprocesso.label);
+        }
+      }
+      catch {
+        subprocessoSelect.innerHTML = '';
+        addSubprocessoOption('', 'Erro ao carregar subprocessos');
+      }
+    }
+
+    function addSubprocessoOption(value, text) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      subprocessoSelect.appendChild(option);
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      formMessage.textContent = 'A criar pedido...';
+
+      updateRequestFieldsVisibility();
+
+      const task = form.querySelector('select[name="task"]').value;
+      const processo = form.querySelector('select[name="processo"]').value;
+      const subprocesso = form.querySelector('select[name="subprocesso"]').value;
+      const requestOption = requestOptionSelect.value || '4';
+
+      if (task === 'sap_cockpit' && (!processo || !subprocesso)) {
+        formMessage.textContent = 'Para Executar SAP Cockpit, selecione Processo e Subprocesso.';
+        return;
+      }
+
+      if (requestOption === '1' && !requestNumberInput.value.trim()) {
+        formMessage.textContent = 'Para usar request existente, preencha o Número da request.';
+        requestNumberInput.focus();
+        return;
+      }
+
+      const response = await fetch('/jobs', {
+        method: 'POST',
+        body: new FormData(form)
+      });
+
+      if (!response.ok) {
+        formMessage.textContent = 'Erro ao criar pedido.';
+        return;
+      }
+
+      const job = await response.json();
+      formMessage.textContent = `Pedido criado: ${job.id}`;
+      await loadJobs();
+    });
+
+    refreshButton.addEventListener('click', loadJobs);
+
+    async function loadJobs() {
+      const response = await fetch('/api/jobs?limit=50');
+      const data = await response.json();
+      jobsContainer.innerHTML = '';
+
+      if (!data.jobs.length) {
+        jobsContainer.innerHTML = '<p class="muted">Ainda não existem pedidos.</p>';
+        return;
+      }
+
+      for (const job of data.jobs) {
+        const article = document.createElement('article');
+        article.className = `job ${job.state}`;
+        article.innerHTML = `
+          <div class="job-top">
+            <strong>${escapeHtml(job.task)}</strong>
+            <span>${escapeHtml(job.state)}</span>
+          </div>
+          <p><b>STATUS:</b> ${escapeHtml(job.status || '')}</p>
+          <details>
+            <summary>Detalhes</summary>
+            <pre>${escapeHtml(JSON.stringify(job.params, null, 2))}\n\n${escapeHtml(job.log || '')}</pre>
+          </details>
+          <small>${escapeHtml(job.created_at)} · ${escapeHtml(job.worker_name || 'sem worker')}</small>
+        `;
+        jobsContainer.appendChild(article);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    loadJobs();
+    setInterval(loadJobs, 3000);
+  </script>
+</body>
+</html>

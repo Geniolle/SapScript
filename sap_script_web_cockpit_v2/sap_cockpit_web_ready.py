@@ -1017,6 +1017,9 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
 
     session, connection = _encontrar_sessao_do_sistema(application, sistema_desejado)
 
+    if session is not None:
+        info(f"Sessao ativa encontrada para o sistema {sistema_desejado}. A reaproveitar...")
+
     if session is None:
         if not _tem_alguma_sessao_ativa(application):
             try:
@@ -1132,11 +1135,9 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
         ambiente_cockpit = selecionar_ambiente(payload=payload, interactive=False)
         sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
 
-        log_lines.append(f"Ambiente: {ambiente_cockpit}")
-        log_lines.append(f"Sistema: {sistema_desejado}")
+        info(f"Iniciando execucao. Ambiente: {ambiente_cockpit} | Sistema: {sistema_desejado}")
 
         session, _connection = obter_sessao_sap(ambiente_cockpit, interactive=False)
-        log_lines.append(f"Sessao SAP: {session.Info.SystemName} / client {session.Info.Client} / user {session.Info.User}")
 
         caminho_processo = selecionar_pasta_processo(payload=payload, interactive=False)
         log_lines.append(f"Processo: {caminho_processo}")

@@ -1,0 +1,37 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+  background: #f4f6fb;
+  color: #172033;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+.container { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
+.hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.eyebrow { margin: 0 0 8px; color: #486284; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+h1, h2 { margin: 0; }
+h1 { font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1; }
+h2 { font-size: 1.25rem; margin-bottom: 18px; }
+.subtitle { max-width: 760px; color: #526179; font-size: 1.05rem; line-height: 1.55; }
+code { background: #e6edf7; border-radius: 6px; padding: 2px 6px; }
+.badge { background: #172033; color: #fff; border-radius: 999px; padding: 10px 14px; white-space: nowrap; font-weight: 700; }
+.grid { display: grid; grid-template-columns: 420px 1fr; gap: 20px; }
+.card { background: #fff; border: 1px solid #dde5f2; border-radius: 22px; box-shadow: 0 20px 40px rgba(23,32,51,.08); padding: 22px; }
+label { display: grid; gap: 7px; color: #3e4a5f; font-weight: 700; margin-bottom: 14px; }
+input, select { width: 100%; border: 1px solid #cfd9e8; border-radius: 12px; padding: 12px; font: inherit; color: #172033; background: #fff; }
+button { border: 0; border-radius: 12px; padding: 12px 16px; font: inherit; font-weight: 800; color: #fff; background: #2563eb; cursor: pointer; }
+button.secondary { background: #e6edf7; color: #172033; }
+.section-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.message, .muted { color: #526179; }
+.jobs { display: grid; gap: 12px; }
+.job { border: 1px solid #dce6f5; border-left-width: 6px; border-radius: 16px; padding: 14px; background: #fbfdff; }
+.job.pending { border-left-color: #a3aab8; }
+.job.running { border-left-color: #f59e0b; }
+.job.succeeded { border-left-color: #10b981; }
+.job.failed { border-left-color: #ef4444; }
+.job-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.job-top span { border-radius: 999px; padding: 4px 9px; background: #e6edf7; font-size: .85rem; font-weight: 800; }
+pre { overflow: auto; white-space: pre-wrap; background: #111827; color: #e5e7eb; border-radius: 12px; padding: 12px; }
+small { color: #6b7280; }
+@media (max-width: 860px) { .hero, .grid { display: block; } .badge { display: inline-block; margin-top: 12px; } .card { margin-bottom: 20px; } }

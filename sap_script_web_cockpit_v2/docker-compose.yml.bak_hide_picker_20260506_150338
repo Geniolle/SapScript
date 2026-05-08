@@ -1,0 +1,17 @@
+﻿services:
+  sap-script-web:
+    build: .
+    container_name: sap-script-web
+    ports:
+      - "8010:8000"
+    environment:
+      DATA_DIR: /data
+      WORKER_TOKEN: change-me
+      SAP_SCRIPT_PROJECT_DIR: /sap-script
+    volumes:
+      - sap_script_data:/data
+      - ..:/sap-script:ro
+    restart: unless-stopped
+
+volumes:
+  sap_script_data:
