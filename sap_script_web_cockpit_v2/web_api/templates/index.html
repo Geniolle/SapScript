@@ -30,6 +30,83 @@
       to { transform: rotate(360deg); }
     }
 
+    /* Sidebar Processos Dropdown */
+    .nav-sub-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .nav-item-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      color: #d1d5db;
+      text-decoration: none;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s;
+      cursor: pointer;
+      user-select: none;
+    }
+    .nav-item-toggle:hover {
+      background-color: var(--sidebar-hover);
+      color: white;
+    }
+    .nav-item-toggle.open {
+      background-color: var(--sidebar-hover);
+      color: white;
+      border-radius: 12px 12px 4px 4px;
+    }
+    .nav-toggle-arrow {
+      font-size: 10px;
+      transition: transform 0.25s ease;
+      opacity: 0.7;
+    }
+    .nav-item-toggle.open .nav-toggle-arrow {
+      transform: rotate(180deg);
+    }
+    .nav-sub-list {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.25s ease;
+      opacity: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 0 0 10px 10px;
+      padding: 0 6px;
+    }
+    .nav-sub-list.open {
+      max-height: 400px;
+      opacity: 1;
+      padding: 6px 6px;
+    }
+    .nav-sub-item {
+      padding: 8px 14px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #9ca3af;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .nav-sub-item:hover {
+      background: rgba(255,255,255,0.08);
+      color: white;
+    }
+    .nav-sub-loading {
+      padding: 8px 14px;
+      font-size: 0.78rem;
+      color: #6b7280;
+      font-style: italic;
+    }
+
     /* Stages Checklist Grid Styling */
     .stages-checklist {
       background: rgba(255, 255, 255, 0.02);
@@ -186,7 +263,15 @@
       <nav class="nav-menu">
         <a class="nav-item active">Visão geral</a>
         <a class="nav-item">Jobs SAP</a>
-        <a class="nav-item">Processos</a>
+        <div class="nav-sub-wrapper">
+          <a class="nav-item-toggle" id="nav-processos-toggle" onclick="toggleProcessosMenu()">
+            <span>Processos</span>
+            <span class="nav-toggle-arrow">&#9660;</span>
+          </a>
+          <div class="nav-sub-list" id="nav-processos-sub">
+            <div class="nav-sub-loading" id="nav-processos-loading">A carregar...</div>
+          </div>
+        </div>
         <a class="nav-item">Requests</a>
         <a class="nav-item">Ficheiros</a>
         <a class="nav-item">Histórico</a>
@@ -458,6 +543,64 @@
     let allJobs = [];
     let isConnectingWorker = false;
     let connectingTimeout = null;
+
+    // --- Sidebar: Processos Dropdown ---
+    let processosLoaded = false;
+    let processosMenuOpen = false;
+
+    function toggleProcessosMenu() {
+      const toggle = document.getElementById('nav-processos-toggle');
+      const sub = document.getElementById('nav-processos-sub');
+      processosMenuOpen = !processosMenuOpen;
+      toggle.classList.toggle('open', processosMenuOpen);
+      sub.classList.toggle('open', processosMenuOpen);
+      if (processosMenuOpen && !processosLoaded) {
+        loadProcessosMenu();
+      }
+    }
+
+    async function loadProcessosMenu() {
+      const sub = document.getElementById('nav-processos-sub');
+      const loading = document.getElementById('nav-processos-loading');
+      try {
+        const res = await fetch('/api/processes', { cache: 'no-store' });
+        const data = await res.json();
+        const processos = data.processes || [];
+        if (loading) loading.remove();
+        if (processos.length === 0) {
+          sub.innerHTML = '<div class="nav-sub-loading">Nenhum processo encontrado.</div>';
+        } else {
+          sub.innerHTML = processos.map(p => `
+            <div class="nav-sub-item" title="${escapeHtml(p.nome)}" onclick="selectProcessoFromMenu('${escapeHtml(p.nome)}')">
+              📁 ${escapeHtml(p.nome)}
+            </div>
+          `).join('');
+        }
+        processosLoaded = true;
+      } catch (err) {
+        if (loading) loading.textContent = 'Erro ao carregar processos.';
+      }
+    }
+
+    function selectProcessoFromMenu(nome) {
+      // Pré-preenche o select de Processo no modal Novo Job e abre o modal
+      const processoSelect = document.getElementById('processo-select');
+      if (processoSelect) {
+        processoSelect.value = nome;
+        processoSelect.dispatchEvent(new Event('change'));
+      }
+      const modal = document.getElementById('modal-novo-job');
+      if (modal) {
+        document.getElementById('job-form').reset();
+        if (processoSelect) {
+          processoSelect.value = nome;
+          processoSelect.dispatchEvent(new Event('change'));
+        }
+        document.getElementById('request-option-select').dispatchEvent(new Event('change'));
+        modal.classList.add('active');
+      }
+    }
+
     let currentTab = 'running';
     let activeJobId = null;
     let activeJobDetailsExpanded = true;
