@@ -332,6 +332,17 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                     self.thread = threading.Thread(target=self._sender_loop, daemon=True)
                     self.thread.start()
 
+                def _is_progress_line(self, line: str) -> bool:
+                    import re
+                    clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
+                    if '\r' in clean:
+                        return True
+                    if any(c in clean for c in ['━', '█', '░', '▒', '▓', '▕', '▏']):
+                        return True
+                    if re.search(r'\d+%\s*\(\d+/\d+\)', clean):
+                        return True
+                    return False
+
                 def write(self, data):
                     self.original.write(data)
                     self.buffer += data
@@ -339,24 +350,37 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                         lines = self.buffer.split('\n')
                         self.buffer = lines.pop()
                         for line in lines:
-                            if line.strip():
-                                self.queue.put(line.strip())
+                            cleaned_line = line.strip()
+                            if cleaned_line and not self._is_progress_line(cleaned_line):
+                                self.queue.put(cleaned_line)
 
                 def flush(self):
                     self.original.flush()
-                    if self.buffer.strip():
-                        self.queue.put(self.buffer.strip())
+                    cleaned_line = self.buffer.strip()
+                    if cleaned_line and not self._is_progress_line(cleaned_line):
+                        self.queue.put(cleaned_line)
                         self.buffer = ""
 
                 def _sender_loop(self):
                     while self.running or not self.queue.empty():
                         try:
-                            line = self.queue.get(timeout=0.5)
+                            # Aguarda no máximo 0.5s por uma nova linha
+                            first_line = self.queue.get(timeout=0.5)
+                            lines = [first_line]
+                            
+                            # Esvazia a fila para agrupar o máximo de linhas possível (até 50 linhas)
+                            while len(lines) < 50:
+                                try:
+                                    lines.append(self.queue.get_nowait())
+                                except queue.Empty:
+                                    break
+                            
+                            batch_data = "\n".join(lines)
                             try:
                                 r = requests.post(
                                     f"{self.api_url}/api/jobs/{self.job_id}/log",
                                     headers={"X-Worker-Token": self.token},
-                                    json={"log_line": line},
+                                    json={"log_line": batch_data},
                                     timeout=5
                                 )
                                 if r.status_code == 409:
@@ -365,8 +389,8 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                                         ctypes.py_object(JobCancelledException)
                                     )
                                     time.sleep(1.5)
-                                    print("\n⚠️ Log stream detectou cancelamento. A fechar PowerShell e a terminar o worker...")
-                                    sys.stdout.flush()
+                                    self.original.write("\n⚠️ Log stream detectou cancelamento. A fechar PowerShell e a terminar o worker...\n")
+                                    self.original.flush()
                                     try:
                                         pythoncom.CoInitialize()
                                         session = get_any_session()
@@ -377,8 +401,8 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                                         pass
                                     _force_terminate_worker()
                             except Exception as le:
-                                print(f"\n[DEBUG LOG STREAM] Erro: {le}")
-                                sys.stdout.flush()
+                                self.original.write(f"\n[DEBUG LOG STREAM] Erro: {le}\n")
+                                self.original.flush()
                         except queue.Empty:
                             pass
 
