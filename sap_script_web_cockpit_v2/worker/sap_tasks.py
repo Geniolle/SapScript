@@ -362,49 +362,59 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                         self.buffer = ""
 
                 def _sender_loop(self):
+                    # Janela de acumulação: aguarda até 300ms colhendo linhas antes de enviar.
+                    # Isso reduz o número de requisições HTTP quando o script é muito verboso.
+                    BATCH_WINDOW_S = 0.30
                     while self.running or not self.queue.empty():
-                        try:
-                            # Aguarda no máximo 0.5s por uma nova linha
-                            first_line = self.queue.get(timeout=0.5)
-                            lines = [first_line]
-                            
-                            # Esvazia a fila para agrupar o máximo de linhas possível (até 50 linhas)
-                            while len(lines) < 50:
-                                try:
-                                    lines.append(self.queue.get_nowait())
-                                except queue.Empty:
-                                    break
-                            
-                            batch_data = "\n".join(lines)
+                        lines = []
+                        deadline = time.monotonic() + BATCH_WINDOW_S
+                        
+                        # Colhe linhas durante a janela de tempo
+                        while time.monotonic() < deadline:
+                            remaining = max(0.01, deadline - time.monotonic())
                             try:
-                                r = requests.post(
-                                    f"{self.api_url}/api/jobs/{self.job_id}/log",
-                                    headers={"X-Worker-Token": self.token},
-                                    json={"log_line": batch_data},
-                                    timeout=5
+                                lines.append(self.queue.get(timeout=remaining))
+                            except queue.Empty:
+                                break
+                        
+                        # Esvazia o restante da fila sem esperar (até 200 linhas no total)
+                        while len(lines) < 200:
+                            try:
+                                lines.append(self.queue.get_nowait())
+                            except queue.Empty:
+                                break
+
+                        if not lines:
+                            continue
+
+                        batch_data = "\n".join(lines)
+                        try:
+                            r = requests.post(
+                                f"{self.api_url}/api/jobs/{self.job_id}/log",
+                                headers={"X-Worker-Token": self.token},
+                                json={"log_line": batch_data},
+                                timeout=5
+                            )
+                            if r.status_code == 409:
+                                ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                                    ctypes.c_long(self.main_thread_id),
+                                    ctypes.py_object(JobCancelledException)
                                 )
-                                if r.status_code == 409:
-                                    ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                                        ctypes.c_long(self.main_thread_id),
-                                        ctypes.py_object(JobCancelledException)
-                                    )
-                                    time.sleep(1.5)
-                                    self.original.write("\n⚠️ Log stream detectou cancelamento. A fechar PowerShell e a terminar o worker...\n")
-                                    self.original.flush()
-                                    try:
-                                        pythoncom.CoInitialize()
-                                        session = get_any_session()
-                                        if session:
-                                            conn = session.Parent
-                                            conn.CloseSession(session.Id)
-                                    except Exception:
-                                        pass
-                                    _force_terminate_worker()
-                            except Exception as le:
-                                self.original.write(f"\n[DEBUG LOG STREAM] Erro: {le}\n")
+                                time.sleep(1.5)
+                                self.original.write("\n⚠️ Log stream detectou cancelamento. A fechar PowerShell e a terminar o worker...\n")
                                 self.original.flush()
-                        except queue.Empty:
-                            pass
+                                try:
+                                    pythoncom.CoInitialize()
+                                    session = get_any_session()
+                                    if session:
+                                        conn = session.Parent
+                                        conn.CloseSession(session.Id)
+                                except Exception:
+                                    pass
+                                _force_terminate_worker()
+                        except Exception as le:
+                            self.original.write(f"\n[DEBUG LOG STREAM] Erro: {le}\n")
+                            self.original.flush()
 
                 def close(self):
                     self.flush()
