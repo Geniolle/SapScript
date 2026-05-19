@@ -226,18 +226,82 @@ def _set_max_ocorrencias(session, max_rows="5000"):
     return False
 
 
+def _find_table_control(session):
+    try:
+        root = session.findById("wnd[0]/usr")
+    except Exception:
+        return None
+    stack = [root]
+    while stack:
+        obj = stack.pop()
+        try:
+            if obj.Name == "tblSAPLSE16NSELFIELDS_TC":
+                return obj
+        except Exception:
+            pass
+        try:
+            cnt = obj.Children.Count
+            for i in range(cnt):
+                stack.append(obj.Children(i))
+        except Exception:
+            pass
+    return None
+
+
+def _set_low_value(session, tbl_id, row_idx, value):
+    for prefix in ["ctxt", "txt"]:
+        target_id = f"{tbl_id}/{prefix}GS_SELFIELDS-LOW[2,{row_idx}]"
+        if _try_set_text(session, target_id, value):
+            return True
+    return False
+
+
 def _aplicar_filtros_base(session, user):
-    ok1 = _try_set_text(
-        session,
-        "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC/ctxtGS_SELFIELDS-LOW[2,2]",
-        "D",
-    )
-    ok2 = _try_set_text(
-        session,
-        "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC/ctxtGS_SELFIELDS-LOW[2,5]",
-        user,
-    )
-    return ok1 and ok2
+    tbl = _find_table_control(session)
+    if not tbl:
+        tbl_id = "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC"
+        row_count = 10
+    else:
+        tbl_id = tbl.Id
+        try:
+            row_count = int(tbl.RowCount)
+        except Exception:
+            row_count = 10
+
+    status_set = False
+    user_set = False
+
+    for r in range(row_count):
+        fieldname = ""
+        for prefix in ["txt", "ctxt"]:
+            try:
+                fname_id = f"{tbl_id}/{prefix}GS_SELFIELDS-FIELDNAME[13,{r}]"
+                fieldname = session.findById(fname_id).text.strip().upper()
+                if fieldname:
+                    break
+            except Exception:
+                pass
+
+        if not fieldname:
+            continue
+
+        if fieldname == "TRSTATUS":
+            if _set_low_value(session, tbl_id, r, "D"):
+                status_set = True
+            else:
+                print(f"⚠️ Falha ao definir filtro TRSTATUS na linha {r}")
+
+        elif fieldname == "AS4USER":
+            if _set_low_value(session, tbl_id, r, user):
+                user_set = True
+            else:
+                print(f"⚠️ Falha ao definir filtro AS4USER na linha {r}")
+
+        if status_set and user_set:
+            break
+
+    return status_set and user_set
+
 
 
 def _press_execute(session):
@@ -428,12 +492,24 @@ def listar_requests(
     _set_max_ocorrencias(work_session, max_rows=max_rows)
 
     if not _aplicar_filtros_base(work_session, user):
-        print("⚠️ Não consegui aplicar TRSTATUS/AS4USER pelos IDs esperados (layout SE16H diferente). Vou executar mesmo assim.")
+        print("⚠️ Não consegui aplicar TRSTATUS/AS4USER de forma dinâmica. Vou executar mesmo assim.")
 
     if not _press_execute(work_session):
         if created_new and close_after:
             _close_window(work_session)
         raise RuntimeError("Falha ao executar a consulta no SE16H do SAP GUI.")
+
+    # Verificação de mensagens de "nenhuma entrada" na barra de status
+    try:
+        sbar = work_session.findById("wnd[0]/sbar")
+        sbar_text = str(sbar.Text).strip().lower()
+        if sbar_text and any(term in sbar_text for term in ["nenhum", "no entries", "no values", "not found", "no matching"]):
+            print(f"ℹ️ SAP Status Bar: {sbar.Text}")
+            if created_new and close_after:
+                _close_window(work_session)
+            return []
+    except Exception:
+        pass
 
     grid = _find_best_grid(work_session)
     if not grid:
@@ -534,5 +610,7 @@ if __name__ == "__main__":
             close_after=close_after,
         )
     except Exception as e:
-        print(f"❌ Erro fatal: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(f"[ERRO] Erro fatal: {e}", file=sys.stderr)
         sys.exit(1)
