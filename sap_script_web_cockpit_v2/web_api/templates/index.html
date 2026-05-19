@@ -292,6 +292,23 @@
       background-color: #ffffff;
       color: var(--text-primary);
     }
+    /* Select bloqueado pelo menu lateral */
+    select.select-locked {
+      background-color: #f9fafb !important;
+      color: #6b7280 !important;
+      cursor: not-allowed !important;
+      border-color: #e5e7eb !important;
+      pointer-events: none;
+    }
+    .select-lock-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 4px;
+      font-style: italic;
+    }
     .realtime-log {
       height: 480px !important;
       margin-top: 16px !important;
@@ -333,6 +350,10 @@
         <strong id="env-display">---</strong>
         <span id="worker-status-indicator" class="status-dot"></span>
         <div id="worker-status-text" style="font-size: 11px; margin-top: 4px; color: #9ca3af;">A verificar...</div>
+        <button type="button" id="start-worker-btn" class="btn-start-worker-sidebar" style="display: none;">
+          <span class="server-icon">🖥️</span>
+          <span>Ligar Worker</span>
+        </button>
       </div>
     </aside>
 
@@ -346,7 +367,6 @@
           <p>Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.</p>
         </div>
         <div class="header-actions">
-          <button type="button" id="start-worker-btn" class="btn btn-danger" style="display: none;">Ligar Worker</button>
           <button type="button" id="refresh-button" class="btn btn-secondary" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
           <button type="button" id="new-job-btn" class="btn btn-primary">Novo job</button>
         </div>
@@ -688,7 +708,6 @@
       if (procSelect) {
         procSelect.value = processo;
         procSelect.dispatchEvent(new Event('change'));
-        // Aguarda o select de subprocessos ser populado
         setTimeout(() => {
           const subSelect = document.getElementById('subprocesso-select');
           if (subSelect) {
@@ -697,9 +716,37 @@
           }
           const reqSel = document.getElementById('request-option-select');
           if (reqSel) reqSel.dispatchEvent(new Event('change'));
+          // Bloquear os dois selects — já vêm preenchidos pelo menu
+          _lockModalMenuFields();
         }, 200);
       }
       modal.classList.add('active');
+    }
+
+    function _lockModalMenuFields() {
+      ['processo-select', 'subprocesso-select'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.add('select-locked');
+        // Adiciona badge de bloqueio se ainda não existir
+        const badgeId = `lock-badge-${id}`;
+        if (!document.getElementById(badgeId)) {
+          const badge = document.createElement('div');
+          badge.id = badgeId;
+          badge.className = 'select-lock-badge';
+          badge.innerHTML = '🔒 Preenchido via menu lateral';
+          el.parentNode.insertBefore(badge, el.nextSibling);
+        }
+      });
+    }
+
+    function resetModalLock() {
+      ['processo-select', 'subprocesso-select'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('select-locked');
+        const badge = document.getElementById(`lock-badge-${id}`);
+        if (badge) badge.remove();
+      });
     }
 
     let currentTab = 'running';
@@ -718,8 +765,14 @@
         processoSelect.dispatchEvent(new Event('change'));
         modal.classList.add('active');
     };
-    btnCloseModal.onclick = () => modal.classList.remove('active');
-    btnCancelModal.onclick = () => modal.classList.remove('active');
+    btnCloseModal.onclick = () => {
+        modal.classList.remove('active');
+        resetModalLock();
+    };
+    btnCancelModal.onclick = () => {
+        modal.classList.remove('active');
+        resetModalLock();
+    };
 
     // KPI Modal elements & close handlers
     const modalKpi = document.getElementById('modal-kpi-jobs');
@@ -735,7 +788,7 @@
             // 1. Atualizar o estado e a UI primeiro
             isConnectingWorker = true;
             btnStartWorker.disabled = true;
-            btnStartWorker.innerHTML = '⏳ A ligar...';
+            btnStartWorker.innerHTML = '<span class="server-icon">⏳</span><span>A ligar...</span>';
             btnStartWorker.style.opacity = '0.7';
             
             const ind = document.getElementById('worker-status-indicator');
@@ -1049,7 +1102,7 @@
             if (btn) {
               btn.style.display = 'none';
               btn.disabled = false;
-              btn.innerHTML = 'Ligar Worker';
+              btn.innerHTML = '<span class="server-icon">🖥️</span><span>Ligar Worker</span>';
               btn.style.opacity = '1';
             }
           } else {
@@ -1057,9 +1110,9 @@
               ind.style.background = 'var(--danger)';
               txt.textContent = 'Offline';
               if (btn) {
-                btn.style.display = 'inline-block';
+                btn.style.display = 'flex';
                 btn.disabled = false;
-                btn.innerHTML = 'Ligar Worker';
+                btn.innerHTML = '<span class="server-icon">🖥️</span><span>Ligar Worker</span>';
                 btn.style.opacity = '1';
               }
             }
