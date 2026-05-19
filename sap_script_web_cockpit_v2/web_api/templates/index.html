@@ -80,25 +80,75 @@
       padding: 0 6px;
     }
     .nav-sub-list.open {
-      max-height: 400px;
+      max-height: 600px;
       opacity: 1;
       padding: 6px 6px;
     }
+    /* Nivel 1 - Processo */
     .nav-sub-item {
-      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
       font-size: 0.8rem;
       font-weight: 500;
       color: #9ca3af;
       border-radius: 8px;
       cursor: pointer;
       transition: all 0.15s;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      user-select: none;
     }
     .nav-sub-item:hover {
       background: rgba(255,255,255,0.08);
       color: white;
+    }
+    .nav-sub-item.open {
+      background: rgba(255,255,255,0.06);
+      color: #d1d5db;
+      border-radius: 8px 8px 2px 2px;
+    }
+    .nav-sub-arrow {
+      font-size: 9px;
+      opacity: 0.5;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+      margin-left: 4px;
+    }
+    .nav-sub-item.open .nav-sub-arrow {
+      transform: rotate(90deg);
+      opacity: 0.8;
+    }
+    /* Nivel 2 - Subprocesso */
+    .nav-sub-sub-list {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease, opacity 0.2s ease;
+      opacity: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding-left: 14px;
+      margin-bottom: 0;
+    }
+    .nav-sub-sub-list.open {
+      max-height: 400px;
+      opacity: 1;
+      margin-bottom: 4px;
+    }
+    .nav-sub-sub-item {
+      padding: 6px 10px;
+      font-size: 0.75rem;
+      color: #6b7280;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .nav-sub-sub-item:hover {
+      background: rgba(255,255,255,0.07);
+      color: #c4c9d4;
     }
     .nav-sub-loading {
       padding: 8px 14px;
@@ -544,9 +594,10 @@
     let isConnectingWorker = false;
     let connectingTimeout = null;
 
-    // --- Sidebar: Processos Dropdown ---
+    // --- Sidebar: Processos Dropdown (2 níveis) ---
     let processosLoaded = false;
     let processosMenuOpen = false;
+    const subprocessosCache = {};
 
     function toggleProcessosMenu() {
       const toggle = document.getElementById('nav-processos-toggle');
@@ -557,6 +608,10 @@
       if (processosMenuOpen && !processosLoaded) {
         loadProcessosMenu();
       }
+    }
+
+    function safeId(nome) {
+      return nome.replace(/[^a-zA-Z0-9]/g, '_');
     }
 
     async function loadProcessosMenu() {
@@ -571,8 +626,14 @@
           sub.innerHTML = '<div class="nav-sub-loading">Nenhum processo encontrado.</div>';
         } else {
           sub.innerHTML = processos.map(p => `
-            <div class="nav-sub-item" title="${escapeHtml(p.nome)}" onclick="selectProcessoFromMenu('${escapeHtml(p.nome)}')">
-              📁 ${escapeHtml(p.nome)}
+            <div>
+              <div class="nav-sub-item" id="proc-item-${safeId(p.nome)}" title="${escapeHtml(p.nome)}" onclick="toggleSubprocessosMenu('${p.nome.replace(/'/g,'\\&apos;')}', this)">
+                <span>📁 ${escapeHtml(p.nome)}</span>
+                <span class="nav-sub-arrow">&#9658;</span>
+              </div>
+              <div class="nav-sub-sub-list" id="subproc-list-${safeId(p.nome)}">
+                <div class="nav-sub-loading" id="subproc-loading-${safeId(p.nome)}">A carregar...</div>
+              </div>
             </div>
           `).join('');
         }
@@ -582,23 +643,63 @@
       }
     }
 
-    function selectProcessoFromMenu(nome) {
-      // Pré-preenche o select de Processo no modal Novo Job e abre o modal
-      const processoSelect = document.getElementById('processo-select');
-      if (processoSelect) {
-        processoSelect.value = nome;
-        processoSelect.dispatchEvent(new Event('change'));
-      }
-      const modal = document.getElementById('modal-novo-job');
-      if (modal) {
-        document.getElementById('job-form').reset();
-        if (processoSelect) {
-          processoSelect.value = nome;
-          processoSelect.dispatchEvent(new Event('change'));
+    async function toggleSubprocessosMenu(nome, el) {
+      const subList = document.getElementById(`subproc-list-${safeId(nome)}`);
+      const isOpen = subList.classList.contains('open');
+
+      // Fecha todos os outros processos abertos
+      document.querySelectorAll('.nav-sub-item.open').forEach(item => item.classList.remove('open'));
+      document.querySelectorAll('.nav-sub-sub-list.open').forEach(list => list.classList.remove('open'));
+
+      if (isOpen) return; // era o mesmo → já fechou acima
+
+      el.classList.add('open');
+      subList.classList.add('open');
+
+      if (subprocessosCache[nome]) return; // já carregado
+
+      try {
+        const res = await fetch(`/api/subprocesses?processo=${encodeURIComponent(nome)}`, { cache: 'no-store' });
+        const data = await res.json();
+        const subs = data.subprocesses || [];
+        const loading = document.getElementById(`subproc-loading-${safeId(nome)}`);
+        if (loading) loading.remove();
+        if (subs.length === 0) {
+          subList.innerHTML = '<div class="nav-sub-loading">Sem subprocessos.</div>';
+        } else {
+          subList.innerHTML = subs.map(s => `
+            <div class="nav-sub-sub-item" title="${escapeHtml(s.nome)}" onclick="abrirSubprocessoModal('${nome.replace(/'/g,'\\&apos;')}', '${s.nome.replace(/'/g,'\\&apos;')}')">
+              ⚙️ ${escapeHtml(s.nome.replace(/^[A-Z]\.\s*/, '').replace(/\.py$/i, ''))}
+            </div>
+          `).join('');
         }
-        document.getElementById('request-option-select').dispatchEvent(new Event('change'));
-        modal.classList.add('active');
+        subprocessosCache[nome] = true;
+      } catch (err) {
+        const loading = document.getElementById(`subproc-loading-${safeId(nome)}`);
+        if (loading) loading.textContent = 'Erro ao carregar.';
       }
+    }
+
+    function abrirSubprocessoModal(processo, subprocesso) {
+      const modal = document.getElementById('modal-novo-job');
+      if (!modal) return;
+      document.getElementById('job-form').reset();
+      const procSelect = document.getElementById('processo-select');
+      if (procSelect) {
+        procSelect.value = processo;
+        procSelect.dispatchEvent(new Event('change'));
+        // Aguarda o select de subprocessos ser populado
+        setTimeout(() => {
+          const subSelect = document.getElementById('subprocesso-select');
+          if (subSelect) {
+            subSelect.value = subprocesso;
+            subSelect.dispatchEvent(new Event('change'));
+          }
+          const reqSel = document.getElementById('request-option-select');
+          if (reqSel) reqSel.dispatchEvent(new Event('change'));
+        }, 200);
+      }
+      modal.classList.add('active');
     }
 
     let currentTab = 'running';

@@ -1,4 +1,4 @@
-﻿services:
+services:
   sap-script-web:
     build: .
     container_name: sap-script-web
@@ -14,6 +14,7 @@
       - sap_script_data:/data
       - ..:/sap-script:ro
       - ../sap_script_uploads:/uploads
+      - ./web_api:/srv/sap-script-web/web_api
     restart: unless-stopped
 
 volumes:
