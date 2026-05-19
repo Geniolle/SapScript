@@ -87,40 +87,78 @@ body {
 .sidebar-footer {
   margin-top: auto;
   padding: 16px;
-  background: rgba(255,255,255,0.05);
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
   font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
+
+.sidebar-footer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-footer-label {
+  color: #9ca3af;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.sidebar-footer-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: white;
+}
+
+.sidebar-footer-env {
+  font-weight: 700;
+  color: white;
+}
+
+.sidebar-footer-state-text {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
 .sidebar-footer .status-dot {
   display: inline-block;
   width: 8px; height: 8px;
   background: var(--success);
   border-radius: 50%;
-  margin-left: 8px;
 }
 
+/* Beautiful Premium Button */
 .btn-start-worker-sidebar {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  background: var(--danger);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
   border: none;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 0.85rem;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
-  margin-top: 12px;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+  outline: none;
+  margin-top: 4px;
 }
 .btn-start-worker-sidebar:hover {
-  background: #dc2626;
+  background: linear-gradient(135deg, #f87171 0%, #b91c1c 100%);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.35);
+  box-shadow: 0 6px 14px rgba(239, 68, 68, 0.3);
 }
 .btn-start-worker-sidebar:active {
   transform: translateY(0);
@@ -131,9 +169,6 @@ body {
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
-}
-.btn-start-worker-sidebar .server-icon {
-  font-size: 1.05rem;
 }
 
 /* Main Content */
