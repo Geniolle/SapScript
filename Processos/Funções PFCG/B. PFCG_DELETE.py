@@ -373,14 +373,14 @@ def executar(
         if not esperar_sap_livre(session, timeout=TIMEOUT_SAP_BUSY):
             raise RuntimeError("SAP bloqueado antes de iniciar.")
 
-        log("➡️ A abrir /NPFCGMASSDELETE ...")
+        log("├─ A abrir transação /NPFCGMASSDELETE...")
         session.findById("wnd[0]/tbar[0]/okcd").text = "/NPFCGMASSDELETE"
         session.findById("wnd[0]").sendVKey(0)
-        
+
         try:
             sb = session.findById("wnd[0]/sbar").Text.strip()
             if sb:
-                log(f"[SAP_SBAR] {sb}")
+                log(f"   ✔️ SAP: {sb}")
         except:
             pass
 
@@ -388,46 +388,68 @@ def executar(
             session.findById("wnd[0]/usr/radMOD_EXE").select()
 
         # Abrir lista múltipla e colar as funções
-        log("🧾 A carregar lista de funções...")
+        log(f"├─ A carregar lista de {len(funcoes)} funções no campo de seleção SAP...")
         session.findById("wnd[0]/usr/btn%_ROLE_%_APP_%-VALU_PUSH").press()
         time.sleep(0.5)
         session.findById("wnd[1]").sendVKey(24)  # Shift+F12 (Colar)
         time.sleep(0.3)
         session.findById("wnd[1]/tbar[0]/btn[8]").press()
         time.sleep(0.3)
+        log(f"│  └─ {len(funcoes)} funções copiadas do clipboard e confirmadas no SAP.")
 
-        log("▶️ Executar eliminação...")
+        log("├─ A executar a eliminação em massa (PFCGMASSDELETE)...")
         session.findById("wnd[0]/tbar[1]/btn[8]").press()
 
-        # Gestão de Popups
+        # Gestão de Popups com feedback
         timeout = time.time() + 15.0
+        ultimo_log_heartbeat = time.time()
+        popup_count = 0
         while time.time() < timeout:
             time.sleep(0.5)
+            elapsed = time.time() - (timeout - 15.0)
+
+            # Heartbeat a cada 3 segundos durante o processamento SAP
+            if time.time() - ultimo_log_heartbeat >= 3.0:
+                log(f"│  ⏳ SAP a processar... ({elapsed:.0f}s decorridos)")
+                ultimo_log_heartbeat = time.time()
+
             if existe(session, "wnd[1]/usr/ctxtKO008-TRKORR"):
+                popup_count += 1
                 if request_transporte:
-                    log(f"🚚 A injetar Request de Transporte: {request_transporte}")
+                    log(f"│  ├─ Popup de transporte detetado. A injetar Request: {request_transporte}")
                     session.findById("wnd[1]/usr/ctxtKO008-TRKORR").text = request_transporte
+                else:
+                    log("│  ├─ Popup de transporte detetado. A ignorar (sem transporte).")
                 session.findById("wnd[1]/tbar[0]/btn[0]").press()
                 continue
             if existe(session, "wnd[1]/usr/btnSPOP-OPTION1"):
+                popup_count += 1
+                log("│  ├─ Popup de confirmação SAP. A aceitar...")
                 session.findById("wnd[1]/usr/btnSPOP-OPTION1").press()
                 continue
             if existe(session, "wnd[1]/tbar[0]/btn[0]"):
+                popup_count += 1
+                log("│  ├─ Popup genérico SAP. A fechar...")
                 session.findById("wnd[1]/tbar[0]/btn[0]").press()
                 continue
             if existe(session, "wnd[0]/usr/cntlGRID1/shellcont/shell"):
+                log("│  └─ ALV de resultado detetado. A ler resultados...")
                 break
 
-        # Validar sucesso no ALV ou na Barra de Status
+        # Ler resultado do ALV
         msg_alv = ""
+        alv_rows = 0
         try:
             grid = session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
-            if grid.RowCount > 0:
+            alv_rows = int(grid.RowCount) if grid.RowCount else 0
+            log(f"├─ ALV de resultado contém {alv_rows} linha(s).")
+            if alv_rows > 0:
                 for col in ["MESSAGE", "TEXT", "MSG"]:
                     try:
                         v = str(grid.GetCellValue(0, col)).strip()
                         if v:
                             msg_alv = v
+                            log(f"│  └─ Mensagem ALV: {v}")
                             break
                     except:
                         pass
@@ -438,7 +460,7 @@ def executar(
         try:
             msg_barra = session.findById("wnd[0]/sbar").Text.strip()
             if msg_barra:
-                log(f"[SAP_SBAR] {msg_barra}")
+                log(f"├─ SAP Status Bar: {msg_barra}")
         except:
             pass
 
@@ -457,11 +479,11 @@ def executar(
         if mensagem_sem_resultado(msg_final):
             status_geral = "ERRO"
             msg_final = f"{msg_final} - SAP não encontrou as roles informadas."
-            log(f"❌ SAP: {msg_final}")
+            log(f"└─ ❌ {msg_final}")
         else:
             status_geral = "CONCLUÍDO"
             msg_final = f"{msg_final}{msg_transporte}"
-            log(f"✅ SAP status final: {msg_final}")
+            log(f"└─ ✅ SAP status final: {msg_final}")
 
     except Exception as e:
         status_geral = "ERRO"
