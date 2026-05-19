@@ -13,3 +13,7 @@ credentials.json
 *.key
 *.pem
 
+# Local uploads and temporary files
+sap_script_uploads/
+*.bak_*
+*.log

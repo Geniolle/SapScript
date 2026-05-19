@@ -3,32 +3,286 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SAP Script Web</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3">
+  <title>SAP Script Cockpit</title>
+  <link rel="stylesheet" href="/static/styles.css?v=4">
   <style>
-    .container {
-      width: 100% !important;
-      max-width: none !important;
-      padding: 32px 48px !important;
-      box-sizing: border-box !important;
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 2px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+    @keyframes pulse-opacity {
+      0% { opacity: 0.5; }
+      50% { opacity: 1; }
+      100% { opacity: 0.5; }
+    }
+
+    /* Stages Checklist Grid Styling */
+    .stages-checklist {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+    .checklist-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .checklist-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .check-item {
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.3s ease;
+    }
+    .check-indicator {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px dashed rgba(255, 255, 255, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+    .check-label {
+      display: flex;
+      flex-direction: column;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    
+    /* Stages Checklist States */
+    .check-item.pending {
+      opacity: 0.5;
+    }
+    .check-item.active {
+      background: rgba(59, 130, 246, 0.08);
+      border-color: rgba(59, 130, 246, 0.3);
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.1);
+      opacity: 1;
+    }
+    .check-item.active .check-indicator {
+      border: 2px solid var(--primary);
+      background: rgba(59, 130, 246, 0.2);
+      animation: pulse-border 1.5s infinite ease-in-out;
+    }
+    .check-item.active .check-indicator::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--primary);
+      border-radius: 50%;
+      display: block;
+    }
+    
+    .check-item.completed {
+      background: rgba(16, 185, 129, 0.06);
+      border-color: rgba(16, 185, 129, 0.25);
+      opacity: 1;
+    }
+    .check-item.completed .check-indicator {
+      border: 2px solid var(--success);
+      background: rgba(16, 185, 129, 0.1);
+    }
+    .check-item.completed .check-indicator::after {
+      content: '✔';
+      font-size: 10px;
+      color: var(--success);
+      font-weight: bold;
+    }
+    
+    .check-item.failed {
+      background: rgba(239, 68, 68, 0.06);
+      border-color: rgba(239, 68, 68, 0.25);
+      opacity: 1;
+    }
+    .check-item.failed .check-indicator {
+      border: 2px solid var(--danger);
+      background: rgba(239, 68, 68, 0.1);
+    }
+    .check-item.failed .check-indicator::after {
+      content: '✖';
+      font-size: 10px;
+      color: var(--danger);
+      font-weight: bold;
+    }
+    
+    @keyframes pulse-border {
+      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+      70% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    }
+    .kpi-card {
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+    }
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+      border-color: rgba(59, 130, 246, 0.2);
+    }
+    .kpi-table-row {
+      border-bottom: 1px solid var(--border-color);
+      transition: background 0.2s ease;
+    }
+    .kpi-table-row:hover {
+      background: rgba(59, 130, 246, 0.04);
+    }
+    .kpi-table-row:last-child {
+      border-bottom: none;
+    }
+    .modal-content select, .modal-content input {
+      background-color: #ffffff;
+      color: var(--text-primary);
+    }
+    .realtime-log {
+      height: 480px !important;
+      margin-top: 16px !important;
+    }
+    [hidden], label[hidden] {
+      display: none !important;
     }
   </style>
 </head>
 <body>
-  <main class="container">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">SAP Script</p>
-        <h1>Cockpit SAP via Web</h1>
-        <p class="subtitle">O botão web cria um pedido; o worker Windows executa o teu Cockpit no SAP GUI e devolve sempre o <code>STATUS</code> lido de <code>wnd[0]/sbar</code>.</p>
+  <div class="dashboard-layout">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>SAPSCRIPT</h1>
+        <span>Cockpit de automação</span>
       </div>
-      <div class="badge">Docker + Worker Windows</div>
-    </header>
+      <nav class="nav-menu">
+        <a class="nav-item active">Visão geral</a>
+        <a class="nav-item">Jobs SAP</a>
+        <a class="nav-item">Processos</a>
+        <a class="nav-item">Requests</a>
+        <a class="nav-item">Ficheiros</a>
+        <a class="nav-item">Histórico</a>
+        <a class="nav-item">Definições</a>
+      </nav>
+      <div class="sidebar-footer">
+        Ambiente Atual
+        <br>
+        <strong id="env-display">---</strong>
+        <span id="worker-status-indicator" class="status-dot"></span>
+        <div id="worker-status-text" style="font-size: 11px; margin-top: 4px; color: #9ca3af;">A verificar...</div>
+      </div>
+    </aside>
 
-    <section class="grid">
-      <form id="job-form" class="card">
-        <h2>Novo pedido</h2>
+    <!-- Main Content -->
+    <main class="main-content">
+      
+      <!-- Top Header -->
+      <header class="top-header">
+        <div class="header-titles">
+          <h2>Cockpit SAP Script</h2>
+          <p>Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.</p>
+        </div>
+        <div class="header-actions">
+          <button type="button" id="start-worker-btn" class="btn btn-danger" style="display: none;">Ligar Worker</button>
+          <button type="button" id="refresh-button" class="btn btn-secondary">Atualizar</button>
+          <button type="button" id="new-job-btn" class="btn btn-primary">Novo job</button>
+        </div>
+      </header>
 
+      <!-- KPIs -->
+      <section class="kpi-grid">
+        <div class="kpi-card" onclick="openKpiJobsModal('running')">
+          <div class="kpi-icon blue"></div>
+          <div class="kpi-data">
+            <div class="kpi-title">Jobs em execução</div>
+            <div class="kpi-value"><span id="kpi-running">0</span> <span class="kpi-sub" id="kpi-running-sub"></span></div>
+          </div>
+        </div>
+        <div class="kpi-card" onclick="openKpiJobsModal('pending')">
+          <div class="kpi-icon yellow"></div>
+          <div class="kpi-data">
+            <div class="kpi-title">Pendentes</div>
+            <div class="kpi-value"><span id="kpi-pending">0</span> <span class="kpi-sub">A processar na fila</span></div>
+          </div>
+        </div>
+        <div class="kpi-card" onclick="openKpiJobsModal('success')">
+          <div class="kpi-icon green"></div>
+          <div class="kpi-data">
+            <div class="kpi-title">Concluídos hoje</div>
+            <div class="kpi-value"><span id="kpi-success">0</span> <span class="kpi-sub" id="kpi-success-rate"></span></div>
+          </div>
+        </div>
+        <div class="kpi-card" onclick="openKpiJobsModal('failed')">
+          <div class="kpi-icon red"></div>
+          <div class="kpi-data">
+            <div class="kpi-title">Erros</div>
+            <div class="kpi-value"><span id="kpi-failed">0</span> <span class="kpi-sub">Requer validação</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Main Grid -->
+      <section class="dashboard-grid">
+        
+        <!-- Left Column: Active Jobs List Container -->
+        <div id="active-jobs-container" style="display: flex; flex-direction: column; gap: 24px; min-height: 500px; flex: 1;">
+          <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
+            <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
+          </div>
+        </div>
+
+        <!-- Right Column: Queue & Terminal -->
+        <div style="display:flex; flex-direction:column; gap:24px;">
+          
+
+          <div class="card" style="background: #0d1117; border-color: #30363d; padding: 20px;">
+            <div class="card-title" style="color:white; margin-bottom: 0;">
+              Log em tempo real
+              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; background: #21262d; color: white; border: 1px solid #30363d;" id="btn-copy-log">Copiar log</button>
+            </div>
+            <div class="realtime-log" id="realtime-log-container">
+              <!-- JS populated -->
+            </div>
+          </div>
+
+        </div>
+
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal Novo Job -->
+  <div class="modal-overlay" id="modal-novo-job">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Novo pedido</h3>
+        <button class="btn-close" id="close-modal-btn">&times;</button>
+      </div>
+      
+      <form id="job-form">
         <label>
           Rotina
           <select name="task" required>
@@ -38,12 +292,10 @@
 
         <label>
           Ambiente
-          <select name="ambiente">
+          <select name="ambiente" id="ambiente-select">
             <option value="">Selecione o ambiente</option>
             {% for ambiente in ambientes %}
-              <option value="{{ ambiente.codigo }}">
-                {{ ambiente.label }}
-              </option>
+              <option value="{{ ambiente.codigo }}">{{ ambiente.label }}</option>
             {% endfor %}
           </select>
         </label>
@@ -53,9 +305,7 @@
           <select name="processo" id="processo-select">
             <option value="">Selecione o processo</option>
             {% for processo in processos %}
-              <option value="{{ processo.nome }}">
-                {{ processo.label }}
-              </option>
+              <option value="{{ processo.nome }}">{{ processo.label }}</option>
             {% endfor %}
           </select>
         </label>
@@ -67,49 +317,15 @@
           </select>
         </label>
 
-        <div class="field-block">
-          <label for="caminho-ficheiro-input">
-            Caminho do ficheiro
-          </label>
-
-          <div class="path-picker-control">
-            <input
-              name="caminho_ficheiro"
-              id="caminho-ficheiro-input"
-              class="path-input"
-              placeholder="Selecionar ficheiro"
-              autocomplete="off"
-              readonly
-            >
-
-            <button
-              type="button"
-              id="select-excel-button"
-              class="path-picker-icon-button"
-              title="Selecionar ficheiro no browser"
-              aria-label="Selecionar ficheiro no browser"
-            >
-              <span aria-hidden="true">□</span>
-            </button>
-          </div>
-
-          <input
-            type="file"
-            id="browser-file-input"
-            class="browser-file-input"
-          >
-
-
-          <div class="file-picker-actions compact-actions">
-            <button type="button" id="clear-excel-button" class="secondary danger-light">
-              Limpar caminho
-            </button>
-          </div>
-
-          <div id="selected-file-box" class="selected-file-box muted">
-            Nenhum ficheiro selecionado.
-          </div>
+        <label for="caminho-ficheiro-input">
+          Caminho do ficheiro (opcional)
+        </label>
+        <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+          <input name="caminho_ficheiro" id="caminho-ficheiro-input" placeholder="Selecionar ficheiro" autocomplete="off" readonly style="font-family: monospace;">
+          <button type="button" id="select-excel-button" class="btn btn-secondary" style="padding: 10px;">📁</button>
+          <button type="button" id="clear-excel-button" class="btn btn-danger" style="padding: 10px;">&times;</button>
         </div>
+        <input type="file" id="browser-file-input" style="display: none;">
 
         <label>
           Opção de request
@@ -120,609 +336,1209 @@
           </select>
         </label>
 
-        <label id="request-number-field">
+        <label id="request-number-field" hidden>
           Número da request
-          <input name="request_number" id="request-number-input" placeholder="Ex.: S4QK900396">
+          <div style="display: flex; gap: 8px; width: 100%;">
+            <input name="request_number" id="request-number-input" placeholder="Ex.: S4QK900396" disabled style="flex: 1;">
+            <button type="button" id="btn-search-request" class="btn btn-secondary" style="padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; justify-content: center;" title="Pesquisar requests no SAP">
+              🔍
+            </button>
+          </div>
         </label>
 
-        <label id="request-desc-field">
+        <label id="request-desc-field" hidden>
           Descrição da nova request
-          <input name="request_desc" id="request-desc-input" placeholder="Ex.: REQUEST CRIADA VIA WEB">
+          <input name="request_desc" id="request-desc-input" placeholder="Ex.: REQUEST CRIADA VIA WEB" disabled>
         </label>
 
-        <label id="request-type-field">
+        <label id="request-type-field" hidden>
           Tipo da nova request
-          <select name="request_type" id="request-type-select">
+          <select name="request_type" id="request-type-select" disabled>
             <option value="1">Customizing</option>
             <option value="2">Workbench</option>
           </select>
         </label>
 
-        <button type="submit">Executar</button>
-        <div id="worker-status-box" style="margin-top: 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-          <span id="worker-status-indicator" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ccc;"></span>
-          <span id="worker-status-text" class="muted">A verificar worker...</span>
+        <div class="form-actions">
+           <button type="button" id="cancel-modal-btn" class="btn btn-secondary">Cancelar</button>
+           <button type="submit" class="btn btn-primary" id="submit-job-btn">Executar</button>
         </div>
-        <p id="form-message" class="message"></p>
+        <p id="form-message" style="color: #6b7280; font-size: 13px; text-align: right; margin-top: 12px;"></p>
       </form>
+    </div>
+  </div>
 
-      <section class="card">
-        <div class="section-header" style="flex-wrap: wrap;">
-          <div class="tabs">
-            <button type="button" class="tab active" data-tab="running">Em execução</button>
-            <button type="button" class="tab" data-tab="history">Histórico</button>
-          </div>
-          <button id="refresh-button" type="button" class="secondary">Atualizar</button>
-        </div>
-        <div id="jobs" class="jobs"></div>
-      </section>
-    </section>
-  </main>
+  <!-- Modal Histórico de Jobs (KPIs) -->
+  <div class="modal-overlay" id="modal-kpi-jobs">
+    <div class="modal-content" style="max-width: 800px;">
+      <div class="modal-header">
+        <h3 id="kpi-jobs-modal-title">🔍 Detalhes dos Jobs</h3>
+        <button class="btn-close" id="close-kpi-modal-btn">&times;</button>
+      </div>
+      <div style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);" id="kpi-jobs-modal-subtitle">
+        Selecione um job para ver os seus logs e fluxo de execução.
+      </div>
+      
+      <div class="custom-scroll" style="max-height: 450px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(0,0,0,0.01);">
+        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+          <thead>
+            <tr style="background: rgba(0,0,0,0.03); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-primary);">
+              <th style="padding: 12px 16px; width: 100px;">ID</th>
+              <th style="padding: 12px 16px; width: 140px;">Data/Hora</th>
+              <th style="padding: 12px 16px;">Rotina / Ficheiro</th>
+              <th style="padding: 12px 16px; width: 100px;">Ambiente</th>
+              <th style="padding: 12px 16px; width: 100px;">Status</th>
+              <th style="padding: 12px 16px; width: 80px; text-align: center;">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="kpi-jobs-modal-table-body">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="form-actions" style="margin-top: 20px;">
+        <button type="button" id="close-kpi-modal-action-btn" class="btn btn-secondary">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Pesquisa de Requests SAP -->
+  <div class="modal-overlay" id="modal-sap-requests" style="z-index: 110;">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="sap-requests-modal-title">🔍 Pesquisar Requests no SAP</h3>
+        <button class="btn-close" id="close-sap-requests-btn">&times;</button>
+      </div>
+      <div id="sap-requests-subtitle" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; margin-top: -12px;">
+        Consultando a tabela E070 no SAP GUI do worker Windows...
+      </div>
+      
+      <!-- Loading State -->
+      <div id="sap-requests-loading" style="display: none; text-align: center; padding: 40px 20px;">
+        <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; margin-bottom: 12px;">⏳</div>
+        <p style="font-weight: 600; color: var(--text-primary); margin: 0;">A ligar ao SAP...</p>
+        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">O worker Windows está a executar o processo pesquisar_request.py.</p>
+      </div>
+      
+      <!-- Results State -->
+      <div id="sap-requests-results" style="display: none; max-height: 400px; overflow-y: auto;" class="custom-scroll">
+        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-secondary); font-weight: bold; padding-bottom: 8px;">
+              <th style="padding: 10px 8px;">Request</th>
+              <th style="padding: 10px 8px;">Descrição</th>
+              <th style="padding: 10px 8px; text-align: center; width: 100px;">Ação</th>
+            </tr>
+          </thead>
+          <tbody id="sap-requests-table-body">
+            <!-- Dynamic rows will be inserted here -->
+          </tbody>
+        </table>
+      </div>
+      
+      <!-- Error/Empty State -->
+      <div id="sap-requests-empty" style="display: none; text-align: center; padding: 40px 20px; color: var(--text-secondary);">
+        <p id="sap-requests-empty-msg" style="margin: 0;">Nenhuma request pendente encontrada.</p>
+      </div>
+
+      <div class="form-actions" style="margin-top: 20px;">
+        <button type="button" id="close-sap-requests-bottom-btn" class="btn btn-secondary">Fechar</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const STORAGE_KEY_EXCEL_PATH = 'sap_script_web_last_excel_path';
+    let allJobs = [];
+    let isConnectingWorker = false;
+    let connectingTimeout = null;
+    let currentTab = 'running';
+    let activeJobId = null;
+    let activeJobDetailsExpanded = true;
+    let expandedJobs = {};
 
-    const form = document.querySelector('#job-form');
-    const formMessage = document.querySelector('#form-message');
-    const jobsContainer = document.querySelector('#jobs');
-    const refreshButton = document.querySelector('#refresh-button');
+    // Elementos DOM
+    const modal = document.getElementById('modal-novo-job');
+    const btnNewJob = document.getElementById('new-job-btn');
+    const btnCloseModal = document.getElementById('close-modal-btn');
+    const btnCancelModal = document.getElementById('cancel-modal-btn');
+    btnNewJob.onclick = () => {
+        form.reset();
+        requestOptionSelect.dispatchEvent(new Event('change'));
+        processoSelect.dispatchEvent(new Event('change'));
+        modal.classList.add('active');
+    };
+    btnCloseModal.onclick = () => modal.classList.remove('active');
+    btnCancelModal.onclick = () => modal.classList.remove('active');
 
-    const processoSelect = document.querySelector('#processo-select');
-    const subprocessoSelect = document.querySelector('#subprocesso-select');
+    // KPI Modal elements & close handlers
+    const modalKpi = document.getElementById('modal-kpi-jobs');
+    const btnCloseKpiModal = document.getElementById('close-kpi-modal-btn');
+    const btnCloseKpiAction = document.getElementById('close-kpi-modal-action-btn');
+    btnCloseKpiModal.onclick = () => modalKpi.classList.remove('active');
+    btnCloseKpiAction.onclick = () => modalKpi.classList.remove('active');
 
-    const caminhoFicheiroInput = document.querySelector('#caminho-ficheiro-input');
-    const selectedFileBox = document.querySelector('#selected-file-box');
-    const selectExcelButton = document.querySelector('#select-excel-button');
-    const browserFileInput = document.querySelector('#browser-file-input');
-    const clearExcelButton = document.querySelector('#clear-excel-button');
+    // Ligar Worker click listener
+    const btnStartWorker = document.getElementById('start-worker-btn');
+    if (btnStartWorker) {
+        btnStartWorker.addEventListener('click', () => {
+            // 1. Atualizar o estado e a UI primeiro
+            isConnectingWorker = true;
+            btnStartWorker.disabled = true;
+            btnStartWorker.innerHTML = '⏳ A ligar...';
+            btnStartWorker.style.opacity = '0.7';
+            
+            const ind = document.getElementById('worker-status-indicator');
+            const txt = document.getElementById('worker-status-text');
+            if (ind) ind.style.background = '#f59e0b'; // Amber/orange
+            if (txt) txt.innerHTML = '⏳ A aguardar ligação...';
 
-    const requestOptionSelect = document.querySelector('#request-option-select');
-    const requestNumberField = document.querySelector('#request-number-field');
-    const requestDescField = document.querySelector('#request-desc-field');
-    const requestTypeField = document.querySelector('#request-type-field');
+            if (connectingTimeout) clearTimeout(connectingTimeout);
+            connectingTimeout = setTimeout(() => {
+                if (isConnectingWorker) {
+                    isConnectingWorker = false;
+                    loadJobs();
+                }
+            }, 30000);
 
-    const requestNumberInput = document.querySelector('#request-number-input');
-    const requestDescInput = document.querySelector('#request-desc-input');
-    const requestTypeSelect = document.querySelector('#request-type-select');
+            // 2. Disparar o protocolo customizado após a atualização do DOM
+            setTimeout(() => {
+                window.location.href = 'sap-worker://start';
+            }, 150);
+        });
+    }
 
-    restoreLastExcelPath();
-    updateRequestFieldsVisibility();
+    // Formulário
+    const form = document.getElementById('job-form');
+    const formMessage = document.getElementById('form-message');
+    const processoSelect = document.getElementById('processo-select');
+    const subprocessoSelect = document.getElementById('subprocesso-select');
+    const caminhoFicheiroInput = document.getElementById('caminho-ficheiro-input');
+    const selectExcelButton = document.getElementById('select-excel-button');
+    const browserFileInput = document.getElementById('browser-file-input');
+    const clearExcelButton = document.getElementById('clear-excel-button');
+    const requestOptionSelect = document.getElementById('request-option-select');
+    const requestNumberField = document.getElementById('request-number-field');
+    const requestDescField = document.getElementById('request-desc-field');
+    const requestTypeField = document.getElementById('request-type-field');
+    const requestNumberInput = document.getElementById('request-number-input');
+    const requestDescInput = document.getElementById('request-desc-input');
+    const requestTypeSelect = document.getElementById('request-type-select');
+    const ambienteSelect = document.getElementById('ambiente-select');
+    const envDisplay = document.getElementById('env-display');
 
-    processoSelect.addEventListener('change', async () => {
-      await loadSubprocessos();
+    // SAP Requests Modal DOM elements
+    const modalSapRequests = document.getElementById('modal-sap-requests');
+    const btnSearchRequest = document.getElementById('btn-search-request');
+    const btnCloseSapRequests = document.getElementById('close-sap-requests-btn');
+    const btnCloseSapRequestsBottom = document.getElementById('close-sap-requests-bottom-btn');
+    const sapRequestsLoading = document.getElementById('sap-requests-loading');
+    const sapRequestsResults = document.getElementById('sap-requests-results');
+    const sapRequestsEmpty = document.getElementById('sap-requests-empty');
+    const sapRequestsEmptyMsg = document.getElementById('sap-requests-empty-msg');
+    const sapRequestsTableBody = document.getElementById('sap-requests-table-body');
+    const sapRequestsSubtitle = document.getElementById('sap-requests-subtitle');
+    
+    let searchPollInterval = null;
+    
+    btnCloseSapRequests.onclick = () => {
+        closeSapRequestsModal();
+    };
+    btnCloseSapRequestsBottom.onclick = () => {
+        closeSapRequestsModal();
+    };
+    
+    function closeSapRequestsModal() {
+        modalSapRequests.classList.remove('active');
+        if (searchPollInterval) {
+            clearInterval(searchPollInterval);
+            searchPollInterval = null;
+        }
+    }
+    
+    btnSearchRequest.onclick = async () => {
+        const env = ambienteSelect.value;
+        if (!env) {
+            alert('Por favor, selecione primeiro o ambiente (DEV/QAD/PRD) para pesquisar as requests!');
+            return;
+        }
+        
+        const envLabel = ambienteSelect.options[ambienteSelect.selectedIndex].text;
+        sapRequestsSubtitle.textContent = `Consultando a tabela E070 no SAP GUI para o ambiente: ${envLabel}...`;
+        
+        // Show modal and loading state
+        modalSapRequests.classList.add('active');
+        sapRequestsLoading.style.display = 'block';
+        sapRequestsResults.style.display = 'none';
+        sapRequestsEmpty.style.display = 'none';
+        sapRequestsTableBody.innerHTML = '';
+        
+        try {
+            // Queue the sap_search_requests task
+            const payload = {
+                task: 'sap_search_requests',
+                params: { ambiente: env }
+            };
+            const response = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('Erro ao solicitar pesquisa de requests no worker.');
+            const data = await response.json();
+            const jobId = data.id;
+            
+            // Poll for job completion
+            searchPollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`/api/jobs/${jobId}`);
+                    if (!statusRes.ok) throw new Error('Erro ao consultar status do job de pesquisa.');
+                    const job = await statusRes.json();
+                    
+                    if (job.state === 'succeeded') {
+                        clearInterval(searchPollInterval);
+                        searchPollInterval = null;
+                        
+                        let requestsList = [];
+                        try {
+                            requestsList = JSON.parse(job.status);
+                        } catch (e) {
+                            requestsList = [];
+                        }
+                        
+                        sapRequestsLoading.style.display = 'none';
+                        
+                        if (!Array.isArray(requestsList) || requestsList.length === 0) {
+                            sapRequestsEmptyMsg.innerHTML = `⚠️ Nenhuma request pendente ou ativa encontrada para o seu usuário no sistema <b>${job.params?.sap_system || 'SAP'}</b>.`;
+                            sapRequestsEmpty.style.display = 'block';
+                        } else {
+                            sapRequestsTableBody.innerHTML = '';
+                            requestsList.forEach(item => {
+                                const tr = document.createElement('tr');
+                                tr.className = 'kpi-table-row';
+                                tr.style.cursor = 'pointer';
+                                
+                                // Make the entire row clickable to select
+                                tr.onclick = () => {
+                                    requestNumberInput.value = item.trkorr;
+                                    closeSapRequestsModal();
+                                };
+                                
+                                tr.innerHTML = `
+                                    <td style="padding: 10px 8px; font-family: monospace; font-weight: bold; color: var(--text-primary);">${item.trkorr}</td>
+                                    <td style="padding: 10px 8px; color: var(--text-secondary); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.as4text}">${item.as4text || '<i>Sem descrição</i>'}</td>
+                                    <td style="padding: 10px 8px; text-align: center;">
+                                        <button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">Selecionar</button>
+                                    </td>
+                                `;
+                                sapRequestsTableBody.appendChild(tr);
+                            });
+                            sapRequestsResults.style.display = 'block';
+                        }
+                    } else if (job.state === 'failed') {
+                        clearInterval(searchPollInterval);
+                        searchPollInterval = null;
+                        sapRequestsLoading.style.display = 'none';
+                        sapRequestsEmptyMsg.innerHTML = `❌ Falha ao consultar o SAP GUI:<br><span style="font-size: 11px; color: var(--danger); font-family: monospace;">${job.status || 'Erro desconhecido'}</span>`;
+                        sapRequestsEmpty.style.display = 'block';
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }, 1000);
+            
+        } catch (err) {
+            sapRequestsLoading.style.display = 'none';
+            sapRequestsEmptyMsg.textContent = `Erro ao iniciar pesquisa: ${err.message}`;
+            sapRequestsEmpty.style.display = 'block';
+        }
+    };
+
+    ambienteSelect.addEventListener('change', () => {
+       envDisplay.textContent = ambienteSelect.options[ambienteSelect.selectedIndex].text || '---';
     });
 
+    restoreLastExcelPath();
+
+    processoSelect.addEventListener('change', loadSubprocessos);
+    
     selectExcelButton.addEventListener('click', () => {
       browserFileInput.value = '';
       browserFileInput.click();
     });
 
     browserFileInput.addEventListener('change', async () => {
-      await uploadFileFromBrowser();
-    });
-
-    clearExcelButton.addEventListener('click', () => {
-      setExcelPath('');
-      browserFileInput.value = '';
-      formMessage.textContent = 'Caminho do ficheiro limpo.';
-    });
-
-    requestOptionSelect.addEventListener('change', () => {
-      updateRequestFieldsVisibility();
-    });
-
-    function updateRequestFieldsVisibility() {
-      const option = requestOptionSelect.value || '4';
-
-      const isNaoTransportar = option === '4';
-      const isUsarExistente = option === '1';
-      const isCriarNova = option === '2';
-
-      setFieldVisible(requestNumberField, requestNumberInput, isUsarExistente);
-      setFieldVisible(requestDescField, requestDescInput, isCriarNova);
-      setFieldVisible(requestTypeField, requestTypeSelect, isCriarNova);
-
-      requestNumberInput.required = isUsarExistente;
-      requestDescInput.required = false;
-      requestTypeSelect.required = isCriarNova;
-
-      if (isNaoTransportar) {
-        requestNumberInput.value = '';
-        requestDescInput.value = '';
-        requestTypeSelect.value = '1';
-      }
-
-      if (isUsarExistente) {
-        requestDescInput.value = '';
-        requestTypeSelect.value = '1';
-      }
-
-      if (isCriarNova) {
-        requestNumberInput.value = '';
-      }
-    }
-
-    function setFieldVisible(fieldElement, inputElement, visible) {
-      if (visible) {
-        fieldElement.hidden = false;
-        fieldElement.classList.remove('request-field-hidden');
-        fieldElement.style.display = '';
-        inputElement.disabled = false;
-      }
-      else {
-        fieldElement.hidden = true;
-        fieldElement.classList.add('request-field-hidden');
-        fieldElement.style.display = 'none';
-        inputElement.disabled = true;
-      }
-    }
-
-    function restoreLastExcelPath() {
-      const savedPath = localStorage.getItem(STORAGE_KEY_EXCEL_PATH) || '';
-      setExcelPath(savedPath, false);
-    }
-
-    function setExcelPath(path, persist = true) {
-      const cleanPath = String(path || '').trim();
-
-      caminhoFicheiroInput.value = cleanPath;
-      caminhoFicheiroInput.title = cleanPath;
-
-      if (cleanPath) {
-        selectedFileBox.classList.remove('muted');
-        selectedFileBox.innerHTML = `<b>Selecionado:</b><br>${escapeHtml(cleanPath)}`;
-
-        if (persist) {
-          localStorage.setItem(STORAGE_KEY_EXCEL_PATH, cleanPath);
-        }
-      }
-      else {
-        selectedFileBox.classList.add('muted');
-        selectedFileBox.textContent = 'Nenhum ficheiro selecionado.';
-
-        if (persist) {
-          localStorage.removeItem(STORAGE_KEY_EXCEL_PATH);
-        }
-      }
-    }
-
-
-    async function uploadFileFromBrowser() {
       const file = browserFileInput.files && browserFileInput.files[0];
-
-      if (!file) {
-        return;
-      }
-
-      formMessage.textContent = 'A enviar ficheiro para o projeto...';
-      selectExcelButton.disabled = true;
-      clearExcelButton.disabled = true;
-
+      if (!file) return;
+      formMessage.textContent = 'A enviar ficheiro...';
       try {
         const payload = new FormData();
         payload.append('file', file);
-
-        const response = await fetch('/api/upload-file', {
-          method: 'POST',
-          body: payload
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Erro ao enviar ficheiro: ${errorText}`);
-        }
-
+        const response = await fetch('/api/upload-file', { method: 'POST', body: payload });
+        if (!response.ok) throw new Error('Erro ao enviar');
         const data = await response.json();
-        const windowsPath = String(data.windows_path || '').trim();
+        setExcelPath(data.windows_path);
+        formMessage.textContent = 'Ficheiro guardado.';
+      } catch (err) {
+        formMessage.textContent = err.message;
+      }
+    });
 
-        if (!windowsPath) {
-          throw new Error('Upload concluído, mas o backend não devolveu caminho Windows.');
-        }
+    clearExcelButton.addEventListener('click', () => setExcelPath(''));
 
-        setExcelPath(windowsPath);
-        formMessage.textContent = 'Ficheiro selecionado e guardado no projeto.';
-      }
-      catch (error) {
-        formMessage.textContent = error.message || 'Erro ao selecionar ficheiro no browser.';
-      }
-      finally {
-        selectExcelButton.disabled = false;
-        clearExcelButton.disabled = false;
-      }
+    requestOptionSelect.addEventListener('change', updateRequestFieldsVisibility);
+
+    function updateRequestFieldsVisibility() {
+      const opt = requestOptionSelect.value;
+      requestNumberField.hidden = opt !== '1';
+      requestNumberInput.disabled = opt !== '1';
+      requestNumberInput.required = opt === '1';
+
+      requestDescField.hidden = opt !== '2';
+      requestDescInput.disabled = opt !== '2';
+      
+      requestTypeField.hidden = opt !== '2';
+      requestTypeSelect.disabled = opt !== '2';
     }
 
-    async function selectExcelFileOnWindows() {
-      formMessage.textContent = 'A abrir janela de seleção no Windows...';
-      selectExcelButton.disabled = true;
-      clearExcelButton.disabled = true;
-
-      try {
-        const payload = new FormData();
-        payload.append('task', 'select_excel_file');
-        payload.append('ambiente', '');
-        payload.append('processo', processoSelect.value || '');
-        payload.append('subprocesso', subprocessoSelect.value || '');
-        payload.append('request_option', '4');
-        payload.append('request_number', '');
-        payload.append('request_desc', '');
-        payload.append('request_type', '1');
-        payload.append('caminho_ficheiro', caminhoFicheiroInput.value || '');
-
-        const response = await fetch('/jobs', {
-          method: 'POST',
-          body: payload
-        });
-
-        if (!response.ok) {
-          formMessage.textContent = 'Erro ao pedir abertura da janela no Windows.';
-          return;
-        }
-
-        const job = await response.json();
-        const selectedPath = await waitForJobResult(job.id, 180000);
-
-        setExcelPath(selectedPath);
-        formMessage.textContent = 'Ficheiro selecionado com sucesso.';
-
-        await loadJobs();
-      }
-      catch (error) {
-        formMessage.textContent = error.message || 'Erro ao selecionar ficheiro no Windows.';
-      }
-      finally {
-        selectExcelButton.disabled = false;
-        clearExcelButton.disabled = false;
-      }
+    function setExcelPath(path) {
+      caminhoFicheiroInput.value = path || '';
+      localStorage.setItem(STORAGE_KEY_EXCEL_PATH, path || '');
     }
 
-    async function waitForJobResult(jobId, timeoutMs) {
-      const startedAt = Date.now();
-
-      while (Date.now() - startedAt <= timeoutMs) {
-        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
-
-        if (!response.ok) {
-          throw new Error('Não foi possível consultar a seleção de ficheiro.');
-        }
-
-        const job = await response.json();
-
-        if (job.state === 'succeeded') {
-          const selectedPath = String(job.status || '').trim();
-
-          if (!selectedPath) {
-            throw new Error('O worker concluiu, mas não devolveu caminho de ficheiro.');
-          }
-
-          return selectedPath;
-        }
-
-        if (job.state === 'failed') {
-          const message = job.status || job.log || 'Seleção de ficheiro cancelada ou falhou no worker.';
-          throw new Error(message);
-        }
-
-        await sleep(1000);
-      }
-
-      throw new Error('Tempo esgotado. Confirme se o worker Windows está ligado.');
-    }
-
-    function sleep(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
+    function restoreLastExcelPath() {
+      setExcelPath(localStorage.getItem(STORAGE_KEY_EXCEL_PATH));
     }
 
     async function loadSubprocessos() {
-      const processo = processoSelect.value || '';
-
-      subprocessoSelect.innerHTML = '';
-
-      if (!processo) {
-        addSubprocessoOption('', 'Selecione primeiro o processo');
-        return;
-      }
-
-      addSubprocessoOption('', 'A carregar subprocessos...');
-
+      const p = processoSelect.value;
+      subprocessoSelect.innerHTML = '<option value="">A carregar...</option>';
+      if (!p) return subprocessoSelect.innerHTML = '<option value="">Selecione primeiro o processo</option>';
       try {
-        const response = await fetch(`/api/subprocesses?processo=${encodeURIComponent(processo)}`);
-
-        if (!response.ok) {
-          subprocessoSelect.innerHTML = '';
-          addSubprocessoOption('', 'Erro ao carregar subprocessos');
-          return;
-        }
-
-        const data = await response.json();
-        const subprocessos = data.subprocesses || [];
-
-        subprocessoSelect.innerHTML = '';
-
-        if (!subprocessos.length) {
-          addSubprocessoOption('', 'Nenhum subprocesso .py encontrado');
-          return;
-        }
-
-        addSubprocessoOption('', 'Selecione o subprocesso');
-
-        for (const subprocesso of subprocessos) {
-          addSubprocessoOption(subprocesso.nome, subprocesso.label);
-        }
-      }
-      catch {
-        subprocessoSelect.innerHTML = '';
-        addSubprocessoOption('', 'Erro ao carregar subprocessos');
+        const res = await fetch(`/api/subprocesses?processo=${encodeURIComponent(p)}`);
+        const data = await res.json();
+        subprocessoSelect.innerHTML = '<option value="">Selecione o subprocesso</option>';
+        (data.subprocesses || []).forEach(sub => {
+           subprocessoSelect.innerHTML += `<option value="${sub.nome}">${sub.label}</option>`;
+        });
+      } catch {
+        subprocessoSelect.innerHTML = '<option value="">Erro ao carregar</option>';
       }
     }
 
-    function addSubprocessoOption(value, text) {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = text;
-      subprocessoSelect.appendChild(option);
-    }
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      formMessage.textContent = 'A criar pedido...';
-
-      updateRequestFieldsVisibility();
-
-      const task = form.querySelector('select[name="task"]').value;
-      const processo = form.querySelector('select[name="processo"]').value;
-      const subprocesso = form.querySelector('select[name="subprocesso"]').value;
-      const requestOption = requestOptionSelect.value || '4';
-
-      if (task === 'sap_cockpit' && (!processo || !subprocesso)) {
-        formMessage.textContent = 'Para Executar SAP Cockpit, selecione Processo e Subprocesso.';
-        return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      document.getElementById('submit-job-btn').disabled = true;
+      formMessage.textContent = 'A processar...';
+      try {
+        const res = await fetch('/jobs', { method: 'POST', body: new FormData(form) });
+        if (!res.ok) throw new Error('Erro');
+        const novoJob = await res.json();
+        activeJobId = novoJob.id; // Foca no novo job criado
+        formMessage.textContent = 'Criado com sucesso!';
+        setTimeout(() => modal.classList.remove('active'), 1000);
+        await loadJobs();
+      } catch (err) {
+        formMessage.textContent = 'Falha ao criar.';
       }
-
-      if (requestOption === '1' && !requestNumberInput.value.trim()) {
-        formMessage.textContent = 'Para usar request existente, preencha o Número da request.';
-        requestNumberInput.focus();
-        return;
-      }
-
-      const response = await fetch('/jobs', {
-        method: 'POST',
-        body: new FormData(form)
-      });
-
-      if (!response.ok) {
-        formMessage.textContent = 'Erro ao criar pedido.';
-        return;
-      }
-
-      const job = await response.json();
-      formMessage.textContent = 'Pedido adicionado à fila com sucesso!';
-      setTimeout(() => {
-        if (formMessage.textContent === 'Pedido adicionado à fila com sucesso!') {
-          formMessage.textContent = '';
-        }
-      }, 3000);
-      await loadJobs();
+      document.getElementById('submit-job-btn').disabled = false;
     });
 
-    refreshButton.addEventListener('click', loadJobs);
+    document.getElementById('refresh-button').addEventListener('click', loadJobs);
 
-    let allJobs = [];
-    let currentTab = 'running';
-
-    document.querySelectorAll('.tab').forEach(tab => {
+    // Gestão de Abas da Queue
+    document.querySelectorAll('.c-tab').forEach(tab => {
       tab.addEventListener('click', (e) => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.c-tab').forEach(t => t.classList.remove('active'));
         e.target.classList.add('active');
-        currentTab = e.target.dataset.tab;
-        renderJobs();
+        currentTab = e.target.dataset.q;
+        renderQueue();
       });
     });
 
     async function loadJobs() {
       try {
-        const [jobsResponse, statusResponse] = await Promise.all([
-          fetch('/api/jobs?limit=50'),
-          fetch('/api/worker/status')
+        const fetchOptions = { cache: 'no-store' };
+        const [jobsRes, statusRes] = await Promise.all([
+          fetch('/api/jobs?limit=50', fetchOptions),
+          fetch('/api/worker/status', fetchOptions)
         ]);
-        
-        if (jobsResponse.ok) {
-          const data = await jobsResponse.json();
+
+        if (jobsRes.ok) {
+          const data = await jobsRes.json();
           allJobs = data.jobs || [];
-          renderJobs();
+          calculateKPIs();
+          renderQueue();
         }
 
-        if (statusResponse.ok) {
-          const statusData = await statusResponse.json();
-          const indicator = document.querySelector('#worker-status-indicator');
-          const text = document.querySelector('#worker-status-text');
+        if (statusRes.ok) {
+          const sData = await statusRes.json();
+          const ind = document.getElementById('worker-status-indicator');
+          const txt = document.getElementById('worker-status-text');
+          const btn = document.getElementById('start-worker-btn');
           
-          if (statusData.status === 'online') {
-            indicator.style.background = '#22c55e'; // green
-            text.textContent = 'Worker Online';
-            text.style.color = '#166534';
+          if (sData.status === 'online') {
+            isConnectingWorker = false;
+            if (connectingTimeout) {
+                clearTimeout(connectingTimeout);
+                connectingTimeout = null;
+            }
+            ind.style.background = 'var(--success)';
+            txt.textContent = 'Online';
+            if (btn) {
+              btn.style.display = 'none';
+              btn.disabled = false;
+              btn.innerHTML = 'Ligar Worker';
+              btn.style.opacity = '1';
+            }
           } else {
-            indicator.style.background = '#ef4444'; // red
-            text.textContent = 'Worker Offline';
-            text.style.color = '#991b1b';
+            if (!isConnectingWorker) {
+              ind.style.background = 'var(--danger)';
+              txt.textContent = 'Offline';
+              if (btn) {
+                btn.style.display = 'inline-block';
+                btn.disabled = false;
+                btn.innerHTML = 'Ligar Worker';
+                btn.style.opacity = '1';
+              }
+            }
           }
         }
-      } catch (err) {
-        console.error("Erro ao carregar dados:", err);
-      }
+      } catch(e) {}
     }
 
-    function renderJobs() {
-      jobsContainer.innerHTML = '';
-
+    function calculateKPIs() {
       const now = new Date();
-      const filteredJobs = allJobs.filter(job => {
-        const isCompleted = job.state === 'succeeded' || job.state === 'failed';
-        let isRecent = false;
-        
-        if (isCompleted) {
-           const updatedDate = new Date(job.updated_at);
-           const diffHours = (now - updatedDate) / (1000 * 60 * 60);
-           isRecent = diffHours < 24;
-        } else {
-           isRecent = true; // pending or running
+      let running = 0, pending = 0, successToday = 0, errorToday = 0;
+      let latestRunningProcess = '';
+
+      allJobs.forEach(job => {
+        const isToday = new Date(job.created_at).toDateString() === now.toDateString();
+        if (job.state === 'running') {
+            running++;
+            if (!latestRunningProcess) latestRunningProcess = job.params?.subprocesso || job.task;
         }
-
-        const isRunningTab = !job.is_archived && isRecent;
-        return currentTab === 'running' ? isRunningTab : !isRunningTab;
+        if (job.state === 'pending') pending++;
+        if (isToday && job.state === 'succeeded') successToday++;
+        if (isToday && job.state === 'failed') errorToday++;
       });
 
-      if (!filteredJobs.length) {
-        jobsContainer.innerHTML = '<p class="muted">Ainda não existem pedidos nesta aba.</p>';
-        return;
-      }
+      document.getElementById('kpi-running').textContent = running;
+      document.getElementById('kpi-running-sub').textContent = running > 0 ? '+ ' + latestRunningProcess : 'Sistema livre';
+      
+      document.getElementById('kpi-pending').textContent = pending;
+      
+      document.getElementById('kpi-success').textContent = successToday;
+      const totalCompleted = successToday + errorToday;
+      const rate = totalCompleted > 0 ? Math.round((successToday / totalCompleted) * 100) : 100;
+      document.getElementById('kpi-success-rate').textContent = `${rate}% sem erro`;
 
-      for (const job of filteredJobs) {
-        const article = document.createElement('article');
-        article.className = `job ${job.state}`;
-        
-        let actionsHtml = '';
-        if (job.state === 'running' || job.state === 'pending') {
-          actionsHtml = `
-            <button type="button" class="copy-log-btn secondary" style="padding: 4px 8px; font-size: 12px; height: auto;" data-id="${escapeHtml(job.id)}">Copiar Log</button>
-            <button type="button" class="cancel-job-btn danger-light secondary" style="padding: 4px 8px; font-size: 12px; height: auto;" data-id="${escapeHtml(job.id)}">Cancelar</button>
-          `;
-        } else if (currentTab === 'running') {
-          actionsHtml = `
-            <button type="button" class="copy-log-btn secondary" style="padding: 4px 8px; font-size: 12px; height: auto;" data-id="${escapeHtml(job.id)}">Copiar Log</button>
-            <button type="button" class="archive-job-btn secondary" style="padding: 4px 8px; font-size: 12px; height: auto; background-color: #e5e7eb; color: #374151; border-color: #d1d5db;" data-id="${escapeHtml(job.id)}">Arquivar</button>
-          `;
-        } else {
-          actionsHtml = `
-            <button type="button" class="copy-log-btn secondary" style="padding: 4px 8px; font-size: 12px; height: auto;" data-id="${escapeHtml(job.id)}">Copiar Log</button>
-          `;
-        }
-
-        let logHtml = '';
-        if (job.state === 'running' || job.state === 'pending') {
-          const lines = (job.log || '').split('\\n').filter(l => l.trim() !== '');
-          let parsedLines = lines.map(line => {
-            if (line.startsWith('[INFO]')) return `<div class="log-line"><span class="log-badge info">INFO</span> ${escapeHtml(line.substring(6).trim())}</div>`;
-            if (line.startsWith('[OK]')) return `<div class="log-line"><span class="log-badge ok">OK</span> ${escapeHtml(line.substring(4).trim())}</div>`;
-            if (line.startsWith('[WARN]')) return `<div class="log-line"><span class="log-badge warn">WARN</span> ${escapeHtml(line.substring(6).trim())}</div>`;
-            if (line.startsWith('[ERRO]')) return `<div class="log-line"><span class="log-badge erro">ERRO</span> ${escapeHtml(line.substring(6).trim())}</div>`;
-            if (line.startsWith('---') && line.endsWith('---')) return `<div class="log-step">${escapeHtml(line.replaceAll('-', '').trim())}</div>`;
-            return `<div class="log-line">${escapeHtml(line)}</div>`;
-          }).join('');
-          
-          logHtml = `
-            <div class="modern-terminal">
-              <div class="modern-terminal-header">
-                <div class="term-dot red"></div>
-                <div class="term-dot yellow"></div>
-                <div class="term-dot green"></div>
-              </div>
-              <div class="modern-terminal-body">
-                ${parsedLines}
-                <div class="log-line" style="margin-top: 8px; color: #8b949e;">> a processar<span class="cursor-blink"></span></div>
-              </div>
-            </div>
-          `;
-        } else {
-          logHtml = `
-            <details>
-              <summary>Detalhes</summary>
-              <pre>${escapeHtml(JSON.stringify(job.params, null, 2))}\\n\\n${escapeHtml(job.log || '')}</pre>
-            </details>
-          `;
-        }
-
-        article.innerHTML = `
-          <div class="job-top">
-            <strong>${escapeHtml(job.task)}</strong>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              ${actionsHtml}
-              <span>${escapeHtml(job.state)}</span>
-            </div>
-          </div>
-          <p><b>STATUS:</b> ${escapeHtml(job.status || '')}</p>
-          ${logHtml}
-          <small>${escapeHtml(formatTime(job.created_at))}${job.worker_name ? ' · Executado por: ' + escapeHtml(job.worker_name) : ''}</small>
-        `;
-        jobsContainer.appendChild(article);
-      }
-
-      document.querySelectorAll('.cancel-job-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          const jobId = e.target.dataset.id;
-          if (!confirm('Tem a certeza que deseja cancelar este pedido?')) return;
-          
-          e.target.disabled = true;
-          e.target.textContent = 'A cancelar...';
-          
-          try {
-            const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
-              method: 'POST'
-            });
-            if (response.ok) {
-              await loadJobs();
-            } else {
-              alert('Falha ao cancelar o pedido.');
-              e.target.disabled = false;
-              e.target.textContent = 'Cancelar';
-            }
-          } catch (err) {
-            alert('Erro: ' + err.message);
-            e.target.disabled = false;
-            e.target.textContent = 'Cancelar';
-          }
-        });
-      });
-
-      document.querySelectorAll('.archive-job-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          const jobId = e.target.dataset.id;
-          
-          e.target.disabled = true;
-          e.target.textContent = 'A arquivar...';
-          
-          try {
-            const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/archive`, {
-              method: 'POST'
-            });
-            if (response.ok) {
-              await loadJobs();
-            } else {
-              alert('Falha ao arquivar o pedido.');
-              e.target.disabled = false;
-              e.target.textContent = 'Arquivar';
-            }
-          } catch (err) {
-            alert('Erro: ' + err.message);
-            e.target.disabled = false;
-            e.target.textContent = 'Arquivar';
-          }
-        });
-      });
-
-      document.querySelectorAll('.copy-log-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const jobId = e.target.dataset.id;
-          const job = allJobs.find(j => j.id === jobId);
-          if (job) {
-            navigator.clipboard.writeText(job.log || '').then(() => {
-              const originalText = e.target.textContent;
-              e.target.textContent = 'Copiado!';
-              setTimeout(() => e.target.textContent = originalText, 2000);
-            }).catch(err => alert('Erro ao copiar log.'));
-          }
-        });
-      });
+      document.getElementById('kpi-failed').textContent = errorToday;
     }
 
-    function formatTime(isoStr) {
-      if (!isoStr) return '';
-      try {
-        const d = new Date(isoStr);
-        if (isNaN(d.getTime())) return isoStr;
-        return d.toLocaleString('pt-PT', { timeZone: 'Europe/Lisbon' });
-      } catch(e) {
-        return isoStr;
+    function renderQueue() {
+      const qContainer = document.getElementById('queue-list-container');
+      if (!qContainer) {
+          renderActiveJob();
+          return;
       }
+      qContainer.innerHTML = '';
+      
+      let filtered = [];
+      if (currentTab === 'running') {
+          filtered = allJobs.filter(j => j.state === 'running' || j.state === 'pending');
+          
+          // Se estamos na aba Ativos e o job ativo já não está a correr, limpa a seleção
+          if (activeJobId) {
+              const activeJobStillRunning = filtered.find(j => j.id === activeJobId);
+              if (!activeJobStillRunning) {
+                  activeJobId = null;
+              }
+          }
+      } else {
+          filtered = allJobs.filter(j => j.state === 'succeeded' || j.state === 'failed');
+      }
+
+      if (!filtered.length) {
+         qContainer.innerHTML = '<div class="empty-state" style="padding: 20px;">Lista vazia</div>';
+         if (!activeJobId && allJobs.length > 0 && currentTab === 'running') {
+             // Try to select first history job if nothing running
+             activeJobId = allJobs.find(j => j.state === 'succeeded' || j.state === 'failed')?.id || null;
+         }
+      }
+
+      filtered.forEach(job => {
+         const div = document.createElement('div');
+         div.className = 'queue-item';
+         div.style.cursor = 'pointer';
+          let dataFila = new Date(job.created_at).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          let badgeClass = '';
+          let badgeText = job.state;
+          if (job.state === 'running') { badgeClass = 'badge-running'; badgeText = 'running'; }
+          else if (job.state === 'pending') { badgeClass = 'badge-pending'; badgeText = 'pending'; }
+          else if (job.state === 'succeeded') { badgeClass = 'badge-success'; badgeText = 'sucesso'; }
+          else if (job.state === 'failed') { badgeClass = 'badge-error'; badgeText = 'erro'; }
+          
+          let proc = job.params ? (job.params.subprocesso || job.params.processo || job.task) : job.task;
+          let isActive = (job.id === activeJobId) ? 'active' : '';
+          let shortId = job.id.substring(0, 8);
+          
+          let html = `
+          <div class="fila-job-status ${isActive}">
+              <div class="fila-job-info">
+                  <div class="fila-job-title">${escapeHtml(proc)}</div>
+                  <div class="fila-job-meta"><span style="font-family:monospace">#${shortId}</span> · ${escapeHtml(job.ambiente || 'DEV')} · ${escapeHtml(job.worker_name ? (job.worker_name.split('-')[0]) : '')} · ${dataFila}</div>
+              </div>
+              <div class="status-badge ${badgeClass}">${badgeText}</div>
+          </div>
+          `; 
+          div.innerHTML = html;
+         
+         div.onclick = () => {
+             activeJobId = job.id;
+             renderQueue(); // Re-render to highlight
+         };
+         qContainer.appendChild(div);
+
+         // Auto-select first running job
+         if (!activeJobId && job.state === 'running') {
+             activeJobId = job.id;
+         }
+      });
+
+      renderActiveJob();
+    }
+
+    function renderActiveJob() {
+        const container = document.getElementById('active-jobs-container');
+        const logContainer = document.getElementById('realtime-log-container');
+        if (!container) return;
+
+        if (!activeJobId && allJobs.length > 0) {
+            const active = allJobs.find(j => j.state === 'running' || j.state === 'pending');
+            if (active) {
+                activeJobId = active.id;
+            }
+        }
+
+        // Find all active (running/pending) jobs
+        let jobsToRender = allJobs.filter(j => j.state === 'running' || j.state === 'pending');
+
+        // Always render the focused job, inserting it at the top if it is not already in the active list
+        if (activeJobId && !jobsToRender.find(j => j.id === activeJobId)) {
+            const selectedJob = allJobs.find(j => j.id === activeJobId);
+            if (selectedJob) {
+                jobsToRender.unshift(selectedJob);
+            }
+        }
+
+        // If no jobs at all to display
+        if (jobsToRender.length === 0) {
+           container.innerHTML = `
+              <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                 <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
+              </div>
+           `;
+           if (logContainer) logContainer.innerHTML = 'Nenhum log disponível...';
+           return;
+       }
+
+       // Clear container to populate cards
+       container.innerHTML = '';
+
+       // Render each job
+       jobsToRender.forEach(job => {
+          const p = job.params || {};
+          const proc = p.processo || '';
+          const sub = p.subprocesso || '';
+          
+          let displayTitleHtml = '';
+          if (proc && sub) {
+              displayTitleHtml = `
+                 <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.15); color: #3B82F6; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">📂 ${escapeHtml(proc)}</span>
+                 <span style="color: var(--text-secondary); opacity: 0.4; font-size: 14px; margin: 0 4px; font-weight: normal;">/</span>
+                 <span style="font-size: 17px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.01em;">${escapeHtml(sub)}</span>
+              `;
+          } else if (proc || sub) {
+              displayTitleHtml = `<span style="font-size: 17px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.01em;">${escapeHtml(proc || sub)}</span>`;
+          } else {
+              displayTitleHtml = `<span style="font-size: 17px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.01em;">${escapeHtml(job.task)}</span>`;
+          }
+
+          const data = new Date(job.created_at).toLocaleString('pt-PT');
+          
+          let sapInfoBadgesHtml = '';
+          if (p.sap_user) {
+              sapInfoBadgesHtml = `
+                <span style="opacity: 0.4">|</span>
+                <span><strong>Ambiente:</strong> ${escapeHtml(p.ambiente || job.ambiente || 'DEV')}</span>
+                <span style="opacity: 0.4">|</span>
+                <span><strong>Sistema:</strong> ${escapeHtml(p.sap_system || '')}</span>
+                <span style="opacity: 0.4">|</span>
+                <span><strong>Cliente:</strong> ${escapeHtml(p.sap_client || '')}</span>
+                <span style="opacity: 0.4">|</span>
+                <span><strong>Utilizador:</strong> ${escapeHtml(p.sap_user || '')}</span>
+              `;
+          }
+
+          // Timeline steps HTML
+          let logStr = job.log || '';
+          logStr = logStr.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+          const lines = logStr.split('\n').filter(l => l.trim() !== '');
+
+          let activeIndex = -1;
+          if (job.state === 'running') {
+              activeIndex = 0; // default a inicializar
+              const searchString = logStr.toLowerCase();
+              if (searchString.includes('sap gui scripting esta ativo') || searchString.includes('sessão sap pronta')) {
+                  activeIndex = 1;
+              }
+              if (searchString.includes('processo selecionado') || searchString.includes('role a processar')) {
+                  activeIndex = 2;
+              }
+              if (searchString.includes('iniciando processamento das roles') || searchString.includes('roles a processar') || searchString.includes('roles concluídas') || searchString.includes('role:')) {
+                  activeIndex = 2;
+              }
+          } else if (job.state === 'succeeded') {
+              activeIndex = 4;
+          }
+
+          let totalRoles = p.roles_count || 0;
+          let currentRoleName = '';
+          let currentRoleIndex = 0;
+          let rolesFromLogs = [];
+          let insideSummary = false;
+          let completedRolesList = [];
+          let currentRoleInLoop = '';
+          let roleMetadata = {};
+          let sapSbarText = '';
+
+          // Parse and scan logs for roles, progress, and status
+          lines.forEach(line => {
+              const tr = line.trim();
+              
+              // 1. Parse the full checklist of roles from the summary in logs if available
+              if (tr.includes('Roles a processar') || tr.includes('Resumo das Roles') || tr.includes('Roles a eliminar')) {
+                  insideSummary = true;
+              } else if (tr.includes('Deseja lançar') || tr.includes('INICIANDO ROLE') || tr.includes('A processar role') || tr.includes('Executing') || tr.includes('Bloco 2') || tr.includes('===') || tr.includes('tratar_popup') || tr.includes('[Etapa') || tr.includes('Acesso ao SAP')) {
+                  insideSummary = false;
+              }
+              
+              if (insideSummary) {
+                  const matchRole = tr.match(/^(?:-\s*|(?:\d+)\.\s*)([A-Za-z0-9_\\\-]+)/);
+                  if (matchRole) {
+                      const rName = matchRole[1];
+                      if (!rolesFromLogs.some(r => r.name === rName)) {
+                          rolesFromLogs.push({ name: rName });
+                      }
+                  }
+              }
+              
+              // 2. Parse active role, index, and total roles from bracket logs like ▶ [1/3]
+              const bracketMatch = tr.match(/▶\s*\[(\d+)\/(\d+)\]/);
+              if (bracketMatch) {
+                  const idx = parseInt(bracketMatch[1]);
+                  const tot = parseInt(bracketMatch[2]);
+                  if (idx > currentRoleIndex) {
+                      currentRoleIndex = idx;
+                  }
+                  if (tot > totalRoles) {
+                      totalRoles = tot;
+                  }
+                  
+                  const nameMatch = tr.match(/(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\\-]+)/i);
+                  if (nameMatch && nameMatch[1]) {
+                      currentRoleInLoop = nameMatch[1];
+                      currentRoleName = currentRoleInLoop;
+                      if (!rolesFromLogs.some(r => r.name === currentRoleInLoop)) {
+                          rolesFromLogs.push({ name: currentRoleInLoop });
+                      }
+
+                      // Initialize metadata for this role
+                      const tcodesMatch = tr.match(/TCODEs:\s*(\d+)/i);
+                      const tcodesVal = tcodesMatch ? parseInt(tcodesMatch[1]) : null;
+                      if (!roleMetadata[currentRoleInLoop]) {
+                          roleMetadata[currentRoleInLoop] = {
+                              tcodes: tcodesVal,
+                              actions: 0,
+                              duration: ''
+                          };
+                      } else if (tcodesVal !== null) {
+                          roleMetadata[currentRoleInLoop].tcodes = tcodesVal;
+                      }
+                  }
+              }
+              
+              // Track action counts
+              if (currentRoleInLoop && (tr.startsWith('├─') || tr.startsWith('└─'))) {
+                  if (!roleMetadata[currentRoleInLoop]) {
+                      roleMetadata[currentRoleInLoop] = { tcodes: null, actions: 0, duration: '' };
+                  }
+                  roleMetadata[currentRoleInLoop].actions++;
+              }
+
+              // Track duration / execution times
+              if (currentRoleInLoop && (tr.includes('🟢 SUCESSO') || tr.includes('🔴 ERRO') || tr.includes('Role concluida') || tr.includes('Role concluída') || tr.includes('tratada por completo'))) {
+                  const durationMatch = tr.match(/\(Tempo:\s*([^)]+)\)/i);
+                  if (durationMatch) {
+                      if (!roleMetadata[currentRoleInLoop]) {
+                          roleMetadata[currentRoleInLoop] = { tcodes: null, actions: 0, duration: '' };
+                      }
+                      roleMetadata[currentRoleInLoop].duration = durationMatch[1].trim();
+                  }
+              }
+
+              // 3. Track role success completion status
+              if (tr.includes('🟢 SUCESSO') || tr.includes('Role concluida:') || tr.includes('Role concluída:') || tr.includes('[OK] Role concluida:') || tr.includes('[OK] Role concluída:')) {
+                  if (currentRoleInLoop) {
+                      completedRolesList.push(currentRoleInLoop);
+                  }
+                  const parts = tr.split(':');
+                  if (parts[1] && (parts[0].includes('Role concluida') || parts[0].includes('Role concluída'))) {
+                      completedRolesList.push(parts[1].trim());
+                  }
+              }
+
+              // Parse SAP status bar message if present
+              if (tr.includes('[SAP_SBAR]')) {
+                  sapSbarText = tr.split('[SAP_SBAR]')[1].trim();
+              }
+          });
+
+          // Unique values in completed list
+          completedRolesList = [...new Set(completedRolesList)];
+
+          // 4. Fallback search for current active role from end of logs if not captured by bracket log yet
+          if (job.state === 'running' && !currentRoleName) {
+              for (let i = lines.length - 1; i >= 0; i--) {
+                  const line = lines[i];
+                  if (line.includes('Role [') || line.includes('role:')) {
+                      const match = line.match(/(?:Role\s+\[|role:\s*)([A-Za-z0-9_\\-]+)/i);
+                      if (match && match[1]) {
+                          currentRoleName = match[1];
+                          break;
+                      }
+                  }
+              }
+              if (!currentRoleName) {
+                  for (let i = lines.length - 1; i >= 0; i--) {
+                      if (lines[i].includes('processar') && lines[i].includes('Roles')) {
+                          break;
+                      }
+                      if (lines[i].trim().startsWith('- ')) {
+                          const parts = lines[i].split(':');
+                          currentRoleName = parts[0].replace('-', '').trim();
+                          break;
+                      }
+                  }
+              }
+
+              for (let i = lines.length - 1; i >= 0; i--) {
+                  const line = lines[i];
+                  const idxMatch = line.match(/\b(\d+)\/(\d+)\b/);
+                  if (idxMatch) {
+                      currentRoleIndex = parseInt(idxMatch[1]);
+                      if (!totalRoles) {
+                          totalRoles = parseInt(idxMatch[2]);
+                      }
+                      break;
+                  }
+              }
+          }
+
+          const concludedRoles = (job.state === 'succeeded') ? totalRoles : currentRoleIndex;
+
+          let roleHistoryHtml = '';
+          
+          if (totalRoles > 0) {
+              let rows = '';
+              const allRolesParam = (p.roles && p.roles.length > 0) ? p.roles : rolesFromLogs;
+              allRolesParam.forEach((r, idx) => {
+                  const isConcluida = completedRolesList.includes(r.name) || (job.state === 'succeeded');
+                  const isActive = (job.state === 'running' && r.name === currentRoleName);
+                  let statusBadge = '<span style="font-size:10px; padding:2px 6px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; color:var(--text-secondary);">Pendente</span>';
+                  
+                  if (isConcluida) {
+                      statusBadge = '<span class="badge success" style="font-size:10px; padding:2px 6px;">✔️ Concluída</span>';
+                  } else if (isActive) {
+                      statusBadge = '<span class="badge running" style="font-size:10px; padding:2px 6px; animation: pulse-opacity 1.5s infinite;">⚙️ A processar</span>';
+                  }
+
+                  const meta = roleMetadata[r.name] || {};
+                  let metaDetails = [];
+                  if (meta.tcodes !== undefined && meta.tcodes !== null) {
+                      metaDetails.push(`⚡ ${meta.tcodes} TCOD${meta.tcodes > 1 ? 's' : ''}`);
+                  }
+                  if (meta.actions) {
+                      metaDetails.push(`🛠️ ${meta.actions} Ação${meta.actions > 1 ? 'ões' : 'o'}`);
+                  }
+                  if (meta.duration) {
+                      metaDetails.push(`⏱️ ${meta.duration.replace(/^00m\s*/, '')}`);
+                  }
+                  
+                  let metaHtml = '';
+                  if (metaDetails.length > 0) {
+                      metaHtml = `<div style="display:flex; gap:12px; font-size:10px; color:var(--text-secondary); margin-right:16px;">${metaDetails.join(' · ')}</div>`;
+                  }
+                  
+                  rows += `
+                     <div class="role-history-row ${isActive ? 'active-role' : ''}" style="display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.02);">
+                        <span style="color:var(--text-secondary); width:50px;">[${String(idx+1).padStart(2, '0')}/${String(totalRoles).padStart(2, '0')}]</span>
+                        <span style="font-weight:600; color:${isActive ? 'var(--primary)' : 'var(--text-primary)'}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:8px;">${escapeHtml(r.name)}</span>
+                        ${metaHtml}
+                        ${statusBadge}
+                     </div>
+                  `;
+              });
+              
+              roleHistoryHtml = `
+                 <div style="margin-top:20px; border-top:1px solid rgba(255,255,255,0.05); padding-top:16px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+                       <span style="font-weight:bold; color:var(--text-primary); font-size:13px;">📋 Histórico de Execução das Roles</span>
+                       <span style="font-size:11px; font-weight:bold; color:var(--success);">${concludedRoles}/${totalRoles} Concluídas</span>
+                    </div>
+                    <div class="role-history-scroll" style="position: relative; max-height:220px; overflow-y:auto; padding-right:4px;">
+                       ${rows}
+                    </div>
+                 </div>
+              `;
+          }
+
+          let stageLabels = ['Inicialização e Logon SAP', 'Abertura e Verificação de Tela', 'Processamento Principal / Ações GUI', 'Conclusão / Geração de Logs'];
+
+          const subLower = sub.toLowerCase();
+          if (subLower.includes('pfcg_create') || (subLower.includes('pfcg') && subLower.includes('create'))) {
+              stageLabels = ['Preparação e Dados', 'Atribuição de TCODs', 'Gerar Perfil', 'Ordem de Transporte'];
+          } else if (subLower.includes('pfcg_delete') || (subLower.includes('pfcg') && subLower.includes('delete'))) {
+              stageLabels = ['Leitura do Excel', 'Acesso ao SAP', 'Eliminação das Funções', 'Atualização do Excel'];
+          } else if (subLower.includes('pfcg_authority') || (subLower.includes('pfcg') && subLower.includes('authority'))) {
+              stageLabels = ['Validação da Role', 'Inserção MASSVAL', 'Ordem de Transporte'];
+          } else if (subLower.includes('cua_adicionar') || subLower.includes('adicionar')) {
+              stageLabels = ['Leitura do Excel', 'Pesquisa de Utilizadores', 'Atribuição no SAP CUA', 'Gravação de Resultados'];
+          } else if (subLower.includes('cua_enddate') || subLower.includes('enddate') || subLower.includes('validade')) {
+              stageLabels = ['Leitura do Excel', 'Acesso ao SAP CUA', 'Bloqueio / Data Fim', 'Gravação de Resultados'];
+          } else if (subLower.includes('cua_remove') || subLower.includes('remove')) {
+              stageLabels = ['Leitura do Excel', 'Acesso ao SAP CUA', 'Remoção de Perfis', 'Gravação de Resultados'];
+          }
+
+          // Scan logs dynamically for [Etapa X] labels to override defaults
+          lines.forEach(line => {
+              for (let s = 1; s <= 10; s++) {
+                  const tag = `[Etapa ${s}]`;
+                  if (line.includes(tag)) {
+                      const idx = line.indexOf(tag);
+                      const labelText = line.substring(idx + tag.length).trim();
+                      if (labelText && labelText.length < 60) {
+                          while (stageLabels.length < s) {
+                              stageLabels.push(`Etapa ${stageLabels.length + 1}`);
+                          }
+                          stageLabels[s - 1] = labelText;
+                      }
+                  }
+              }
+          });
+
+          const numStages = stageLabels.length;
+          const stepClasses = Array(numStages).fill('pending');
+
+          let currentRoleLogs = [];
+          let currentRoleStartIndex = -1;
+          for (let i = lines.length - 1; i >= 0; i--) {
+              if (lines[i].toUpperCase().includes('INICIANDO ROLE')) {
+                  currentRoleStartIndex = i;
+                  break;
+              }
+          }
+          if (currentRoleStartIndex !== -1) {
+              currentRoleLogs = lines.slice(currentRoleStartIndex);
+          } else {
+              currentRoleLogs = lines;
+          }
+
+          if (job.state === 'running') {
+              let activeSubstep = 0;
+              let currentRoleHasError = false;
+              let currentRoleHasSuccess = false;
+              
+              currentRoleLogs.forEach(line => {
+                  for (let s = 1; s <= numStages; s++) {
+                      if (line.includes(`[Etapa ${s}]`)) {
+                          activeSubstep = s;
+                      }
+                  }
+                  
+                  if (line.includes('🔴 ERRO') || line.includes('❌ SAP Erro:') || line.includes('❌ Erro') || line.includes('❌ Falha')) {
+                      currentRoleHasError = true;
+                  }
+                  if (line.includes('🟢 SUCESSO') || line.includes('Role concluida:') || line.includes('Role concluída:') || line.includes('Role tratada por completo')) {
+                      currentRoleHasSuccess = true;
+                  }
+              });
+              
+              if (currentRoleHasSuccess) {
+                  for (let s = 0; s < numStages; s++) stepClasses[s] = 'completed';
+              } else if (currentRoleHasError) {
+                  for (let s = 0; s < numStages; s++) {
+                      if (s + 1 < activeSubstep) {
+                          stepClasses[s] = 'completed';
+                      } else if (s + 1 === activeSubstep) {
+                          stepClasses[s] = 'failed';
+                      } else {
+                          stepClasses[s] = 'pending';
+                      }
+                  }
+                  if (activeSubstep === 0) {
+                      stepClasses[0] = 'failed';
+                  }
+              } else {
+                  for (let s = 0; s < numStages; s++) {
+                      if (s + 1 < activeSubstep) {
+                          stepClasses[s] = 'completed';
+                      } else if (s + 1 === activeSubstep) {
+                          stepClasses[s] = 'active';
+                      } else {
+                          stepClasses[s] = 'pending';
+                      }
+                  }
+                  if (activeSubstep === 0) {
+                      stepClasses[0] = 'active';
+                  }
+              }
+          } else if (job.state === 'succeeded') {
+              for (let s = 0; s < numStages; s++) stepClasses[s] = 'completed';
+          } else if (job.state === 'failed') {
+              let activeSubstep = 0;
+              lines.forEach(line => {
+                  for (let s = 1; s <= numStages; s++) {
+                      if (line.includes(`[Etapa ${s}]`)) {
+                          activeSubstep = s;
+                      }
+                  }
+              });
+              for (let s = 0; s < numStages; s++) {
+                  if (s + 1 < activeSubstep) {
+                      stepClasses[s] = 'completed';
+                  } else if (s + 1 === activeSubstep) {
+                      stepClasses[s] = 'failed';
+                  } else {
+                      stepClasses[s] = 'pending';
+                  }
+              }
+              if (activeSubstep === 0) {
+                  stepClasses[0] = 'failed';
+              }
+          }
+
+          let gridItemsHtml = '';
+          for (let s = 0; s < numStages; s++) {
+              gridItemsHtml += `
+                 <div class="check-item ${stepClasses[s]}">
+                    <div class="check-indicator"></div>
+                    <div class="check-label">
+                       <div style="font-weight:bold;">Etapa ${s+1}</div>
+                       <div style="font-size:11px; color:var(--text-secondary);">${escapeHtml(stageLabels[s])}</div>
+                    </div>
+                 </div>
+              `;
+          }
+
+          let timelineHtml = `
+             <div class="stages-checklist" style="margin-top:16px;">
+                <div class="checklist-title">📋 Fluxo de Execução da Role Atual${currentRoleName ? `: <span style="color:var(--primary);">${escapeHtml(currentRoleName)}</span>` : ''}</div>
+                <div class="checklist-grid" style="display: grid; grid-template-columns: repeat(${numStages}, 1fr); gap: 12px;">
+                   ${gridItemsHtml}
+                </div>
+                ${roleHistoryHtml}
+             </div>
+          `;
+
+          let progressLabelsHtml = '';
+          let progressWidth = '0%';
+          if (totalRoles > 0) {
+              const pct = Math.round((concludedRoles / totalRoles) * 100);
+              progressLabelsHtml = `<span>Progresso (${concludedRoles}/${totalRoles} Roles)</span><span>${pct}%</span>`;
+              progressWidth = `${pct}%`;
+          } else {
+              if (job.state === 'running') {
+                  progressLabelsHtml = `<span>Progresso (A iniciar...)</span><span>8%</span>`;
+                  progressWidth = '8%';
+              } else if (job.state === 'pending') {
+                  progressLabelsHtml = `<span>Progresso (Pendente na fila)</span><span>0%</span>`;
+                  progressWidth = '0%';
+              } else if (job.state === 'failed') {
+                  progressLabelsHtml = `<span>Progresso (${concludedRoles}/${totalRoles} Roles)</span><span>100%</span>`;
+                  progressWidth = '100%';
+              }
+          }
+
+          let actionBtns = '';
+          if (job.state === 'running' || job.state === 'pending') {
+              actionBtns = `<button class="btn" style="padding: 4px 12px; font-size: 11px; font-weight: bold; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); color: #EF4444; border-radius: 20px; cursor: pointer; transition: all 0.3s ease; display: inline-flex; align-items: center; gap: 4px; height: 26px;" onmouseover="this.style.background='rgba(239, 68, 68, 0.18)'; this.style.borderColor='rgba(239, 68, 68, 0.4)';" onmouseout="this.style.background='rgba(239, 68, 68, 0.08)'; this.style.borderColor='rgba(239, 68, 68, 0.25)';" onclick="event.stopPropagation(); cancelJob('${job.id}')">🛑 Cancelar</button>`;
+          }
+
+          const shortId = job.id.substring(0, 8);
+          const isFocused = job.id === activeJobId;
+          const isExpanded = expandedJobs[job.id] !== false;
+
+          const borderStyle = isFocused 
+              ? 'border: 2px solid var(--primary); box-shadow: 0 0 16px rgba(59, 130, 246, 0.2);' 
+              : 'border: 1px solid var(--border-color);';
+
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.id = `card-job-${job.id}`;
+          card.style = `${borderStyle} transition: all 0.3s ease; cursor: pointer; margin-bottom: 24px; padding: 24px; position: relative;`;
+          card.onclick = () => focusJob(job.id);
+
+          // Focus indicator badge
+          const focusIndicator = isFocused 
+              ? `<span style="font-size: 9px; font-weight: 800; background: var(--primary); color: white; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 2px;">⚡ Focado</span>` 
+              : `<span style="font-size: 9px; font-weight: 600; background: rgba(255,255,255,0.03); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 2px;">Visualizar log</span>`;
+
+          card.innerHTML = `
+             <div style="display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 11px; font-weight: normal; color: var(--text-secondary); margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 8px;">
+                <span>📅 <strong>Data:</strong> ${data}</span>
+                <span style="opacity: 0.4">|</span>
+                <span>💻 <strong>Executado por:</strong> ${escapeHtml(job.worker_name || 'Sistema')}</span>
+                ${sapInfoBadgesHtml}
+                <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+                    ${focusIndicator}
+                    <span class="badge ${job.state}">${job.state}</span>
+                </div>
+             </div>
+             
+             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                     ${displayTitleHtml}
+                     <span style="font-size: 11px; font-weight: 600; padding: 3px 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; font-family: monospace; color: var(--text-secondary);">
+                         #${shortId}
+                     </span>
+                 </div>
+                 ${actionBtns}
+             </div>
+             
+             <div class="progress-container" style="margin-bottom: 12px;">
+                <div class="progress-labels">
+                  ${progressLabelsHtml}
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill" style="width: ${progressWidth}; transition: width 0.5s ease;"></div>
+                </div>
+                ${currentRoleName && job.state === 'running' ? `<div style="font-size:12px; margin-top:8px; color:var(--primary); font-weight:bold; animation: pulse-opacity 1.5s infinite;">A processar: ${escapeHtml(currentRoleName)}</div>` : ''}
+             </div>
+             
+             ${sapSbarText ? `
+             <div style="margin-top: 12px; margin-bottom: 16px; padding: 10px 14px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.15); border-left: 4px solid var(--primary); font-size: 12px; border-radius: 6px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                 <span style="font-size: 14px;">🖥️</span>
+                 <div style="flex: 1;">
+                     <strong style="color: var(--primary);">SAP Status:</strong> ${escapeHtml(sapSbarText)}
+                 </div>
+             </div>
+             ` : ''}
+
+             <div style="display: flex; justify-content: center; margin-bottom: 12px;">
+                <button class="btn" style="padding: 4px 16px; font-size: 11px; font-weight: bold; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); color: var(--text-secondary); border-radius: 20px; cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px;" onclick="event.stopPropagation(); toggleJobDetails('${job.id}')">
+                    <span id="toggle-icon-${job.id}">${isExpanded ? '▲' : '▼'}</span> <span id="toggle-text-${job.id}">${isExpanded ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}</span>
+                </button>
+             </div>
+             <div id="details-${job.id}" style="display: ${isExpanded ? 'block' : 'none'};">
+                ${timelineHtml}
+             </div>
+          `;
+          
+          container.appendChild(card);
+       });
+
+       // Auto-scroll the role history lists to keep the active or last completed role visible
+       container.querySelectorAll('.role-history-scroll').forEach(scrollContainer => {
+           const activeRow = scrollContainer.querySelector('.role-history-row.active-role');
+           if (activeRow) {
+               const containerHeight = scrollContainer.clientHeight;
+               const rowTop = activeRow.offsetTop;
+               const rowHeight = activeRow.offsetHeight;
+               scrollContainer.scrollTop = rowTop - (containerHeight / 2) + (rowHeight / 2);
+           } else {
+               const completedRows = scrollContainer.querySelectorAll('.role-history-row');
+               let lastCompletedRow = null;
+               for (let i = completedRows.length - 1; i >= 0; i--) {
+                   if (completedRows[i].innerHTML.includes('Concluída')) {
+                       lastCompletedRow = completedRows[i];
+                       break;
+                   }
+               }
+               if (lastCompletedRow) {
+                   const containerHeight = scrollContainer.clientHeight;
+                   const rowTop = lastCompletedRow.offsetTop;
+                   const rowHeight = lastCompletedRow.offsetHeight;
+                   scrollContainer.scrollTop = rowTop - (containerHeight / 2) + (rowHeight / 2);
+               }
+           }
+       });
+
+       // Render Focused Job Logs in the sidebar
+       const focusedJob = allJobs.find(j => j.id === activeJobId);
+       if (focusedJob && logContainer) {
+          const rawLines = (focusedJob.log || '')
+             .replace(/\\r\\n/g, '\n')
+             .replace(/\\n/g, '\n')
+             .split('\n')
+             .filter(l => l.trim() !== '');
+
+          let rawLog = rawLines.map(line => {
+              let tr = line.trim();
+              let cls = 'info';
+              if (tr.startsWith('[OK]')) cls = 'ok';
+              if (tr.startsWith('[ERRO]') || tr.includes('Erro') || tr.includes('Falha')) cls = 'erro';
+              if (tr.startsWith('[WARN]')) cls = 'warn';
+              return `<div class="log-line ${cls}" style="white-space: pre-wrap; margin-bottom: 4px;">${escapeHtml(tr)}</div>`;
+          }).join('');
+
+          if (focusedJob.state === 'running' || focusedJob.state === 'pending') {
+              rawLog += `<div class="log-line">> a processar<span class="cursor-blink" style="color:white; display:inline-block; width:8px; height:12px; background:white; margin-left:4px; animation: blink 1s step-end infinite;"></span></div>`;
+          }
+          logContainer.innerHTML = rawLog || 'Nenhum log disponível para o job focado.';
+          logContainer.scrollTop = logContainer.scrollHeight;
+
+          // Copy log action
+          document.getElementById('btn-copy-log').onclick = () => {
+             navigator.clipboard.writeText(focusedJob.log || '');
+             const old = document.getElementById('btn-copy-log').textContent;
+             document.getElementById('btn-copy-log').textContent = 'Copiado!';
+             setTimeout(() => document.getElementById('btn-copy-log').textContent = old, 2000);
+          };
+       } else if (logContainer) {
+          logContainer.innerHTML = 'Nenhum job em foco para visualização de logs.';
+       }
+    }
+
+    function focusJob(jobId) {
+        activeJobId = jobId;
+        renderQueue();
+    }
+
+    function toggleJobDetails(jobId) {
+        expandedJobs[jobId] = expandedJobs[jobId] === false ? true : false;
+        const container = document.getElementById(`details-${jobId}`);
+        const icon = document.getElementById(`toggle-icon-${jobId}`);
+        const text = document.getElementById(`toggle-text-${jobId}`);
+        if (container) {
+            const isExpanded = expandedJobs[jobId] !== false;
+            container.style.display = isExpanded ? 'block' : 'none';
+            if (icon) icon.textContent = isExpanded ? '▲' : '▼';
+            if (text) text.textContent = isExpanded ? 'Ocultar Detalhes' : 'Mostrar Detalhes';
+        }
+    }
+
+    async function cancelJob(jobId) {
+        try {
+            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+            if (res.ok) {
+                await loadJobs();
+            }
+        } catch(e) {
+            console.error('Erro de rede ao cancelar:', e);
+        }
     }
 
     function escapeHtml(value) {
@@ -734,102 +1550,96 @@
         .replaceAll("'", '&#039;');
     }
 
+    function openKpiJobsModal(type) {
+        const modalKpi = document.getElementById('modal-kpi-jobs');
+        const titleEl = document.getElementById('kpi-jobs-modal-title');
+        const subtitleEl = document.getElementById('kpi-jobs-modal-subtitle');
+        const tbody = document.getElementById('kpi-jobs-modal-table-body');
+        
+        let filtered = [];
+        let title = '';
+        let subtitle = '';
+        const now = new Date();
+
+        if (type === 'running') {
+            filtered = allJobs.filter(j => j.state === 'running');
+            title = '⚡ Jobs em Execução';
+            subtitle = 'Lista de todos os scripts que estão a ser executados no SAP neste momento.';
+        } else if (type === 'pending') {
+            filtered = allJobs.filter(j => j.state === 'pending');
+            title = '⏳ Jobs Pendentes na Fila';
+            subtitle = 'Lista de pedidos agendados a aguardar a libertação de um worker Windows.';
+        } else if (type === 'success') {
+            filtered = allJobs.filter(j => j.state === 'succeeded' && new Date(j.created_at).toDateString() === now.toDateString());
+            title = '🟢 Jobs Concluídos Hoje';
+            subtitle = 'Lista de rotinas terminadas com sucesso total no dia de hoje.';
+        } else if (type === 'failed') {
+            filtered = allJobs.filter(j => j.state === 'failed' && new Date(j.created_at).toDateString() === now.toDateString());
+            title = '🔴 Jobs com Erro Hoje';
+            subtitle = 'Lista de pedidos que falharam ou foram cancelados hoje. Requerem verificação do log.';
+        }
+
+        tbody.innerHTML = '';
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="padding: 32px 16px; text-align: center; color: var(--text-secondary);">
+                        Nenhum job encontrado para esta categoria.
+                    </td>
+                </tr>
+            `;
+        } else {
+            filtered.forEach(job => {
+                const tr = document.createElement('tr');
+                tr.className = 'kpi-table-row';
+                
+                const shortId = job.id.substring(0, 8);
+                const dateStr = new Date(job.created_at).toLocaleString('pt-PT', { 
+                    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+                });
+                
+                const proc = job.params ? (job.params.subprocesso || job.params.processo || job.task) : job.task;
+                const env = job.ambiente || job.params?.ambiente || 'DEV';
+                
+                let badgeClass = '';
+                let badgeText = job.state;
+                if (job.state === 'running') { badgeClass = 'running'; badgeText = 'executando'; }
+                else if (job.state === 'pending') { badgeClass = 'pending'; badgeText = 'pendente'; }
+                else if (job.state === 'succeeded') { badgeClass = 'success'; badgeText = 'sucesso'; }
+                else if (job.state === 'failed') { badgeClass = 'failed'; badgeText = 'erro'; }
+                
+                tr.innerHTML = `
+                    <td style="padding: 12px 16px; font-family: monospace; font-weight: bold; color: var(--text-secondary);">#${shortId}</td>
+                    <td style="padding: 12px 16px; white-space: nowrap;">${dateStr}</td>
+                    <td style="padding: 12px 16px; font-weight: 600; color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(proc)}">${escapeHtml(proc)}</td>
+                    <td style="padding: 12px 16px;">
+                        <span style="font-size: 11px; font-weight: bold; padding: 2px 6px; background: rgba(0,0,0,0.03); border: 1px solid var(--border-color); border-radius: 4px;">${escapeHtml(env)}</span>
+                    </td>
+                    <td style="padding: 12px 16px;">
+                        <span class="badge ${badgeClass}">${badgeText}</span>
+                    </td>
+                    <td style="padding: 12px 16px; text-align: center;">
+                        <button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;" onclick="selectAndFocusJob('${job.id}')">🔍 Focar</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        titleEl.textContent = title;
+        subtitleEl.textContent = subtitle;
+        modalKpi.classList.add('active');
+    }
+
+    function selectAndFocusJob(jobId) {
+        activeJobId = jobId;
+        document.getElementById('modal-kpi-jobs').classList.remove('active');
+        renderQueue(); // Will call renderActiveJob() internally
+    }
+
     loadJobs();
-    setInterval(loadJobs, 3000);
+    setInterval(loadJobs, 2500);
   </script>
-
-<!-- SAP_SCRIPT_FIELD_FONT_WEIGHT_FORCE_START -->
-<script>
-(function () {
-  function forceNormalFieldFontWeight() {
-    const selectors = [
-      '#job-form input',
-      '#job-form select',
-      '#job-form textarea',
-      '#job-form option',
-      '#job-form optgroup',
-      '#job-form .path-input'
-    ];
-
-    document.querySelectorAll(selectors.join(',')).forEach((element) => {
-      element.style.setProperty('font-weight', '400', 'important');
-      element.style.setProperty('font-variation-settings', '"wght" 400', 'important');
-    });
-
-    document.querySelectorAll('#job-form label, #job-form .field-block > label').forEach((element) => {
-      element.style.setProperty('font-weight', '700', 'important');
-    });
-  }
-
-  window.sapScriptForceNormalFieldFontWeight = forceNormalFieldFontWeight;
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', forceNormalFieldFontWeight);
-  }
-  else {
-    forceNormalFieldFontWeight();
-  }
-
-  setTimeout(forceNormalFieldFontWeight, 250);
-  setTimeout(forceNormalFieldFontWeight, 750);
-  setTimeout(forceNormalFieldFontWeight, 1500);
-
-  const observer = new MutationObserver(forceNormalFieldFontWeight);
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-})();
-</script>
-<!-- SAP_SCRIPT_FIELD_FONT_WEIGHT_FORCE_END -->
-
-<!-- SAP_SCRIPT_STANDARD_FIELD_FONT_START -->
-<script>
-(function () {
-  function applyStandardFieldFont() {
-    const fields = document.querySelectorAll(
-      '#job-form input, #job-form select, #job-form textarea, #job-form option, #job-form optgroup, #job-form .path-input'
-    );
-
-    fields.forEach((element) => {
-      element.style.setProperty('font-family', 'Consolas, "Courier New", monospace', 'important');
-      element.style.setProperty('font-size', '13px', 'important');
-      element.style.setProperty('font-weight', '400', 'important');
-      element.style.setProperty('font-variation-settings', '"wght" 400', 'important');
-      element.style.setProperty('letter-spacing', '0', 'important');
-    });
-  }
-
-  window.sapScriptApplyStandardFieldFont = applyStandardFieldFont;
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', applyStandardFieldFont);
-  }
-  else {
-    applyStandardFieldFont();
-  }
-
-  setTimeout(applyStandardFieldFont, 250);
-  setTimeout(applyStandardFieldFont, 750);
-  setTimeout(applyStandardFieldFont, 1500);
-
-  const observer = new MutationObserver(applyStandardFieldFont);
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-})();
-</script>
-<!-- SAP_SCRIPT_STANDARD_FIELD_FONT_END -->
-
 </body>
 </html>
-
-
-
-
-
-
-
-
-

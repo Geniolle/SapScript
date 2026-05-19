@@ -11,6 +11,7 @@ DB_PATH = DATA_DIR / "sap_script_jobs.sqlite3"
 
 INTERNAL_TASKS = {
     "select_excel_file",
+    "sap_search_requests",
 }
 
 
@@ -169,10 +170,10 @@ def complete_job(job_id: str, state: str, status: str, log: str) -> dict[str, An
         conn.execute(
             """
             UPDATE jobs
-            SET state = ?, status = ?, log = ?, updated_at = ?
+            SET state = ?, status = ?, log = CASE WHEN ? = '' THEN log ELSE log || '\n\n' || ? END, updated_at = ?
             WHERE id = ?
             """,
-            (state, status, log, now, job_id),
+            (state, status, log, log, now, job_id),
         )
         conn.commit()
 
@@ -239,4 +240,24 @@ def archive_job(job_id: str) -> dict[str, Any]:
     job = get_job(job_id)
     if not job:
         raise RuntimeError("Job arquivado mas não encontrado na base de dados.")
+    return job
+
+
+def update_job_params(job_id: str, new_params: dict[str, Any]) -> dict[str, Any]:
+    now = utc_now()
+    with get_connection() as conn:
+        row = conn.execute("SELECT params_json FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row:
+            raise RuntimeError("Job não encontrado para atualizar params.")
+        params = json.loads(row["params_json"] or "{}")
+        params.update(new_params)
+        conn.execute(
+            "UPDATE jobs SET params_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(params, ensure_ascii=False), now, job_id),
+        )
+        conn.commit()
+
+    job = get_job(job_id)
+    if not job:
+        raise RuntimeError("Job atualizado mas não encontrado na base de dados.")
     return job

@@ -696,6 +696,8 @@ def _analisar_exec_signature(func):
     p_request_transp = find_param("request_transporte", "request_number", "trkorr")
     p_file = find_param("caminho_ficheiro", "xlsx", "excel_path", "file_path", "caminho_excel", "caminho_arquivo")
     p_pfcg = find_param("pfcg_object", "objeto_pfcg", "sheet_name")
+    p_modo_nao_interativo = find_param("modo_nao_interativo")
+    p_pedir_confirmacao = find_param("pedir_confirmacao")
 
     return {
         "sig": sig,
@@ -705,6 +707,8 @@ def _analisar_exec_signature(func):
         "p_request_transp": p_request_transp,
         "p_file": p_file,
         "p_pfcg": p_pfcg,
+        "p_modo_nao_interativo": p_modo_nao_interativo,
+        "p_pedir_confirmacao": p_pedir_confirmacao,
         "file_is_optional": bool(p_file and p_file.default is not inspect._empty),
         "request_transp_is_optional": bool(p_request_transp and p_request_transp.default is not inspect._empty),
         "request_ctx_is_optional": bool(p_request_ctx and p_request_ctx.default is not inspect._empty),
@@ -747,16 +751,19 @@ def _build_exec_kwargs(
         info(f"Aba do Excel detetada automaticamente: '{aba_calculada}'")
         kwargs[info_exec["p_pfcg"].name] = aba_calculada
 
-    if info_exec["p_file"] and not info_exec["file_is_optional"]:
+    if info_exec["p_file"]:
         if not interactive:
             path = str(payload.get("caminho_ficheiro") or payload.get("file_path") or "").strip()
-            if not path:
+
+            if path:
+                if not os.path.exists(path):
+                    raise SapCockpitError(f"Ficheiro nao encontrado no worker Windows: {path}")
+                kwargs[info_exec["p_file"].name] = path
+
+            elif not info_exec["file_is_optional"]:
                 raise SapCockpitError(
                     f"O subprocesso '{processo_escolhido}' pede ficheiro, mas caminho_ficheiro nao foi enviado pela web."
                 )
-            if not os.path.exists(path):
-                raise SapCockpitError(f"Ficheiro nao encontrado no worker Windows: {path}")
-            kwargs[info_exec["p_file"].name] = path
         else:
             try:
                 import tkinter as tk
@@ -782,6 +789,12 @@ def _build_exec_kwargs(
 
     if info_exec["p_request_transp"] and request_ctx.get("request_number"):
         kwargs[info_exec["p_request_transp"].name] = request_ctx["request_number"]
+
+    if not interactive:
+        if info_exec["p_modo_nao_interativo"]:
+            kwargs[info_exec["p_modo_nao_interativo"].name] = True
+        if info_exec["p_pedir_confirmacao"]:
+            kwargs[info_exec["p_pedir_confirmacao"].name] = False
 
     return kwargs
 
@@ -983,6 +996,40 @@ def _encontrar_sessao_do_sistema(application, sistema_desejado: str):
     return None, None
 
 
+def _reportar_metadata_sap(session, interactive: bool = False):
+    job_id = os.environ.get("SAP_JOB_ID")
+    api_url = os.environ.get("SAP_API_BASE_URL")
+    token = os.environ.get("SAP_WORKER_TOKEN")
+    
+    try:
+        sys_name = str(session.Info.SystemName).upper()
+        client = str(session.Info.Client)
+        user = str(session.Info.User).upper()
+    except Exception:
+        return
+
+    if not interactive:
+        info(f"Sessão SAP pronta! Utilizador SAP: {user}")
+
+    if not job_id or not api_url or not token:
+        return
+        
+    try:
+        import requests
+        requests.post(
+            f"{api_url}/api/jobs/{job_id}/sap-metadata",
+            headers={"X-Worker-Token": token},
+            json={
+                "sap_system": sys_name,
+                "sap_client": client,
+                "sap_user": user
+            },
+            timeout=5
+        )
+    except Exception:
+        pass
+
+
 def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
     sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
     cliente_esperado = CLIENTES_POR_AMBIENTE.get(ambiente_cockpit, "100")
@@ -995,6 +1042,8 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
             cliente=cliente_esperado,
         )
         info("A verificar se ja existe uma sessao aberta no ambiente desejado...")
+    else:
+        info(f"Ambiente Logon: {nome_logon} (Cliente: {cliente_esperado})")
 
     try:
         pythoncom.CoInitialize()
@@ -1117,6 +1166,8 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
             ok(f"Sessao SAP pronta no sistema: {session.Info.SystemName}")
     except Exception:
         pass
+
+    _reportar_metadata_sap(session, interactive=interactive)
 
     return session, connection
 

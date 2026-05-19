@@ -509,6 +509,7 @@ def remover_funcao_usuario(df, session):
 
         try:
             print("➡️ Passo 1: Entrar na SU01")
+            print("\n[Etapa 2] Acesso ao SAP CUA")
             setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/nSU01", "campo de comando")
             enviar_vkey_debug(session, "wnd[0]", 0, "confirmar entrada na SU01")
             time.sleep(0.3)
@@ -594,6 +595,7 @@ def remover_funcao_usuario(df, session):
                 continue
 
             print("➡️ Passo 8: Selecionar linha 0 e remover")
+            print("\n[Etapa 3] Remoção de Perfis")
             pausar("Validar antes de remover a linha do grid")
             shell.setCurrentCell(0, "AGR_NAME")
             shell.selectedRows = "0"
@@ -712,6 +714,7 @@ def executar(ambiente):
     if not caminho:
         return
 
+    print("\n[Etapa 1] Leitura do Excel")
     df = ler_ficheiro_excel(caminho, NOME_SHEET)
     if df is None:
         return
@@ -726,6 +729,7 @@ def executar(ambiente):
         return
 
     df_final = remover_funcao_usuario(df, session)
+    print("\n[Etapa 4] Gravação de Resultados")
     salvar_resultado(df_final, caminho, NOME_SHEET)
 
 ###################################################################################

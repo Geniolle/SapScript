@@ -80,11 +80,13 @@ def _log_alerta_rz11():
 
 
 def _erro_scripting_inativo(e=None):
-    print("❌ O scripting do SAP GUI não está ativo ou não foi possível inicializar o objeto SAPGUI.")
+    msg = "O scripting do SAP GUI não está ativo ou não foi possível inicializar o objeto SAPGUI. Ativar na transação RZ11 o parâmetro 'sapgui/user_scripting' para 'TRUE'."
+    print(f"❌ {msg}")
     _log_alerta_rz11()
     if e:
         print(f"🔧 Detalhes técnicos: {e}")
-    sys.exit(1)
+        msg += f" Detalhes técnicos: {e}"
+    raise RuntimeError(msg)
 
 
 def _get_application():
@@ -125,8 +127,9 @@ def _pick_session(application, system_name=None):
         candidates.append((sysname, bool(user), sess))
 
     if not candidates:
-        print("❌ Nenhuma sessão SAP encontrada. Abra o SAP Logon e faça login.")
-        sys.exit(1)
+        msg = "Nenhuma sessão SAP ativa encontrada. Abra o SAP Logon e faça login."
+        print(f"❌ {msg}")
+        raise RuntimeError(msg)
 
     if system_name:
         target = system_name.upper()
@@ -365,8 +368,34 @@ def listar_requests(
     minimize=True,
     close_after=True,
 ):
-    app = _get_application()
-    base_session = _pick_session(app, system_name=system_name)
+    # Mapear o sistema para a chave do ambiente de forma a usar o login automático se necessário
+    key = None
+    if system_name:
+        sys_upper = system_name.upper()
+        if sys_upper == "S4D":
+            key = "S4DCLNT100"
+        elif sys_upper == "S4Q":
+            key = "S4QCLNT100"
+        elif sys_upper == "S4P":
+            key = "S4PCLNT100"
+        elif sys_upper == "SPA":
+            key = "SPACLNT001"
+
+    base_session = None
+    try:
+        # Importar dinamicamente sap_session da raiz do projeto
+        base_dir = _base_dir()
+        if base_dir not in sys.path:
+            sys.path.insert(0, base_dir)
+        from sap_session import ensure_sap_access_from_env
+        base_session = ensure_sap_access_from_env(key=key, timeout_s=45)
+    except Exception as exc:
+        print(f"⚠️ Erro ao tentar acesso automático via sap_session: {exc}")
+        print("Tentando obter sessão existente manualmente...")
+
+    if not base_session:
+        app = _get_application()
+        base_session = _pick_session(app, system_name=system_name)
 
     try:
         user = (base_session.Info.User or "").strip()
@@ -374,8 +403,9 @@ def listar_requests(
         user = ""
 
     if not user:
-        print("❌ Sessão encontrada, mas não está logada (Info.User vazio). Faça login no SAP e execute novamente.")
-        return []
+        msg = "Sessão SAP encontrada, mas não está logada (Info.User vazio). Por favor, faça login no SAP GUI e tente novamente."
+        print(f"❌ {msg}")
+        raise RuntimeError(msg)
 
     work_session = base_session
     created_new = False
@@ -403,22 +433,20 @@ def listar_requests(
     if not _press_execute(work_session):
         if created_new and close_after:
             _close_window(work_session)
-        return []
+        raise RuntimeError("Falha ao executar a consulta no SE16H do SAP GUI.")
 
     grid = _find_best_grid(work_session)
     if not grid:
-        print("❌ Não encontrei a grelha de resultados para ler TRKORR/STRKORR/AS4TEXT.")
         if created_new and close_after:
             _close_window(work_session)
-        return []
+        raise RuntimeError("Não foi possível encontrar a grelha de resultados do SE16H no SAP GUI.")
 
     try:
         row_count = int(grid.RowCount)
-    except Exception:
-        print("❌ Não consegui obter RowCount da grelha.")
+    except Exception as e:
         if created_new and close_after:
             _close_window(work_session)
-        return []
+        raise RuntimeError(f"Não foi possível obter RowCount da grelha de resultados: {e}")
 
     results = []
     for r in range(row_count):
@@ -495,12 +523,16 @@ def _parse_args(argv):
 
 
 if __name__ == "__main__":
-    system, max_rows, include_requests, use_new_mode, minimize, close_after = _parse_args(sys.argv[1:])
-    listar_requests(
-        system_name=system,
-        max_rows=max_rows,
-        include_requests=include_requests,
-        use_new_mode=use_new_mode,
-        minimize=minimize,
-        close_after=close_after,
-    )
+    try:
+        system, max_rows, include_requests, use_new_mode, minimize, close_after = _parse_args(sys.argv[1:])
+        listar_requests(
+            system_name=system,
+            max_rows=max_rows,
+            include_requests=include_requests,
+            use_new_mode=use_new_mode,
+            minimize=minimize,
+            close_after=close_after,
+        )
+    except Exception as e:
+        print(f"❌ Erro fatal: {e}", file=sys.stderr)
+        sys.exit(1)

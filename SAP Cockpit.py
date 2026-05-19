@@ -13,7 +13,7 @@ import inspect
 import re
 
 import pythoncom
-import pywintypes
+import pywintypesl
 
 from app.config import (
     PROCESSOS_DIR,
@@ -48,6 +48,7 @@ from app.ui import (
 ###################################################################################
 # Funções auxiliares (I/O, .env e menus)
 ###################################################################################
+
 
 def limpar_buffer_teclado():
     try:
@@ -113,8 +114,8 @@ def _parse_env_line(linha: str):
         return None, None
 
     if len(valor) >= 2 and (
-        (valor.startswith('"') and valor.endswith('"')) or
-        (valor.startswith("'") and valor.endswith("'"))
+        (valor.startswith('"') and valor.endswith('"'))
+        or (valor.startswith("'") and valor.endswith("'"))
     ):
         valor = valor[1:-1]
 
@@ -171,7 +172,9 @@ def _carregar_dotenv():
         warn("Ficheiro .env não encontrado nos caminhos esperados.")
 
 
-def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tuple[str, str, str, str]:
+def _obter_credenciais_env(
+    sistema_desejado: str, cliente_esperado: str
+) -> tuple[str, str, str, str]:
     """
     Lê as credenciais do .env usando:
       SAP_USER
@@ -192,7 +195,9 @@ def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tupl
     senha = os.getenv(chave_password, "").strip()
 
     if not usuario:
-        raise RuntimeError("Variável SAP_USER não encontrada ou vazia no ficheiro .env.")
+        raise RuntimeError(
+            "Variável SAP_USER não encontrada ou vazia no ficheiro .env."
+        )
 
     if not senha:
         raise RuntimeError(
@@ -210,10 +215,36 @@ def selecionar_ambiente():
         erro(f"Ambiente '{ambiente_recebido}' inválido via argumento.")
         sys.exit(1)
 
+    ambiente_recebido = (
+        os.getenv("SAP_ENVIRONMENT", "").strip().upper()
+        or os.getenv("SAP_ENV", "").strip().upper()
+    )
+    if ambiente_recebido:
+        if ambiente_recebido in MAPA_SISTEMA:
+            return ambiente_recebido
+        erro(f"Ambiente '{ambiente_recebido}' inválido em SAP_ENVIRONMENT/SAP_ENV.")
+        sys.exit(1)
+
+    if not sys.stdin or not sys.stdin.isatty():
+        erro(
+            "Entrada interativa indisponível. Use argumento de ambiente ou defina SAP_ENVIRONMENT/SAP_ENV."
+        )
+        sys.exit(1)
+
     mostrar_titulo()
     mostrar_ambientes(AMBIENTES)
 
-    opcao = input("\nDigite o número do ambiente que deseja atualizar: ").strip()
+    try:
+        opcao = input("\nDigite o número do ambiente que deseja atualizar: ").strip()
+    except KeyboardInterrupt:
+        erro("Operação cancelada pelo utilizador.")
+        sys.exit(1)
+    except EOFError:
+        erro(
+            "Entrada interrompida. Use argumento de ambiente ou defina SAP_ENVIRONMENT/SAP_ENV."
+        )
+        sys.exit(1)
+
     if opcao not in AMBIENTES:
         erro("Opção inválida.")
         sys.exit(1)
@@ -224,7 +255,8 @@ def selecionar_ambiente():
 def selecionar_pasta_processo():
     pastas = sorted(
         [
-            p for p in os.listdir(PROCESSOS_DIR)
+            p
+            for p in os.listdir(PROCESSOS_DIR)
             if os.path.isdir(os.path.join(PROCESSOS_DIR, p)) and p != "__pycache__"
         ]
     )
@@ -235,6 +267,9 @@ def selecionar_pasta_processo():
         escolha = int(input("\nDigite o número do processo que deseja abrir: ")) - 1
         pasta_escolhida = pastas[escolha]
         return os.path.join(PROCESSOS_DIR, pasta_escolhida)
+    except (KeyboardInterrupt, EOFError):
+        erro("Operação cancelada pelo utilizador.")
+        sys.exit(1)
     except (ValueError, IndexError):
         erro("Seleção inválida.")
         sys.exit(1)
@@ -254,7 +289,9 @@ def carregar_pesquisar_request():
         erro(f"Ficheiro não encontrado: {PESQUISAR_REQUEST_PATH}")
         return None
 
-    spec = importlib.util.spec_from_file_location("pesquisar_request", PESQUISAR_REQUEST_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "pesquisar_request", PESQUISAR_REQUEST_PATH
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -265,7 +302,9 @@ def escolher_request_por_linha(lista_resultados):
         return ("", "")
 
     while True:
-        raw = input(f"\nDigite o número da linha da request (1-{len(lista_resultados)}): ").strip()
+        raw = input(
+            f"\nDigite o número da linha da request (1-{len(lista_resultados)}): "
+        ).strip()
         if not raw.isdigit():
             erro("Digite apenas números.")
             continue
@@ -289,6 +328,7 @@ def _resetar_env_request():
 ###################################################################################
 # SAP GUI helpers (SE10 - criar request sem status bar)
 ###################################################################################
+
 
 def _sleep(t=SLEEP_UI):
     time.sleep(t)
@@ -415,7 +455,9 @@ def _extract_request_by_scanning_usr(session):
 
 def _get_created_request_number(session):
     time.sleep(0.6)
-    return _extract_request_from_known_ids(session) or _extract_request_by_scanning_usr(session)
+    return _extract_request_from_known_ids(session) or _extract_request_by_scanning_usr(
+        session
+    )
 
 
 def _select_radio_if_exists(session, sap_id: str) -> bool:
@@ -474,7 +516,13 @@ def _criar_nova_request_no_sap(session) -> tuple[str, str, str]:
     info(f"Descrição: {desc}")
 
     if not trkorr:
-        trkorr = input("Não consegui extrair a request automaticamente. Cole aqui (ex.: S4QK900416): ").strip().upper()
+        trkorr = (
+            input(
+                "Não consegui extrair a request automaticamente. Cole aqui (ex.: S4QK900416): "
+            )
+            .strip()
+            .upper()
+        )
 
     info(f"Request: {trkorr}")
     return (trkorr, desc, tipo_txt)
@@ -483,6 +531,7 @@ def _criar_nova_request_no_sap(session) -> tuple[str, str, str]:
 ###################################################################################
 # Request menu
 ###################################################################################
+
 
 def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
     linha()
@@ -506,7 +555,7 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
         "request_option": opc,
         "request_number": "",
         "request_desc": "",
-        "search_text": ""
+        "search_text": "",
     }
 
     if opc == "1":
@@ -526,7 +575,9 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
     elif opc == "3":
         mod_pesq = carregar_pesquisar_request()
         if not mod_pesq or not hasattr(mod_pesq, "listar_requests"):
-            erro("Módulo pesquisar_request.py não carregado ou função listar_requests não encontrada.")
+            erro(
+                "Módulo pesquisar_request.py não carregado ou função listar_requests não encontrada."
+            )
             return ctx
 
         try:
@@ -536,10 +587,12 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
                 include_requests=False,
                 use_new_mode=True,
                 minimize=True,
-                close_after=True
+                close_after=True,
             )
         except TypeError:
-            lista = mod_pesq.listar_requests(system_name=sistema_desejado, max_rows="5000")
+            lista = mod_pesq.listar_requests(
+                system_name=sistema_desejado, max_rows="5000"
+            )
         except Exception as e:
             erro(f"Falha ao gerar lista (pesquisar_request.py): {e}")
             return ctx
@@ -570,6 +623,7 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
 # Execução de processos
 ###################################################################################
 
+
 def _analisar_exec_signature(func):
     sig = inspect.signature(func)
     params = list(sig.parameters.values())
@@ -582,7 +636,14 @@ def _analisar_exec_signature(func):
 
     p_request_ctx = find_param("request_ctx", "ctx", "context")
     p_request_transp = find_param("request_transporte", "request_number", "trkorr")
-    p_file = find_param("caminho_ficheiro", "xlsx", "excel_path", "file_path", "caminho_excel", "caminho_arquivo")
+    p_file = find_param(
+        "caminho_ficheiro",
+        "xlsx",
+        "excel_path",
+        "file_path",
+        "caminho_excel",
+        "caminho_arquivo",
+    )
     p_pfcg = find_param("pfcg_object", "objeto_pfcg", "sheet_name")
 
     return {
@@ -594,15 +655,25 @@ def _analisar_exec_signature(func):
         "p_file": p_file,
         "p_pfcg": p_pfcg,
         "file_is_optional": bool(p_file and p_file.default is not inspect._empty),
-        "request_transp_is_optional": bool(p_request_transp and p_request_transp.default is not inspect._empty),
-        "request_ctx_is_optional": bool(p_request_ctx and p_request_ctx.default is not inspect._empty),
+        "request_transp_is_optional": bool(
+            p_request_transp and p_request_transp.default is not inspect._empty
+        ),
+        "request_ctx_is_optional": bool(
+            p_request_ctx and p_request_ctx.default is not inspect._empty
+        ),
         "pfcg_is_optional": bool(p_pfcg and p_pfcg.default is not inspect._empty),
     }
 
 
 def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session):
     while True:
-        scripts_py = sorted([f for f in os.listdir(caminho_pasta) if f.endswith(".py") and not f.startswith("~$")])
+        scripts_py = sorted(
+            [
+                f
+                for f in os.listdir(caminho_pasta)
+                if f.endswith(".py") and not f.startswith("~$")
+            ]
+        )
         if not scripts_py:
             erro("Nenhum script .py encontrado na pasta selecionada.")
             return
@@ -610,7 +681,10 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
         mostrar_subprocessos(scripts_py)
 
         try:
-            escolha = int(input("\nDigite o número do sub-processo que deseja executar: ")) - 1
+            escolha = (
+                int(input("\nDigite o número do sub-processo que deseja executar: "))
+                - 1
+            )
             if escolha == len(scripts_py):
                 return "voltar"
             processo_escolhido = scripts_py[escolha]
@@ -637,10 +711,19 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
         precisa_request_agora = False
         if info_exec["p_request_ctx"] and not info_exec["request_ctx_is_optional"]:
             precisa_request_agora = True
-        elif info_exec["p_request_transp"] and not info_exec["request_transp_is_optional"] and not info_exec["file_is_optional"]:
+        elif (
+            info_exec["p_request_transp"]
+            and not info_exec["request_transp_is_optional"]
+            and not info_exec["file_is_optional"]
+        ):
             precisa_request_agora = True
 
-        request_ctx = {"request_option": "", "request_number": "", "request_desc": "", "search_text": ""}
+        request_ctx = {
+            "request_option": "",
+            "request_number": "",
+            "request_desc": "",
+            "search_text": "",
+        }
         if precisa_request_agora:
             request_ctx = perguntar_opcao_request(sistema_desejado, session)
 
@@ -660,12 +743,16 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
             try:
                 import tkinter as tk
                 from tkinter import filedialog
+
                 root = tk.Tk()
                 root.withdraw()
                 root.attributes("-topmost", True)
                 path = filedialog.askopenfilename(
                     title="Selecione o ficheiro Excel",
-                    filetypes=(("Ficheiros Excel", "*.xlsx"), ("Todos os ficheiros", "*.*"))
+                    filetypes=(
+                        ("Ficheiros Excel", "*.xlsx"),
+                        ("Todos os ficheiros", "*.*"),
+                    ),
                 )
                 root.destroy()
                 if not path:
@@ -681,7 +768,9 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
 
         if info_exec["p_request_transp"] and request_ctx.get("request_number"):
             if precisa_request_agora:
-                kwargs[info_exec["p_request_transp"].name] = request_ctx["request_number"]
+                kwargs[info_exec["p_request_transp"].name] = request_ctx[
+                    "request_number"
+                ]
 
         try:
             exec_fn(ambiente_cockpit, **kwargs)
@@ -696,6 +785,7 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
 # Scripting / sessão SAP
 ###################################################################################
 
+
 def _is_scripting_disabled_error(exc: Exception) -> bool:
     parts = [str(exc)]
     try:
@@ -706,10 +796,19 @@ def _is_scripting_disabled_error(exc: Exception) -> bool:
 
     hay = " ".join(parts).lower()
     has_scripting = any(k in hay for k in ["scripting", "sapgui", "script"])
-    has_disabled = any(k in hay for k in [
-        "disabled", "not enabled", "not active", "inactive",
-        "desativ", "inativ", "não está ativo", "nao esta ativo"
-    ])
+    has_disabled = any(
+        k in hay
+        for k in [
+            "disabled",
+            "not enabled",
+            "not active",
+            "inactive",
+            "desativ",
+            "inativ",
+            "não está ativo",
+            "nao esta ativo",
+        ]
+    )
     return has_scripting and has_disabled
 
 
@@ -718,7 +817,9 @@ def _log_alerta_rz11():
 
 
 def _erro_scripting_inativo(exc: Exception | None = None):
-    erro("O scripting do SAP GUI não está ativo ou não foi possível inicializar o objeto SAPGUI.")
+    erro(
+        "O scripting do SAP GUI não está ativo ou não foi possível inicializar o objeto SAPGUI."
+    )
     _log_alerta_rz11()
     if exc:
         erro(f"Detalhes técnicos: {exc}")
@@ -727,7 +828,9 @@ def _erro_scripting_inativo(exc: Exception | None = None):
 
 def _is_sap_logado(session, cliente_esperado: str) -> bool:
     try:
-        return bool(session.Info.User) and str(session.Info.Client) == str(cliente_esperado)
+        return bool(session.Info.User) and str(session.Info.Client) == str(
+            cliente_esperado
+        )
     except Exception:
         return False
 
@@ -769,7 +872,10 @@ def _encontrar_sessao_do_sistema(application, sistema_desejado: str):
                 for j in range(conn.Children.Count):
                     sess = conn.Children(j)
                     try:
-                        if str(sess.Info.SystemName).upper() == str(sistema_desejado).upper():
+                        if (
+                            str(sess.Info.SystemName).upper()
+                            == str(sistema_desejado).upper()
+                        ):
                             return sess, conn
                     except Exception:
                         continue
@@ -788,7 +894,9 @@ def _encontrar_sessao_do_sistema(application, sistema_desejado: str):
 ambiente_cockpit = selecionar_ambiente()
 sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
 cliente_esperado = CLIENTES_POR_AMBIENTE.get(ambiente_cockpit, "100")
-nome_logon = dict((v[0], v[1]) for v in AMBIENTES.values()).get(ambiente_cockpit, ambiente_cockpit)
+nome_logon = dict((v[0], v[1]) for v in AMBIENTES.values()).get(
+    ambiente_cockpit, ambiente_cockpit
+)
 
 mostrar_titulo(
     ambiente=f"{ambiente_cockpit} ({nome_logon})",
@@ -821,8 +929,7 @@ if session is None:
     if not _tem_alguma_sessao_ativa(application):
         try:
             usuario, senha, idioma, chave_password = _obter_credenciais_env(
-                sistema_desejado=sistema_desejado,
-                cliente_esperado=cliente_esperado
+                sistema_desejado=sistema_desejado, cliente_esperado=cliente_esperado
             )
             info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
         except Exception as e:
@@ -846,8 +953,13 @@ if session is None:
             session = connection.Children(0)
 
             try:
-                if str(session.Info.SystemName).upper() != str(sistema_desejado).upper():
-                    erro(f"A sessão SAP aberta não pertence ao ambiente '{ambiente_cockpit}'.")
+                if (
+                    str(session.Info.SystemName).upper()
+                    != str(sistema_desejado).upper()
+                ):
+                    erro(
+                        f"A sessão SAP aberta não pertence ao ambiente '{ambiente_cockpit}'."
+                    )
                     sys.exit(1)
             except Exception:
                 pass
@@ -874,21 +986,31 @@ if session is None:
 
     else:
         warn("Existe uma sessão SAP ativa, mas não é do ambiente selecionado.")
-        info(f"Abra manualmente a ligação do ambiente '{nome_logon}' no SAP Logon e faça login (se necessário).")
+        info(
+            f"Abra manualmente a ligação do ambiente '{nome_logon}' no SAP Logon e faça login (se necessário)."
+        )
         input("Pressione ENTER quando a sessão do ambiente estiver aberta...")
 
-        session, connection = _encontrar_sessao_do_sistema(application, sistema_desejado)
+        session, connection = _encontrar_sessao_do_sistema(
+            application, sistema_desejado
+        )
         if session is None:
-            erro("Não foi encontrada uma sessão do ambiente selecionado após confirmação. A encerrar.")
+            erro(
+                "Não foi encontrada uma sessão do ambiente selecionado após confirmação. A encerrar."
+            )
             sys.exit(1)
 
 if not _is_sap_logado(session, cliente_esperado):
-    warn(f"Sessão do ambiente '{ambiente_cockpit}' encontrada, mas sem login ou client incorreto (esperado: {cliente_esperado}).")
+    warn(
+        f"Sessão do ambiente '{ambiente_cockpit}' encontrada, mas sem login ou client incorreto (esperado: {cliente_esperado})."
+    )
     info("Faça o login manualmente no SAP GUI (e ajuste o client se necessário).")
     input("Pressione ENTER assim que tiver terminado o login...")
 
     if not _aguardar_login(session, cliente_esperado, timeout_s=20):
-        erro("O login ainda não foi detectado corretamente após confirmação. A encerrar.")
+        erro(
+            "O login ainda não foi detectado corretamente após confirmação. A encerrar."
+        )
         sys.exit(1)
 
 _log_scripting_status_apenas_quando_logado(session, cliente_esperado)
@@ -915,7 +1037,7 @@ while True:
         ambiente_cockpit,
         caminho_pasta=caminho_processo,
         sistema_desejado=sistema_desejado,
-        session=session
+        session=session,
     )
     if resultado != "voltar":
         continue

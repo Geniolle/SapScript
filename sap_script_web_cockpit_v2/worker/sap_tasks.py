@@ -4,14 +4,23 @@ import importlib
 import json
 import os
 import sys
+import time
 import traceback
 from typing import Any
 
 import pythoncom
 import win32com.client
+import queue
+import threading
+import requests
+import ctypes
 
 
 class SapExecutionError(Exception):
+    pass
+
+
+class JobCancelledException(BaseException):
     pass
 
 
@@ -157,6 +166,37 @@ def get_first_available_session() -> Any:
     raise SapExecutionError("Nao existe nenhuma sessao SAP disponivel.")
 
 
+def get_any_session() -> Any:
+    try:
+        pythoncom.CoInitialize()
+        sap_gui_auto = win32com.client.GetObject("SAPGUI")
+        application = sap_gui_auto.GetScriptingEngine
+    except Exception as exc:
+        raise SapExecutionError("Nao foi possivel ligar ao SAP GUI.") from exc
+
+    for connection_index in range(application.Children.Count):
+        connection = application.Children(connection_index)
+        for session_index in range(connection.Children.Count):
+            try:
+                session = connection.Children(session_index)
+                return session
+            except Exception:
+                continue
+
+    raise SapExecutionError("Nao existe nenhuma sessao SAP.")
+
+
+def _force_terminate_worker() -> None:
+    try:
+        import subprocess
+        # Procura e encerra o processo PowerShell supervisor para este workspace
+        cmd = "powershell.exe -Command \"Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*sap_script_web_cockpit_v2*start_worker_auto.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\""
+        subprocess.run(cmd, shell=True)
+    except Exception:
+        pass
+    os._exit(1)
+
+
 def read_sbar_status(session: Any) -> str:
     try:
         return str(session.findById("wnd[0]/sbar").Text).strip()
@@ -204,12 +244,58 @@ def _run_sap_cockpit(params: dict[str, Any]) -> tuple[str, str]:
     return str(result or ""), ""
 
 
+def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    caminho = os.path.join(project_dir, "Processos", "pesquisar_request.py")
+    if not os.path.exists(caminho):
+        raise SapExecutionError(f"Nao encontrei o ficheiro pesquisar_request.py no caminho: {caminho}")
+        
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("pesquisar_request", caminho)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as exc:
+        raise SapExecutionError(f"Falha ao carregar modulo pesquisar_request.py: {exc}")
+        
+    ambiente = str(params.get("ambiente") or "DEV").upper()
+    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+    sistema_desejado = mapa_sistema.get(ambiente, "S4D")
+    
+    try:
+        lista = mod.listar_requests(
+            system_name=sistema_desejado,
+            max_rows="5000",
+            include_requests=False,
+            use_new_mode=True,
+            minimize=True,
+            close_after=True,
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Erro ao pesquisar requests no SAP: {exc}")
+        
+    if not lista:
+        return "[]", f"Pesquisa concluida. Nenhuma request encontrada para o sistema {sistema_desejado}."
+        
+    itens = [{"trkorr": item[0], "as4text": item[1]} for item in lista]
+    status_json = json.dumps(itens)
+    
+    log = f"Pesquisa concluida com sucesso. Encontradas {len(lista)} requests."
+    return status_json, log
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     task = job["task"]
     params = job.get("params", {}) or {}
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
 
     try:
+        if task == "sap_search_requests":
+            status, log = _run_sap_search_requests(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
         if task == "select_excel_file":
             status, log = select_excel_file_on_windows(params)
             log_lines.append(log)
@@ -230,7 +316,152 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             os.environ["SAP_JOB_ID"] = str(job["id"])
             os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
             os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
-            status, log = _run_sap_cockpit(params)
+            
+            main_thread_id = threading.get_ident()
+            
+            class APILogStream:
+                def __init__(self, job_id, original_stream, main_thread_id):
+                    self.job_id = job_id
+                    self.original = original_stream
+                    self.main_thread_id = main_thread_id
+                    self.queue = queue.Queue()
+                    self.running = True
+                    self.buffer = ""
+                    self.api_url = os.environ["SAP_API_BASE_URL"]
+                    self.token = os.environ["SAP_WORKER_TOKEN"]
+                    self.thread = threading.Thread(target=self._sender_loop, daemon=True)
+                    self.thread.start()
+
+                def write(self, data):
+                    self.original.write(data)
+                    self.buffer += data
+                    if '\n' in self.buffer:
+                        lines = self.buffer.split('\n')
+                        self.buffer = lines.pop()
+                        for line in lines:
+                            if line.strip():
+                                self.queue.put(line.strip())
+
+                def flush(self):
+                    self.original.flush()
+                    if self.buffer.strip():
+                        self.queue.put(self.buffer.strip())
+                        self.buffer = ""
+
+                def _sender_loop(self):
+                    while self.running or not self.queue.empty():
+                        try:
+                            line = self.queue.get(timeout=0.5)
+                            try:
+                                r = requests.post(
+                                    f"{self.api_url}/api/jobs/{self.job_id}/log",
+                                    headers={"X-Worker-Token": self.token},
+                                    json={"log_line": line},
+                                    timeout=5
+                                )
+                                if r.status_code == 409:
+                                    ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                                        ctypes.c_long(self.main_thread_id),
+                                        ctypes.py_object(JobCancelledException)
+                                    )
+                                    time.sleep(1.5)
+                                    print("\n⚠️ Log stream detectou cancelamento. A fechar PowerShell e a terminar o worker...")
+                                    sys.stdout.flush()
+                                    try:
+                                        pythoncom.CoInitialize()
+                                        session = get_any_session()
+                                        if session:
+                                            conn = session.Parent
+                                            conn.CloseSession(session.Id)
+                                    except Exception:
+                                        pass
+                                    _force_terminate_worker()
+                            except Exception as le:
+                                print(f"\n[DEBUG LOG STREAM] Erro: {le}")
+                                sys.stdout.flush()
+                        except queue.Empty:
+                            pass
+
+                def close(self):
+                    self.flush()
+                    self.running = False
+                    self.thread.join(timeout=2.0)
+
+            cancel_event = threading.Event()
+
+            def poll_status():
+                api_url = os.environ["SAP_API_BASE_URL"]
+                token = os.environ["SAP_WORKER_TOKEN"]
+                while not cancel_event.is_set():
+                    try:
+                        r = requests.get(
+                            f"{api_url}/api/jobs/{job['id']}",
+                            headers={"X-Worker-Token": token},
+                            timeout=5
+                        )
+                        if r.status_code == 200:
+                            job_data = r.json()
+                            if job_data.get("state") == "failed" and "cancel" in str(job_data.get("status", "")).lower():
+                                ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                                    ctypes.c_long(main_thread_id),
+                                    ctypes.py_object(JobCancelledException)
+                                )
+                                for _ in range(15):
+                                    if cancel_event.is_set():
+                                        return
+                                    time.sleep(0.1)
+                                print("\n⚠️ Poller detectou cancelamento e processo principal bloqueado. A fechar PowerShell e a terminar o worker...")
+                                sys.stdout.flush()
+                                try:
+                                    pythoncom.CoInitialize()
+                                    session = get_any_session()
+                                    if session:
+                                        conn = session.Parent
+                                        conn.CloseSession(session.Id)
+                                except Exception:
+                                    pass
+                                _force_terminate_worker()
+                                break
+                    except Exception as pe:
+                        print(f"\n[DEBUG POLLER] Erro ao consultar estado do job: {pe}")
+                        sys.stdout.flush()
+                    cancel_event.wait(2.0)
+
+            poller_thread = threading.Thread(target=poll_status, daemon=True)
+            poller_thread.start()
+
+            orig_stdout = sys.stdout
+            streamer = APILogStream(job["id"], orig_stdout, main_thread_id)
+            sys.stdout = streamer
+
+            try:
+                status, log = _run_sap_cockpit(params)
+            except JobCancelledException:
+                print("\n❌ Execução cancelada pelo utilizador. A abortar transações SAP...")
+                try:
+                    session = get_any_session()
+                    if session:
+                        while len(session.Children) > 1:
+                            try:
+                                top_wnd = session.Children(len(session.Children) - 1)
+                                top_wnd.close()
+                            except Exception:
+                                break
+                        session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+                        session.findById("wnd[0]").sendVKey(0)
+                        # Fechar a própria conexão da sessão para fechar a janela SAP correspondente
+                        conn = session.Parent
+                        conn.CloseSession(session.Id)
+                except Exception:
+                    pass
+                status = "Cancelado"
+                log = "Execução cancelada pelo utilizador."
+                _force_terminate_worker()
+            finally:
+                cancel_event.set()
+                sys.stdout = orig_stdout
+                streamer.close()
+
             log_lines.append(log)
             return status or "Execucao concluida, mas STATUS veio vazio.", "\n".join(log_lines)
 

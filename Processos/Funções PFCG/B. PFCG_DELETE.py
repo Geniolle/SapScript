@@ -144,6 +144,7 @@ def executar(
     ###################################################################################
     # LEITURA DO EXCEL VIA OPENPYXL (PRESERVA A FORMATAÇÃO)
     ###################################################################################
+    print("\n[Etapa 1] Leitura do Excel")
     if not caminho_ficheiro or not os.path.exists(caminho_ficheiro):
         log(f"❌ Ficheiro Excel não encontrado: '{caminho_ficheiro}'.")
         return "voltar"
@@ -218,6 +219,7 @@ def executar(
     ###################################################################################
     # CAPTURA SESSÃO SAP
     ###################################################################################
+    print("\n[Etapa 2] Acesso ao SAP")
     try:
         log("🔌 A localizar sessão SAP...")
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
@@ -349,7 +351,7 @@ def executar(
         print("============================================================")
 
     log(f"📂 Ficheiro: {caminho_ficheiro}")
-    log(f"📋 AGR_NAME a eliminar ({len(funcoes)}):")
+    log(f"📋 Roles a eliminar ({len(funcoes)}):")
     for i, n in enumerate(funcoes, 1):
         print(f" {i:02d}. {n}", flush=True)
 
@@ -362,6 +364,7 @@ def executar(
     ###################################################################################
     # EXECUÇÃO NO SAP (Eliminação em Massa via PFCGMASSDELETE)
     ###################################################################################
+    print("\n[Etapa 3] Eliminação das Funções")
     status_geral = "ERRO"
     msg_final = "Erro desconhecido."
 
@@ -373,6 +376,13 @@ def executar(
         log("➡️ A abrir /NPFCGMASSDELETE ...")
         session.findById("wnd[0]/tbar[0]/okcd").text = "/NPFCGMASSDELETE"
         session.findById("wnd[0]").sendVKey(0)
+        
+        try:
+            sb = session.findById("wnd[0]/sbar").Text.strip()
+            if sb:
+                log(f"[SAP_SBAR] {sb}")
+        except:
+            pass
 
         if existe(session, "wnd[0]/usr/radMOD_EXE"):
             session.findById("wnd[0]/usr/radMOD_EXE").select()
@@ -427,6 +437,8 @@ def executar(
         msg_barra = ""
         try:
             msg_barra = session.findById("wnd[0]/sbar").Text.strip()
+            if msg_barra:
+                log(f"[SAP_SBAR] {msg_barra}")
         except:
             pass
 
@@ -464,6 +476,7 @@ def executar(
     ###################################################################################
     # GRAVAÇÃO CÉLULA A CÉLULA VIA OPENPYXL (Com barra de progresso)
     ###################################################################################
+    print("\n[Etapa 4] Atualização do Excel")
     log("💾 A gravar resultados no Excel preservando formatações...")
     try:
         col_st = header_map.get(COL_STATUS)
@@ -494,6 +507,12 @@ def executar(
                     ws.cell(row=linha_excel, column=col_ms).value = msg_final
                 if col_tm:
                     ws.cell(row=linha_excel, column=col_tm).value = ts_final
+
+                # Relatar conclusão de cada função no dashboard
+                if status_geral == "CONCLUÍDO":
+                    print(f"[OK] Role concluída: {nome_role}", flush=True)
+                else:
+                    print(f"Falha ao eliminar role: {nome_role}", flush=True)
 
                 progress.advance(task_excel)
 

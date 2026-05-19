@@ -583,6 +583,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado):
                 continue
 
             # 1) Abre SU10
+            print("\n[Etapa 2] Pesquisa de Utilizadores")
             ir_para_transacao(session, "SU10")
             capturar_status_bar(session, eventos_status, origem="ABERTURA_SU10", tentativas=5, espera=0.20)
 
@@ -624,6 +625,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado):
                 continue
 
             # 3) Vai para tab de funções
+            print("\n[Etapa 3] Atribuição no SAP CUA")
             session.findById(tab_funcoes).select()
             time.sleep(0.40)
             capturar_status_bar(session, eventos_status, origem="ABERTURA_TAB_FUNCOES", tentativas=4, espera=0.20)
@@ -813,6 +815,7 @@ def executar(ambiente):
     if not caminho:
         return False
 
+    print("\n[Etapa 1] Leitura do Excel")
     df = ler_ficheiro(caminho, NOME_SHEET)
     if df is None:
         return False
@@ -832,6 +835,7 @@ def executar(ambiente):
 
     df_proc = atribuir_funcao_usuario(df_pend.copy(), session, sistema_desejado)
 
+    print("\n[Etapa 4] Gravação de Resultados")
     ok_save = gravar_preservando_formatacao(caminho, NOME_SHEET, df_proc)
     return ok_save
 

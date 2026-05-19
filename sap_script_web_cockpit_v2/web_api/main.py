@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, update_job_params
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 SAP_SCRIPT_PROJECT_DIR = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
@@ -269,7 +269,7 @@ def startup() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "index.html",
         {
             "request": request,
@@ -277,6 +277,10 @@ def index(request: Request) -> HTMLResponse:
             "processos": get_available_processes(),
         },
     )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/api/environments")
@@ -416,6 +420,8 @@ def api_complete_job(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
+    global last_worker_ping
+    last_worker_ping = time.time()
     try:
         return complete_job(
             job_id=job_id,
@@ -450,8 +456,50 @@ def api_append_job_log(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
+    global last_worker_ping
+    last_worker_ping = time.time()
     try:
+        job = get_job(job_id)
+        if job and job["state"] == "failed":
+            raise HTTPException(status_code=409, detail="Job has been cancelled or failed.")
         return append_job_log(job_id=job_id, log_line=payload.log_line)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class SapMetadataRequest(BaseModel):
+    sap_system: str
+    sap_client: str
+    sap_user: str
+
+@app.post("/api/jobs/{job_id}/sap-metadata")
+def api_update_sap_metadata(
+    job_id: str,
+    payload: SapMetadataRequest,
+    x_worker_token: str = Header(default=""),
+) -> dict[str, Any]:
+    validate_worker_token(x_worker_token)
+    global last_worker_ping
+    last_worker_ping = time.time()
+    try:
+        new_params = {
+            "sap_system": payload.sap_system,
+            "sap_client": payload.sap_client,
+            "sap_user": payload.sap_user,
+        }
+        return update_job_params(job_id=job_id, new_params=new_params)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class CreateJobRequest(BaseModel):
+    task: str
+    params: dict[str, Any] = None
+
+@app.post("/api/jobs")
+def api_create_job(payload: CreateJobRequest) -> dict[str, Any]:
+    try:
+        return create_job(task=payload.task, params=payload.params or {})
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

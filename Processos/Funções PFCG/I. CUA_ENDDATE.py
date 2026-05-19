@@ -540,6 +540,7 @@ def abrir_su01_em_alteracao(session, utilizador):
     """
     Abre a SU01 e entra no utilizador em modo alteração.
     """
+    print("\n[Etapa 2] Acesso ao SAP CUA")
     session.findById("wnd[0]/tbar[0]/okcd").text = "/nsu01"
     session.findById("wnd[0]").sendVKey(0)
 
@@ -586,6 +587,7 @@ def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_
     if not aguardar_objeto(session, shell_id, timeout=10, intervalo=0.3):
         raise Exception("Grid de roles não carregou na SU01.")
 
+    print("\n[Etapa 3] Bloqueio / Data Fim")
     shell = session.findById(shell_id)
 
     # Filtro 1: SUBSYSTEM
@@ -854,6 +856,7 @@ def executar(ambiente):
     if not caminho:
         return False
 
+    print("\n[Etapa 1] Leitura do Excel")
     df = ler_sheet(caminho, NOME_SHEET)
     if df is None:
         return False
@@ -873,6 +876,7 @@ def executar(ambiente):
 
     df_proc = remover_funcao_usuario(df_pend, session, sistema_desejado)
 
+    print("\n[Etapa 4] Gravação de Resultados")
     gravar_retorno_preservando_formatacao(caminho, NOME_SHEET, df_proc)
 
     return True

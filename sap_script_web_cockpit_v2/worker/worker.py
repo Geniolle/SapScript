@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import socket
@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from sap_tasks import run_sap_task
+from sap_tasks import run_sap_task, JobCancelledException
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
@@ -45,8 +45,10 @@ def process_job(job: dict[str, Any]) -> None:
     try:
         status, log = run_sap_task(job)
         complete_job(job["id"], "succeeded", status, log)
-    except Exception as exc:
-        status = str(exc) or "Erro sem mensagem"
+    except JobCancelledException:
+        print(f"❌ Job {job['id']} interrompido e cancelado com sucesso no SAP.")
+    except BaseException as exc:
+        status = str(exc) or "Erro sem mensagem (ou sys.exit)"
         log = traceback.format_exc()
         complete_job(job["id"], "failed", status, log)
 
@@ -65,7 +67,7 @@ def main() -> None:
         except KeyboardInterrupt:
             print("Worker terminado pelo utilizador.")
             break
-        except Exception:
+        except BaseException:
             print(traceback.format_exc())
             time.sleep(POLL_SECONDS)
 

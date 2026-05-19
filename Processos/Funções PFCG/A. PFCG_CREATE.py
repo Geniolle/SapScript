@@ -436,7 +436,7 @@ def executar(
                     system_name=SISTEMA_ESPERADO,
                     include_requests=True,
                     use_new_mode=True,
-                    minimize=True,
+                    minimize=False,
                     close_after=True
                 )
 
@@ -541,10 +541,10 @@ def executar(
 
         def open(self):
             print("  ├─ Abrindo a transação /NPFCG...")
-            try:
-                self.sess.findById("wnd[0]").maximize()
-            except Exception:
-                pass
+            # try:
+            #     self.sess.findById("wnd[0]").maximize()
+            # except Exception:
+            #     pass
 
             self.sess.findById("wnd[0]/tbar[0]/okcd").text = "/NPFCG"
             _send_vkey(0)

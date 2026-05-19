@@ -2,7 +2,10 @@ import os
 import re
 
 # Caminhos
-BASE_DIR = os.environ.get("SAP_SCRIPT_PROJECT_DIR", r"C:\SAP Script")
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.environ.get("SAP_SCRIPT_PROJECT_DIR")
+if not BASE_DIR:
+    BASE_DIR = os.path.abspath(os.path.join(_THIS_DIR, ".."))
 PROCESSOS_DIR = os.path.join(BASE_DIR, "Processos")
 SAPLOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 
@@ -17,22 +20,12 @@ AMBIENTES = {
     "1": ("DEV", "DESENVOLVIMENTO (S4H)"),
     "2": ("QAD", "QUALIDADE (S4H)"),
     "3": ("PRD", "PRODUÇÃO (S4H)"),
-    "4": ("CUA", "CUA (PRD)")
+    "4": ("CUA", "CUA (PRD)"),
 }
 
-MAPA_SISTEMA = {
-    "DEV": "S4D",
-    "QAD": "S4Q",
-    "PRD": "S4P",
-    "CUA": "SPA"
-}
+MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
 
-CLIENTES_POR_AMBIENTE = {
-    "DEV": "100",
-    "QAD": "100",
-    "PRD": "100",
-    "CUA": "001"
-}
+CLIENTES_POR_AMBIENTE = {"DEV": "100", "QAD": "100", "PRD": "100", "CUA": "001"}
 
 # Sleeps (ajusta se o SAP “se perder” nos inputs)
 SLEEP_UI = 0.25
@@ -43,6 +36,6 @@ SCAN_MAX_DEPTH = 6
 SCAN_MAX_NODES = 2500
 
 REQ_PATTERNS = [
-    re.compile(r"\b[A-Z0-9]{3,4}K\d{6,}\b"),      # ex.: S4QK900416 / S4DK951499
+    re.compile(r"\b[A-Z0-9]{3,4}K\d{6,}\b"),  # ex.: S4QK900416 / S4DK951499
     re.compile(r"\b[A-Z0-9]{3,4}[A-Z]\d{6,}\b"),  # fallback
 ]
