@@ -25,6 +25,11 @@
       100% { opacity: 0.5; }
     }
 
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     /* Stages Checklist Grid Styling */
     .stages-checklist {
       background: rgba(255, 255, 255, 0.02);
@@ -207,7 +212,7 @@
         </div>
         <div class="header-actions">
           <button type="button" id="start-worker-btn" class="btn btn-danger" style="display: none;">Ligar Worker</button>
-          <button type="button" id="refresh-button" class="btn btn-secondary">Atualizar</button>
+          <button type="button" id="refresh-button" class="btn btn-secondary" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
           <button type="button" id="new-job-btn" class="btn btn-primary">Novo job</button>
         </div>
       </header>
@@ -745,7 +750,18 @@
       document.getElementById('submit-job-btn').disabled = false;
     });
 
-    document.getElementById('refresh-button').addEventListener('click', loadJobs);
+    document.getElementById('refresh-button').addEventListener('click', async () => {
+      const btn = document.getElementById('refresh-button');
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span style="display:inline-block; animation: spin 0.7s linear infinite;">↻</span>&nbsp;A atualizar...';
+      try {
+        await loadJobs();
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '↻ Atualizar';
+      }
+    });
 
     // Gestão de Abas da Queue
     document.querySelectorAll('.c-tab').forEach(tab => {
