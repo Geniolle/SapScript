@@ -165,15 +165,44 @@ def complete_job(job_id: str, state: str, status: str, log: str) -> dict[str, An
         raise ValueError("Estado final inválido.")
 
     now = utc_now()
+    log = (log or "").strip()
 
     with get_connection() as conn:
+        row = conn.execute("SELECT log, task FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row:
+            current_log = (row["log"] or "").strip()
+            task = row["task"]
+            
+            if current_log:
+                if task == "sap_cockpit":
+                    # Se for sap_cockpit e terminou com sucesso, o log do streaming já está completo.
+                    # Só adicionamos se o novo log for um erro/traceback que não esteja no log atual.
+                    if state == "failed" and log and log not in current_log:
+                        new_log = current_log + "\n\n" + log
+                    else:
+                        new_log = current_log
+                else:
+                    # Para outras tarefas, se o log enviado já começa ou contém o atual,
+                    # usamos o novo log completo, senão fazemos append.
+                    if log:
+                        if log.startswith(current_log) or current_log in log:
+                            new_log = log
+                        else:
+                            new_log = current_log + "\n\n" + log
+                    else:
+                        new_log = current_log
+            else:
+                new_log = log
+        else:
+            new_log = log
+
         conn.execute(
             """
             UPDATE jobs
-            SET state = ?, status = ?, log = CASE WHEN ? = '' THEN log ELSE log || '\n\n' || ? END, updated_at = ?
+            SET state = ?, status = ?, log = ?, updated_at = ?
             WHERE id = ?
             """,
-            (state, status, log, log, now, job_id),
+            (state, status, new_log, now, job_id),
         )
         conn.commit()
 

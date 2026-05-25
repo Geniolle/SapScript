@@ -472,7 +472,11 @@ def executar(
     def get_statusbar():
         try:
             sbar = session.findById("wnd[0]/sbar")
-            return (getattr(sbar, "MessageType", "").strip().upper(), (sbar.Text or "").strip())
+            tipo = getattr(sbar, "MessageType", "").strip().upper()
+            texto = (sbar.Text or "").strip()
+            if texto:
+                print(f"[SAP_SBAR] {texto}")
+            return (tipo, texto)
         except:
             return ("", "")
 

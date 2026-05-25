@@ -51,9 +51,33 @@ body {
 .brand {
   margin-bottom: 40px;
   padding-left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
-.brand h1 { margin: 0; font-size: 1.25rem; font-weight: 800; letter-spacing: 1px; }
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+.brand h1 { margin: 0; font-size: 1.25rem; font-weight: 800; letter-spacing: 1px; line-height: 1.1; }
 .brand span { font-size: 0.75rem; color: #9ca3af; }
+
+.btn-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  border-radius: 50%;
+}
+.btn-icon:hover {
+  background-color: #e5e7eb;
+  color: var(--text-primary);
+}
 
 .nav-menu {
   display: flex;
@@ -225,13 +249,20 @@ body {
   gap: 16px;
   border: 1px solid var(--border-color);
 }
-.kpi-icon {
-  width: 12px; height: 12px; border-radius: 50%; margin-top: 6px;
+.kpi-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 2px;
 }
-.kpi-icon.blue { background: var(--primary); }
-.kpi-icon.yellow { background: var(--warning); }
-.kpi-icon.green { background: var(--success); }
-.kpi-icon.red { background: var(--danger); }
+.kpi-icon-wrapper.blue { background: rgba(59, 130, 246, 0.12); color: var(--primary); }
+.kpi-icon-wrapper.yellow { background: rgba(245, 158, 11, 0.12); color: var(--warning); }
+.kpi-icon-wrapper.green { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+.kpi-icon-wrapper.red { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
 
 .kpi-data { flex: 1; }
 .kpi-title { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px; font-weight: 500; }
@@ -404,4 +435,263 @@ input, select {
   padding: 40px 20px;
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+/* Badge Tags & Outlines */
+.badge-tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-block;
+}
+.badge-tag.blue {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+}
+.badge-tag.gray {
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.badge-outline {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border-width: 1px;
+  border-style: solid;
+  text-transform: uppercase;
+  display: inline-block;
+}
+.badge-outline.running {
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.3);
+  background: rgba(37, 99, 235, 0.04);
+}
+.badge-outline.pending {
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.3);
+  background: rgba(217, 119, 6, 0.04);
+}
+.badge-outline.succeeded {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.04);
+}
+.badge-outline.failed {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.04);
+}
+
+/* Connected Wizard Steps */
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  position: relative;
+  background: rgba(255, 255, 255, 0.01);
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  width: 100%;
+}
+
+.wizard-step {
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex: 1;
+}
+
+.wizard-step:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: var(--border-color);
+  margin: 0 16px;
+  transition: background 0.3s ease;
+}
+
+.wizard-step.completed:not(:last-child)::after {
+  background: var(--success);
+}
+
+.wizard-step.active:not(:last-child)::after {
+  background: linear-gradient(90deg, var(--primary) 0%, var(--border-color) 100%);
+}
+
+.wizard-circle-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wizard-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  flex-shrink: 0;
+  background: white;
+  transition: all 0.3s ease;
+  color: #9ca3af;
+}
+
+.wizard-step.completed .wizard-circle {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.wizard-step.active .wizard-circle {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+
+.wizard-step.failed .wizard-circle {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.wizard-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: pulse-dot 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.5; }
+}
+
+.wizard-content {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.wizard-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.wizard-title strong {
+  margin-right: 4px;
+}
+
+.wizard-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Active Job KPIs */
+.job-kpi-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.01);
+}
+
+.job-kpi-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.job-kpi-icon.green { background: rgba(16, 185, 129, 0.08); color: var(--success); }
+.job-kpi-icon.purple { background: rgba(139, 92, 246, 0.08); color: #8b5cf6; }
+.job-kpi-icon.blue { background: rgba(59, 130, 246, 0.08); color: var(--primary); }
+.job-kpi-icon.red { background: rgba(239, 68, 68, 0.08); color: var(--danger); }
+
+.job-kpi-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.job-kpi-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.job-kpi-title {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.job-kpi-sub {
+  font-size: 10px;
+  color: #9ca3af;
+}
+
+/* Role History Table */
+.role-history-table-row {
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.2s ease;
+}
+
+.role-history-table-row:hover {
+  background: rgba(59, 130, 246, 0.02);
+}
+
+.role-history-table-row.active-row {
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.role-table-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  display: inline-block;
+}
+
+.role-table-badge.success {
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.role-table-badge.active {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--primary);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.role-table-badge.pending {
+  background: rgba(107, 114, 128, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid rgba(107, 114, 128, 0.2);
+}
+
+.role-table-badge.failed {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }

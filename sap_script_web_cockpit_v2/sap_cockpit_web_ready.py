@@ -60,7 +60,10 @@ class SapCockpitError(RuntimeError):
 
 def read_sbar_status(session) -> str:
     try:
-        return str(session.findById("wnd[0]/sbar").Text).strip()
+        val = str(session.findById("wnd[0]/sbar").Text).strip()
+        if val:
+            print(f"[SAP_SBAR] {val}")
+        return val
     except Exception as exc:
         return f"Nao foi possivel ler STATUS em wnd[0]/sbar: {exc}"
 
@@ -1068,19 +1071,21 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
 
     if session is not None:
         info(f"Sessao ativa encontrada para o sistema {sistema_desejado}. A reaproveitar...")
-
     if session is None:
-        if not _tem_alguma_sessao_ativa(application):
-            try:
-                usuario, senha, idioma, chave_password = _obter_credenciais_env(
-                    sistema_desejado=sistema_desejado,
-                    cliente_esperado=cliente_esperado
-                )
-                info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
-            except Exception as e:
-                _raise_or_exit(f"Falha ao carregar credenciais do .env: {e}", interactive)
+        # Tenta obter credenciais para auto-login
+        credenciais_ok = False
+        try:
+            usuario, senha, idioma, chave_password = _obter_credenciais_env(
+                sistema_desejado=sistema_desejado,
+                cliente_esperado=cliente_esperado
+            )
+            credenciais_ok = True
+        except Exception:
+            credenciais_ok = False
 
+        if credenciais_ok:
             try:
+                info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
                 info(f"Abrindo conexao: {nome_logon}...")
                 connection = application.OpenConnection(nome_logon, True)
 
@@ -1108,6 +1113,11 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
                 session.findById("wnd[0]/usr/txtRSYST-LANGU").text = idioma
                 session.findById("wnd[0]").sendVKey(0)
 
+                if not _aguardar_login(session, cliente_esperado, timeout_s=20):
+                    _raise_or_exit(
+                        "Login nao foi confirmado (User/Client nao disponiveis). Verifique pop-up, senha extra, ou falha de login.",
+                        interactive,
+                    )
             except Exception as e:
                 if _is_scripting_disabled_error(e):
                     _erro_scripting_inativo(e, interactive=interactive)
@@ -1117,21 +1127,14 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
                         interactive,
                         e,
                     )
-
-            if not _aguardar_login(session, cliente_esperado, timeout_s=20):
-                _raise_or_exit(
-                    "Login nao foi confirmado (User/Client nao disponiveis). Verifique pop-up, senha extra, ou falha de login.",
-                    interactive,
-                )
-
         else:
             if not interactive:
                 raise SapCockpitError(
-                    f"Existe uma sessao SAP ativa, mas nao e do ambiente selecionado '{nome_logon}'. "
-                    "Abra esse ambiente no SAP GUI ou feche as sessoes incorretas."
+                    f"Nao foi possivel carregar credenciais do .env para auto-login no ambiente '{nome_logon}'. "
+                    "Por favor, configure as credenciais no .env ou abra a sessao manualmente no SAP GUI."
                 )
 
-            warn("Existe uma sessao SAP ativa, mas nao e do ambiente selecionado.")
+            warn("Nao foi possivel carregar credenciais do .env para auto-login.")
             info(f"Abra manualmente a ligacao do ambiente '{nome_logon}' no SAP Logon e faca login (se necessario).")
             input("Pressione ENTER quando a sessao do ambiente estiver aberta...")
 
@@ -1212,11 +1215,10 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
 
     except Exception as exc:
         status = read_sbar_status(session) if session is not None else str(exc)
-        log_lines.append(traceback.format_exc())
-        return {
-            "status": status or str(exc),
-            "log": "\n".join(log_lines),
-        }
+        print(f"\n❌ ERRO NA EXECUÇÃO: {exc}")
+        print(traceback.format_exc())
+        sys.stdout.flush()
+        raise
 
 
 def main_terminal():

@@ -389,7 +389,7 @@ def run_import_bancos(excel_path: str, ambiente_cockpit: Optional[str] = None):
 if __name__ == "__main__":
     AMBIENTE = None # Defina "DEV", "QAD", "PRD" ou "CUA" se precisar de validação
     
-    initial_dir = r"C:\SAP Script\Processos\Chave de Banco"
+    initial_dir = os.path.dirname(os.path.abspath(__file__))
     excel_path = escolher_ficheiro_excel(initial_dir)
 
     if excel_path:

@@ -497,6 +497,8 @@ def executar(
             sbar = sess.findById("wnd[0]/sbar")
             tipo = str(getattr(sbar, "MessageType", "") or "").strip().upper()
             texto = str(getattr(sbar, "Text", "") or "").strip()
+            if texto:
+                print(f"[SAP_SBAR] {texto}")
             return tipo, texto
         except Exception:
             return "", ""

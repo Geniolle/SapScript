@@ -11,7 +11,7 @@ def executar(ambiente_cockpit):
     mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
     sistema_desejado = mapa_sistema.get(ambiente_cockpit)
 
-    caminho_pasta = r"C:\SAP Script\Processos\Reverter Documento"
+    caminho_pasta = os.path.dirname(os.path.abspath(__file__))
     ficheiro_nome = "Script_Anular_Compensação_FBRA.xlsx"
     caminho_ficheiro = os.path.join(caminho_pasta, ficheiro_nome)
 

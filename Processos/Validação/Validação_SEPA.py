@@ -8,7 +8,7 @@ def executar(ambiente_cockpit=None):
     import time
 
     tempo_inicio = time.time()
-    caminho_pasta = r"C:\SAP Script\Processos\Validação\SEPA\Ficheiros"
+    caminho_pasta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "SEPA", "Ficheiros")
 
     ###################################################################################
     # BLOCO 2: FUNÇÃO PARA LISTAR ÁRVORE DE FICHEIROS

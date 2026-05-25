@@ -2,7 +2,7 @@
   "meta": {
     "system": "S4D",
     "user": "CSILVA",
-    "generated_at": "2026-05-18 18:20:10"
+    "generated_at": "2026-05-22 17:54:01"
   },
   "items": [
     {
@@ -39,6 +39,16 @@
       "idx": 7,
       "TRKORR": "S4DK953052",
       "AS4TEXT": "MID"
+    },
+    {
+      "idx": 8,
+      "TRKORR": "S4DK953161",
+      "AS4TEXT": "IZ-57134 Cadeia de pesquisa"
+    },
+    {
+      "idx": 9,
+      "TRKORR": "S4DK953163",
+      "AS4TEXT": "IZ-57134 - Cadeia de pesquisa"
     }
   ]
 }

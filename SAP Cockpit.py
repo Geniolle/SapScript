@@ -13,7 +13,7 @@ import inspect
 import re
 
 import pythoncom
-import pywintypesl
+import pywintypes
 
 from app.config import (
     PROCESSOS_DIR,
