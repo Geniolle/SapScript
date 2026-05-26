@@ -369,7 +369,7 @@ def executar(
     msg_final = "Erro desconhecido."
 
     try:
-        session.findById("wnd[0]").maximize()
+        # session.findById("wnd[0]").maximize()
         if not esperar_sap_livre(session, timeout=TIMEOUT_SAP_BUSY):
             raise RuntimeError("SAP bloqueado antes de iniciar.")
 
