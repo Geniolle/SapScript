@@ -1,0 +1,39 @@
+modules_enabled:
+  - FI
+  - MM
+  - SD
+  - ABAP
+  - BASIS
+
+safety:
+  safe_mode: true
+  allow_write_operations: false
+
+sap:
+  allowed_functions:
+    - RFC_PING
+    - RFC_READ_TABLE
+  allowed_tables:
+    - T100
+    - BKPF
+    - BSEG
+    - PAYRQ
+    - TBTCO
+    - E070
+    - TSTC
+    - TADIR
+    - TFDIR
+    - TSTCT
+
+jira:
+  jql: >
+    project = SAP
+    AND status in ("To Do", "In Progress", "Open")
+    AND labels in ("SAP", "Erro")
+    ORDER BY priority DESC, created ASC
+  max_results: 10
+  update_jira: false
+  comment_prefix: "Pré-análise automática SAP"
+
+research:
+  enabled: true
