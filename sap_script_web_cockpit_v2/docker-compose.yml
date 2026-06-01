@@ -4,6 +4,8 @@ services:
     container_name: sap-script-web
     ports:
       - "8010:8000"
+    env_file:
+      - ../.env
     environment:
       DATA_DIR: /data
       WORKER_TOKEN: change-me

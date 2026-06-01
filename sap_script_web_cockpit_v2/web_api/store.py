@@ -47,6 +47,55 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jobs ADD COLUMN is_archived INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jira_tickets (
+                key TEXT PRIMARY KEY,
+                summary TEXT NOT NULL,
+                status TEXT NOT NULL,
+                assignee TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                last_sync_at TEXT NOT NULL,
+                priority TEXT,
+                ticket_type TEXT,
+                creator TEXT
+            )
+            """
+        )
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN priority TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN ticket_type TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN creator TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN project TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN team TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN stream TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN process TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN time_to_resolution TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -103,7 +152,7 @@ def get_job(job_id: str) -> dict[str, Any] | None:
     return row_to_job(row) if row else None
 
 
-def list_jobs(limit: int = 50, include_internal: bool = False) -> list[dict[str, Any]]:
+def list_jobs(limit: int = 50, include_internal: bool = False, include_archived: bool = False) -> list[dict[str, Any]]:
     """
     Lista a fila/histórico visível.
 
@@ -112,22 +161,40 @@ def list_jobs(limit: int = 50, include_internal: bool = False) -> list[dict[str,
     """
     with get_connection() as conn:
         if include_internal:
-            rows = conn.execute(
-                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
-                (int(limit),),
-            ).fetchall()
+            if include_archived:
+                rows = conn.execute(
+                    "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
+                    (int(limit),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM jobs WHERE is_archived = 0 ORDER BY created_at DESC LIMIT ?",
+                    (int(limit),),
+                ).fetchall()
         else:
             placeholders = ",".join("?" for _ in INTERNAL_TASKS)
-            rows = conn.execute(
-                f"""
-                SELECT *
-                FROM jobs
-                WHERE task NOT IN ({placeholders})
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (*INTERNAL_TASKS, int(limit)),
-            ).fetchall()
+            if include_archived:
+                rows = conn.execute(
+                    f"""
+                    SELECT *
+                    FROM jobs
+                    WHERE task NOT IN ({placeholders})
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (*INTERNAL_TASKS, int(limit)),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    f"""
+                    SELECT *
+                    FROM jobs
+                    WHERE task NOT IN ({placeholders}) AND is_archived = 0
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (*INTERNAL_TASKS, int(limit)),
+                ).fetchall()
 
     return [row_to_job(row) for row in rows]
 
@@ -271,6 +338,29 @@ def archive_job(job_id: str) -> dict[str, Any]:
         raise RuntimeError("Job arquivado mas não encontrado na base de dados.")
     return job
 
+def unarchive_job(job_id: str) -> dict[str, Any]:
+    now = utc_now()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE jobs
+            SET is_archived = 0, updated_at = ?
+            WHERE id = ?
+            """,
+            (now, job_id),
+        )
+        conn.commit()
+
+    job = get_job(job_id)
+    if not job:
+        raise RuntimeError("Job desarquivado mas não encontrado na base de dados.")
+    return job
+
+def delete_job(job_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        conn.commit()
+
 
 def update_job_params(job_id: str, new_params: dict[str, Any]) -> dict[str, Any]:
     now = utc_now()
@@ -290,3 +380,132 @@ def update_job_params(job_id: str, new_params: dict[str, Any]) -> dict[str, Any]
     if not job:
         raise RuntimeError("Job atualizado mas não encontrado na base de dados.")
     return job
+
+
+def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
+    now = utc_now()
+    active_keys = [t["key"] for t in tickets]
+
+    with get_connection() as conn:
+        for t in tickets:
+            conn.execute(
+                """
+                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    summary = excluded.summary,
+                    status = excluded.status,
+                    assignee = excluded.assignee,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    last_sync_at = excluded.last_sync_at,
+                    priority = excluded.priority,
+                    ticket_type = excluded.ticket_type,
+                    creator = excluded.creator,
+                    project = excluded.project,
+                    team = excluded.team,
+                    stream = excluded.stream,
+                    process = excluded.process,
+                    time_to_resolution = excluded.time_to_resolution
+                """,
+                (
+                    t["key"],
+                    t["summary"],
+                    t["status"],
+                    t["assignee"],
+                    t["created_at"],
+                    t["updated_at"],
+                    now,
+                    t.get("priority"),
+                    t.get("ticket_type"),
+                    t.get("creator"),
+                    t.get("project"),
+                    t.get("team"),
+                    t.get("stream"),
+                    t.get("process"),
+                    t.get("time_to_resolution"),
+                ),
+            )
+
+        if active_keys:
+            placeholders = ",".join("?" for _ in active_keys)
+            conn.execute(
+                f"""
+                UPDATE jira_tickets
+                SET status = 'Done', last_sync_at = ?
+                WHERE key NOT IN ({placeholders}) AND status != 'Done'
+                """,
+                (now, *active_keys),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE jira_tickets
+                SET status = 'Done', last_sync_at = ?
+                WHERE status != 'Done'
+                """,
+                (now,),
+            )
+        conn.commit()
+
+
+def list_jira_tickets(limit: int = 50) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM jira_tickets
+            ORDER BY
+                CASE WHEN status != 'Done' THEN 0 ELSE 1 END,
+                updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "key": row["key"],
+            "summary": row["summary"],
+            "status": row["status"],
+            "assignee": row["assignee"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "last_sync_at": row["last_sync_at"],
+            "priority": row["priority"],
+            "ticket_type": row["ticket_type"],
+            "creator": row["creator"],
+            "project": row["project"],
+            "team": row["team"],
+            "stream": row["stream"],
+            "process": row["process"],
+            "time_to_resolution": row["time_to_resolution"] if "time_to_resolution" in row.keys() else "",
+        }
+        for row in rows
+    ]
+
+
+def update_jira_ticket_assignee(key: str, assignee: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE jira_tickets SET assignee = ?, last_sync_at = ? WHERE key = ?",
+            (assignee, utc_now(), key),
+        )
+        conn.commit()
+
+
+def update_jira_ticket_type_db(key: str, ticket_type: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE jira_tickets SET ticket_type = ?, last_sync_at = ? WHERE key = ?",
+            (ticket_type, utc_now(), key),
+        )
+        conn.commit()
+
+
+def update_jira_ticket_status_db(key: str, status: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE jira_tickets SET status = ?, last_sync_at = ? WHERE key = ?",
+            (status, utc_now(), key),
+        )
+        conn.commit()
+

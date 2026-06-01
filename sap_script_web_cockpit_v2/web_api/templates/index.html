@@ -84,6 +84,9 @@
       opacity: 1;
       padding: 6px 6px;
     }
+    #nav-sap-sub.open {
+      max-height: 2000px;
+    }
     /* Nivel 1 - Processo */
     .nav-sub-item {
       display: flex;
@@ -272,11 +275,30 @@
     .kpi-card {
       cursor: pointer;
       transition: all 0.2s ease-in-out;
+      position: relative !important;
+      overflow: hidden !important;
     }
     .kpi-card:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
       border-color: rgba(59, 130, 246, 0.2);
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--primary);
+      z-index: 10;
+      transition: background-color 0.25s ease;
+    }
+    .kpi-card.status-red::before {
+      background: var(--danger) !important;
+    }
+    .kpi-card.status-yellow::before {
+      background: var(--warning) !important;
     }
     .kpi-table-row {
       border-bottom: 1px solid var(--border-color);
@@ -384,6 +406,299 @@
       line-height: 1.5;
       word-break: break-word;
     }
+
+    /* JIRA KPI Grid 8 Column Layout Override (Single Row) */
+    #jira-kpi-grid {
+      grid-template-columns: repeat(8, 1fr) !important;
+      gap: 6px !important;
+    }
+    #jira-kpi-grid .kpi-card {
+      padding: 8px 10px !important;
+      gap: 8px !important;
+      border-radius: 10px !important;
+      align-items: center !important;
+    }
+    #jira-kpi-grid .kpi-icon-wrapper {
+      width: 24px !important;
+      height: 24px !important;
+      margin-top: 0 !important;
+    }
+    #jira-kpi-grid .kpi-icon-wrapper svg {
+      width: 12px !important;
+      height: 12px !important;
+    }
+    #jira-kpi-grid .kpi-data {
+      min-width: 0 !important;
+      flex: 1 !important;
+      overflow: hidden !important;
+    }
+    #jira-kpi-grid .kpi-title {
+      font-size: 10px !important;
+      margin-bottom: 2px !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+    #jira-kpi-grid .kpi-value {
+      font-size: 1.2rem !important;
+      gap: 4px !important;
+      align-items: baseline !important;
+    }
+    #jira-kpi-grid .kpi-sub {
+      font-size: 9px !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+    #jira-tickets-table th {
+      transition: background-color 0.2s, color 0.2s;
+    }
+    #jira-tickets-table th:hover {
+      background-color: rgba(59, 130, 246, 0.08);
+      color: var(--primary) !important;
+    }
+    .sort-icon {
+      font-size: 10px;
+      margin-left: 4px;
+      color: var(--text-secondary);
+      opacity: 0.5;
+      display: inline-block;
+      transition: all 0.2s ease;
+    }
+    th:hover .sort-icon {
+      opacity: 1;
+      color: var(--primary);
+    }
+    
+    /* Modern Premium Filter Styles */
+    /* Modern Premium Filter Styles */
+    .filters-card {
+      background: #ffffff !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 16px !important;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+      padding: 24px !important;
+      margin-bottom: 24px !important;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    .filters-card:hover {
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -6px rgba(0, 0, 0, 0.04) !important;
+      transform: translateY(-1px);
+    }
+    .filters-grid {
+      display: grid !important;
+      grid-template-columns: repeat(9, 1fr) !important;
+      gap: 16px 12px !important;
+    }
+    @media (max-width: 1400px) {
+      .filters-grid {
+        grid-template-columns: repeat(3, 1fr) !important;
+      }
+    }
+    @media (max-width: 768px) {
+      .filters-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
+    }
+    @media (max-width: 480px) {
+      .filters-grid {
+        grid-template-columns: 1fr !important;
+      }
+    }
+    .premium-select {
+      display: block;
+      width: 100%;
+      padding: 10px 36px 10px 14px !important;
+      font-size: 13px !important;
+      font-weight: 500;
+      color: #334155 !important;
+      background-color: #f8fafc !important;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 12px center !important;
+      background-size: 14px !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 10px !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      -moz-appearance: none !important;
+      outline: none !important;
+      transition: all 0.2s ease !important;
+      cursor: pointer;
+    }
+    .premium-select:hover {
+      border-color: #cbd5e1 !important;
+      background-color: #f1f5f9 !important;
+    }
+    .premium-select:focus {
+      border-color: var(--primary) !important;
+      background-color: #ffffff !important;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12) !important;
+    }
+    .filter-select {
+      font-size: 0.78rem !important;
+      padding: 6px 30px 6px 10px !important;
+      height: 32px !important;
+      line-height: 1.2 !important;
+    }
+    .premium-input {
+      display: block;
+      width: 100%;
+      padding: 10px 14px !important;
+      font-size: 13px !important;
+      font-weight: 500;
+      color: #334155 !important;
+      background-color: #f8fafc !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 10px !important;
+      outline: none !important;
+      transition: all 0.2s ease !important;
+    }
+    .premium-input:hover {
+      border-color: #cbd5e1 !important;
+      background-color: #f1f5f9 !important;
+    }
+    .premium-input:focus {
+      border-color: var(--primary) !important;
+      background-color: #ffffff !important;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12) !important;
+    }
+    .premium-filter-label {
+      display: flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      font-size: 11px !important;
+      font-weight: 700 !important;
+      color: #64748b !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.05em !important;
+      margin-bottom: 6px !important;
+    }
+    .premium-filter-label::before {
+      content: '' !important;
+      display: inline-block !important;
+      width: 6px !important;
+      height: 6px !important;
+      background-color: var(--primary) !important;
+      border-radius: 50% !important;
+      opacity: 0.6 !important;
+    }
+    .kpi-card.active-filter {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+      transform: translateY(-1px);
+    }
+    .kpi-card.status-red.active-filter {
+      border-color: var(--danger) !important;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+    }
+    .kpi-card.status-yellow.active-filter {
+      border-color: var(--warning) !important;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15) !important;
+    }
+    .assignee-cell-select {
+      display: inline-block;
+      width: 100%;
+      min-width: 150px !important;
+      padding: 4px 28px 4px 10px !important;
+      font-size: 12px !important;
+      font-weight: 500;
+      color: #334155 !important;
+      background-color: #f8fafc !important;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 8px center !important;
+      background-size: 11px !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 6px !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      -moz-appearance: none !important;
+      outline: none !important;
+      height: 30px !important;
+      line-height: 1.2 !important;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      transition: all 0.2s ease;
+    }
+    .assignee-cell-select:hover {
+      border-color: #94a3b8 !important;
+      background-color: #f1f5f9 !important;
+    }
+    .assignee-cell-select:focus {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+      background-color: #ffffff !important;
+    }
+    .ticket-type-cell-select {
+      display: inline-block;
+      width: 100%;
+      min-width: 120px !important;
+      padding: 4px 24px 4px 8px !important;
+      font-size: 11px !important;
+      font-weight: bold;
+      color: #334155 !important;
+      background-color: #f8fafc !important;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 6px center !important;
+      background-size: 10px !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 6px !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      -moz-appearance: none !important;
+      outline: none !important;
+      height: 26px !important;
+      line-height: 1.2 !important;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      transition: all 0.2s ease;
+    }
+    .ticket-type-cell-select.is-incident {
+      background-color: rgba(239, 68, 68, 0.08) !important;
+      color: #ef4444 !important;
+      border: 1px solid rgba(239, 68, 68, 0.3) !important;
+    }
+    .ticket-type-cell-select:hover {
+      border-color: #94a3b8 !important;
+      background-color: #f1f5f9 !important;
+    }
+    .ticket-type-cell-select.is-incident:hover {
+      background-color: rgba(239, 68, 68, 0.12) !important;
+      border-color: rgba(239, 68, 68, 0.4) !important;
+    }
+    .ticket-type-cell-select:focus {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+      background-color: #ffffff !important;
+    }
+    .status-cell-select {
+      display: inline-block;
+      width: 100%;
+      min-width: 135px !important;
+      padding: 4px 24px 4px 8px !important;
+      font-size: 11px !important;
+      font-weight: bold;
+      text-transform: uppercase;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 6px center !important;
+      background-size: 10px !important;
+      border-radius: 6px !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      -moz-appearance: none !important;
+      outline: none !important;
+      height: 26px !important;
+      line-height: 1.2 !important;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      transition: all 0.2s ease;
+    }
+    .status-cell-select:hover {
+      opacity: 0.9 !important;
+    }
   </style>
 </head>
 <body>
@@ -402,21 +717,38 @@
         </div>
       </div>
       <nav class="nav-menu">
-        <a class="nav-item active">Visão geral</a>
-        <a class="nav-item">Jobs SAP</a>
+        <a class="nav-item active" id="nav-item-visao-geral" onclick="switchView('visao-geral')">Visão geral</a>
         <div class="nav-sub-wrapper">
-          <a class="nav-item-toggle" id="nav-processos-toggle" onclick="toggleProcessosMenu()">
-            <span>Processos</span>
+          <a class="nav-item-toggle" id="nav-jira-toggle" onclick="toggleJiraMenu()">
+            <span>JIRA</span>
             <span class="nav-toggle-arrow">&#9660;</span>
           </a>
-          <div class="nav-sub-list" id="nav-processos-sub">
-            <div class="nav-sub-loading" id="nav-processos-loading">A carregar...</div>
+          <div class="nav-sub-list" id="nav-jira-sub">
+            <a class="nav-item" id="nav-item-jira" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira')">🎫 Tickets</a>
+            <a class="nav-item" id="nav-item-jira-dashboard" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
           </div>
         </div>
-        <a class="nav-item">Requests</a>
-        <a class="nav-item">Ficheiros</a>
-        <a class="nav-item">Histórico</a>
-        <a class="nav-item">Definições</a>
+        <div class="nav-sub-wrapper">
+          <a class="nav-item-toggle" id="nav-sap-toggle" onclick="toggleSapMenu()">
+            <span>SAP</span>
+            <span class="nav-toggle-arrow">&#9660;</span>
+          </a>
+          <div class="nav-sub-list" id="nav-sap-sub">
+            <div class="nav-sub-wrapper" style="margin: 0;">
+              <a class="nav-item-toggle" id="nav-processos-toggle" onclick="toggleProcessosMenu()" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;">
+                <span>📁 Processos</span>
+                <span class="nav-toggle-arrow">&#9660;</span>
+              </a>
+              <div class="nav-sub-list" id="nav-processos-sub">
+                <div class="nav-sub-loading" id="nav-processos-loading">A carregar...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <a class="nav-item" onclick="switchView('visao-geral')">Requests</a>
+        <a class="nav-item" onclick="switchView('visao-geral')">Ficheiros</a>
+        <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
+        <a class="nav-item" onclick="switchView('visao-geral')">Definições</a>
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-footer-header">
@@ -444,6 +776,17 @@
           <p>Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.</p>
         </div>
         <div class="header-actions" style="display: flex; align-items: center; gap: 16px;">
+          <div id="jira-sync-wrapper" style="display: none; align-items: center; gap: 10px;">
+            <button type="button" id="jira-sync-btn" class="btn-icon" title="Sincronizar com JIRA">
+              <span id="jira-sync-icon" style="display: inline-block; transition: transform 0.6s ease;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              </span>
+            </button>
+            <span id="jira-last-sync" style="font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; display: flex; align-items: center; gap: 4px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.6;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <span id="jira-last-sync-text">Nunca sincronizado</span>
+            </span>
+          </div>
           <button type="button" id="refresh-button" class="btn btn-secondary" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
           <button type="button" id="new-job-btn" class="btn btn-primary">+ Novo job</button>
           
@@ -464,80 +807,466 @@
         </div>
       </header>
 
-      <!-- KPIs -->
-      <section class="kpi-grid">
-        <div class="kpi-card" onclick="openKpiJobsModal('running')">
-          <div class="kpi-icon-wrapper blue">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+      <!-- Visão Geral View -->
+      <div id="view-visao-geral">
+        <!-- KPIs -->
+        <section class="kpi-grid">
+          <div class="kpi-card" onclick="openKpiJobsModal('running')">
+            <div class="kpi-icon-wrapper blue">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Jobs em execução</div>
+              <div class="kpi-value"><span id="kpi-running">0</span> <span class="kpi-sub" id="kpi-running-sub">Sistema livre</span></div>
+            </div>
           </div>
-          <div class="kpi-data">
-            <div class="kpi-title">Jobs em execução</div>
-            <div class="kpi-value"><span id="kpi-running">0</span> <span class="kpi-sub" id="kpi-running-sub">Sistema livre</span></div>
+          <div class="kpi-card" onclick="openKpiJobsModal('pending')">
+            <div class="kpi-icon-wrapper yellow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Pendentes</div>
+              <div class="kpi-value"><span id="kpi-pending">0</span> <span class="kpi-sub">A processar na fila</span></div>
+            </div>
           </div>
-        </div>
-        <div class="kpi-card" onclick="openKpiJobsModal('pending')">
-          <div class="kpi-icon-wrapper yellow">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <div class="kpi-card" onclick="openKpiJobsModal('success')">
+            <div class="kpi-icon-wrapper green">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Concluídos hoje</div>
+              <div class="kpi-value"><span id="kpi-success">0</span> <span class="kpi-sub" id="kpi-success-rate">0% sem erro</span></div>
+            </div>
           </div>
-          <div class="kpi-data">
-            <div class="kpi-title">Pendentes</div>
-            <div class="kpi-value"><span id="kpi-pending">0</span> <span class="kpi-sub">A processar na fila</span></div>
+          <div class="kpi-card" onclick="openKpiJobsModal('failed')">
+            <div class="kpi-icon-wrapper red">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Erros</div>
+              <div class="kpi-value"><span id="kpi-failed">0</span> <span class="kpi-sub">Requer validação</span></div>
+            </div>
           </div>
-        </div>
-        <div class="kpi-card" onclick="openKpiJobsModal('success')">
-          <div class="kpi-icon-wrapper green">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-          </div>
-          <div class="kpi-data">
-            <div class="kpi-title">Concluídos hoje</div>
-            <div class="kpi-value"><span id="kpi-success">0</span> <span class="kpi-sub" id="kpi-success-rate">0% sem erro</span></div>
-          </div>
-        </div>
-        <div class="kpi-card" onclick="openKpiJobsModal('failed')">
-          <div class="kpi-icon-wrapper red">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-          </div>
-          <div class="kpi-data">
-            <div class="kpi-title">Erros</div>
-            <div class="kpi-value"><span id="kpi-failed">0</span> <span class="kpi-sub">Requer validação</span></div>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Main Grid -->
-      <section class="dashboard-grid">
-        
-        <!-- Left Column: Active Jobs List Container -->
-        <div id="active-jobs-container" style="display: flex; flex-direction: column; gap: 24px; min-height: 500px; flex: 1;">
-          <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
-            <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
-          </div>
-        </div>
-
-        <!-- Right Column: Queue & Terminal -->
-        <div style="display:flex; flex-direction:column; gap:24px;">
+        <!-- Main Grid -->
+        <section class="dashboard-grid">
           
+          <!-- Left Column: Active Jobs List Container -->
+          <div id="active-jobs-container" style="display: flex; flex-direction: column; gap: 24px; min-height: 500px; flex: 1;">
+            <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
+              <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
+            </div>
+          </div>
 
-          <div class="card" style="background: #0d1117; border-color: #30363d; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
-            <div class="card-title" style="color:white; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center;">
-              <span>Log em tempo real</span>
-              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; background: #21262d; color: white; border: 1px solid #30363d;" id="btn-copy-log">Copiar log</button>
-            </div>
-            <div class="realtime-log" id="realtime-log-container" style="flex: 1; min-height: 480px; margin-top: 0 !important;">
-              <!-- JS populated -->
-            </div>
-            <div class="realtime-log-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #30363d; padding-top: 10px; font-size: 11px; font-family: inherit; color: #8b949e;">
-              <div style="display: flex; align-items: center; gap: 6px;">
-                 <span style="display: inline-block; width: 8px; height: 8px; background: var(--success); border-radius: 50%;"></span>
-                 <span id="log-connection-status">Conectado</span>
+          <!-- Right Column: Queue & Terminal -->
+          <div style="display:flex; flex-direction:column; gap:24px;">
+            
+
+            <div class="card" style="background: #0d1117; border-color: #30363d; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div class="card-title" style="color:white; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center;">
+                <span>Log em tempo real</span>
+                <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; background: #21262d; color: white; border: 1px solid #30363d;" id="btn-copy-log">Copiar log</button>
               </div>
-              <div id="log-updated-time">Atualizado: --:--:--</div>
+              <div class="realtime-log" id="realtime-log-container" style="flex: 1; min-height: 480px; margin-top: 0 !important;">
+                <!-- JS populated -->
+              </div>
+              <div class="realtime-log-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #30363d; padding-top: 10px; font-size: 11px; font-family: inherit; color: #8b949e;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                   <span style="display: inline-block; width: 8px; height: 8px; background: var(--success); border-radius: 50%;"></span>
+                   <span id="log-connection-status">Conectado</span>
+                </div>
+                <div id="log-updated-time">Atualizado: --:--:--</div>
+              </div>
+            </div>
+
+          </div>
+
+        </section>
+      </div>
+
+      <!-- JIRA View -->
+      <div id="view-jira" style="display: none;">
+        <!-- Jira KPIs -->
+        <section class="kpi-grid" id="jira-kpi-grid" style="margin-bottom: 24px;">
+          <!-- Card 1: Total de Tickets -->
+          <div class="kpi-card" id="jira-card-total" onclick="setKpiCardFilter('total')">
+            <div class="kpi-icon-wrapper blue">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Total de Tickets</div>
+              <div class="kpi-value"><span id="jira-kpi-total">0</span> <span class="kpi-sub">Em aberto</span></div>
+            </div>
+          </div>
+
+          <!-- Card 7: In Review -->
+          <div class="kpi-card" id="jira-card-review" onclick="setKpiCardFilter('review')">
+            <div class="kpi-icon-wrapper blue" style="background: rgba(79, 70, 229, 0.12); color: #4f46e5;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">In Review</div>
+              <div class="kpi-value"><span id="jira-kpi-review">0</span> <span class="kpi-sub">Sob revisão</span></div>
+            </div>
+          </div>
+
+          <!-- Card 6: Work In Progress -->
+          <div class="kpi-card" id="jira-card-wip" onclick="setKpiCardFilter('wip')">
+            <div class="kpi-icon-wrapper blue" style="background: rgba(37, 99, 235, 0.12); color: #2563eb;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Work In Progress</div>
+              <div class="kpi-value"><span id="jira-kpi-wip">0</span> <span class="kpi-sub">Em execução</span></div>
+            </div>
+          </div>
+
+          <!-- Card 8: Waiting for Customer -->
+          <div class="kpi-card" id="jira-card-waiting-customer" onclick="setKpiCardFilter('waiting-customer')">
+            <div class="kpi-icon-wrapper blue" style="background: rgba(14, 116, 144, 0.12); color: #0e7490;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Waiting for Customer</div>
+              <div class="kpi-value"><span id="jira-kpi-waiting-customer">0</span> <span class="kpi-sub">Aguardando cliente</span></div>
+            </div>
+          </div>
+
+          <!-- Card 9: Waiting for Support -->
+          <div class="kpi-card" id="jira-card-waiting-support" onclick="setKpiCardFilter('waiting-support')">
+            <div class="kpi-icon-wrapper blue" style="background: rgba(3, 105, 161, 0.12); color: #0369a1;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"></line><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"></line><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"></line><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"></line></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Waiting for Support</div>
+              <div class="kpi-value"><span id="jira-kpi-waiting-support">0</span> <span class="kpi-sub">Apoio especializado</span></div>
+            </div>
+          </div>
+
+          <!-- Card 4: Incidentes -->
+          <div class="kpi-card" id="jira-card-incidents" onclick="setKpiCardFilter('incidents')">
+            <div class="kpi-icon-wrapper red">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Incidentes</div>
+              <div class="kpi-value"><span id="jira-kpi-incidents">0</span> <span class="kpi-sub">Problemas reportados</span></div>
+            </div>
+          </div>
+
+          <!-- Card 5: Sem Responsável -->
+          <div class="kpi-card" id="jira-card-unassigned" onclick="setKpiCardFilter('unassigned')">
+            <div class="kpi-icon-wrapper red">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="8.5" cy="7" r="4"></circle>
+                <line x1="18" y1="9" x2="22" y2="13"></line>
+                <line x1="22" y1="9" x2="18" y2="13"></line>
+              </svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Sem Responsável</div>
+              <div class="kpi-value"><span id="jira-kpi-unassigned">0</span> <span class="kpi-sub">Aguardando atribuição</span></div>
+            </div>
+          </div>
+
+          <!-- Card 10: SLA Excedido -->
+          <div class="kpi-card" id="jira-card-sla-breached" onclick="setKpiCardFilter('sla-breached')">
+            <div class="kpi-icon-wrapper red">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">SLA Excedido</div>
+              <div class="kpi-value"><span id="jira-kpi-sla-breached">0</span> <span class="kpi-sub">Prazos expirados</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- JIRA Filters Panel (compact inline) -->
+        <div class="card" style="padding: 14px 20px;">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 6px; color: var(--primary); flex-shrink: 0;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+              <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;">Filtros</span>
+            </div>
+
+            <select id="jira-filter-team" class="premium-select filter-select" style="flex: 1; min-width: 135px; max-width: 180px;">
+              <option value="">Todas as equipas</option>
+              <option value="Helpdesk">Helpdesk</option>
+              <option value="Core Systems">Core Systems</option>
+              <option value="Retail Systems">Retail Systems</option>
+              <option value="Business Intelligence">Business Intelligence</option>
+              <option value="Digital">Digital</option>
+              <option value="Development">Development</option>
+              <option value="Systems Administration and Network">Sys. Admin &amp; Network</option>
+            </select>
+
+            <select id="jira-filter-stream" class="premium-select filter-select" style="flex: 1; min-width: 130px; max-width: 180px;">
+              <option value="">Todos os streams</option>
+              <option value="Consolidation">Consolidation</option>
+              <option value="Finance">Finance</option>
+              <option value="Human Resources">Human Resources</option>
+              <option value="Master Data">Master Data</option>
+              <option value="O2C">O2C</option>
+              <option value="Omnichannel">Omnichannel</option>
+              <option value="Supply Chain">Supply Chain</option>
+            </select>
+
+            <select id="jira-filter-ticket-type" class="premium-select filter-select" style="flex: 1; min-width: 120px; max-width: 160px;">
+              <option value="">Todos os tipos</option>
+              <option value="Service Request">Service Request</option>
+              <option value="Incident">Incident</option>
+              <option value="Project">Project</option>
+            </select>
+
+            <select id="jira-filter-priority" class="premium-select filter-select" style="flex: 1; min-width: 145px; max-width: 195px;">
+              <option value="">Todas as prioridades</option>
+              <option value="No SLA">No SLA</option>
+              <option value="2 - Baixo (40h)">2 - Baixo (40h)</option>
+              <option value="3 - Médio (24h)">3 - Médio (24h)</option>
+              <option value="4 - Grave (12h)">4 - Grave (12h)</option>
+              <option value="5 - Critico (8h)">5 - Critico (8h)</option>
+            </select>
+
+            <select id="jira-filter-assignee" class="premium-select filter-select" style="flex: 1; min-width: 165px; max-width: 220px;">
+              <option value="">Todos os responsáveis</option>
+            </select>
+
+            <select id="jira-filter-creator" class="premium-select filter-select" style="flex: 1; min-width: 145px; max-width: 195px;">
+              <option value="">Todos os criadores</option>
+            </select>
+
+            <select id="jira-filter-process" class="premium-select filter-select" style="flex: 1; min-width: 140px; max-width: 195px;">
+              <option value="">Todos os processos</option>
+            </select>
+
+            <input type="text" id="jira-filter-key" placeholder="🔑 Chave (SD-123)" style="flex: 1; min-width: 110px; max-width: 150px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.03); color: var(--text-primary); font-size: 0.78rem; outline: none;">
+
+            <input type="text" id="jira-search-input" placeholder="🔍 Pesquisar sumário..." style="flex: 2; min-width: 140px; max-width: 220px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.03); color: var(--text-primary); font-size: 0.78rem; outline: none;">
+
+            <button type="button" id="btn-clear-jira-filters" class="btn btn-secondary" style="padding: 7px 14px; font-size: 0.75rem; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+              Limpar
+            </button>
+          </div>
+        </div>
+
+        <!-- Jira Main Table Card -->
+        <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+
+
+          <div class="custom-scroll" style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(0,0,0,0.01);">
+            <table id="jira-tickets-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+              <thead>
+                <tr style="background: rgba(0,0,0,0.03); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-primary);">
+                  <th style="padding: 14px 16px; width: 110px; cursor: pointer; user-select: none;" onclick="setJiraSort('key')">Chave <span class="sort-icon" id="sort-icon-key">↕</span></th>
+                  <th style="padding: 14px 16px; min-width: 200px; cursor: pointer; user-select: none;" onclick="setJiraSort('summary')">Sumário <span class="sort-icon" id="sort-icon-summary">↕</span></th>
+                  <th style="padding: 14px 16px; min-width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('status')">Status <span class="sort-icon" id="sort-icon-status">↕</span></th>
+                  <th style="padding: 14px 16px; width: 120px; cursor: pointer; user-select: none;" onclick="setJiraSort('team')">Equipa <span class="sort-icon" id="sort-icon-team">↕</span></th>
+                  <th style="padding: 14px 16px; width: 120px; cursor: pointer; user-select: none;" onclick="setJiraSort('stream')">Stream <span class="sort-icon" id="sort-icon-stream">↕</span></th>
+                  <th style="padding: 14px 16px; width: 125px; cursor: pointer; user-select: none;" onclick="setJiraSort('ticket_type')">Tipo <span class="sort-icon" id="sort-icon-ticket_type">↕</span></th>
+                  <th style="padding: 14px 16px; width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('created_at')">Criação <span class="sort-icon" id="sort-icon-created_at">↕</span></th>
+                  <th style="padding: 14px 16px; width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('updated_at')">Atualização <span class="sort-icon" id="sort-icon-updated_at">↕</span></th>
+                  <th style="padding: 14px 16px; width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('creator')">Criador <span class="sort-icon" id="sort-icon-creator">↕</span></th>
+                  <th style="padding: 14px 16px; min-width: 160px; cursor: pointer; user-select: none;" onclick="setJiraSort('assignee')">Responsável <span class="sort-icon" id="sort-icon-assignee">↕</span></th>
+                  <th style="padding: 14px 16px; min-width: 150px; cursor: pointer; user-select: none;" onclick="setJiraSort('process')">Processo <span class="sort-icon" id="sort-icon-process">↕</span></th>
+                  <th style="padding: 14px 16px; width: 110px; cursor: pointer; user-select: none;" onclick="setJiraSort('priority')">Prioridade <span class="sort-icon" id="sort-icon-priority">↕</span></th>
+                  <th style="padding: 14px 16px; width: 130px; cursor: pointer; user-select: none;" onclick="setJiraSort('time_to_resolution')">SLA <span class="sort-icon" id="sort-icon-time_to_resolution">↕</span></th>
+                </tr>
+              </thead>
+              <tbody id="jira-tickets-table-body">
+                <!-- Dynamic JIRA rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- JIRA Dashboard View -->
+      <div id="view-jira-dashboard" style="display: none;">
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+
+          <!-- Dashboard Filters Bar -->
+          <div class="card" style="padding: 14px 20px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 6px; color: var(--primary); flex-shrink: 0;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;">Filtros</span>
+              </div>
+
+              <select id="dash-filter-team" class="premium-select" style="flex: 1; min-width: 110px; max-width: 160px; padding: 7px 10px; font-size: 0.78rem;">
+                <option value="">Todas as equipas</option>
+              </select>
+
+              <select id="dash-filter-stream" class="premium-select" style="flex: 1; min-width: 110px; max-width: 160px; padding: 7px 10px; font-size: 0.78rem;">
+                <option value="">Todos os streams</option>
+              </select>
+
+              <select id="dash-filter-ticket-type" class="premium-select" style="flex: 1; min-width: 110px; max-width: 160px; padding: 7px 10px; font-size: 0.78rem;">
+                <option value="">Todos os tipos</option>
+              </select>
+
+              <select id="dash-filter-priority" class="premium-select" style="flex: 1; min-width: 120px; max-width: 170px; padding: 7px 10px; font-size: 0.78rem;">
+                <option value="">Todas as prioridades</option>
+              </select>
+
+              <select id="dash-filter-assignee" class="premium-select" style="flex: 1; min-width: 120px; max-width: 170px; padding: 7px 10px; font-size: 0.78rem;">
+                <option value="">Todos os responsáveis</option>
+              </select>
+
+              <select id="dash-filter-creator" class="premium-select" style="flex: 1; min-width: 110px; max-width: 160px; padding: 7px 10px; font-size: 0.78rem;">
+                <option value="">Todos os criadores</option>
+              </select>
+
+              <select id="dash-filter-process" class="premium-select" style="flex: 1; min-width: 110px; max-width: 160px; padding: 7px 10px; font-size: 0.78rem;">
+                <option value="">Todos os processos</option>
+              </select>
+
+              <input type="text" id="dash-filter-search" placeholder="🔍 Pesquisar..." style="flex: 1; min-width: 130px; max-width: 200px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.03); color: var(--text-primary); font-size: 0.78rem; outline: none;">
+
+              <button type="button" id="dash-clear-filters" class="btn btn-secondary" style="padding: 7px 14px; font-size: 0.75rem; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                Limpar
+              </button>
+
+              <span id="dash-filter-count" style="font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; flex-shrink: 0;"></span>
+            </div>
+          </div>
+
+          <!-- Row 1: 3 charts -->
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+
+            <!-- Chart: Status Distribution -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Distribuição por Status</div>
+              <div style="position: relative; display: flex; justify-content: center; align-items: center; height: 180px;">
+                <canvas id="dash-chart-status" width="180" height="180"></canvas>
+                <div id="dash-status-center" style="position: absolute; text-align: center; pointer-events: none;">
+                  <div id="dash-status-total" style="font-size: 1.6rem; font-weight: 800; color: var(--text-primary);">0</div>
+                  <div style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">tickets</div>
+                </div>
+              </div>
+              <div id="dash-status-legend" style="display: flex; flex-direction: column; gap: 5px; font-size: 0.72rem;"></div>
+            </div>
+
+            <!-- Chart: Priority Distribution -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tickets por Prioridade</div>
+              <div style="flex: 1; display: flex; align-items: flex-end; height: 180px;">
+                <canvas id="dash-chart-priority" style="width: 100%; height: 180px;"></canvas>
+              </div>
+            </div>
+
+            <!-- Chart: Ticket Type -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tipo de Ticket</div>
+              <div style="position: relative; display: flex; justify-content: center; align-items: center; height: 180px;">
+                <canvas id="dash-chart-type" width="180" height="180"></canvas>
+              </div>
+              <div id="dash-type-legend" style="display: flex; flex-direction: column; gap: 5px; font-size: 0.72rem;"></div>
+            </div>
+
+          </div>
+
+          <!-- Row 2: 3 charts -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+
+            <!-- Chart: Tickets por Equipa -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tickets por Equipa</div>
+              <div style="flex: 1; display: flex; align-items: flex-end; height: 180px;">
+                <canvas id="dash-chart-team" style="width: 100%; height: 180px;"></canvas>
+              </div>
+            </div>
+
+            <!-- Chart: SLA Status -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Estado SLA Resolução</div>
+              <div style="position: relative; display: flex; justify-content: center; align-items: center; height: 180px;">
+                <canvas id="dash-chart-sla" width="180" height="180"></canvas>
+              </div>
+              <div id="dash-sla-legend" style="display: flex; flex-direction: column; gap: 5px; font-size: 0.72rem;"></div>
+            </div>
+
+            <!-- Chart: Top Responsáveis -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Top Responsáveis</div>
+              <div style="flex: 1; display: flex; align-items: flex-end; height: 180px;">
+                <canvas id="dash-chart-assignee" style="width: 100%; height: 180px;"></canvas>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Row 3: Backlog crítico -->
+          <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">⚠️ Backlog Crítico — SLA Excedido / Sem Responsável</div>
+              <span id="dash-backlog-count" style="font-size: 0.72rem; padding: 3px 10px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.25); border-radius: 20px; font-weight: 600;"></span>
+            </div>
+            <div style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="padding: 8px 12px; text-align: left; color: var(--text-secondary); font-weight: 600;">Chave</th>
+                    <th style="padding: 8px 12px; text-align: left; color: var(--text-secondary); font-weight: 600;">Sumário</th>
+                    <th style="padding: 8px 12px; text-align: left; color: var(--text-secondary); font-weight: 600;">Status</th>
+                    <th style="padding: 8px 12px; text-align: left; color: var(--text-secondary); font-weight: 600;">Prioridade</th>
+                    <th style="padding: 8px 12px; text-align: left; color: var(--text-secondary); font-weight: 600;">Responsável</th>
+                    <th style="padding: 8px 12px; text-align: left; color: var(--text-secondary); font-weight: 600;">SLA</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-backlog-body"></tbody>
+              </table>
             </div>
           </div>
 
         </div>
+      </div>
 
-      </section>
+      <!-- Histórico View -->
+
+      <div id="view-historico" style="display: none;">
+        <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 12px; align-items: center; flex: 1; min-width: 250px;">
+              <input type="text" id="history-search-input" placeholder="🔍 Pesquisar por ID, rotina ou ambiente..." style="flex: 1; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.02); color: var(--text-primary); font-size: 13px;">
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <button type="button" id="history-refresh-btn" class="btn btn-secondary" style="display: flex; align-items: center; gap: 8px; padding: 10px 18px;">
+                <span id="history-refresh-icon">↻</span> Atualizar Histórico
+              </button>
+            </div>
+          </div>
+
+          <div class="custom-scroll" style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(0,0,0,0.01);">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+              <thead>
+                <tr style="background: rgba(0,0,0,0.03); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-primary);">
+                  <th style="padding: 14px 16px; width: 100px;">ID</th>
+                  <th style="padding: 14px 16px; width: 140px;">Data/Hora</th>
+                  <th style="padding: 14px 16px;">Rotina / Ficheiro</th>
+                  <th style="padding: 14px 16px; width: 100px;">Ambiente</th>
+                  <th style="padding: 14px 16px; width: 125px;">Status</th>
+                  <th style="padding: 14px 16px; width: 80px; text-align: center;">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="history-jobs-table-body">
+                <!-- Dynamic history rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -748,6 +1477,17 @@
             String(seconds).padStart(2, '0')
         ].join(':');
     }
+    function formatJiraDate(dateStr) {
+        if (!dateStr) return '<span style="color: #9ca3af;">-</span>';
+        try {
+            const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return escapeHtml(dateStr);
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+        } catch (e) {
+            return escapeHtml(dateStr);
+        }
+    }
     function parseStageLabel(text, index) {
         const textLower = text.toLowerCase();
         
@@ -820,6 +1560,28 @@
     let allJobs = [];
     let isConnectingWorker = false;
     let connectingTimeout = null;
+
+    // --- Sidebar: SAP Dropdown ---
+    let sapMenuOpen = false;
+
+    function toggleSapMenu() {
+      const toggle = document.getElementById('nav-sap-toggle');
+      const sub = document.getElementById('nav-sap-sub');
+      sapMenuOpen = !sapMenuOpen;
+      toggle.classList.toggle('open', sapMenuOpen);
+      sub.classList.toggle('open', sapMenuOpen);
+    }
+
+    // --- Sidebar: JIRA Dropdown ---
+    let jiraMenuOpen = false;
+
+    function toggleJiraMenu() {
+      const toggle = document.getElementById('nav-jira-toggle');
+      const sub = document.getElementById('nav-jira-sub');
+      jiraMenuOpen = !jiraMenuOpen;
+      toggle.classList.toggle('open', jiraMenuOpen);
+      sub.classList.toggle('open', jiraMenuOpen);
+    }
 
     // --- Sidebar: Processos Dropdown (2 níveis) ---
     let processosLoaded = false;
@@ -1464,6 +2226,10 @@
         if (logContainer) {
             realtimeIsAtBottom = (logContainer.scrollHeight - logContainer.clientHeight - logContainer.scrollTop) < 25;
             savedRealtimeScroll = logContainer.scrollTop;
+        }
+
+        if (activeJobId && !allJobs.some(j => j.id === activeJobId)) {
+            activeJobId = null;
         }
 
         const active = allJobs.find(j => j.state === 'running' || j.state === 'pending');
@@ -2296,11 +3062,19 @@
                  </button>
               `;
           } else {
-              dropdownOptionsHtml += `
-                 <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--text-secondary); cursor: pointer; text-align: left; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.05);" onmouseover="this.style.background='rgba(0, 0, 0, 0.04)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); archiveJob('${job.id}')">
-                    📦 Arquivar Job
-                 </button>
-              `;
+              if (job.is_archived) {
+                  dropdownOptionsHtml += `
+                     <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--text-secondary); cursor: pointer; text-align: left; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.05);" onmouseover="this.style.background='rgba(0, 0, 0, 0.04)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); unarchiveJob('${job.id}')">
+                        📦 Desarquivar Job
+                     </button>
+                  `;
+              } else {
+                  dropdownOptionsHtml += `
+                     <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--text-secondary); cursor: pointer; text-align: left; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.05);" onmouseover="this.style.background='rgba(0, 0, 0, 0.04)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); archiveJob('${job.id}')">
+                        📦 Arquivar Job
+                     </button>
+                  `;
+              }
           }
           dropdownOptionsHtml += `
              <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--text-secondary); cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(0, 0, 0, 0.04)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); copyJobLog('${job.id}')">
@@ -2576,6 +3350,18 @@
         }
     }
 
+    async function unarchiveJob(jobId) {
+        try {
+            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/unarchive`, { method: 'POST' });
+            if (res.ok) {
+                // Remove from temporary allJobs if it was temporary, but let loadJobs handle it
+                await loadJobs();
+            }
+        } catch(e) {
+            console.error('Erro de rede ao desarquivar:', e);
+        }
+    }
+
     function copyJobLog(jobId) {
         const job = allJobs.find(j => j.id === jobId);
         if (job) {
@@ -2619,35 +3405,7 @@
         .replaceAll("'", '&#039;');
     }
 
-    function openKpiJobsModal(type) {
-        const modalKpi = document.getElementById('modal-kpi-jobs');
-        const titleEl = document.getElementById('kpi-jobs-modal-title');
-        const subtitleEl = document.getElementById('kpi-jobs-modal-subtitle');
-        const tbody = document.getElementById('kpi-jobs-modal-table-body');
-        
-        let filtered = [];
-        let title = '';
-        let subtitle = '';
-        const now = new Date();
-
-        if (type === 'running') {
-            filtered = allJobs.filter(j => j.state === 'running');
-            title = '⚡ Jobs em Execução';
-            subtitle = 'Lista de todos os scripts que estão a ser executados no SAP neste momento.';
-        } else if (type === 'pending') {
-            filtered = allJobs.filter(j => j.state === 'pending');
-            title = '⏳ Jobs Pendentes na Fila';
-            subtitle = 'Lista de pedidos agendados a aguardar a libertação de um worker Windows.';
-        } else if (type === 'success') {
-            filtered = allJobs.filter(j => j.state === 'succeeded' && new Date(j.created_at).toDateString() === now.toDateString());
-            title = '🟢 Jobs Concluídos Hoje';
-            subtitle = 'Lista de rotinas terminadas com sucesso total no dia de hoje.';
-        } else if (type === 'failed') {
-            filtered = allJobs.filter(j => j.state === 'failed' && new Date(j.created_at).toDateString() === now.toDateString());
-            title = '🔴 Jobs com Erro Hoje';
-            subtitle = 'Lista de pedidos que falharam ou foram cancelados hoje. Requerem verificação do log.';
-        }
-
+    function renderKpiModalTable(filtered, tbody) {
         tbody.innerHTML = '';
 
         if (filtered.length === 0) {
@@ -2678,6 +3436,11 @@
                 else if (job.state === 'succeeded') { badgeClass = 'success'; badgeText = 'sucesso'; }
                 else if (job.state === 'failed') { badgeClass = 'failed'; badgeText = 'erro'; }
                 
+                let archivedBadge = '';
+                if (job.is_archived) {
+                    archivedBadge = ` <span style="font-size: 10px; opacity: 0.7; color: var(--text-secondary); font-style: italic;">(arquivado)</span>`;
+                }
+
                 tr.innerHTML = `
                     <td style="padding: 12px 16px; font-family: monospace; font-weight: bold; color: var(--text-secondary);">#${shortId}</td>
                     <td style="padding: 12px 16px; white-space: nowrap;">${dateStr}</td>
@@ -2686,7 +3449,7 @@
                         <span style="font-size: 11px; font-weight: bold; padding: 2px 6px; background: rgba(0,0,0,0.03); border: 1px solid var(--border-color); border-radius: 4px;">${escapeHtml(env)}</span>
                     </td>
                     <td style="padding: 12px 16px;">
-                        <span class="badge ${badgeClass}">${badgeText}</span>
+                        <span class="badge ${badgeClass}">${badgeText}</span>${archivedBadge}
                     </td>
                     <td style="padding: 12px 16px; text-align: center;">
                         <button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;" onclick="selectAndFocusJob('${job.id}')">🔍 Focar</button>
@@ -2695,16 +3458,89 @@
                 tbody.appendChild(tr);
             });
         }
+    }
+
+    function openKpiJobsModal(type) {
+        const modalKpi = document.getElementById('modal-kpi-jobs');
+        const titleEl = document.getElementById('kpi-jobs-modal-title');
+        const subtitleEl = document.getElementById('kpi-jobs-modal-subtitle');
+        const tbody = document.getElementById('kpi-jobs-modal-table-body');
+        
+        let filtered = [];
+        let title = '';
+        let subtitle = '';
+        const now = new Date();
+
+        if (type === 'running') {
+            filtered = allJobs.filter(j => j.state === 'running');
+            title = '⚡ Jobs em Execução';
+            subtitle = 'Lista de todos os scripts que estão a ser executados no SAP neste momento.';
+            renderKpiModalTable(filtered, tbody);
+        } else if (type === 'pending') {
+            filtered = allJobs.filter(j => j.state === 'pending');
+            title = '⏳ Jobs Pendentes na Fila';
+            subtitle = 'Lista de pedidos agendados a aguardar a libertação de um worker Windows.';
+            renderKpiModalTable(filtered, tbody);
+        } else if (type === 'success') {
+            filtered = allJobs.filter(j => j.state === 'succeeded' && new Date(j.created_at).toDateString() === now.toDateString());
+            title = '🟢 Jobs Concluídos Hoje';
+            subtitle = 'Lista de rotinas terminadas com sucesso total no dia de hoje.';
+            renderKpiModalTable(filtered, tbody);
+        } else if (type === 'failed') {
+            filtered = allJobs.filter(j => j.state === 'failed' && new Date(j.created_at).toDateString() === now.toDateString());
+            title = '🔴 Jobs com Erro Hoje';
+            subtitle = 'Lista de pedidos que falharam ou foram cancelados hoje. Requerem verificação do log.';
+            renderKpiModalTable(filtered, tbody);
+        } else if (type === 'archived') {
+            title = '📦 Histórico de Jobs Arquivados';
+            subtitle = 'Lista de jobs arquivados que foram ocultados do painel principal.';
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="padding: 32px 16px; text-align: center; color: var(--text-secondary);">
+                        <span style="display:inline-block; animation: spin 0.7s linear infinite; margin-right: 6px;">↻</span> A carregar histórico arquivado...
+                    </td>
+                </tr>
+            `;
+            fetch('/api/jobs?include_archived=true&limit=100')
+                .then(res => res.json())
+                .then(data => {
+                    const archived = (data.jobs || []).filter(j => j.is_archived);
+                    renderKpiModalTable(archived, tbody);
+                })
+                .catch(err => {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="6" style="padding: 32px 16px; text-align: center; color: var(--danger);">
+                                Erro ao carregar histórico: ${err.message}
+                            </td>
+                        </tr>
+                    `;
+                });
+        }
 
         titleEl.textContent = title;
         subtitleEl.textContent = subtitle;
         modalKpi.classList.add('active');
     }
 
-    function selectAndFocusJob(jobId) {
+    async function selectAndFocusJob(jobId) {
+        let job = allJobs.find(j => j.id === jobId);
+        if (!job) {
+            try {
+                const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) {
+                        allJobs.push(data);
+                    }
+                }
+            } catch (err) {
+                console.error("Erro ao carregar detalhes do job arquivado:", err);
+            }
+        }
         activeJobId = jobId;
         document.getElementById('modal-kpi-jobs').classList.remove('active');
-        renderQueue(); // Will call renderActiveJob() internally
+        renderQueue();
     }
 
     let pollInterval = null;
@@ -2722,6 +3558,1433 @@
                 await loadJobs();
                 startPolling(); // re-evaluate interval after each load
             }, targetInterval);
+        }
+    }
+
+    // --- JIRA View and Synchronization Logic ---
+    let jiraTickets = [];
+    let jiraSortColumn = null;
+    let jiraSortAscending = true;
+    let activeKpiCardFilter = null;
+
+    const TEAM_MEMBERS = {
+        "Core Systems": ["Clayton Lopes", "Rita Rodrigues", "Filipe Galego", "Paula Silva", "José Miguel Pereira"],
+        "Helpdesk": ["Filipe Abreu", "Miguel Ribeiro", "Alexandre Eduardo Quintas Rodrigues"],
+        "Retail Systems": ["Vitor.Pereira", "Marisa Moreira", "Sandra Gomes"],
+        "Digital": ["Sandra Gomes", "Vitor Silva", "Diogo Oliveira"],
+        "Systems Administration and Network": ["Alexandre Eduardo Quintas Rodrigues"],
+        "Business Intelligence": ["Mariana Azevedo Pinto"],
+        "Development": ["Joao.Pinheiro", "Pedro Silva"]
+    };
+
+    function setKpiCardFilter(filter) {
+        if (filter === 'total') {
+            activeKpiCardFilter = null;
+        } else if (activeKpiCardFilter === filter) {
+            activeKpiCardFilter = null;
+        } else {
+            activeKpiCardFilter = filter;
+        }
+        updateKpiCardHighlight();
+        filterAndRenderJiraTickets();
+    }
+
+    function updateKpiCardHighlight() {
+        const cardIds = {
+            'total': 'jira-card-total',
+            'review': 'jira-card-review',
+            'wip': 'jira-card-wip',
+            'waiting-customer': 'jira-card-waiting-customer',
+            'waiting-support': 'jira-card-waiting-support',
+            'incidents': 'jira-card-incidents',
+            'unassigned': 'jira-card-unassigned',
+            'sla-breached': 'jira-card-sla-breached'
+        };
+
+        for (const [filter, id] of Object.entries(cardIds)) {
+            const el = document.getElementById(id);
+            if (el) {
+                if ((filter === 'total' && activeKpiCardFilter === null) || activeKpiCardFilter === filter) {
+                    el.classList.add('active-filter');
+                } else {
+                    el.classList.remove('active-filter');
+                }
+            }
+        }
+    }
+
+    async function updateTicketAssignee(key, newAssignee) {
+        try {
+            const res = await fetch(`/api/jira/tickets/${encodeURIComponent(key)}/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assignee: newAssignee })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                
+                // Update local list
+                const ticket = jiraTickets.find(t => t.key === key);
+                if (ticket) {
+                    ticket.assignee = newAssignee;
+                }
+                
+                // Show notification toast
+                if (data.jira_updated) {
+                    showToast(`Responsável do ticket ${key} atualizado no JIRA para "${newAssignee || 'Sem responsável'}"!`, 'success');
+                } else {
+                    showToast(`Responsável do ticket ${key} atualizado localmente para "${newAssignee || 'Sem responsável'}".`, 'info');
+                }
+                
+                // Refresh JIRA KPI metrics and rendering
+                filterAndRenderJiraTickets();
+                updateJiraKpis(jiraTickets);
+            } else {
+                showToast('Erro ao atualizar o responsável.', 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Erro ao comunicar com o servidor.', 'error');
+        }
+    }
+
+    async function updateTicketType(key, newType, selectEl) {
+        try {
+            const res = await fetch(`/api/jira/tickets/${encodeURIComponent(key)}/type`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticket_type: newType })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                
+                // Update local list
+                const ticket = jiraTickets.find(t => t.key === key);
+                if (ticket) {
+                    ticket.ticket_type = newType;
+                }
+                
+                // Show notification toast
+                if (data.jira_updated) {
+                    showToast(`Tipo do ticket ${key} atualizado no JIRA para "${newType || '-'}"!`, 'success');
+                } else {
+                    showToast(`Tipo do ticket ${key} atualizado localmente para "${newType || '-'}".`, 'info');
+                }
+                
+                // Update select element background/style dynamically
+                if (newType.toLowerCase() === 'incident') {
+                    selectEl.classList.add('is-incident');
+                } else {
+                    selectEl.classList.remove('is-incident');
+                }
+
+                // Refresh JIRA KPI metrics and rendering
+                filterAndRenderJiraTickets();
+                updateJiraKpis(jiraTickets);
+            } else {
+                showToast('Erro ao atualizar o tipo do ticket.', 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Erro ao comunicar com o servidor.', 'error');
+        }
+    }
+
+    async function loadTransitionsForSelect(ticketKey, selectEl) {
+        if (selectEl.dataset.loaded === 'true' || selectEl.dataset.loading === 'true') {
+            return;
+        }
+        
+        selectEl.dataset.loading = 'true';
+        const loadingOpt = document.createElement('option');
+        loadingOpt.value = "";
+        loadingOpt.disabled = true;
+        loadingOpt.text = "A carregar transições...";
+        selectEl.appendChild(loadingOpt);
+        
+        try {
+            const res = await fetch(`/api/jira/tickets/${encodeURIComponent(ticketKey)}/transitions`);
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            const transitions = data.transitions || [];
+            
+            const currentText = selectEl.options[0]?.text || selectEl.value;
+            selectEl.innerHTML = '';
+            
+            const currentOpt = document.createElement('option');
+            currentOpt.value = "";
+            currentOpt.text = currentText;
+            currentOpt.selected = true;
+            selectEl.appendChild(currentOpt);
+            
+            transitions.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = `${t.id}|${t.name}`;
+                opt.text = t.name;
+                opt.style.background = "#ffffff";
+                opt.style.color = "#334155";
+                opt.style.textTransform = "uppercase";
+                opt.style.fontWeight = "bold";
+                selectEl.appendChild(opt);
+            });
+            
+            selectEl.dataset.loaded = 'true';
+        } catch (err) {
+            console.error('Error loading transitions:', err);
+            if (loadingOpt.parentNode) {
+                selectEl.removeChild(loadingOpt);
+            }
+        } finally {
+            selectEl.dataset.loading = 'false';
+        }
+    }
+
+    async function handleStatusChange(ticketKey, selectEl) {
+        const val = selectEl.value;
+        if (!val) return;
+        
+        const [transitionId, statusName] = val.split('|');
+        if (!transitionId || !statusName) return;
+        
+        selectEl.disabled = true;
+        
+        try {
+            const res = await fetch(`/api/jira/tickets/${encodeURIComponent(ticketKey)}/transition`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transition_id: transitionId, status_name: statusName })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                
+                const ticket = jiraTickets.find(t => t.key === ticketKey);
+                if (ticket) {
+                    ticket.status = statusName;
+                }
+                
+                if (data.jira_updated) {
+                    showToast(`Estado do ticket ${ticketKey} atualizado no JIRA para "${statusName}"!`, 'success');
+                } else {
+                    showToast(`Estado do ticket ${ticketKey} atualizado localmente para "${statusName}".`, 'info');
+                }
+                
+                filterAndRenderJiraTickets();
+                updateJiraKpis(jiraTickets);
+            } else {
+                showToast('Erro ao transicionar o estado do ticket.', 'error');
+                filterAndRenderJiraTickets();
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Erro ao comunicar com o servidor.', 'error');
+            filterAndRenderJiraTickets();
+        }
+    }
+
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.style.position = 'fixed';
+        toast.style.bottom = '24px';
+        toast.style.right = '24px';
+        toast.style.padding = '12px 24px';
+        toast.style.borderRadius = '12px';
+        toast.style.fontSize = '13px';
+        toast.style.fontWeight = '600';
+        toast.style.zIndex = '9999';
+        toast.style.boxShadow = '0 10px 25px rgba(0,0,0,0.15)';
+        toast.style.display = 'flex';
+        toast.style.alignItems = 'center';
+        toast.style.gap = '8px';
+        toast.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+        toast.style.transform = 'translateY(100px)';
+        toast.style.opacity = '0';
+        
+        let bg = 'var(--primary)';
+        let icon = 'ℹ️';
+        if (type === 'success') {
+            bg = 'var(--success)';
+            icon = '✅';
+        } else if (type === 'error') {
+            bg = 'var(--danger)';
+            icon = '❌';
+        } else if (type === 'warning') {
+            bg = 'var(--warning)';
+            icon = '⚠️';
+        }
+        
+        toast.style.backgroundColor = bg;
+        toast.style.color = 'white';
+        toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+        
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.transform = 'translateY(0)';
+            toast.style.opacity = '1';
+        }, 10);
+        
+        setTimeout(() => {
+            toast.style.transform = 'translateY(100px)';
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    }
+
+    function setJiraSort(column) {
+        if (jiraSortColumn === column) {
+            jiraSortAscending = !jiraSortAscending;
+        } else {
+            jiraSortColumn = column;
+            jiraSortAscending = true;
+        }
+        
+        const columns = ['key', 'summary', 'status', 'project', 'team', 'stream', 'ticket_type', 'priority', 'time_to_resolution', 'created_at', 'updated_at', 'creator', 'assignee', 'process'];
+        columns.forEach(col => {
+            const iconEl = document.getElementById(`sort-icon-${col}`);
+            if (iconEl) {
+                if (col === jiraSortColumn) {
+                    iconEl.innerHTML = jiraSortAscending ? '▲' : '▼';
+                    iconEl.style.opacity = '1';
+                    iconEl.style.color = 'var(--primary)';
+                } else {
+                    iconEl.innerHTML = '↕';
+                    iconEl.style.opacity = '0.5';
+                    iconEl.style.color = '';
+                }
+            }
+        });
+        
+        filterAndRenderJiraTickets();
+    }
+
+    // --- Histórico View and Search Logic ---
+    let historyJobs = [];
+
+    async function loadHistoryJobs() {
+        const tbody = document.getElementById('history-jobs-table-body');
+        if (!tbody) return;
+
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                    <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; display: inline-block;">⏳</div>
+                    <p style="margin-top: 8px;">A carregar histórico...</p>
+                </td>
+            </tr>
+        `;
+
+        try {
+            const res = await fetch('/api/jobs?include_archived=true&limit=100');
+            if (!res.ok) throw new Error('Falha ao carregar histórico');
+            const data = await res.json();
+            historyJobs = (data.jobs || []).filter(j => j.is_archived);
+            filterAndRenderHistoryJobs();
+        } catch (err) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="padding: 40px; text-align: center; color: var(--danger);">
+                        ❌ Erro ao carregar histórico: ${err.message}
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    function filterAndRenderHistoryJobs() {
+        const tbody = document.getElementById('history-jobs-table-body');
+        const query = document.getElementById('history-search-input').value.toLowerCase().trim();
+        if (!tbody) return;
+
+        const filtered = historyJobs.filter(job => {
+            const proc = job.params ? (job.params.subprocesso || job.params.processo || job.task) : job.task;
+            const env = job.ambiente || job.params?.ambiente || 'DEV';
+            return job.id.toLowerCase().includes(query) || proc.toLowerCase().includes(query) || env.toLowerCase().includes(query);
+        });
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                        Nenhum job arquivado encontrado.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(job => {
+            const shortId = job.id.substring(0, 8);
+            const dateStr = new Date(job.created_at).toLocaleString('pt-PT', { 
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+            
+            const proc = job.params ? (job.params.subprocesso || job.params.processo || job.task) : job.task;
+            const env = job.ambiente || job.params?.ambiente || 'DEV';
+            
+            let badgeClass = '';
+            let badgeText = job.state;
+            if (job.state === 'running') { badgeClass = 'running'; badgeText = 'executando'; }
+            else if (job.state === 'pending') { badgeClass = 'pending'; badgeText = 'pendente'; }
+            else if (job.state === 'succeeded') { badgeClass = 'success'; badgeText = 'sucesso'; }
+            else if (job.state === 'failed') { badgeClass = 'failed'; badgeText = 'erro'; }
+
+            return `
+                <tr class="kpi-table-row">
+                    <td style="padding: 14px 16px; font-family: monospace; font-weight: bold; color: var(--text-secondary);">#${shortId}</td>
+                    <td style="padding: 14px 16px; white-space: nowrap;">${dateStr}</td>
+                    <td style="padding: 14px 16px; font-weight: 600; color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(proc)}">${escapeHtml(proc)}</td>
+                    <td style="padding: 14px 16px;">
+                        <span style="font-size: 11px; font-weight: bold; padding: 2px 6px; background: rgba(0,0,0,0.03); border: 1px solid var(--border-color); border-radius: 4px;">${escapeHtml(env)}</span>
+                    </td>
+                    <td style="padding: 14px 16px;">
+                        <span class="badge ${badgeClass}">${badgeText}</span>
+                    </td>
+                    <td style="padding: 14px 16px; text-align: center; white-space: nowrap;">
+                        <button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;" onclick="focusArchivedJobAndSwitch('${job.id}')">🔍 Focar</button>
+                        <button class="btn btn-danger" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; margin-left: 6px;" onclick="deleteJobFromDb('${job.id}')">🗑️ Eliminar</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function focusArchivedJobAndSwitch(jobId) {
+        let job = allJobs.find(j => j.id === jobId);
+        if (!job) {
+            try {
+                const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) {
+                        allJobs.push(data);
+                    }
+                }
+            } catch (err) {
+                console.error("Erro ao carregar detalhes do job arquivado:", err);
+            }
+        }
+        activeJobId = jobId;
+        switchView('visao-geral');
+        renderQueue();
+    }
+
+    async function deleteJobFromDb(jobId) {
+        if (!confirm('Deseja eliminar permanentemente este job da base de dados? Esta ação não pode ser desfeita.')) {
+            return;
+        }
+        try {
+            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+            if (res.ok) {
+                allJobs = allJobs.filter(j => j.id !== jobId);
+                if (activeJobId === jobId) {
+                    activeJobId = null;
+                }
+                await loadHistoryJobs();
+            } else {
+                alert('Erro ao eliminar o job.');
+            }
+        } catch(e) {
+            console.error('Erro de rede ao eliminar:', e);
+            alert('Erro de rede ao eliminar o job.');
+        }
+    }
+
+    function switchView(viewName) {
+        // 1. Remove active class from all nav items
+        document.querySelectorAll('.nav-menu .nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+
+        // 2. Set active class and toggle views
+        const visaoGeralView = document.getElementById('view-visao-geral');
+        const jiraView = document.getElementById('view-jira');
+        const historicoView = document.getElementById('view-historico');
+        const headerTitle = document.querySelector('.top-header .header-titles h2');
+        const headerSub = document.querySelector('.top-header .header-titles p');
+        const jiraSyncWrapper = document.getElementById('jira-sync-wrapper');
+        const refreshBtn = document.getElementById('refresh-button');
+        const newJobBtn = document.getElementById('new-job-btn');
+
+        if (viewName === 'visao-geral') {
+            document.getElementById('nav-item-visao-geral').classList.add('active');
+            visaoGeralView.style.display = 'block';
+            jiraView.style.display = 'none';
+            if (historicoView) historicoView.style.display = 'none';
+            if (headerTitle) headerTitle.textContent = 'Cockpit SAP Script';
+            if (headerSub) headerSub.textContent = 'Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.';
+            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
+            if (refreshBtn) refreshBtn.style.display = 'inline-flex';
+            if (newJobBtn) newJobBtn.style.display = 'inline-flex';
+        } else if (viewName === 'jira') {
+            document.getElementById('nav-item-jira').classList.add('active');
+            // Ensure JIRA dropdown is open when navigating to this view
+            if (!jiraMenuOpen) {
+                jiraMenuOpen = true;
+                const jiraToggle = document.getElementById('nav-jira-toggle');
+                const jiraSub = document.getElementById('nav-jira-sub');
+                if (jiraToggle) jiraToggle.classList.add('open');
+                if (jiraSub) jiraSub.classList.add('open');
+            }
+            visaoGeralView.style.display = 'none';
+            jiraView.style.display = 'block';
+            const dashView = document.getElementById('view-jira-dashboard');
+            if (dashView) dashView.style.display = 'none';
+            if (historicoView) historicoView.style.display = 'none';
+            if (headerTitle) headerTitle.textContent = 'Fila de Tickets JIRA';
+            if (headerSub) headerSub.textContent = 'Tickets em aberto e sincronização automática a cada minuto.';
+            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'inline-flex';
+            if (refreshBtn) refreshBtn.style.display = 'none';
+            if (newJobBtn) newJobBtn.style.display = 'none';
+            loadJiraTickets();
+        } else if (viewName === 'jira-dashboard') {
+            const navItem = document.getElementById('nav-item-jira-dashboard');
+            if (navItem) navItem.classList.add('active');
+            // Ensure JIRA dropdown is open
+            if (!jiraMenuOpen) {
+                jiraMenuOpen = true;
+                const jiraToggle = document.getElementById('nav-jira-toggle');
+                const jiraSub = document.getElementById('nav-jira-sub');
+                if (jiraToggle) jiraToggle.classList.add('open');
+                if (jiraSub) jiraSub.classList.add('open');
+            }
+            visaoGeralView.style.display = 'none';
+            jiraView.style.display = 'none';
+            const dashView = document.getElementById('view-jira-dashboard');
+            if (dashView) dashView.style.display = 'block';
+            if (historicoView) historicoView.style.display = 'none';
+            if (headerTitle) headerTitle.textContent = 'Dashboard JIRA';
+            if (headerSub) headerSub.textContent = 'Visão gráfica e analítica dos tickets de suporte.';
+            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
+            if (refreshBtn) refreshBtn.style.display = 'none';
+            if (newJobBtn) newJobBtn.style.display = 'none';
+            // Load tickets if needed, then render dashboard
+            if (jiraTickets.length === 0) {
+                loadJiraTickets().then(() => applyDashFilters());
+            } else {
+                applyDashFilters();
+            }
+        } else if (viewName === 'historico') {
+            const navItem = document.getElementById('nav-item-historico');
+            if (navItem) navItem.classList.add('active');
+            visaoGeralView.style.display = 'none';
+            jiraView.style.display = 'none';
+            const dashView = document.getElementById('view-jira-dashboard');
+            if (dashView) dashView.style.display = 'none';
+            if (historicoView) historicoView.style.display = 'block';
+            if (headerTitle) headerTitle.textContent = 'Histórico de Jobs Arquivados';
+            if (headerSub) headerSub.textContent = 'Visualização e gestão de rotinas antigas e arquivadas.';
+            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
+            if (refreshBtn) refreshBtn.style.display = 'none';
+            if (newJobBtn) newJobBtn.style.display = 'none';
+            loadHistoryJobs();
+        }
+    }
+
+    const initialSelectOptions = {};
+    const staticFilterIds = [
+        'jira-filter-team',
+        'jira-filter-stream',
+        'jira-filter-ticket-type',
+        'jira-filter-priority',
+        'jira-filter-process'
+    ];
+    staticFilterIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            initialSelectOptions[id] = Array.from(el.options).map(opt => ({
+                value: opt.value,
+                text: opt.textContent
+            }));
+        }
+    });
+
+    function populateAllDropdownsFaceted(allTickets) {
+        const fields = {
+            'jira-filter-team': { key: 'team', defaultText: 'Todas as equipas', isStatic: true },
+            'jira-filter-stream': { key: 'stream', defaultText: 'Todos os streams', isStatic: true },
+            'jira-filter-ticket-type': { key: 'ticket_type', defaultText: 'Todos os tipos', isStatic: true },
+            'jira-filter-priority': { key: 'priority', defaultText: 'Todas as prioridades', isStatic: true },
+            'jira-filter-process': { key: 'process', defaultText: 'Todos os processos', isStatic: true },
+            'jira-filter-assignee': { key: 'assignee', defaultText: 'Todos os responsáveis' },
+            'jira-filter-creator': { key: 'creator', defaultText: 'Todos os criadores' }
+        };
+
+        // Read current filter values
+        const currentValues = {};
+        for (const id of Object.keys(fields)) {
+            currentValues[id] = document.getElementById(id)?.value || '';
+        }
+        const valKey = (document.getElementById('jira-filter-key')?.value || '').toLowerCase().trim();
+        const query = (document.getElementById('jira-search-input')?.value || '').toLowerCase().trim();
+
+        // For each filter dropdown
+        for (const [id, config] of Object.entries(fields)) {
+            const selectEl = document.getElementById(id);
+            if (!selectEl) continue;
+
+            const prevValue = selectEl.value;
+
+            // Filter tickets using all other criteria EXCEPT current select field
+            const filteredTickets = allTickets.filter(t => {
+                if (valKey && (!t.key || !t.key.toLowerCase().includes(valKey))) return false;
+                if (query && (!t.summary || !t.summary.toLowerCase().includes(query))) return false;
+
+                for (const [otherId, otherConfig] of Object.entries(fields)) {
+                    if (otherId === id) continue; // skip current field
+                    const val = currentValues[otherId];
+                    if (val && t[otherConfig.key] !== val) return false;
+                }
+                return true;
+            });
+
+            // Extract unique values present in the filtered subset
+            let presentValues = new Set(
+                filteredTickets.map(t => t[config.key]).filter(v => v && String(v).trim() !== "")
+            );
+            if (config.key === 'assignee') {
+                const activeTeamFilter = currentValues['jira-filter-team'];
+                if (activeTeamFilter && TEAM_MEMBERS[activeTeamFilter]) {
+                    // Filter down to only members of this specific team
+                    const teamMembers = TEAM_MEMBERS[activeTeamFilter];
+                    const filteredValues = new Set();
+                    presentValues.forEach(val => {
+                        if (teamMembers.includes(val)) {
+                            filteredValues.add(val);
+                        }
+                    });
+                    // Also make sure all predefined team members are present
+                    teamMembers.forEach(val => filteredValues.add(val));
+                    presentValues = filteredValues;
+                } else {
+                    // No team filter is active, show all present assignees, and make sure Clayton Lopes is there
+                    presentValues.add("Clayton Lopes");
+                    // Add other known team members from TEAM_MEMBERS to fallback list
+                    for (const members of Object.values(TEAM_MEMBERS)) {
+                        members.forEach(val => presentValues.add(val));
+                    }
+                }
+            }
+
+            let html = ``;
+
+            if (config.isStatic) {
+                // For static select, read from stored initial options and show all options
+                const initialOpts = initialSelectOptions[id] || [];
+                initialOpts.forEach(opt => {
+                    html += `<option value="${escapeHtml(opt.value)}" style="background: #ffffff; color: #334155;">${escapeHtml(opt.text)}</option>`;
+                });
+            } else {
+                // For dynamic select, rebuild from unique values in filtered tickets
+                html += `<option value="" style="background: #ffffff; color: #334155;">${config.defaultText}</option>`;
+                const sortedVals = Array.from(presentValues).map(v => String(v).trim()).sort((a, b) => a.localeCompare(b));
+                sortedVals.forEach(val => {
+                    html += `<option value="${escapeHtml(val)}" style="background: #ffffff; color: #334155;">${escapeHtml(val)}</option>`;
+                });
+            }
+
+            selectEl.innerHTML = html;
+            selectEl.value = prevValue; // restore value
+        }
+    }
+
+    async function loadJiraTickets() {
+        const tbody = document.getElementById('jira-tickets-table-body');
+        if (!tbody) return;
+
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="13" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                    <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; display: inline-block;">⏳</div>
+                    <p style="margin-top: 8px;">A carregar tickets do JIRA...</p>
+                </td>
+            </tr>
+        `;
+
+        try {
+            const res = await fetch('/api/jira/tickets?limit=1000');
+            if (!res.ok) throw new Error('Falha ao carregar tickets');
+            const data = await res.json();
+            jiraTickets = data.tickets || [];
+
+            filterAndRenderJiraTickets();
+            updateJiraKpis(jiraTickets);
+            updateKpiCardHighlight();
+
+            // Update last sync timestamp
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            const syncText = `${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+            const el = document.getElementById('jira-last-sync-text');
+            if (el) el.textContent = `Última sincronização: ${syncText}`;
+        } catch (err) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="13" style="padding: 40px; text-align: center; color: var(--danger);">
+                        ❌ Erro ao carregar tickets: ${err.message}
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    function filterAndRenderJiraTickets() {
+        const tbody = document.getElementById('jira-tickets-table-body');
+        if (!tbody) return;
+
+        // Build team to assignees map
+        const teamAssigneesMap = {};
+        for (const [team, members] of Object.entries(TEAM_MEMBERS)) {
+            teamAssigneesMap[team] = new Set(members);
+        }
+
+        jiraTickets.forEach(t => {
+            if (t.team && t.assignee && t.assignee !== 'Sem responsável' && t.assignee.trim() !== '') {
+                const team = t.team.trim();
+                const assignee = t.assignee.trim();
+                if (!teamAssigneesMap[team]) {
+                    teamAssigneesMap[team] = new Set();
+                }
+                teamAssigneesMap[team].add(assignee);
+            }
+        });
+        
+        // Build list of unique assignees (fallback)
+        const uniqueAssignees = new Set();
+        jiraTickets.forEach(t => {
+            if (t.assignee && t.assignee !== 'Sem responsável' && t.assignee.trim() !== '') {
+                uniqueAssignees.add(t.assignee.trim());
+            }
+        });
+        uniqueAssignees.add("Clayton Lopes");
+        for (const members of Object.values(TEAM_MEMBERS)) {
+            members.forEach(m => uniqueAssignees.add(m));
+        }
+        const sortedAssignees = Array.from(uniqueAssignees).sort((a, b) => a.localeCompare(b));
+
+        // 1. Faceted update: refresh dropdown options list based on active filters
+        populateAllDropdownsFaceted(jiraTickets);
+
+        // 2. Read values of active filters (which are preserved during populating)
+        const valTeam = document.getElementById('jira-filter-team')?.value || '';
+        const valStream = document.getElementById('jira-filter-stream')?.value || '';
+        const valType = document.getElementById('jira-filter-ticket-type')?.value || '';
+        const valPriority = document.getElementById('jira-filter-priority')?.value || '';
+        const valAssignee = document.getElementById('jira-filter-assignee')?.value || '';
+        const valCreator = document.getElementById('jira-filter-creator')?.value || '';
+        const valProcess = document.getElementById('jira-filter-process')?.value || '';
+        const valKey = (document.getElementById('jira-filter-key')?.value || '').toLowerCase().trim();
+        const query = (document.getElementById('jira-search-input')?.value || '').toLowerCase().trim();
+
+        const filtered = jiraTickets.filter(t => {
+            if (valTeam && t.team !== valTeam) return false;
+            if (valStream && t.stream !== valStream) return false;
+            if (valType && t.ticket_type !== valType) return false;
+            if (valPriority && t.priority !== valPriority) return false;
+            if (valAssignee && t.assignee !== valAssignee) return false;
+            if (valCreator && t.creator !== valCreator) return false;
+            if (valProcess && t.process !== valProcess) return false;
+            if (valKey && (!t.key || !t.key.toLowerCase().includes(valKey))) return false;
+            if (query && (!t.summary || !t.summary.toLowerCase().includes(query))) return false;
+
+            // Apply JIRA KPI Card filter
+            if (activeKpiCardFilter) {
+                const status = (t.status || '').toLowerCase().trim();
+                const type = (t.ticket_type || '').toLowerCase().trim();
+                const sla = (t.time_to_resolution || '').toLowerCase();
+
+                if (activeKpiCardFilter === 'review' && status !== 'in review') return false;
+                if (activeKpiCardFilter === 'wip' && status !== 'work in progress') return false;
+                if (activeKpiCardFilter === 'waiting-customer' && status !== 'waiting for customer') return false;
+                if (activeKpiCardFilter === 'waiting-support' && status !== 'waiting for specialized support') return false;
+                if (activeKpiCardFilter === 'incidents' && type !== 'incident') return false;
+                if (activeKpiCardFilter === 'unassigned') {
+                    const isUnassigned = !t.assignee || t.assignee.trim() === "" || t.assignee.toLowerCase() === "sem responsável";
+                    if (!isUnassigned) return false;
+                }
+                if (activeKpiCardFilter === 'sla-breached') {
+                    const isSlaBreached = t.time_to_resolution && t.time_to_resolution.toLowerCase().includes("excedido");
+                    if (!isSlaBreached) return false;
+                }
+            }
+
+            return true;
+        });
+
+        if (jiraSortColumn) {
+            filtered.sort((a, b) => {
+                let valA = a[jiraSortColumn] || '';
+                let valB = b[jiraSortColumn] || '';
+                
+                // Case-insensitive string comparison
+                valA = String(valA).toLowerCase().trim();
+                valB = String(valB).toLowerCase().trim();
+                
+                // Natural sort for key (like IZ-123 vs IZ-12)
+                if (jiraSortColumn === 'key') {
+                    return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' }) * (jiraSortAscending ? 1 : -1);
+                }
+                
+                if (valA < valB) return jiraSortAscending ? -1 : 1;
+                if (valA > valB) return jiraSortAscending ? 1 : -1;
+                return 0;
+            });
+        }
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="13" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                        Nenhum ticket encontrado.
+                    </td>
+                </tr>
+            `;
+            updateJiraKpis([]);
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(t => {
+            const statusLower = t.status.toLowerCase();
+            let badgeStyle = 'background: rgba(255,255,255,0.05); color: #9ca3af; border: 1px solid rgba(255,255,255,0.1);';
+            
+            if (statusLower.includes('done') || statusLower.includes('closed') || statusLower.includes('concluído') || statusLower.includes('resolvido')) {
+                badgeStyle = 'background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25);';
+            } else if (statusLower.includes('progress') || statusLower.includes('desenvolvimento') || statusLower.includes('review') || statusLower.includes('teste')) {
+                badgeStyle = 'background: rgba(59, 130, 246, 0.12); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.25);';
+            } else if (statusLower.includes('todo') || statusLower.includes('open') || statusLower.includes('aberto') || statusLower.includes('novo')) {
+                badgeStyle = 'background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.25);';
+            }
+
+            const jiraBase = '{{ jira_base }}' || 'https://salsajeans.atlassian.net';
+            const ticketUrl = `${jiraBase}/browse/${t.key}`;
+
+            let slaBadge = '<span style="color: #9ca3af;">-</span>';
+            if (t.time_to_resolution) {
+                const slaLower = t.time_to_resolution.toLowerCase();
+                let slaBadgeStyle = 'background: rgba(255,255,255,0.05); color: #9ca3af; border: 1px solid rgba(255,255,255,0.1);';
+                if (slaLower.includes('excedido')) {
+                    slaBadgeStyle = 'background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);';
+                } else if (slaLower.includes('resolvido')) {
+                    slaBadgeStyle = 'background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25);';
+                } else if (slaLower.includes('h') || slaLower.includes('m')) {
+                    slaBadgeStyle = 'background: rgba(59, 130, 246, 0.12); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.25);';
+                }
+                slaBadge = `
+                    <span style="display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; ${slaBadgeStyle}">
+                        ${escapeHtml(t.time_to_resolution)}
+                    </span>
+                `;
+            }
+
+            return `
+                <tr class="kpi-table-row">
+                    <td style="padding: 14px 16px; font-family: monospace; font-weight: bold;">
+                        <a href="${ticketUrl}" target="_blank" style="color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                            ${escapeHtml(t.key)} 🔗
+                        </a>
+                    </td>
+                    <td style="padding: 14px 16px; color: var(--text-primary); font-weight: 500;">${escapeHtml(t.summary)}</td>
+                    <td style="padding: 10px 16px; vertical-align: middle;">
+                        <select class="status-cell-select" style="${badgeStyle}" 
+                                onfocus="loadTransitionsForSelect('${t.key}', this)" 
+                                onchange="handleStatusChange('${t.key}', this)">
+                            <option value="" selected>${escapeHtml(t.status)}</option>
+                        </select>
+                    </td>
+                    <td style="padding: 14px 16px; color: var(--text-secondary);">
+                        ${t.team ? escapeHtml(t.team) : '<span style="color: #9ca3af;">-</span>'}
+                    </td>
+                    <td style="padding: 14px 16px; color: var(--text-secondary);">
+                        ${t.stream ? escapeHtml(t.stream) : '<span style="color: #9ca3af;">-</span>'}
+                    </td>
+                    <td style="padding: 10px 16px; vertical-align: middle;">
+                        ${(() => {
+                            const currentType = t.ticket_type ? t.ticket_type.trim() : "";
+                            const ticketTypes = ["Service Request", "Incident", "Project"];
+                            const typesSet = new Set(ticketTypes);
+                            if (currentType) {
+                                typesSet.add(currentType);
+                            }
+                            const rowTypes = Array.from(typesSet).sort((a, b) => a.localeCompare(b));
+                            const typeSelectOptions = rowTypes.map(type => {
+                                const selected = (currentType && type.toLowerCase() === currentType.toLowerCase()) ? ' selected' : '';
+                                return `<option value="${escapeHtml(type)}"${selected}>${escapeHtml(type)}</option>`;
+                            }).join('');
+                            
+                            const isIncident = currentType.toLowerCase() === 'incident';
+                            const selectClass = isIncident ? 'ticket-type-cell-select is-incident' : 'ticket-type-cell-select';
+                            return `
+                                <select class="${selectClass}" onchange="updateTicketType('${t.key}', this.value, this)">
+                                    ${typeSelectOptions}
+                                </select>
+                            `;
+                        })()}
+                    </td>
+                    <td style="padding: 14px 16px; color: var(--text-secondary); white-space: nowrap;">${formatJiraDate(t.created_at)}</td>
+                    <td style="padding: 14px 16px; color: var(--text-secondary); white-space: nowrap;">${formatJiraDate(t.updated_at)}</td>
+                    <td style="padding: 14px 16px; color: var(--text-secondary);">${escapeHtml(t.creator || '-')}</td>
+                    <td style="padding: 10px 16px; vertical-align: middle;">
+                        ${(() => {
+                            const currentAssignee = t.assignee ? t.assignee.trim() : "";
+                            const isNoAssignee = !currentAssignee || currentAssignee === "Sem responsável";
+                            
+                            // Determine assignees options based on the ticket's team
+                            let rowAssignees = [];
+                            const ticketTeam = t.team ? t.team.trim() : "";
+                            if (ticketTeam && teamAssigneesMap[ticketTeam]) {
+                                const teamSet = new Set(teamAssigneesMap[ticketTeam]);
+                                if (!isNoAssignee) {
+                                    teamSet.add(currentAssignee);
+                                }
+                                rowAssignees = Array.from(teamSet).sort((a, b) => a.localeCompare(b));
+                            } else {
+                                rowAssignees = sortedAssignees;
+                            }
+                            
+                            const assigneeSelectOptions = rowAssignees.map(name => {
+                                const selected = (!isNoAssignee && name.toLowerCase() === currentAssignee.toLowerCase()) ? ' selected' : '';
+                                return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(name)}</option>`;
+                            }).join('');
+                            return `
+                                <select class="assignee-cell-select" onchange="updateTicketAssignee('${t.key}', this.value)">
+                                    <option value=""${isNoAssignee ? ' selected' : ''}>Sem responsável</option>
+                                    ${assigneeSelectOptions}
+                                </select>
+                            `;
+                        })()}
+                    </td>
+                    <td style="padding: 14px 16px; color: var(--text-secondary);">${escapeHtml(t.process || '-')}</td>
+                    <td style="padding: 14px 16px; color: var(--text-secondary); font-weight: 600;">
+                        ${t.priority ? escapeHtml(t.priority) : '<span style="color: #9ca3af;">-</span>'}
+                    </td>
+                    <td style="padding: 14px 16px;">${slaBadge}</td>
+                </tr>
+            `;
+        }).join('');
+        updateJiraKpis(filtered);
+    }
+
+    function updateJiraKpis(tickets) {
+        const totalEl = document.getElementById('jira-kpi-total');
+        const progressEl = document.getElementById('jira-kpi-progress');
+        const doneEl = document.getElementById('jira-kpi-done');
+        const unassignedEl = document.getElementById('jira-kpi-unassigned');
+        const incidentsEl = document.getElementById('jira-kpi-incidents');
+        if (!totalEl) return;
+ 
+        totalEl.textContent = tickets.length;
+        
+        if (progressEl) {
+            const inProgressCount = tickets.filter(t => {
+                const s = t.status.toLowerCase();
+                return s.includes('progress') || s.includes('review') || s.includes('teste');
+            }).length;
+            progressEl.textContent = inProgressCount;
+        }
+ 
+        if (doneEl) {
+            const doneCount = tickets.filter(t => {
+                const s = t.status.toLowerCase();
+                return s.includes('done') || s.includes('closed') || s.includes('resolvido');
+            }).length;
+            doneEl.textContent = doneCount;
+        }
+ 
+        if (unassignedEl) {
+            const unassignedCount = tickets.filter(t => {
+                return !t.assignee || t.assignee.trim() === "" || t.assignee.toLowerCase() === "sem responsável";
+            }).length;
+            unassignedEl.textContent = unassignedCount;
+ 
+            const cardEl = document.getElementById('jira-card-unassigned');
+            if (cardEl) {
+                if (unassignedCount > 0) {
+                    cardEl.classList.add('status-red');
+                } else {
+                    cardEl.classList.remove('status-red');
+                }
+            }
+        }
+ 
+        if (incidentsEl) {
+            const incidentsCount = tickets.filter(t => {
+                return t.ticket_type && t.ticket_type.toLowerCase() === "incident";
+            }).length;
+            incidentsEl.textContent = incidentsCount;
+ 
+            const cardEl = document.getElementById('jira-card-incidents');
+            if (cardEl) {
+                if (incidentsCount !== 0) {
+                    cardEl.style.backgroundColor = '';
+                    cardEl.style.borderColor = '';
+                    cardEl.classList.add('status-red');
+                } else {
+                    cardEl.classList.remove('status-red');
+                }
+            }
+        }
+
+        // New Card: Work In Progress (WIP)
+        const wipEl = document.getElementById('jira-kpi-wip');
+        if (wipEl) {
+            const wipCount = tickets.filter(t => {
+                const s = (t.status || '').toLowerCase().trim();
+                return s === 'work in progress';
+            }).length;
+            wipEl.textContent = wipCount;
+        }
+
+        // New Card: In Review
+        const reviewEl = document.getElementById('jira-kpi-review');
+        if (reviewEl) {
+            const reviewCount = tickets.filter(t => {
+                const s = (t.status || '').toLowerCase().trim();
+                return s === 'in review';
+            }).length;
+            reviewEl.textContent = reviewCount;
+        }
+
+        // New Card: Waiting for Customer
+        const customerEl = document.getElementById('jira-kpi-waiting-customer');
+        if (customerEl) {
+            const customerCount = tickets.filter(t => {
+                const s = (t.status || '').toLowerCase().trim();
+                return s === 'waiting for customer';
+            }).length;
+            customerEl.textContent = customerCount;
+        }
+
+        // New Card: Waiting for Specialized Support
+        const supportEl = document.getElementById('jira-kpi-waiting-support');
+        if (supportEl) {
+            const supportCount = tickets.filter(t => {
+                const s = (t.status || '').toLowerCase().trim();
+                return s === 'waiting for specialized support';
+            }).length;
+            supportEl.textContent = supportCount;
+        }
+ 
+        const slaBreachedEl = document.getElementById('jira-kpi-sla-breached');
+        if (slaBreachedEl) {
+            const breachedCount = tickets.filter(t => {
+                return t.time_to_resolution && t.time_to_resolution.toLowerCase().includes("excedido");
+            }).length;
+            slaBreachedEl.textContent = breachedCount;
+ 
+            const cardEl = document.getElementById('jira-card-sla-breached');
+            if (cardEl) {
+                if (breachedCount > 0) {
+                    cardEl.classList.add('status-red');
+                } else {
+                    cardEl.classList.remove('status-red');
+                }
+            }
+        }
+    }
+
+    // Set up JIRA action listeners
+    document.addEventListener('DOMContentLoaded', () => {
+        const searchInput = document.getElementById('jira-search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', filterAndRenderJiraTickets);
+        }
+
+        const jiraFilters = [
+            'jira-filter-team',
+            'jira-filter-stream',
+            'jira-filter-ticket-type',
+            'jira-filter-priority',
+            'jira-filter-assignee',
+            'jira-filter-creator',
+            'jira-filter-process'
+        ];
+
+        jiraFilters.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('change', filterAndRenderJiraTickets);
+            }
+        });
+
+        const filterKey = document.getElementById('jira-filter-key');
+        if (filterKey) {
+            filterKey.addEventListener('input', filterAndRenderJiraTickets);
+        }
+
+        const btnClearFilters = document.getElementById('btn-clear-jira-filters');
+        if (btnClearFilters) {
+            btnClearFilters.addEventListener('click', () => {
+                jiraFilters.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = '';
+                });
+                if (filterKey) filterKey.value = '';
+                if (searchInput) searchInput.value = '';
+                
+                // Reset sorting state
+                jiraSortColumn = null;
+                jiraSortAscending = true;
+                const columns = ['key', 'summary', 'status', 'project', 'team', 'stream', 'ticket_type', 'priority', 'time_to_resolution', 'creator', 'assignee', 'process'];
+                columns.forEach(col => {
+                    const iconEl = document.getElementById(`sort-icon-${col}`);
+                    if (iconEl) {
+                        iconEl.innerHTML = '↕';
+                        iconEl.style.opacity = '0.5';
+                        iconEl.style.color = '';
+                    }
+                });
+
+                // Reset active JIRA KPI Card filter
+                activeKpiCardFilter = null;
+                updateKpiCardHighlight();
+                
+                filterAndRenderJiraTickets();
+            });
+        }
+
+        const syncBtn = document.getElementById('jira-sync-btn');
+        const syncIcon = document.getElementById('jira-sync-icon');
+        if (syncBtn) {
+            syncBtn.addEventListener('click', async () => {
+                syncBtn.disabled = true;
+                if (syncIcon) syncIcon.style.animation = 'spin 1.5s linear infinite';
+                
+                try {
+                    const res = await fetch('/api/jira/sync', { method: 'POST' });
+                    if (!res.ok) throw new Error('Falha ao sincronizar com o JIRA');
+                    await loadJiraTickets();
+                } catch (err) {
+                    alert('Erro durante sincronização manual: ' + err.message);
+                } finally {
+                    syncBtn.disabled = false;
+                    if (syncIcon) syncIcon.style.animation = '';
+                }
+            });
+        }
+
+        // Set up Dashboard filter listeners
+        const dashFilterIds = [
+            'dash-filter-team', 'dash-filter-stream', 'dash-filter-ticket-type',
+            'dash-filter-priority', 'dash-filter-assignee', 'dash-filter-creator', 'dash-filter-process'
+        ];
+        dashFilterIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', applyDashFilters);
+        });
+        const dashSearch = document.getElementById('dash-filter-search');
+        if (dashSearch) dashSearch.addEventListener('input', applyDashFilters);
+        const dashClear = document.getElementById('dash-clear-filters');
+        if (dashClear) {
+            dashClear.addEventListener('click', () => {
+                dashFilterIds.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+                const s = document.getElementById('dash-filter-search'); if (s) s.value = '';
+                applyDashFilters();
+            });
+        }
+
+        // Set up History action listeners
+        const historySearchInput = document.getElementById('history-search-input');
+        if (historySearchInput) {
+            historySearchInput.addEventListener('input', filterAndRenderHistoryJobs);
+        }
+
+        const historyRefreshBtn = document.getElementById('history-refresh-btn');
+        const historyRefreshIcon = document.getElementById('history-refresh-icon');
+        if (historyRefreshBtn) {
+            historyRefreshBtn.addEventListener('click', async () => {
+                historyRefreshBtn.disabled = true;
+                if (historyRefreshIcon) historyRefreshIcon.style.animation = 'spin 1.5s linear infinite';
+                
+                try {
+                    await loadHistoryJobs();
+                } catch (err) {
+                    alert('Erro ao atualizar histórico: ' + err.message);
+                } finally {
+                    historyRefreshBtn.disabled = false;
+                    if (historyRefreshIcon) historyRefreshIcon.style.animation = '';
+                }
+            });
+        }
+    });
+
+    // ─── JIRA Dashboard ────────────────────────────────────────────────────────
+
+    function populateDashFilter(selectId, tickets, field, placeholder) {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        const current = sel.value;
+        const values = [...new Set(tickets.map(t => (t[field] || '').trim()).filter(Boolean))].sort();
+        sel.innerHTML = `<option value="">${placeholder}</option>` +
+            values.map(v => `<option value="${escapeHtml(v)}"${v === current ? ' selected' : ''}>${escapeHtml(v)}</option>`).join('');
+    }
+
+    function applyDashFilters() {
+        const val = id => (document.getElementById(id)?.value || '').trim();
+        const query = (document.getElementById('dash-filter-search')?.value || '').toLowerCase().trim();
+
+        const filtered = jiraTickets.filter(t => {
+            if (val('dash-filter-team') && (t.team || '').trim() !== val('dash-filter-team')) return false;
+            if (val('dash-filter-stream') && (t.stream || '').trim() !== val('dash-filter-stream')) return false;
+            if (val('dash-filter-ticket-type') && (t.ticket_type || '').trim() !== val('dash-filter-ticket-type')) return false;
+            if (val('dash-filter-priority') && (t.priority || '').trim() !== val('dash-filter-priority')) return false;
+            if (val('dash-filter-assignee') && (t.assignee || '').trim() !== val('dash-filter-assignee')) return false;
+            if (val('dash-filter-creator') && (t.creator || '').trim() !== val('dash-filter-creator')) return false;
+            if (val('dash-filter-process') && (t.process || '').trim() !== val('dash-filter-process')) return false;
+            if (query && !((t.summary || '') + (t.key || '')).toLowerCase().includes(query)) return false;
+            return true;
+        });
+
+        // Update count badge
+        const countEl = document.getElementById('dash-filter-count');
+        if (countEl) {
+            const active = ['dash-filter-team','dash-filter-stream','dash-filter-ticket-type',
+                'dash-filter-priority','dash-filter-assignee','dash-filter-creator','dash-filter-process']
+                .filter(id => val(id)).length + (query ? 1 : 0);
+            countEl.textContent = active > 0
+                ? `${filtered.length} de ${jiraTickets.length} tickets`
+                : `${jiraTickets.length} tickets`;
+            countEl.style.color = active > 0 ? 'var(--primary)' : 'var(--text-secondary)';
+        }
+
+        renderJiraDashboard(filtered);
+    }
+
+    function renderJiraDashboard(tickets) {
+        if (!tickets) tickets = jiraTickets;
+
+        // ── Populate filter dropdowns from full data first ──
+        populateDashFilter('dash-filter-team', jiraTickets, 'team', 'Todas as equipas');
+        populateDashFilter('dash-filter-stream', jiraTickets, 'stream', 'Todos os streams');
+        populateDashFilter('dash-filter-ticket-type', jiraTickets, 'ticket_type', 'Todos os tipos');
+        populateDashFilter('dash-filter-priority', jiraTickets, 'priority', 'Todas as prioridades');
+        populateDashFilter('dash-filter-assignee', jiraTickets, 'assignee', 'Todos os responsáveis');
+        populateDashFilter('dash-filter-creator', jiraTickets, 'creator', 'Todos os criadores');
+        populateDashFilter('dash-filter-process', jiraTickets, 'process', 'Todos os processos');
+
+        // Update count on first render
+        const dashCountEl = document.getElementById('dash-filter-count');
+        if (dashCountEl && !dashCountEl.textContent) dashCountEl.textContent = `${tickets.length} tickets`;
+
+        // ── helpers ──
+        function count(arr, key, val) {
+            return arr.filter(t => (t[key] || '').trim() === val).length;
+        }
+        function countByField(arr, field) {
+            const map = {};
+            arr.forEach(t => {
+                const v = (t[field] || 'Desconhecido').trim();
+                map[v] = (map[v] || 0) + 1;
+            });
+            return map;
+        }
+        function sortedEntries(map, limit) {
+            return Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0, limit || 999);
+        }
+        const isDark = document.documentElement.classList.contains('dark') ||
+                       document.body.dataset.theme === 'dark' ||
+                       getComputedStyle(document.documentElement).getPropertyValue('--bg-main').includes('1');
+        const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#9ca3af';
+
+        // ── PALETTE ──
+        const PALETTE = [
+            '#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444',
+            '#8b5cf6','#ec4899','#14b8a6','#f97316','#06b6d4'
+        ];
+
+        // ── DONUT CHART ──
+        function drawDonut(canvasId, data, legendId, centerTotalId) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+            const total = data.reduce((s, d) => s + d.value, 0);
+            if (centerTotalId) {
+                const el = document.getElementById(centerTotalId);
+                if (el) el.textContent = total;
+            }
+            if (total === 0) {
+                ctx.beginPath();
+                ctx.arc(W/2, H/2, H/2 - 10, 0, Math.PI*2);
+                ctx.strokeStyle = '#374151';
+                ctx.lineWidth = 22;
+                ctx.stroke();
+                return;
+            }
+            let angle = -Math.PI / 2;
+            const r = H/2 - 10;
+            const inner = r * 0.58;
+            data.forEach((d, i) => {
+                const slice = (d.value / total) * Math.PI * 2;
+                ctx.beginPath();
+                ctx.moveTo(W/2, H/2);
+                ctx.arc(W/2, H/2, r, angle, angle + slice);
+                ctx.closePath();
+                ctx.fillStyle = d.color;
+                ctx.fill();
+                angle += slice;
+            });
+            // Inner circle
+            ctx.beginPath();
+            ctx.arc(W/2, H/2, inner, 0, Math.PI*2);
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--card-bg') || '#1a1f2e';
+            ctx.fill();
+            // Legend
+            if (legendId) {
+                const leg = document.getElementById(legendId);
+                if (leg) {
+                    leg.innerHTML = data.map(d => `
+                        <div style="display:flex;align-items:center;gap:7px;justify-content:space-between;">
+                          <div style="display:flex;align-items:center;gap:6px;">
+                            <span style="width:9px;height:9px;border-radius:50%;background:${d.color};flex-shrink:0;"></span>
+                            <span style="color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;">${escapeHtml(d.label)}</span>
+                          </div>
+                          <span style="font-weight:700;color:var(--text-primary);">${d.value}</span>
+                        </div>`).join('');
+                }
+            }
+        }
+
+        // ── BAR CHART ──
+        function drawBar(canvasId, labels, values, colors) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            // Set canvas pixel size from layout size
+            const parent = canvas.parentElement;
+            canvas.width = parent ? parent.clientWidth || 260 : 260;
+            canvas.height = 180;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+            const max = Math.max(...values, 1);
+            const pad = { top: 10, right: 10, bottom: 38, left: 28 };
+            const chartW = W - pad.left - pad.right;
+            const chartH = H - pad.top - pad.bottom;
+            const barW = Math.max(4, (chartW / labels.length) - 6);
+
+            // Grid lines
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            ctx.lineWidth = 1;
+            [0.25, 0.5, 0.75, 1].forEach(f => {
+                const y = pad.top + chartH * (1 - f);
+                ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+                ctx.fillStyle = textColor;
+                ctx.font = '9px Inter,system-ui,sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(Math.round(max * f), pad.left - 4, y + 3);
+            });
+
+            labels.forEach((lbl, i) => {
+                const x = pad.left + i * (chartW / labels.length) + (chartW / labels.length - barW) / 2;
+                const barH = (values[i] / max) * chartH;
+                const y = pad.top + chartH - barH;
+                // Bar
+                const grad = ctx.createLinearGradient(x, y, x, y + barH);
+                const col = colors[i % colors.length];
+                grad.addColorStop(0, col);
+                grad.addColorStop(1, col + '55');
+                ctx.fillStyle = grad;
+                const radius = Math.min(5, barW / 2);
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + barW - radius, y);
+                ctx.quadraticCurveTo(x + barW, y, x + barW, y + radius);
+                ctx.lineTo(x + barW, y + barH);
+                ctx.lineTo(x, y + barH);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                ctx.fill();
+                // Value on top
+                ctx.fillStyle = textColor;
+                ctx.font = 'bold 10px Inter,system-ui,sans-serif';
+                ctx.textAlign = 'center';
+                if (values[i] > 0) ctx.fillText(values[i], x + barW / 2, y - 3);
+                // Label
+                ctx.fillStyle = textColor;
+                ctx.font = '9px Inter,system-ui,sans-serif';
+                ctx.textAlign = 'center';
+                const truncLbl = lbl.length > 8 ? lbl.slice(0, 7) + '…' : lbl;
+                ctx.fillText(truncLbl, x + barW / 2, H - pad.bottom + 14);
+            });
+        }
+
+        // ─── 1. Status donut ───
+        const statusMap = countByField(tickets, 'status');
+        const statusData = sortedEntries(statusMap, 8).map(([lbl, val], i) => ({ label: lbl, value: val, color: PALETTE[i % PALETTE.length] }));
+        drawDonut('dash-chart-status', statusData, 'dash-status-legend', 'dash-status-total');
+
+        // ─── 2. Priority bar ───
+        const PRIORITY_ORDER = ['Critical','Highest','High','Medium','Low','Lowest'];
+        const prioMap = countByField(tickets, 'priority');
+        const prioColors = { Critical:'#ef4444', Highest:'#f97316', High:'#f59e0b', Medium:'#3b82f6', Low:'#10b981', Lowest:'#6366f1' };
+        const prioLabels = PRIORITY_ORDER.filter(p => prioMap[p] > 0);
+        const prioValues = prioLabels.map(p => prioMap[p]);
+        const prioColArr = prioLabels.map(p => prioColors[p] || '#6366f1');
+        // Also include unknown priorities
+        Object.keys(prioMap).forEach(p => { if (!PRIORITY_ORDER.includes(p)) { prioLabels.push(p); prioValues.push(prioMap[p]); prioColArr.push('#8b5cf6'); } });
+        drawBar('dash-chart-priority', prioLabels.length ? prioLabels : ['Sem dados'], prioValues.length ? prioValues : [0], prioColArr.length ? prioColArr : ['#6366f1']);
+
+        // ─── 3. Ticket type donut ───
+        const typeMap = countByField(tickets, 'ticket_type');
+        const typeData = sortedEntries(typeMap, 8).map(([lbl, val], i) => ({ label: lbl, value: val, color: PALETTE[i % PALETTE.length] }));
+        drawDonut('dash-chart-type', typeData, 'dash-type-legend', null);
+
+        // ─── 4. Team bar ───
+        const teamMap = countByField(tickets, 'team');
+        const teamEntries = sortedEntries(teamMap, 8);
+        drawBar('dash-chart-team', teamEntries.map(e=>e[0]), teamEntries.map(e=>e[1]), PALETTE);
+
+        // ─── 5. SLA donut ───
+        const slaOk = tickets.filter(t => t.time_to_resolution && !t.time_to_resolution.toLowerCase().includes('excedido') && t.time_to_resolution.trim() !== '').length;
+        const slaBreached = tickets.filter(t => t.time_to_resolution && t.time_to_resolution.toLowerCase().includes('excedido')).length;
+        const slaNone = tickets.filter(t => !t.time_to_resolution || t.time_to_resolution.trim() === '').length;
+        const slaData = [
+            { label: 'Dentro do prazo', value: slaOk, color: '#10b981' },
+            { label: 'SLA Excedido', value: slaBreached, color: '#ef4444' },
+            { label: 'Sem SLA', value: slaNone, color: '#374151' },
+        ].filter(d => d.value > 0);
+        drawDonut('dash-chart-sla', slaData, 'dash-sla-legend', null);
+
+        // ─── 6. Top assignees bar ───
+        const assigneeMap = {};
+        tickets.forEach(t => {
+            const a = (t.assignee && t.assignee.trim() && t.assignee.toLowerCase() !== 'sem responsável') ? t.assignee.trim() : null;
+            if (a) assigneeMap[a] = (assigneeMap[a] || 0) + 1;
+        });
+        const assigneeEntries = sortedEntries(assigneeMap, 8);
+        drawBar('dash-chart-assignee', assigneeEntries.map(e=>e[0]), assigneeEntries.map(e=>e[1]), PALETTE);
+
+        // ─── 7. Backlog crítico ───
+        const critical = tickets.filter(t => {
+            const slaEx = t.time_to_resolution && t.time_to_resolution.toLowerCase().includes('excedido');
+            const noAssignee = !t.assignee || t.assignee.trim() === '' || t.assignee.toLowerCase() === 'sem responsável';
+            return slaEx || noAssignee;
+        }).slice(0, 20);
+
+        const backlogCountEl = document.getElementById('dash-backlog-count');
+        if (backlogCountEl) backlogCountEl.textContent = critical.length + ' ticket' + (critical.length !== 1 ? 's' : '');
+
+        const tbody = document.getElementById('dash-backlog-body');
+        if (tbody) {
+            if (critical.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-secondary);">Sem tickets críticos ✅</td></tr>`;
+            } else {
+                const PRIORITY_COLORS = { Critical:'#ef4444', Highest:'#f97316', High:'#f59e0b', Medium:'#3b82f6', Low:'#10b981', Lowest:'#6366f1' };
+                tbody.innerHTML = critical.map(t => {
+                    const slaEx = t.time_to_resolution && t.time_to_resolution.toLowerCase().includes('excedido');
+                    const noAssignee = !t.assignee || t.assignee.trim() === '' || t.assignee.toLowerCase() === 'sem responsável';
+                    const prioColor = PRIORITY_COLORS[t.priority] || '#9ca3af';
+                    const rowBg = slaEx ? 'background: rgba(239,68,68,0.04);' : 'background: rgba(245,158,11,0.04);';
+                    return `<tr style="border-bottom: 1px solid var(--border-color); ${rowBg}">
+                        <td style="padding:10px 12px;font-family:monospace;font-weight:bold;color:var(--primary);white-space:nowrap;">${escapeHtml(t.key || '-')}</td>
+                        <td style="padding:10px 12px;color:var(--text-primary);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(t.summary || '')}">${escapeHtml(t.summary || '-')}</td>
+                        <td style="padding:10px 12px;"><span style="font-size:11px;padding:3px 8px;border-radius:5px;background:rgba(99,102,241,0.12);color:#6366f1;font-weight:600;">${escapeHtml(t.status || '-')}</span></td>
+                        <td style="padding:10px 12px;"><span style="font-weight:700;color:${prioColor};">${escapeHtml(t.priority || '-')}</span></td>
+                        <td style="padding:10px 12px;color:${noAssignee ? '#f59e0b' : 'var(--text-secondary)'};font-weight:${noAssignee ? '600' : '400'}">${noAssignee ? '⚠️ Sem responsável' : escapeHtml(t.assignee)}</td>
+                        <td style="padding:10px 12px;"><span style="font-size:11px;padding:3px 8px;border-radius:5px;font-weight:600;${slaEx ? 'background:rgba(239,68,68,0.12);color:#ef4444;' : 'color:var(--text-secondary);'}">${escapeHtml(t.time_to_resolution || '-')}</span></td>
+                    </tr>`;
+                }).join('');
+            }
         }
     }
 

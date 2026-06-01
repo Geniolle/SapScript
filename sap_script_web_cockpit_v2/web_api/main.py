@@ -14,7 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, update_job_params
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db
+from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue
+import asyncio
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 SAP_SCRIPT_PROJECT_DIR = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
@@ -262,9 +264,25 @@ def _windows_upload_path(saved_name: str) -> str:
 
     return str(UPLOADS_DIR / saved_name)
 
+async def sync_jira_tickets_loop() -> None:
+    """
+    Loop em segundo plano que roda a cada 60 segundos buscando os tickets JIRA.
+    """
+    while True:
+        try:
+            # Executa a busca HTTP em thread pool para evitar travar o event loop do FastAPI
+            tickets = await asyncio.to_thread(fetch_jira_tickets_from_api)
+            # Guarda na BD local
+            await asyncio.to_thread(save_jira_tickets_to_db, tickets)
+        except Exception as exc:
+            print(f"[JIRA SYNC LOOP ERROR]: {exc}")
+        await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    asyncio.create_task(sync_jira_tickets_loop())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -275,12 +293,97 @@ def index(request: Request) -> HTMLResponse:
             "request": request,
             "ambientes": get_available_environments(),
             "processos": get_available_processes(),
+            "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
         },
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get("/api/jira/tickets")
+def api_list_jira_tickets(limit: int = 50) -> dict[str, Any]:
+    try:
+        return {"tickets": list_jira_tickets(limit=limit)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/jira/sync")
+async def api_force_jira_sync() -> dict[str, Any]:
+    try:
+        tickets = await asyncio.to_thread(fetch_jira_tickets_from_api)
+        await asyncio.to_thread(save_jira_tickets_to_db, tickets)
+        return {"status": "success", "synced_count": len(tickets)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao sincronizar com JIRA: {str(exc)}")
+
+
+class AssigneeRequest(BaseModel):
+    assignee: str
+
+
+@app.post("/api/jira/tickets/{ticket_key}/assign")
+async def api_assign_jira_ticket(ticket_key: str, payload: AssigneeRequest) -> dict[str, Any]:
+    try:
+        # Update locally in SQLite first
+        await asyncio.to_thread(update_jira_ticket_assignee, ticket_key, payload.assignee)
+        
+        # Try to sync with Jira API
+        success = await asyncio.to_thread(assign_jira_ticket, ticket_key, payload.assignee)
+        
+        return {"status": "success", "jira_updated": success}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class TicketTypeRequest(BaseModel):
+    ticket_type: str
+
+
+@app.post("/api/jira/tickets/{ticket_key}/type")
+async def api_update_jira_ticket_type(ticket_key: str, payload: TicketTypeRequest) -> dict[str, Any]:
+    try:
+        # Update locally in SQLite first
+        await asyncio.to_thread(update_jira_ticket_type_db, ticket_key, payload.ticket_type)
+        
+        # Try to sync with Jira API
+        success = await asyncio.to_thread(update_jira_ticket_type, ticket_key, payload.ticket_type)
+        
+        return {"status": "success", "jira_updated": success}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/jira/tickets/{ticket_key}/transitions")
+async def api_get_jira_transitions(ticket_key: str) -> dict[str, Any]:
+    try:
+        transitions = await asyncio.to_thread(get_jira_issue_transitions, ticket_key)
+        return {"transitions": transitions}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class TransitionRequest(BaseModel):
+    transition_id: str
+    status_name: str
+
+
+@app.post("/api/jira/tickets/{ticket_key}/transition")
+async def api_transition_jira_ticket(ticket_key: str, payload: TransitionRequest) -> dict[str, Any]:
+    try:
+        # Try to transition with Jira API
+        success = await asyncio.to_thread(transition_jira_issue, ticket_key, payload.transition_id)
+        
+        # If success, update locally in SQLite
+        if success:
+            await asyncio.to_thread(update_jira_ticket_status_db, ticket_key, payload.status_name)
+        
+        return {"status": "success", "jira_updated": success}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 
 @app.get("/api/environments")
@@ -371,8 +474,8 @@ def create_job_from_form(
 
 
 @app.get("/api/jobs")
-def api_list_jobs(limit: int = 50) -> dict[str, Any]:
-    return {"jobs": list_jobs(limit=limit)}
+def api_list_jobs(limit: int = 50, include_archived: bool = False) -> dict[str, Any]:
+    return {"jobs": list_jobs(limit=limit, include_archived=include_archived)}
 
 
 ####################################################################################
@@ -443,6 +546,21 @@ def api_cancel_job(job_id: str) -> dict[str, Any]:
 def api_archive_job(job_id: str) -> dict[str, Any]:
     try:
         return archive_job(job_id=job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/api/jobs/{job_id}/unarchive")
+def api_unarchive_job(job_id: str) -> dict[str, Any]:
+    try:
+        return unarchive_job(job_id=job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.delete("/api/jobs/{job_id}")
+def api_delete_job(job_id: str) -> dict[str, Any]:
+    try:
+        delete_job(job_id=job_id)
+        return {"status": "success", "message": "Job eliminado com sucesso."}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
