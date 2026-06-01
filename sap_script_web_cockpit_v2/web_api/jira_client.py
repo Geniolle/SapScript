@@ -44,6 +44,7 @@ def fetch_jira_tickets_from_api() -> list[dict]:
             "customfield_15260",
             "customfield_15845",
             "customfield_14560",
+            "customfield_14595",
         ],
         "maxResults": 100,
     }
@@ -74,17 +75,27 @@ def fetch_jira_tickets_from_api() -> list[dict]:
         for issue in issues:
             fields = issue.get("fields", {})
             assignee_data = fields.get("assignee") or {}
-            assignee_name = (
+            raw_assignee = (
                 assignee_data.get("displayName")
                 or assignee_data.get("emailAddress")
                 or ""
             )
+            assignee_parts = raw_assignee.strip().split()
+            if len(assignee_parts) > 2:
+                assignee_name = f"{assignee_parts[0]} {assignee_parts[-1]}"
+            else:
+                assignee_name = raw_assignee
 
             status_data = fields.get("status") or {}
             status_name = status_data.get("name") or "Unknown"
 
             reporter_data = fields.get("reporter") or {}
-            creator_name = reporter_data.get("displayName") or ""
+            raw_creator = reporter_data.get("displayName") or ""
+            creator_parts = raw_creator.strip().split()
+            if len(creator_parts) > 2:
+                creator_name = f"{creator_parts[0]} {creator_parts[-1]}"
+            else:
+                creator_name = raw_creator
 
             # Project field
             project_data = fields.get("project") or {}
@@ -142,7 +153,10 @@ def fetch_jira_tickets_from_api() -> list[dict]:
                     if isinstance(rem, dict):
                         friendly = rem.get("friendly", "")
                     if breached:
-                        time_to_resolution = f"Excedido (-{friendly})" if friendly else "Excedido"
+                        if friendly:
+                            time_to_resolution = friendly if friendly.startswith("-") else f"-{friendly}"
+                        else:
+                            time_to_resolution = "Excedido"
                     else:
                         time_to_resolution = friendly or "Pendente"
                 else:
@@ -163,6 +177,14 @@ def fetch_jira_tickets_from_api() -> list[dict]:
                             else:
                                 time_to_resolution = status
 
+            # Supplier option field (customfield_14595)
+            supplier_data = fields.get("customfield_14595")
+            supplier_name = ""
+            if isinstance(supplier_data, dict):
+                supplier_name = supplier_data.get("value") or ""
+            elif isinstance(supplier_data, str):
+                supplier_name = supplier_data
+
             tickets.append({
                 "key": issue.get("key"),
                 "summary": fields.get("summary") or "",
@@ -178,6 +200,7 @@ def fetch_jira_tickets_from_api() -> list[dict]:
                 "stream": stream_name,
                 "process": process_name,
                 "time_to_resolution": time_to_resolution,
+                "supplier": supplier_name,
             })
 
         next_page_token = data.get("nextPageToken")
@@ -325,5 +348,39 @@ def transition_jira_issue(key: str, transition_id: str) -> bool:
         return True
     except Exception as e:
         print(f"Error transitioning ticket {key} with transition {transition_id}: {e}")
+        return False
+
+
+def update_jira_ticket_supplier(key: str, supplier: str) -> bool:
+    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_email = os.getenv("JIRA_EMAIL", "").strip()
+    jira_token = os.getenv("JIRA_TOKEN", "").strip()
+    jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
+
+    if not jira_base or not jira_email or not jira_token:
+        print("Jira integration credentials are not configured in environment variables.")
+        return False
+
+    auth = (jira_email, jira_token)
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+    url = f"{jira_base}/{jira_api_path}/issue/{key}"
+    payload = {
+        "fields": {
+            "customfield_14595": {
+                "value": supplier
+            } if supplier else None
+        }
+    }
+
+    try:
+        res = requests.put(url, auth=auth, headers=headers, json=payload, timeout=15)
+        res.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"Error updating supplier for {key} to {supplier}: {e}")
         return False
 

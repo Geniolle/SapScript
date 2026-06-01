@@ -96,6 +96,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jira_tickets ADD COLUMN time_to_resolution TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN supplier TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -390,8 +394,8 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
         for t in tickets:
             conn.execute(
                 """
-                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution, supplier)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     summary = excluded.summary,
                     status = excluded.status,
@@ -406,7 +410,8 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                     team = excluded.team,
                     stream = excluded.stream,
                     process = excluded.process,
-                    time_to_resolution = excluded.time_to_resolution
+                    time_to_resolution = excluded.time_to_resolution,
+                    supplier = excluded.supplier
                 """,
                 (
                     t["key"],
@@ -424,6 +429,7 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                     t.get("stream"),
                     t.get("process"),
                     t.get("time_to_resolution"),
+                    t.get("supplier"),
                 ),
             )
 
@@ -478,6 +484,7 @@ def list_jira_tickets(limit: int = 50) -> list[dict[str, Any]]:
             "stream": row["stream"],
             "process": row["process"],
             "time_to_resolution": row["time_to_resolution"] if "time_to_resolution" in row.keys() else "",
+            "supplier": row["supplier"] if "supplier" in row.keys() else "",
         }
         for row in rows
     ]
@@ -506,6 +513,15 @@ def update_jira_ticket_status_db(key: str, status: str) -> None:
         conn.execute(
             "UPDATE jira_tickets SET status = ?, last_sync_at = ? WHERE key = ?",
             (status, utc_now(), key),
+        )
+        conn.commit()
+
+
+def update_jira_ticket_supplier_db(key: str, supplier: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE jira_tickets SET supplier = ?, last_sync_at = ? WHERE key = ?",
+            (supplier, utc_now(), key),
         )
         conn.commit()
 

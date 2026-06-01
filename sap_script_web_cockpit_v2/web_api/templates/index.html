@@ -599,7 +599,7 @@
     .assignee-cell-select {
       display: inline-block;
       width: 100%;
-      min-width: 150px !important;
+      min-width: 120px !important;
       padding: 4px 28px 4px 10px !important;
       font-size: 12px !important;
       font-weight: 500;
@@ -696,8 +696,47 @@
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
       transition: all 0.2s ease;
     }
+
     .status-cell-select:hover {
       opacity: 0.9 !important;
+    }
+    .supplier-cell-select {
+      display: inline-block;
+      width: 100%;
+      min-width: 140px;
+      max-width: 180px;
+      padding: 4px 24px 4px 8px !important;
+      font-size: 11px !important;
+      font-weight: 500;
+      color: #334155 !important;
+      background-color: #f8fafc !important;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 6px center !important;
+      background-size: 10px !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 6px !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      -moz-appearance: none !important;
+      outline: none !important;
+      height: 26px !important;
+      line-height: 1.2 !important;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      transition: all 0.2s ease;
+    }
+    .supplier-cell-select:hover {
+      border-color: #94a3b8 !important;
+      background-color: #f1f5f9 !important;
+    }
+    .supplier-cell-select:focus {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+      background-color: #ffffff !important;
+    }
+    thead th {
+      text-align: center !important;
     }
   </style>
 </head>
@@ -1048,6 +1087,10 @@
               <option value="">Todos os processos</option>
             </select>
 
+            <select id="jira-filter-supplier" class="premium-select filter-select" style="flex: 1; min-width: 140px; max-width: 195px;">
+              <option value="">Todos os suppliers</option>
+            </select>
+
             <input type="text" id="jira-filter-key" placeholder="🔑 Chave (SD-123)" style="flex: 1; min-width: 110px; max-width: 150px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.03); color: var(--text-primary); font-size: 0.78rem; outline: none;">
 
             <input type="text" id="jira-search-input" placeholder="🔍 Pesquisar sumário..." style="flex: 2; min-width: 140px; max-width: 220px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.03); color: var(--text-primary); font-size: 0.78rem; outline: none;">
@@ -1062,11 +1105,10 @@
         <!-- Jira Main Table Card -->
         <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
 
-
           <div class="custom-scroll" style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(0,0,0,0.01);">
             <table id="jira-tickets-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
               <thead>
-                <tr style="background: rgba(0,0,0,0.03); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-primary);">
+                <tr style="background: rgba(0,0,0,0.03); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-primary); text-align: center;">
                   <th style="padding: 14px 16px; width: 110px; cursor: pointer; user-select: none;" onclick="setJiraSort('key')">Chave <span class="sort-icon" id="sort-icon-key">↕</span></th>
                   <th style="padding: 14px 16px; min-width: 200px; cursor: pointer; user-select: none;" onclick="setJiraSort('summary')">Sumário <span class="sort-icon" id="sort-icon-summary">↕</span></th>
                   <th style="padding: 14px 16px; min-width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('status')">Status <span class="sort-icon" id="sort-icon-status">↕</span></th>
@@ -1074,11 +1116,12 @@
                   <th style="padding: 14px 16px; width: 120px; cursor: pointer; user-select: none;" onclick="setJiraSort('stream')">Stream <span class="sort-icon" id="sort-icon-stream">↕</span></th>
                   <th style="padding: 14px 16px; width: 125px; cursor: pointer; user-select: none;" onclick="setJiraSort('ticket_type')">Tipo <span class="sort-icon" id="sort-icon-ticket_type">↕</span></th>
                   <th style="padding: 14px 16px; width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('created_at')">Criação <span class="sort-icon" id="sort-icon-created_at">↕</span></th>
-                  <th style="padding: 14px 16px; width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('updated_at')">Atualização <span class="sort-icon" id="sort-icon-updated_at">↕</span></th>
-                  <th style="padding: 14px 16px; width: 140px; cursor: pointer; user-select: none;" onclick="setJiraSort('creator')">Criador <span class="sort-icon" id="sort-icon-creator">↕</span></th>
+                  <th style="padding: 14px 16px; width: 170px; cursor: pointer; user-select: none; white-space: nowrap;" onclick="setJiraSort('updated_at')">Atualização <span class="sort-icon" id="sort-icon-updated_at">↕</span></th>
+                  <th style="padding: 14px 16px; width: 100px; cursor: pointer; user-select: none;" onclick="setJiraSort('creator')">Criador <span class="sort-icon" id="sort-icon-creator">↕</span></th>
                   <th style="padding: 14px 16px; min-width: 160px; cursor: pointer; user-select: none;" onclick="setJiraSort('assignee')">Responsável <span class="sort-icon" id="sort-icon-assignee">↕</span></th>
                   <th style="padding: 14px 16px; min-width: 150px; cursor: pointer; user-select: none;" onclick="setJiraSort('process')">Processo <span class="sort-icon" id="sort-icon-process">↕</span></th>
-                  <th style="padding: 14px 16px; width: 110px; cursor: pointer; user-select: none;" onclick="setJiraSort('priority')">Prioridade <span class="sort-icon" id="sort-icon-priority">↕</span></th>
+                  <th style="padding: 14px 16px; min-width: 150px; cursor: pointer; user-select: none;" onclick="setJiraSort('supplier')">Supplier <span class="sort-icon" id="sort-icon-supplier">↕</span></th>
+                  <th style="padding: 14px 16px; width: 140px; cursor: pointer; user-select: none; white-space: nowrap;" onclick="setJiraSort('priority')">Prioridade <span class="sort-icon" id="sort-icon-priority">↕</span></th>
                   <th style="padding: 14px 16px; width: 130px; cursor: pointer; user-select: none;" onclick="setJiraSort('time_to_resolution')">SLA <span class="sort-icon" id="sort-icon-time_to_resolution">↕</span></th>
                 </tr>
               </thead>
@@ -1088,9 +1131,7 @@
             </table>
           </div>
         </div>
-      </div>
-
-      <!-- JIRA Dashboard View -->
+      </div>      <!-- JIRA Dashboard View -->
       <div id="view-jira-dashboard" style="display: none;">
         <div style="display: flex; flex-direction: column; gap: 20px;">
 
@@ -3568,14 +3609,18 @@
     let activeKpiCardFilter = null;
 
     const TEAM_MEMBERS = {
-        "Core Systems": ["Clayton Lopes", "Rita Rodrigues", "Filipe Galego", "Paula Silva", "José Miguel Pereira"],
-        "Helpdesk": ["Filipe Abreu", "Miguel Ribeiro", "Alexandre Eduardo Quintas Rodrigues"],
+        "Core Systems": ["Clayton Lopes", "Rita Rodrigues", "Filipe Galego", "Paula Silva", "José Pereira"],
+        "Helpdesk": ["Filipe Abreu", "Miguel Ribeiro", "Alexandre Rodrigues"],
         "Retail Systems": ["Vitor.Pereira", "Marisa Moreira", "Sandra Gomes"],
         "Digital": ["Sandra Gomes", "Vitor Silva", "Diogo Oliveira"],
-        "Systems Administration and Network": ["Alexandre Eduardo Quintas Rodrigues"],
-        "Business Intelligence": ["Mariana Azevedo Pinto"],
+        "Systems Administration and Network": ["Alexandre Rodrigues"],
+        "Business Intelligence": ["Mariana Pinto"],
         "Development": ["Joao.Pinheiro", "Pedro Silva"]
     };
+
+    const JIRA_SUPPLIERS = [
+        "ABACO", "ABAP", "ADYEN", "Axians", "BIT", "Bizdirect", "Bloomreach", "Canon", "Cegid", "Centric", "Claranet", "Cycleon", "DCP", "Decunify", "Deepidoo", "Deloitte", "Devscope", "DHL", "DILAX", "DIMEP", "DPD", "DSA", "Evolutive", "Google", "INASE", "Indra", "INETUM", "Inside", "Konica Minolta", "Lenovo", "MCube", "Microsoft", "Milestone", "Millenium", "Mirame", "Movistar", "Neogrid", "NOS", "OMS", "Orbcom", "OSF", "Outsystems", "Pamafe", "Paypal", "Planet", "Redicom", "RHPro", "S21", "Sales Force", "SAP", "Saphety", "SBX", "SEUR", "SIBS", "SISQUAL", "Splio", "Suporte Fashion", "Suporte Losan", "Suporte Salsa", "Tlantic", "Valantic", "Vodafone", "Winprovit Field", "Zetes"
+    ];
 
     function setKpiCardFilter(filter) {
         if (filter === 'total') {
@@ -3683,6 +3728,41 @@
                 updateJiraKpis(jiraTickets);
             } else {
                 showToast('Erro ao atualizar o tipo do ticket.', 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Erro ao comunicar com o servidor.', 'error');
+        }
+    }
+
+    async function updateTicketSupplier(key, newSupplier) {
+        try {
+            const res = await fetch(`/api/jira/tickets/${encodeURIComponent(key)}/supplier`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ supplier: newSupplier })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                
+                // Update local list
+                const ticket = jiraTickets.find(t => t.key === key);
+                if (ticket) {
+                    ticket.supplier = newSupplier;
+                }
+                
+                // Show notification toast
+                if (data.jira_updated) {
+                    showToast(`Supplier do ticket ${key} atualizado no JIRA para "${newSupplier || 'Sem supplier'}"!`, 'success');
+                } else {
+                    showToast(`Supplier do ticket ${key} atualizado localmente para "${newSupplier || 'Sem supplier'}".`, 'info');
+                }
+                
+                // Refresh JIRA KPI metrics and rendering
+                filterAndRenderJiraTickets();
+                updateJiraKpis(jiraTickets);
+            } else {
+                showToast('Erro ao atualizar o supplier.', 'error');
             }
         } catch (err) {
             console.error(err);
@@ -3838,7 +3918,7 @@
             jiraSortAscending = true;
         }
         
-        const columns = ['key', 'summary', 'status', 'project', 'team', 'stream', 'ticket_type', 'priority', 'time_to_resolution', 'created_at', 'updated_at', 'creator', 'assignee', 'process'];
+        const columns = ['key', 'summary', 'status', 'project', 'team', 'stream', 'ticket_type', 'priority', 'time_to_resolution', 'created_at', 'updated_at', 'creator', 'assignee', 'process', 'supplier'];
         columns.forEach(col => {
             const iconEl = document.getElementById(`sort-icon-${col}`);
             if (iconEl) {
@@ -4105,6 +4185,7 @@
             'jira-filter-ticket-type': { key: 'ticket_type', defaultText: 'Todos os tipos', isStatic: true },
             'jira-filter-priority': { key: 'priority', defaultText: 'Todas as prioridades', isStatic: true },
             'jira-filter-process': { key: 'process', defaultText: 'Todos os processos', isStatic: true },
+            'jira-filter-supplier': { key: 'supplier', defaultText: 'Todos os suppliers' },
             'jira-filter-assignee': { key: 'assignee', defaultText: 'Todos os responsáveis' },
             'jira-filter-creator': { key: 'creator', defaultText: 'Todos os criadores' }
         };
@@ -4193,7 +4274,7 @@
 
         tbody.innerHTML = `
             <tr>
-                <td colspan="13" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                <td colspan="14" style="padding: 40px; text-align: center; color: var(--text-secondary);">
                     <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; display: inline-block;">⏳</div>
                     <p style="margin-top: 8px;">A carregar tickets do JIRA...</p>
                 </td>
@@ -4219,7 +4300,7 @@
         } catch (err) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="13" style="padding: 40px; text-align: center; color: var(--danger);">
+                    <td colspan="14" style="padding: 40px; text-align: center; color: var(--danger);">
                         ❌ Erro ao carregar tickets: ${err.message}
                     </td>
                 </tr>
@@ -4272,6 +4353,7 @@
         const valAssignee = document.getElementById('jira-filter-assignee')?.value || '';
         const valCreator = document.getElementById('jira-filter-creator')?.value || '';
         const valProcess = document.getElementById('jira-filter-process')?.value || '';
+        const valSupplier = document.getElementById('jira-filter-supplier')?.value || '';
         const valKey = (document.getElementById('jira-filter-key')?.value || '').toLowerCase().trim();
         const query = (document.getElementById('jira-search-input')?.value || '').toLowerCase().trim();
 
@@ -4283,6 +4365,7 @@
             if (valAssignee && t.assignee !== valAssignee) return false;
             if (valCreator && t.creator !== valCreator) return false;
             if (valProcess && t.process !== valProcess) return false;
+            if (valSupplier && t.supplier !== valSupplier) return false;
             if (valKey && (!t.key || !t.key.toLowerCase().includes(valKey))) return false;
             if (query && (!t.summary || !t.summary.toLowerCase().includes(query))) return false;
 
@@ -4333,7 +4416,7 @@
         if (filtered.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="13" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                    <td colspan="14" style="padding: 40px; text-align: center; color: var(--text-secondary);">
                         Nenhum ticket encontrado.
                     </td>
                 </tr>
@@ -4361,7 +4444,7 @@
             if (t.time_to_resolution) {
                 const slaLower = t.time_to_resolution.toLowerCase();
                 let slaBadgeStyle = 'background: rgba(255,255,255,0.05); color: #9ca3af; border: 1px solid rgba(255,255,255,0.1);';
-                if (slaLower.includes('excedido')) {
+                if (slaLower.includes('excedido') || slaLower.startsWith('-')) {
                     slaBadgeStyle = 'background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);';
                 } else if (slaLower.includes('resolvido')) {
                     slaBadgeStyle = 'background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25);';
@@ -4453,6 +4536,21 @@
                         })()}
                     </td>
                     <td style="padding: 14px 16px; color: var(--text-secondary);">${escapeHtml(t.process || '-')}</td>
+                    <td style="padding: 10px 16px; vertical-align: middle;">
+                        ${(() => {
+                            const currentSupplier = t.supplier ? t.supplier.trim() : "";
+                            const supplierSelectOptions = JIRA_SUPPLIERS.map(sup => {
+                                const selected = (currentSupplier && sup.toLowerCase() === currentSupplier.toLowerCase()) ? ' selected' : '';
+                                return `<option value="${escapeHtml(sup)}"${selected}>${escapeHtml(sup)}</option>`;
+                            }).join('');
+                            return `
+                                <select class="supplier-cell-select" onchange="updateTicketSupplier('${t.key}', this.value)">
+                                    <option value=""${!currentSupplier ? ' selected' : ''}>Sem supplier</option>
+                                    ${supplierSelectOptions}
+                                </select>
+                            `;
+                        })()}
+                    </td>
                     <td style="padding: 14px 16px; color: var(--text-secondary); font-weight: 600;">
                         ${t.priority ? escapeHtml(t.priority) : '<span style="color: #9ca3af;">-</span>'}
                     </td>
@@ -4595,7 +4693,8 @@
             'jira-filter-priority',
             'jira-filter-assignee',
             'jira-filter-creator',
-            'jira-filter-process'
+            'jira-filter-process',
+            'jira-filter-supplier'
         ];
 
         jiraFilters.forEach(id => {
@@ -4623,7 +4722,7 @@
                 // Reset sorting state
                 jiraSortColumn = null;
                 jiraSortAscending = true;
-                const columns = ['key', 'summary', 'status', 'project', 'team', 'stream', 'ticket_type', 'priority', 'time_to_resolution', 'creator', 'assignee', 'process'];
+                const columns = ['key', 'summary', 'status', 'project', 'team', 'stream', 'ticket_type', 'priority', 'time_to_resolution', 'creator', 'assignee', 'process', 'supplier'];
                 columns.forEach(col => {
                     const iconEl = document.getElementById(`sort-icon-${col}`);
                     if (iconEl) {
