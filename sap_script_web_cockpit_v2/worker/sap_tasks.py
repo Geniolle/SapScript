@@ -285,12 +285,113 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     return status_json, log
 
 
+def _run_sap_agent_analysis(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    ticket_key = str(params.get("ticket_key") or "").strip()
+    if not ticket_key:
+        raise SapExecutionError("Chave de ticket vazia.")
+    
+    try:
+        from sap_agent.runner import build_engine
+        from sap_agent.jira_client import JiraClient
+        from sap_agent.config import JiraConfig as SapJiraConfig
+        import dataclasses
+        
+        project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+        config_path = os.path.join(project_dir, "config", "sap_agent.yaml")
+        
+        engine, agent_config, jira_config = build_engine(config_path)
+        
+        temp_jira_config = SapJiraConfig(
+            base_url=jira_config.base_url,
+            email=jira_config.email,
+            api_token=jira_config.api_token,
+            jql=f"key = {ticket_key}",
+            max_results=1,
+            update_jira=False
+        )
+        
+        jira = JiraClient(temp_jira_config)
+        tickets = jira.search_tickets()
+        if not tickets:
+            raise SapExecutionError(f"Ticket {ticket_key} não encontrado no JIRA.")
+            
+        ticket = tickets[0]
+        diagnosis = engine.diagnose(ticket)
+        
+        def default_serializer(o):
+            if dataclasses.is_dataclass(o):
+                return dataclasses.asdict(o)
+            return str(o)
+            
+        result_json = json.dumps(diagnosis, default=default_serializer, ensure_ascii=False)
+        return result_json, f"Análise do ticket {ticket_key} concluída com sucesso."
+    except Exception as exc:
+        raise SapExecutionError(f"Erro ao executar análise do Agente SAP: {exc}")
+
+
+def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
+    """Executa uma ação SAP GUI solicitada pelo chat (Gemini function calling).
+
+    params deve conter:
+      - action: "se16n_query" | "open_transaction" | "read_sbar"
+      - Para se16n_query: table, filters (list), fields (list), max_rows
+      - Para open_transaction: transaction
+      - description: texto descritivo opcional
+    """
+    _prepare_project_imports()
+    try:
+        from sap_agent.sap_gui_actions import execute_sap_gui_action
+    except ImportError as exc:
+        raise SapExecutionError(f"Não foi possível importar sap_gui_actions: {exc}") from exc
+
+    # Usar ensure_sap_access para garantir que o SAP está aberto e com sessão ativa
+    try:
+        from sap_session import ensure_sap_access_from_env
+        # Chave de sistema configurada no .env (S4PCLNT100 = PRODUÇÃO por padrão)
+        sap_key = str(params.get("sap_key") or "S4PCLNT100").strip().upper()
+        ensure_sap_access_from_env(key=sap_key)
+    except Exception as exc:
+        raise SapExecutionError(
+            f"Não foi possível abrir/validar sessão SAP ({sap_key}): {exc}"
+        ) from exc
+
+    result = execute_sap_gui_action(params)
+
+    # Serializar resultado para JSON (status) + log textual
+    import json as _json
+    import dataclasses as _dc
+
+    status_payload = {
+        "action": result.action,
+        "description": result.description,
+        "result_text": result.result_text,
+        "rows": result.rows,
+        "error": result.error,
+        "success": result.success,
+    }
+    status_json = _json.dumps(status_payload, ensure_ascii=False)
+    log = (
+        f"SAP GUI Action: {result.action}\n"
+        f"Descrição: {result.description}\n"
+        f"Sucesso: {result.success}\n"
+        f"Linhas retornadas: {len(result.rows)}\n"
+        + (f"Erro: {result.error}" if result.error else "")
+    )
+    return status_json, log
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     task = job["task"]
     params = job.get("params", {}) or {}
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
 
     try:
+        if task == "sap_agent_analysis":
+            status, log = _run_sap_agent_analysis(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
         if task == "sap_search_requests":
             status, log = _run_sap_search_requests(params)
             log_lines.append(log)
@@ -309,6 +410,11 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "open_transaction":
             status, log = _open_transaction(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "sap_gui_chat_action":
+            status, log = _run_sap_gui_chat_action(params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 

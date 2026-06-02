@@ -12,6 +12,50 @@
     .custom-scroll::-webkit-scrollbar-track {
       background: transparent;
     }
+
+    /* Chat bubble styles */
+    .chat-msg-bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .chat-msg-user {
+      align-self: flex-end;
+      background: #10b981; /* primary green tint */
+      color: white;
+      border-bottom-right-radius: 2px;
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+    }
+    .chat-msg-bot {
+      align-self: flex-start;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      border-bottom-left-radius: 2px;
+    }
+    .chat-msg-system {
+      align-self: center;
+      background: rgba(239, 68, 68, 0.08);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      font-size: 0.75rem;
+      border-radius: 8px;
+      padding: 8px 12px;
+      max-width: 95%;
+      text-align: center;
+    }
+    .chat-msg-loading {
+      align-self: flex-start;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px dashed var(--border);
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
     .custom-scroll::-webkit-scrollbar-thumb {
       background: rgba(255, 255, 255, 0.12);
       border-radius: 2px;
@@ -23,6 +67,11 @@
       0% { opacity: 0.5; }
       50% { opacity: 1; }
       100% { opacity: 0.5; }
+    }
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(16,185,129,0.6); }
+      70% { box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+      100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
     }
 
     @keyframes spin {
@@ -738,6 +787,164 @@
     thead th {
       text-align: center !important;
     }
+
+    /* ── Reply-to-Customer Expand Row ─────────────────────────── */
+    .reply-expand-row td {
+      padding: 0 !important;
+      border-top: none !important;
+    }
+    .reply-expand-panel {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease;
+      opacity: 0;
+    }
+    .reply-expand-panel.open {
+      max-height: 360px;
+      opacity: 1;
+    }
+    .reply-expand-inner {
+      margin: 0 16px 12px 16px;
+      padding: 16px;
+      background: linear-gradient(135deg, rgba(59,130,246,0.04), rgba(16,185,129,0.03));
+      border: 1px solid rgba(59,130,246,0.18);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .reply-expand-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .reply-expand-header .badge-required {
+      font-size: 10px;
+      font-weight: 600;
+      color: #ef4444;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.25);
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+    .reply-tab-bar {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 4px;
+    }
+    .reply-tab {
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      color: var(--text-secondary);
+      border: none;
+      background: transparent;
+      transition: all 0.15s;
+    }
+    .reply-tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+    .reply-tab.active { color: #3b82f6; background: rgba(59,130,246,0.08); }
+    .reply-textarea {
+      width: 100%;
+      min-height: 80px;
+      resize: vertical;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+    .reply-textarea:focus {
+      border-color: rgba(59,130,246,0.5);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+    }
+    .reply-textarea.field-error {
+      border-color: #ef4444 !important;
+      box-shadow: 0 0 0 3px rgba(239,68,68,0.12) !important;
+    }
+    .reply-error-msg {
+      font-size: 11px;
+      color: #ef4444;
+      display: none;
+      align-items: center;
+      gap: 4px;
+    }
+    .reply-error-msg.visible { display: flex; }
+    .reply-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .reply-btn-cancel {
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .reply-btn-cancel:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); }
+    .reply-btn-save {
+      padding: 6px 16px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 8px;
+      border: none;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: #fff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+    }
+    .reply-btn-save:hover {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      box-shadow: 0 4px 12px rgba(59,130,246,0.45);
+      transform: translateY(-1px);
+    }
+    .reply-btn-save:active { transform: translateY(0); }
+    .reply-btn-save:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .summary-link {
+      color: var(--text-primary);
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 4px;
+      padding: 2px 0;
+      transition: color 0.15s;
+    }
+    .summary-link:hover { color: #3b82f6; }
+    .summary-link .link-icon {
+      font-size: 10px;
+      opacity: 0.5;
+      transition: opacity 0.15s, transform 0.25s;
+    }
+    .summary-link:hover .link-icon { opacity: 1; }
+    .summary-link.expanded .link-icon { transform: rotate(180deg); opacity: 1; color: #3b82f6; }
   </style>
 </head>
 <body>
@@ -765,6 +972,8 @@
           <div class="nav-sub-list" id="nav-jira-sub">
             <a class="nav-item" id="nav-item-jira" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira')">🎫 Tickets</a>
             <a class="nav-item" id="nav-item-jira-dashboard" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
+            <a class="nav-item" id="nav-item-auto-trigger" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('auto-trigger')">⚡ Auto-Trigger SAP</a>
+            <a class="nav-item" id="nav-item-sap-agent" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('sap-agent')">🤖 Agente SAP</a>
           </div>
         </div>
         <div class="nav-sub-wrapper">
@@ -926,7 +1135,8 @@
 
       <!-- JIRA View -->
       <div id="view-jira" style="display: none;">
-        <!-- Jira KPIs -->
+        <div id="view-jira-tickets-wrapper">
+          <!-- Jira KPIs -->
         <section class="kpi-grid" id="jira-kpi-grid" style="margin-bottom: 24px;">
           <!-- Card 1: Total de Tickets -->
           <div class="kpi-card" id="jira-card-total" onclick="setKpiCardFilter('total')">
@@ -1131,6 +1341,252 @@
             </table>
           </div>
         </div>
+        </div> <!-- End of view-jira-tickets-wrapper -->
+
+        <!-- ====== AUTO-TRIGGER VIEW (inside JIRA section) ====== -->
+        <div id="view-auto-trigger" style="display: none;">
+          <div style="max-width: 1000px; margin: 0 auto;">
+
+            <!-- Header -->
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+              <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #f59e0b, #d97706); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(245,158,11,0.35);">⚡</div>
+                <div>
+                  <h2 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: var(--text-primary);">Auto-Trigger SAP</h2>
+                  <p style="margin: 0; font-size: 0.75rem; color: var(--text-secondary);">Execução automática de scripts SAP com base em tickets JIRA.</p>
+                </div>
+              </div>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <span id="at-status-badge" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border);">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; display: inline-block;"></span>
+                  <span id="at-status-text">Carregando...</span>
+                </span>
+                <button class="btn btn-secondary" id="btn-at-preview" onclick="atPreview()" style="font-size: 0.78rem; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  Preview
+                </button>
+                <button class="btn btn-primary" id="btn-at-run" onclick="atRun()" style="font-size: 0.78rem; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Executar agora
+                </button>
+              </div>
+            </div>
+
+            <!-- CRITÉRIOS DE PESQUISA -->
+            <div style="background: var(--surface-raised, rgba(255,255,255,0.02)); border: 1px dashed var(--border); border-radius: 12px; padding: 12px 18px; margin-bottom: 24px;">
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                CRITÉRIOS DE PESQUISA
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.72rem; color: var(--text-secondary);">
+                <span>👤 Responsável: <strong id="at-cfg-assignee" style="color: var(--text-primary);">—</strong></span>
+                <span>📌 Status: <strong id="at-cfg-status" style="color: var(--text-primary);">—</strong></span>
+                <span>🤝 Supplier: <strong id="at-cfg-supplier" style="color: var(--text-primary);">—</strong></span>
+                <span>💻 SAP Environment: <strong id="at-cfg-ambiente" style="color: var(--text-primary);">—</strong></span>
+                <span>⏱ Intervalo: <strong id="at-cfg-interval" style="color: var(--text-primary);">—</strong></span>
+              </div>
+            </div>
+
+            <!-- Stats KPI Grid -->
+            <div id="at-stats-row" class="kpi-grid" style="margin-bottom: 24px; display: none;">
+              <!-- Encontrados -->
+              <div class="kpi-card" style="padding: 16px 20px;">
+                <div style="font-size: 1.8rem; font-weight: 800; color: var(--text-primary); text-align: center;" id="at-stat-found">0</div>
+                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Encontrados</div>
+              </div>
+              <!-- Criados -->
+              <div class="kpi-card" style="padding: 16px 20px;">
+                <div style="font-size: 1.8rem; font-weight: 800; color: #10b981; text-align: center;" id="at-stat-triggered">0</div>
+                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Jobs Criados</div>
+              </div>
+              <!-- Ignorados -->
+              <div class="kpi-card" style="padding: 16px 20px;">
+                <div style="font-size: 1.8rem; font-weight: 800; color: #f59e0b; text-align: center;" id="at-stat-skipped">0</div>
+                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Ignorados</div>
+              </div>
+              <!-- Erros -->
+              <div class="kpi-card" style="padding: 16px 20px;">
+                <div style="font-size: 1.8rem; font-weight: 800; color: #ef4444; text-align: center;" id="at-stat-errors">0</div>
+                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Erros</div>
+              </div>
+            </div>
+
+            <!-- Execution Results Panel -->
+            <div id="at-results-card" class="card" style="padding: 20px; margin-bottom: 24px; display: none;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span id="at-results-title" style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">Resultados</span>
+                <span id="at-results-count" style="font-size: 0.75rem; color: var(--text-secondary);"></span>
+              </div>
+              <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+                  <thead>
+                    <tr style="background: var(--surface-raised, rgba(255,255,255,0.03));">
+                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;">Ticket</th>
+                      <th style="padding: 10px 14px; text-align: left; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Sumário</th>
+                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Processo SAP</th>
+                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Resultado</th>
+                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Job</th>
+                    </tr>
+                  </thead>
+                  <tbody id="at-results-tbody">
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- History Log -->
+            <div style="background: var(--surface); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; margin-bottom: 24px;">
+              <div style="padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">📋 Histórico de Execuções</span>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary" onclick="atLoadLog()" style="padding: 5px 12px; font-size: 0.75rem;">↻ Atualizar</button>
+                  <button class="btn btn-secondary" onclick="atClearLog()" style="padding: 5px 12px; font-size: 0.75rem; color: #ef4444; border-color: rgba(239,68,68,0.2); background: rgba(239,68,68,0.04);">🗑 Limpar Histórico</button>
+                </div>
+              </div>
+              <div style="overflow-x: auto; max-height: 400px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+                  <thead style="position: sticky; top: 0; z-index: 1;">
+                    <tr style="background: var(--surface-raised, rgba(255,255,255,0.04));">
+                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;">Data/Hora</th>
+                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Ticket</th>
+                      <th style="padding: 9px 14px; text-align: left; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Sumário</th>
+                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Estado</th>
+                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Job</th>
+                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody id="at-log-tbody">
+                    <tr><td colspan="6" style="text-align: center; padding: 24px; color: var(--text-secondary); font-size: 0.8rem;">A carregar histórico...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+        <!-- ====== END AUTO-TRIGGER VIEW ====== -->
+
+        <!-- ====== SAP AGENT VIEW ====== -->
+        <div id="view-sap-agent" style="display: none;">
+          <div style="width: 100%;">
+
+            <!-- Header -->
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+              <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #10b981, #059669); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(16,185,129,0.35);">🤖</div>
+                <div>
+                  <h2 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: var(--text-primary);">Agente SAP</h2>
+                  <p style="margin: 0; font-size: 0.75rem; color: var(--text-secondary);">Análise interativa e depuração de erros SAP com inteligência artificial.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Main Control Panel -->
+            <div class="card" style="padding: 20px; margin-bottom: 24px;">
+              <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 0.95rem; color: var(--text-primary); font-weight: 700;">Pesquisar e Analisar Ticket</h3>
+              <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 250px;">
+                  <label for="sa-ticket-key" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600;">Chave do Ticket JIRA</label>
+                  <input type="text" id="sa-ticket-key" placeholder="Ex: SAP-81, IZ-52938" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text-primary); font-size: 0.85rem;" onkeydown="if(event.key === 'Enter') saRunAnalysis()">
+                </div>
+                <button class="btn btn-primary" onclick="saRunAnalysis()" id="sa-btn-analyze" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 700; height: 38px;">
+                  <span>🔍 Analisar</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Result Card -->
+            <div id="sa-result-card" class="card" style="padding: 24px; display: none; background: var(--surface);">
+              
+              <!-- Header -->
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 18px;">
+                <h3 style="margin: 0; font-size: 1rem; color: var(--text-primary); font-weight: 800;" id="sa-result-title">Relatório de Análise</h3>
+                <span id="sa-confidence-badge" style="font-size: 0.7rem; font-weight: 700; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;"></span>
+              </div>
+
+              <!-- Ticket Description Banner -->
+              <div id="sa-ticket-description-box" style="display:none; margin-bottom: 18px; background: linear-gradient(135deg, rgba(16,185,129,0.06), rgba(59,130,246,0.04)); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 16px 20px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8"/><line x1="12" y1="12" x2="12" y2="16"/></svg>
+                  <span style="font-size: 0.78rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">Motivo de Abertura do Ticket</span>
+                  <span id="sa-ticket-summary-label" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-left: 4px;"></span>
+                </div>
+                <div id="sa-ticket-description-text" style="font-size: 0.85rem; color: var(--text-primary); line-height: 1.65; white-space: pre-wrap; max-height: 160px; overflow-y: auto; padding-right: 4px;"></div>
+              </div>
+
+              <!-- 2-Column Grid: Report & Chat -->
+              <div style="display: grid; grid-template-columns: 1.8fr 1.2fr; gap: 24px; min-height: 500px; align-items: stretch;" id="sa-columns-grid">
+                
+                <!-- Left Column: Report sections -->
+                <div style="display: flex; flex-direction: column; gap: 20px;">
+                  
+                  <!-- Technical Info -->
+                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">🔍 Sinais Identificados</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;" id="sa-signals-list">
+                      <!-- Dynamic fields -->
+                    </div>
+                  </div>
+
+                  <!-- RFC Evidences -->
+                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">💾 Evidências de Leitura SAP</h4>
+                    <div style="display: flex; flex-direction: column; gap: 10px;" id="sa-evidences-list">
+                      <!-- Dynamic fields -->
+                    </div>
+                  </div>
+
+                  <!-- Explanation & Diagnosis -->
+                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                    <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">⚠️ Possível Causa</h4>
+                    <p id="sa-possible-cause" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
+                  </div>
+
+                  <!-- Proposed Solution -->
+                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                    <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">💡 Prévia de Solução</h4>
+                    <p id="sa-proposed-solution" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
+                  </div>
+
+                  <!-- Suggested Tests -->
+                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                    <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">🧪 Testes/Validações Sugeridos</h4>
+                    <p id="sa-suggested-tests" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
+                  </div>
+
+                </div>
+
+                <!-- Right Column: Interactive Chat -->
+                <div style="background: var(--surface-raised, rgba(0,0,0,0.15)); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; height: 100%; min-height: 500px; justify-content: space-between;">
+                  <!-- Chat Header -->
+                  <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 1rem;">💬</span>
+                      <strong style="font-size: 0.85rem; color: var(--text-primary); font-weight: 700;">Explorar com IA</strong>
+                    </div>
+                    <button class="btn btn-secondary" onclick="saClearChatHistory()" style="padding: 3px 8px; font-size: 0.68rem; border-color: rgba(255,255,255,0.08); background: rgba(255,255,255,0.02);">Limpar</button>
+                  </div>
+                  
+                  <!-- Chat Messages Area -->
+                  <div id="sa-chat-messages" style="flex: 1; padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; max-height: 480px; font-size: 0.82rem; line-height: 1.45; background: rgba(0,0,0,0.05);">
+                    <!-- Messages dynamically loaded -->
+                  </div>
+                  
+                  <!-- Chat Input Area -->
+                  <div style="padding: 12px 14px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.2); display: flex; gap: 8px;">
+                    <input type="text" id="sa-chat-input" placeholder="Pergunte ou proponha soluções..." style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text-primary); font-size: 0.78rem;" onkeydown="if(event.key === 'Enter') saSendChatMessage()">
+                    <button class="btn btn-primary" onclick="saSendChatMessage()" id="sa-chat-btn-send" style="padding: 6px 14px; font-size: 0.78rem; font-weight: 700; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                      <span>Enviar</span>
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ====== END SAP AGENT VIEW ====== -->
+
       </div>      <!-- JIRA Dashboard View -->
       <div id="view-jira-dashboard" style="display: none;">
         <div style="display: flex; flex-direction: column; gap: 20px;">
@@ -3819,12 +4275,112 @@
         }
     }
 
+    // Works both via event delegation (no args) and direct call (with args)
+    function toggleReplyExpand(ticketKey, expandId) {
+        const panel = document.getElementById(expandId);
+        const link  = document.getElementById('summary-link-' + ticketKey.replace(/[^a-z0-9]/gi, '-'));
+        if (!panel) return;
+        const isOpen = panel.classList.toggle('open');
+        if (link) link.classList.toggle('expanded', isOpen);
+    }
+
+    async function saveReplyComment(ticketKey, expandId) {
+        const textarea = document.getElementById('reply-text-' + expandId);
+        const saveBtn  = document.querySelector(`.js-reply-save[data-expand-id="${expandId}"]`);
+        const commentText = textarea ? textarea.value.trim() : '';
+
+        if (!commentText) {
+            if (textarea) {
+                textarea.classList.add('field-error');
+                textarea.focus();
+                textarea.addEventListener('input', function onInput() {
+                    textarea.classList.remove('field-error');
+                    textarea.removeEventListener('input', onInput);
+                }, { once: true });
+            }
+            showToast('⚠️ Escreva um comentário antes de guardar.', 'warning');
+            return;
+        }
+
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'A guardar...'; }
+
+        try {
+            const res = await fetch('/api/jira/tickets/' + encodeURIComponent(ticketKey) + '/comment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ comment: commentText })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.jira_updated) {
+                    showToast('💬 Comentário guardado no JIRA com sucesso!', 'success');
+                } else {
+                    showToast('💬 Comentário guardado localmente (JIRA não sincronizado).', 'info');
+                }
+                // Limpar e fechar
+                if (textarea) textarea.value = '';
+                toggleReplyExpand(ticketKey, expandId);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                showToast('❌ Erro ao guardar comentário: ' + (err.detail || res.statusText), 'error');
+            }
+        } catch (e) {
+            console.error('saveReplyComment error:', e);
+            showToast('❌ Erro ao comunicar com o servidor.', 'error');
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Guardar comentário';
+            }
+        }
+    }
+
     async function handleStatusChange(ticketKey, selectEl) {
         const val = selectEl.value;
         if (!val) return;
         
         const [transitionId, statusName] = val.split('|');
         if (!transitionId || !statusName) return;
+
+        // ── Mandatory comment when resolving ─────────────────────
+        const isResolved = statusName.toLowerCase().includes('resolv') ||
+                           statusName.toLowerCase().includes('resolved') ||
+                           statusName.toLowerCase() === 'done';
+        if (isResolved) {
+            const safeKey   = ticketKey.replace(/[^a-z0-9]/gi, '-');
+            const expandId  = `reply-expand-${safeKey}`;
+            const textarea  = document.getElementById(`reply-text-${expandId}`);
+            const errorMsg  = document.getElementById(`reply-error-${expandId}`);
+            const badge     = document.getElementById(`reply-required-badge-${expandId}`);
+            const panel     = document.getElementById(expandId);
+            const link      = document.getElementById(`summary-link-${safeKey}`);
+
+            if (!textarea || !textarea.value.trim()) {
+                // Open expand panel & highlight error
+                if (panel && !panel.classList.contains('open')) {
+                    panel.classList.add('open');
+                    if (link) link.classList.add('expanded');
+                }
+                if (textarea) {
+                    textarea.classList.add('field-error');
+                    textarea.focus();
+                    textarea.addEventListener('input', function onInput() {
+                        if (textarea.value.trim()) {
+                            textarea.classList.remove('field-error');
+                            if (errorMsg) errorMsg.classList.remove('visible');
+                            textarea.removeEventListener('input', onInput);
+                        }
+                    }, { once: false });
+                }
+                if (errorMsg) errorMsg.classList.add('visible');
+                if (badge)    badge.style.display = '';
+                // Reset select back to current status
+                selectEl.value = '';
+                showToast('⚠️ Preencha o campo "Reply to customer" antes de resolver o ticket.', 'warning');
+                return;
+            }
+        }
+        // ─────────────────────────────────────────────────────────
         
         selectEl.disabled = true;
         
@@ -3847,7 +4403,46 @@
                 } else {
                     showToast(`Estado do ticket ${ticketKey} atualizado localmente para "${statusName}".`, 'info');
                 }
-                
+
+                // ── Guardar comentário Reply to customer se preenchido ──
+                const safeKeyComment   = ticketKey.replace(/[^a-z0-9]/gi, '-');
+                const expandIdComment  = `reply-expand-${safeKeyComment}`;
+                const textareaComment  = document.getElementById(`reply-text-${expandIdComment}`);
+                const panelComment     = document.getElementById(expandIdComment);
+                const linkComment      = document.getElementById(`summary-link-${safeKeyComment}`);
+                const commentText      = textareaComment ? textareaComment.value.trim() : '';
+
+                if (commentText) {
+                    try {
+                        const commentRes = await fetch(`/api/jira/tickets/${encodeURIComponent(ticketKey)}/comment`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ comment: commentText })
+                        });
+                        if (commentRes.ok) {
+                            const commentData = await commentRes.json();
+                            if (commentData.jira_updated) {
+                                showToast(`💬 Comentário "Reply to customer" guardado no JIRA para ${ticketKey}!`, 'success');
+                            } else {
+                                showToast(`💬 Comentário guardado localmente (JIRA não sincronizado).`, 'info');
+                            }
+                        } else {
+                            showToast(`⚠️ Erro ao guardar comentário no JIRA.`, 'warning');
+                        }
+                    } catch (commentErr) {
+                        console.error('Erro ao guardar comentário:', commentErr);
+                        showToast(`⚠️ Erro ao comunicar comentário com o servidor.`, 'warning');
+                    }
+
+                    // Limpar textarea e fechar painel
+                    if (textareaComment) textareaComment.value = '';
+                    if (panelComment && panelComment.classList.contains('open')) {
+                        panelComment.classList.remove('open');
+                        if (linkComment) linkComment.classList.remove('expanded');
+                    }
+                }
+                // ─────────────────────────────────────────────────────
+
                 filterAndRenderJiraTickets();
                 updateJiraKpis(jiraTickets);
             } else {
@@ -4109,6 +4704,12 @@
             jiraView.style.display = 'block';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
+            const atView = document.getElementById('view-auto-trigger');
+            if (atView) atView.style.display = 'none';
+            const saView = document.getElementById('view-sap-agent');
+            if (saView) saView.style.display = 'none';
+            const twrapper = document.getElementById('view-jira-tickets-wrapper');
+            if (twrapper) twrapper.style.display = 'block';
             if (historicoView) historicoView.style.display = 'none';
             if (headerTitle) headerTitle.textContent = 'Fila de Tickets JIRA';
             if (headerSub) headerSub.textContent = 'Tickets em aberto e sincronização automática a cada minuto.';
@@ -4157,6 +4758,61 @@
             if (refreshBtn) refreshBtn.style.display = 'none';
             if (newJobBtn) newJobBtn.style.display = 'none';
             loadHistoryJobs();
+        } else if (viewName === 'auto-trigger') {
+            const navItem = document.getElementById('nav-item-auto-trigger');
+            if (navItem) navItem.classList.add('active');
+            // Ensure JIRA dropdown is open
+            if (!jiraMenuOpen) {
+                jiraMenuOpen = true;
+                const jiraToggle = document.getElementById('nav-jira-toggle');
+                const jiraSub = document.getElementById('nav-jira-sub');
+                if (jiraToggle) jiraToggle.classList.add('open');
+                if (jiraSub) jiraSub.classList.add('open');
+            }
+            visaoGeralView.style.display = 'none';
+            jiraView.style.display = 'block';
+            const dashView = document.getElementById('view-jira-dashboard');
+            if (dashView) dashView.style.display = 'none';
+            const atView = document.getElementById('view-auto-trigger');
+            if (atView) atView.style.display = 'block';
+            const saView = document.getElementById('view-sap-agent');
+            if (saView) saView.style.display = 'none';
+            const twrapper = document.getElementById('view-jira-tickets-wrapper');
+            if (twrapper) twrapper.style.display = 'none';
+            if (historicoView) historicoView.style.display = 'none';
+            if (headerTitle) headerTitle.textContent = 'Auto-Trigger SAP';
+            if (headerSub) headerSub.textContent = 'Execução automática de scripts SAP com base em tickets JIRA.';
+            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
+            if (refreshBtn) refreshBtn.style.display = 'none';
+            if (newJobBtn) newJobBtn.style.display = 'none';
+            atInit();
+        } else if (viewName === 'sap-agent') {
+            const navItem = document.getElementById('nav-item-sap-agent');
+            if (navItem) navItem.classList.add('active');
+            // Ensure JIRA dropdown is open
+            if (!jiraMenuOpen) {
+                jiraMenuOpen = true;
+                const jiraToggle = document.getElementById('nav-jira-toggle');
+                const jiraSub = document.getElementById('nav-jira-sub');
+                if (jiraToggle) jiraToggle.classList.add('open');
+                if (jiraSub) jiraSub.classList.add('open');
+            }
+            visaoGeralView.style.display = 'none';
+            jiraView.style.display = 'block';
+            const dashView = document.getElementById('view-jira-dashboard');
+            if (dashView) dashView.style.display = 'none';
+            const atView = document.getElementById('view-auto-trigger');
+            if (atView) atView.style.display = 'none';
+            const twrapper = document.getElementById('view-jira-tickets-wrapper');
+            if (twrapper) twrapper.style.display = 'none';
+            const saView = document.getElementById('view-sap-agent');
+            if (saView) saView.style.display = 'block';
+            if (historicoView) historicoView.style.display = 'none';
+            if (headerTitle) headerTitle.textContent = 'Agente SAP';
+            if (headerSub) headerSub.textContent = 'Análise interativa e depuração de erros SAP com inteligência artificial.';
+            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
+            if (refreshBtn) refreshBtn.style.display = 'none';
+            if (newJobBtn) newJobBtn.style.display = 'none';
         }
     }
 
@@ -4458,14 +5114,20 @@
                 `;
             }
 
+            const expandId = `reply-expand-${t.key.replace(/[^a-z0-9]/gi,'-')}`;
             return `
-                <tr class="kpi-table-row">
+                <tr class="kpi-table-row" id="row-${t.key.replace(/[^a-z0-9]/gi,'-')}">
                     <td style="padding: 14px 16px; font-family: monospace; font-weight: bold;">
                         <a href="${ticketUrl}" target="_blank" style="color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
                             ${escapeHtml(t.key)} 🔗
                         </a>
                     </td>
-                    <td style="padding: 14px 16px; color: var(--text-primary); font-weight: 500;">${escapeHtml(t.summary)}</td>
+                    <td style="padding: 14px 16px; color: var(--text-primary); font-weight: 500;">
+                        <a class="summary-link js-reply-toggle" id="summary-link-${t.key.replace(/[^a-z0-9]/gi,'-')}" data-key="${t.key.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" title="Adicionar comentário Reply to customer" style="cursor:pointer;">
+                            ${escapeHtml(t.summary)}
+                            <span class="link-icon">▾</span>
+                        </a>
+                    </td>
                     <td style="padding: 10px 16px; vertical-align: middle;">
                         <select class="status-cell-select" style="${badgeStyle}" 
                                 onfocus="loadTransitionsForSelect('${t.key}', this)" 
@@ -4555,6 +5217,35 @@
                         ${t.priority ? escapeHtml(t.priority) : '<span style="color: #9ca3af;">-</span>'}
                     </td>
                     <td style="padding: 14px 16px;">${slaBadge}</td>
+                </tr>
+                <tr class="reply-expand-row" id="${expandId}-row">
+                    <td colspan="14">
+                        <div class="reply-expand-panel" id="${expandId}">
+                            <div class="reply-expand-inner">
+                                <div class="reply-expand-header">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                    Adicionar comentário
+                                    <div style="display:flex;gap:4px;margin-left:2px;">
+                                        <span style="padding:2px 10px;font-size:11px;font-weight:600;border-radius:20px;background:rgba(59,130,246,0.1);color:#3b82f6;border:1px solid rgba(59,130,246,0.2);">Add internal note</span>
+                                        <span style="padding:2px 10px;font-size:11px;font-weight:700;border-radius:20px;background:rgba(59,130,246,0.18);color:#3b82f6;border:1px solid rgba(59,130,246,0.35);text-decoration:underline;cursor:default;">Reply to customer</span>
+                                    </div>
+                                    <span class="badge-required" id="reply-required-badge-${expandId}" style="display:none;">* Obrigatório para Resolved</span>
+                                </div>
+                                <textarea class="reply-textarea" id="reply-text-${expandId}" placeholder="Escreva a sua resposta ao cliente... (use /ai para sugestões de IA)" rows="3"></textarea>
+                                <div class="reply-error-msg" id="reply-error-${expandId}">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                    O campo "Reply to customer" é obrigatório quando o status é alterado para <strong style="margin-left:3px;">Resolved</strong>.
+                                </div>
+                                <div class="reply-actions">
+                                    <button class="reply-btn-cancel js-reply-toggle" data-key="${t.key.replace(/"/g,'&quot;')}" data-expand-id="${expandId}">Fechar</button>
+                                    <button class="reply-btn-save js-reply-save" data-key="${t.key.replace(/"/g,'&quot;')}" data-expand-id="${expandId}">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        Guardar comentário
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -5086,6 +5777,698 @@
             }
         }
     }
+
+    // =========================================================================
+    // AUTO-TRIGGER SAP — JavaScript
+    // =========================================================================
+
+    async function atInit() {
+        try {
+            const res = await fetch('/api/jira/auto-trigger/config');
+            if (res.ok) {
+                const cfg = await res.json();
+                const el = (id, val) => { const e = document.getElementById(id); if (e && val !== undefined) e.textContent = val; };
+                el('at-cfg-assignee', cfg.assignee || 'Clayton Lopes');
+                el('at-cfg-status', cfg.status_filter || 'In Review');
+                el('at-cfg-supplier', cfg.supplier_filter || 'Evolutive');
+                el('at-cfg-ambiente', cfg.ambiente || 'PRD');
+                const intervalMin = Math.round((cfg.interval_seconds || 300) / 60);
+                el('at-cfg-interval', intervalMin + ' min');
+                // Update status badge
+                const badge = document.getElementById('at-status-badge');
+                const statusText = document.getElementById('at-status-text');
+                if (badge && statusText) {
+                    const dot = badge.querySelector('span');
+                    if (cfg.enabled) {
+                        badge.style.background = 'rgba(16,185,129,0.12)';
+                        badge.style.borderColor = 'rgba(16,185,129,0.3)';
+                        badge.style.color = '#10b981';
+                        if (dot) {
+                            dot.style.background = '#10b981';
+                            dot.style.animation = 'pulse-green 2s infinite';
+                        }
+                        statusText.textContent = 'Ativo';
+                    } else {
+                        badge.style.background = 'rgba(239,68,68,0.1)';
+                        badge.style.borderColor = 'rgba(239,68,68,0.3)';
+                        badge.style.color = '#ef4444';
+                        if (dot) {
+                            dot.style.background = '#ef4444';
+                            dot.style.animation = 'none';
+                        }
+                        statusText.textContent = 'Inativo';
+                    }
+                }
+            }
+        } catch(e) { /* ignore */ }
+        atLoadLog();
+    }
+
+    async function atPreview() {
+        const btn = document.getElementById('btn-at-preview');
+        if (btn) { btn.disabled = true; btn.innerHTML = 'A verificar...'; }
+        try {
+            const res = await fetch('/api/jira/auto-trigger/preview');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Erro na API');
+
+            document.getElementById('at-results-title').textContent = `Preview — ${data.tickets_found} ticket(s) encontrado(s)`;
+            const toCreate = data.tickets ? data.tickets.filter(t => !t.already_active).length : 0;
+            document.getElementById('at-results-count').textContent = `${toCreate} seriam criados`;
+
+            const tbody = document.getElementById('at-results-tbody');
+            tbody.innerHTML = '';
+            if (!data.tickets || data.tickets.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-secondary); font-size:0.8rem;">Nenhum ticket elegível encontrado</td></tr>`;
+            } else {
+                data.tickets.forEach(t => {
+                    const statusBadge = t.already_active
+                        ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">⏭ Já Ativo</span>`
+                        : `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">✓ Criaria Job</span>`;
+                    tbody.innerHTML += `<tr style="border-bottom: 1px solid var(--border);">
+                        <td style="padding:10px 14px; text-align:center; white-space:nowrap;"><a href="{{ jira_base }}/browse/${t.key}" target="_blank" style="color:var(--primary); font-weight:700; text-decoration:none;">${t.key}</a></td>
+                        <td style="padding:10px 14px; color:var(--text-primary);">${escapeHtml(t.summary || '')}</td>
+                        <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">${escapeHtml(t.process || '—')}</td>
+                        <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
+                        <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">—</td>
+                    </tr>`;
+                });
+            }
+
+            document.getElementById('at-results-card').style.display = 'block';
+            document.getElementById('at-stats-row').style.display = 'none';
+        } catch (e) {
+            showToast('Erro no preview: ' + e.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Preview'; }
+        }
+    }
+
+    async function atRun() {
+        const btn = document.getElementById('btn-at-run');
+        if (btn) { btn.disabled = true; btn.innerHTML = 'A executar...'; }
+        try {
+            const res = await fetch('/api/jira/auto-trigger/run', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Erro na API');
+
+            // Update stats
+            document.getElementById('at-stat-found').textContent = data.tickets_found || 0;
+            document.getElementById('at-stat-triggered').textContent = data.triggered || 0;
+            document.getElementById('at-stat-skipped').textContent = data.skipped || 0;
+            document.getElementById('at-stat-errors').textContent = data.errors || 0;
+            document.getElementById('at-stats-row').style.display = 'grid';
+
+            // Fill results table
+            const tbody = document.getElementById('at-results-tbody');
+            tbody.innerHTML = '';
+            const entries = data.entries || [];
+            if (entries.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-secondary); font-size:0.8rem;">Nenhum ticket foi processado</td></tr>`;
+            } else {
+                entries.forEach(e => {
+                    let badge = '';
+                    if (e.status === 'triggered') badge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">✅ Criado</span>`;
+                    else if (e.status === 'skipped') badge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">⏭ Ignorado</span>`;
+                    else badge = `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">❌ Erro</span>`;
+                    const jobLink = e.job_id ? `<a href="#" onclick="showJobLog('${e.job_id}')" style="color:var(--primary); font-weight:600; font-size:11px;">#${e.job_id.substring(0,8)}</a>` : '—';
+                    tbody.innerHTML += `<tr style="border-bottom: 1px solid var(--border);">
+                        <td style="padding:10px 14px; text-align:center; white-space:nowrap;"><a href="{{ jira_base }}/browse/${e.key}" target="_blank" style="color:var(--primary); font-weight:700; text-decoration:none;">${e.key}</a></td>
+                        <td style="padding:10px 14px; color:var(--text-primary);">${escapeHtml(e.summary || '')}</td>
+                        <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">${escapeHtml(e.categoria || '—')}</td>
+                        <td style="padding:10px 14px; text-align:center;">${badge}</td>
+                        <td style="padding:10px 14px; text-align:center;">${jobLink}</td>
+                    </tr>`;
+                });
+            }
+
+            document.getElementById('at-results-title').textContent = 'Resultado da Execução';
+            document.getElementById('at-results-count').textContent = `${data.triggered} job(s) criado(s)`;
+            document.getElementById('at-results-card').style.display = 'block';
+
+            if (data.triggered > 0) {
+                showToast(`✅ ${data.triggered} job(s) SAP criado(s) com sucesso!`, 'success');
+            } else if (data.tickets_found === 0) {
+                showToast('Nenhum ticket JIRA elegível encontrado.', 'info');
+            } else {
+                showToast(`${data.skipped} ticket(s) ignorado(s) (já processados).`, 'info');
+            }
+
+            atLoadLog();
+        } catch (e) {
+            showToast('Erro ao executar auto-trigger: ' + e.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg> Executar agora'; }
+        }
+    }
+
+    async function atLoadLog() {
+        try {
+            const res = await fetch('/api/jira/auto-trigger/log?limit=50');
+            if (!res.ok) return;
+            const data = await res.json();
+            const tbody = document.getElementById('at-log-tbody');
+            if (!tbody) return;
+            const entries = data.log || [];
+            tbody.innerHTML = '';
+            if (entries.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-secondary); font-size:0.8rem;">Nenhuma execução registada ainda.</td></tr>`;
+                return;
+            }
+            entries.forEach(e => {
+                const dt = e.triggered_at ? new Date(e.triggered_at).toLocaleString('pt-PT') : '—';
+                let badge = '';
+                if (e.status === 'triggered') badge = `<span style="background:rgba(16,185,129,0.12); color:#10b981; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">✅ Criado</span>`;
+                else if (e.status === 'skipped') badge = `<span style="background:rgba(245,158,11,0.12); color:#f59e0b; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">⏭ Ignorado</span>`;
+                else badge = `<span style="background:rgba(239,68,68,0.12); color:#ef4444; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">❌ Erro</span>`;
+                const jobLink = e.job_id ? `<a href="#" onclick="showJobLog('${e.job_id}')" style="color:var(--primary); font-size:11px; font-weight:600;">#${e.job_id.substring(0,8)}</a>` : '—';
+                tbody.innerHTML += `<tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding:8px 14px; text-align:center; white-space:nowrap; color:var(--text-secondary); font-size:11.5px;">${dt}</td>
+                    <td style="padding:8px 14px; text-align:center;"><a href="{{ jira_base }}/browse/${e.ticket_key}" target="_blank" style="color:var(--primary); font-weight:700; font-size:12px; text-decoration:none;">${e.ticket_key}</a></td>
+                    <td style="padding:8px 14px; color:var(--text-primary); font-size:12px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${(e.ticket_summary||'').replace(/"/g,'&quot;')}">${e.ticket_summary || ''}</td>
+                    <td style="padding:8px 14px; text-align:center;">${badge}</td>
+                    <td style="padding:8px 14px; text-align:center;">${jobLink}</td>
+                    <td style="padding:8px 14px; text-align:center;">
+                        <button onclick="atDeleteEntry('${e.id}')" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:2px; display:inline-flex; align-items:center;" title="Eliminar entrada">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                    </td>
+                </tr>`;
+            });
+        } catch(ex) { /* ignore */ }
+    }
+
+    async function atDeleteEntry(id) {
+        if (!confirm('Deseja eliminar esta entrada do histórico? Isso permitirá que este ticket seja processado novamente pelo auto-trigger se as condições forem atendidas.')) return;
+        try {
+            const res = await fetch(`/api/jira/auto-trigger/log/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast('Entrada do histórico eliminada com sucesso!', 'success');
+                atLoadLog();
+            } else {
+                showToast('Erro ao eliminar entrada.', 'error');
+            }
+        } catch(e) {
+            showToast('Erro: ' + e.message, 'error');
+        }
+    }
+
+    async function atClearLog() {
+        if (!confirm('Tem a certeza que deseja limpar TODO o histórico de execuções do auto-trigger? Todos os tickets correspondentes poderão ser re-processados.')) return;
+        try {
+            const res = await fetch('/api/jira/auto-trigger/log', { method: 'DELETE' });
+            if (res.ok) {
+                showToast('Histórico do auto-trigger limpo com sucesso!', 'success');
+                atLoadLog();
+            } else {
+                showToast('Erro ao limpar histórico.', 'error');
+            }
+        } catch(e) {
+            showToast('Erro: ' + e.message, 'error');
+        }
+    }
+
+    async function saRunAnalysis() {
+        const input = document.getElementById('sa-ticket-key');
+        if (!input) return;
+        const key = input.value.trim().toUpperCase();
+        if (!key) {
+            showToast('Por favor, introduza a chave do ticket JIRA.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('sa-btn-analyze');
+        const card = document.getElementById('sa-result-card');
+        if (card) card.style.display = 'none';
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `
+                <svg class="spinner" width="14" height="14" viewBox="0 0 50 50" style="animation: rotate 2s linear infinite; margin-right: 8px; display: inline-block; vertical-align: middle;">
+                    <circle class="path" cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray: 1, 150; stroke-dashoffset: 0; animation: dash 1.5s ease-in-out infinite;"></circle>
+                </svg>
+                <span>A analisar...</span>
+            `;
+        }
+
+        try {
+            // ── 1. Buscar descrição do ticket do JIRA (em paralelo) ──
+            const detailsBox   = document.getElementById('sa-ticket-description-box');
+            const detailsText  = document.getElementById('sa-ticket-description-text');
+            const summaryLabel = document.getElementById('sa-ticket-summary-label');
+            if (detailsBox) {
+                detailsBox.style.display = 'none';
+                if (detailsText) detailsText.textContent = 'A carregar descrição...';
+            }
+
+            fetch(`/api/jira/tickets/${encodeURIComponent(key)}/details`)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (!d) return;
+                    const desc = (d.description || '').trim();
+                    const summ = (d.summary || '').trim();
+                    if (detailsBox) {
+                        detailsBox.style.display = desc ? 'block' : 'none';
+                        if (detailsText) detailsText.textContent = desc || '';
+                        if (summaryLabel) summaryLabel.textContent = summ ? `— ${summ}` : '';
+                    }
+                    // Show result card if hidden (might be first time)
+                    const card = document.getElementById('sa-result-card');
+                    if (card && card.style.display === 'none' && desc) {
+                        card.style.display = 'block';
+                    }
+                })
+                .catch(() => {});
+
+            // ── 2. Lançar análise SAP ──
+            const res = await fetch(`/api/sap-agent/analyze/${encodeURIComponent(key)}`, { method: 'POST' });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.detail || 'Falha ao iniciar análise.');
+            }
+            const data = await res.json();
+            const jobId = data.job_id;
+
+            // Começar a fazer polling do job
+            let attempts = 0;
+            const maxAttempts = 45; // 90 segundos máximo
+            const interval = setInterval(async () => {
+                attempts++;
+                if (attempts > maxAttempts) {
+                    clearInterval(interval);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<span>🔍 Analisar</span>';
+                    }
+                    showToast('Tempo limite de análise esgotado. Confirme se o worker Windows está ligado.', 'error');
+                    return;
+                }
+
+                try {
+                    const jobRes = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+                    if (!jobRes.ok) return;
+                    const job = await jobRes.json();
+
+                    if (job.state === 'succeeded') {
+                        clearInterval(interval);
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = '<span>🔍 Analisar</span>';
+                        }
+                        showToast('Análise concluída com sucesso!', 'success');
+                        saRenderResult(job.status);
+                    } else if (job.state === 'failed') {
+                        clearInterval(interval);
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = '<span>🔍 Analisar</span>';
+                        }
+                        showToast('Erro durante a análise do Agente SAP.', 'error');
+                        saRenderError(job.status || 'Erro desconhecido');
+                    }
+                } catch (e) {
+                    // Ignora erros temporários de rede no polling
+                }
+            }, 2000);
+
+        } catch (e) {
+            showToast('Erro: ' + e.message, 'error');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span>🔍 Analisar</span>';
+            }
+        }
+    }
+
+    function saRenderResult(statusJson) {
+        const card = document.getElementById('sa-result-card');
+        if (!card) return;
+
+        try {
+            const report = JSON.parse(statusJson);
+            
+            // 1. Título e Confiança
+            document.getElementById('sa-result-title').innerHTML = `Relatório de Análise — <a href="{{ jira_base }}/browse/${report.ticket_key}" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 800;">${report.ticket_key}</a>`;
+            const badge = document.getElementById('sa-confidence-badge');
+            badge.textContent = `Confiança: ${report.confidence.toUpperCase()}`;
+            if (report.confidence === 'alta') {
+                badge.style.background = 'rgba(16,185,129,0.15)';
+                badge.style.color = '#10b981';
+                badge.style.border = '1px solid rgba(16,185,129,0.3)';
+            } else if (report.confidence === 'média') {
+                badge.style.background = 'rgba(245,158,11,0.15)';
+                badge.style.color = '#f59e0b';
+                badge.style.border = '1px solid rgba(245,158,11,0.3)';
+            } else {
+                badge.style.background = 'rgba(239,68,68,0.15)';
+                badge.style.color = '#ef4444';
+                badge.style.border = '1px solid rgba(239,68,68,0.3)';
+            }
+
+            // 2. Sinais identificados
+            const signalsList = document.getElementById('sa-signals-list');
+            signalsList.innerHTML = '';
+            const sig = report.signal || {};
+            const fields = [
+                { label: 'Transação', val: sig.transaction },
+                { label: 'Programa/Classe', val: sig.program },
+                { label: 'Mensagem SAP', val: sig.message_id ? `${sig.message_id} ${sig.message_number || ''}` : null },
+                { label: 'Empresa', val: sig.company_code },
+                { label: 'Documento', val: sig.document_number },
+                { label: 'Exercício', val: sig.fiscal_year },
+                { label: 'Job', val: sig.job_name },
+                { label: 'Utilizador', val: sig.user }
+            ];
+            fields.forEach(f => {
+                const displayVal = f.val ? `<span style="font-weight:600; color:var(--text-primary);">${escapeHtml(f.val)}</span>` : '<span style="color:var(--text-secondary); font-style:italic;">não identificada</span>';
+                signalsList.innerHTML += `<div style="font-size: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 6px;">
+                    <div style="color:var(--text-secondary); font-size:0.72rem; font-weight:600; text-transform:uppercase; margin-bottom: 2px;">${f.label}</div>
+                    <div>${displayVal}</div>
+                </div>`;
+            });
+
+            // 3. Evidências
+            const evidencesList = document.getElementById('sa-evidences-list');
+            evidencesList.innerHTML = '';
+            const evs = report.evidences || [];
+            if (evs.length === 0) {
+                evidencesList.innerHTML = '<div style="font-size:0.8rem; color:var(--text-secondary); font-style:italic;">Nenhuma evidência recolhida.</div>';
+            } else {
+                evs.forEach(e => {
+                    let dot = '';
+                    if (e.status === 'ok') dot = '🟢';
+                    else if (e.status === 'warning') dot = '🟡';
+                    else dot = '🔴';
+                    evidencesList.innerHTML += `<div style="font-size:0.8rem; display:flex; align-items:flex-start; gap:8px; margin-bottom: 6px;">
+                        <span>${dot}</span>
+                        <div>
+                            <strong style="color:var(--text-primary);">${escapeHtml(e.name)}</strong>: 
+                            <span style="color:var(--text-secondary);">${escapeHtml(e.details)}</span>
+                        </div>
+                    </div>`;
+                });
+            }
+
+            // 4. Possível Causa, Solução e Testes
+            document.getElementById('sa-possible-cause').textContent = report.probable_cause || 'Sem diagnóstico de causa.';
+            document.getElementById('sa-proposed-solution').textContent = report.proposed_solution || 'Sem solução proposta.';
+            
+            const testsList = report.tests_to_execute || [];
+            document.getElementById('sa-suggested-tests').textContent = testsList.length > 0 ? testsList.map((t, i) => `${i+1}. ${t}`).join('\n') : 'Sem testes sugeridos.';
+
+            card.style.display = 'block';
+            saInitChat(report.ticket_key);
+
+        } catch (err) {
+            saRenderError('Falha ao processar relatório da análise: ' + err.message);
+        }
+    }
+
+    function saRenderError(errMsg) {
+        const card = document.getElementById('sa-result-card');
+        if (!card) return;
+        
+        document.getElementById('sa-result-title').textContent = 'Falha na Análise';
+        const badge = document.getElementById('sa-confidence-badge');
+        badge.textContent = 'ERRO';
+        badge.style.background = 'rgba(239,68,68,0.15)';
+        badge.style.color = '#ef4444';
+        badge.style.border = '1px solid rgba(239,68,68,0.3)';
+
+        document.getElementById('sa-signals-list').innerHTML = '';
+        document.getElementById('sa-evidences-list').innerHTML = '';
+        
+        document.getElementById('sa-possible-cause').innerHTML = `<span style="color:#ef4444; font-weight:600;">Ocorreu um erro ao processar o ticket:</span>\n${escapeHtml(errMsg)}`;
+        document.getElementById('sa-proposed-solution').textContent = 'Por favor, valide se o JIRA está acessível, se a chave do ticket está correta e se a conexão SAP está configurada adequadamente no arquivo .env.';
+        document.getElementById('sa-suggested-tests').textContent = '1. Verificar conexão de rede.\n2. Analisar logs detalhados do worker no PowerShell.';
+
+        card.style.display = 'block';
+        const inputKey = (document.getElementById('sa-ticket-key').value || '').trim().toUpperCase();
+        saInitChat(inputKey || 'Ticket');
+    }
+
+    let saChatHistory = [];
+    let saChatTicketKey = "";
+
+    function saInitChat(ticketKey) {
+        saChatTicketKey = ticketKey;
+        saChatHistory = [];
+        const messagesDiv = document.getElementById('sa-chat-messages');
+        if (!messagesDiv) return;
+
+        messagesDiv.innerHTML = "";
+        
+        const welcomeText = `Olá Clayton! Sou o Assistente SAP da Evolutive. Analisei o ticket **${ticketKey}** e registei os dados do relatório ao lado.\n\nComo posso ajudar-te a explorar este caso? Podes:\n• Colocar dúvidas sobre a causa provável\n• Sugerir alterações funcionais ou novas pistas\n• Dizer **"entra no pedido 6000066481 e analisa"** — vou aceder diretamente ao SAP e ler os dados reais das tabelas relevantes (AUFK, AUAK, EKKO, BKPF, ANLA...)\n• Pedir análise de ordens internas, POs, documentos FI, imobilizados ou WBS elements`;
+        
+        const welcomeBubble = document.createElement('div');
+        welcomeBubble.className = "chat-msg-bubble chat-msg-bot";
+        welcomeBubble.innerHTML = welcomeText.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        messagesDiv.appendChild(welcomeBubble);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    async function saSendChatMessage() {
+        const input = document.getElementById('sa-chat-input');
+        const btn = document.getElementById('sa-chat-btn-send');
+        const messagesDiv = document.getElementById('sa-chat-messages');
+        if (!input || !messagesDiv || !saChatTicketKey) return;
+
+        const message = input.value.trim();
+        if (!message) return;
+
+        // Render user message
+        const userBubble = document.createElement('div');
+        userBubble.className = "chat-msg-bubble chat-msg-user";
+        userBubble.textContent = message;
+        messagesDiv.appendChild(userBubble);
+        
+        input.value = "";
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+        input.disabled = true;
+        if (btn) btn.disabled = true;
+
+        // Detectar intenção SAP para mostrar loading contextual
+        const sapGuiPatterns = /\b(entr[ae]\s+na?|abr[ae]|pesquisa|pesquise|consulta|consulte|mostra|mostre|vai para|vá para)\b.{0,50}\b(tabela|transaction|se16n|se16|ko03|me23n|fb03|ekko|aufk|bkpf|ekpo|anla|prps)\b/i;
+        const sapObjectPatterns = /\b(entr[ae]|analisa|analise|verifica|verifique|vai|vá|abre|veja|ver|mostra|mostre|pedido|ordem|consulta|consulte)\b.{0,50}\b(\d{7,12}|pedido|ordem|po|imobilizado|documento|wbs)\b/i;
+        const isSapIntent = sapGuiPatterns.test(message) || sapObjectPatterns.test(message) || /\b\d{7,12}\b/.test(message);
+
+        const loadingBubble = document.createElement('div');
+        loadingBubble.className = "chat-msg-bubble chat-msg-bot chat-msg-loading";
+        loadingBubble.innerHTML = isSapIntent
+            ? '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:1rem">🔌</span> A consultar SAP em tempo real...</span>'
+            : 'A pensar...';
+        messagesDiv.appendChild(loadingBubble);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+        try {
+            const payload = {
+                ticket_key: saChatTicketKey,
+                message: message,
+                history: saChatHistory,
+                sap_query_enabled: true
+            };
+
+            const response = await fetch('/api/sap-agent/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (loadingBubble.parentNode) {
+                messagesDiv.removeChild(loadingBubble);
+            }
+
+            if (!response.ok) {
+                const errData = await response.json();
+                const errBubble = document.createElement('div');
+                errBubble.className = "chat-msg-bubble chat-msg-system";
+                errBubble.textContent = `Erro: ${errData.detail || 'Falha ao obter resposta do assistente.'}`;
+                messagesDiv.appendChild(errBubble);
+            } else {
+                const data = await response.json();
+                const reply = data.reply || "";
+
+                // === SAP GUI Action: o worker irá executar no SAP ===
+                if (data.waiting_sap && data.job_id) {
+                    // Mostrar bubble inicial com spinner de execução SAP
+                    const sapBubble = document.createElement('div');
+                    sapBubble.className = "chat-msg-bubble chat-msg-bot";
+                    sapBubble.innerHTML = `
+                        <span style="display:inline-flex;align-items:center;gap:8px;margin-bottom:8px;">
+                            <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.3);border-radius:6px;padding:2px 8px;font-size:0.72rem;color:#fbbf24;font-weight:700;">
+                                ⚙️ SAP GUI
+                            </span>
+                        </span><br>
+                        <strong>${escapeHtml(reply.replace(/\*\*(.*?)\*\*/g, '$1'))}</strong>
+                        <div id="sap-job-status-${data.job_id}" style="margin-top:10px;color:var(--text-muted);font-size:0.8rem;">
+                            <span class="chat-loading-dots">⏳ A aguardar o worker SAP</span>
+                        </div>`;
+                    messagesDiv.appendChild(sapBubble);
+
+                    saChatHistory.push({ role: "user", text: message });
+
+                    // Iniciar polling para o resultado
+                    saStartJobPolling(data.job_id, sapBubble, saChatHistory);
+                    return;
+                }
+
+                // === Resposta de texto normal do Gemini ===
+                const botBubble = document.createElement('div');
+                botBubble.className = "chat-msg-bubble chat-msg-bot";
+
+                // Badge "📊 Dados SAP" quando a resposta menciona dados reais
+                const hasSapData = reply.includes('📊 Dados reais lidos do SAP') || reply.includes('📌 Orientação de consulta SAP');
+                let badge = '';
+                if (hasSapData) {
+                    badge = '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);border-radius:6px;padding:2px 7px;font-size:0.72rem;color:#60a5fa;margin-bottom:8px;font-weight:600;">📊 Dados lidos do SAP</span><br>';
+                }
+                
+                let formatted = escapeHtml(reply)
+                    .replace(/\n/g, '<br>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/`([^`]+)`/g, '<code>$1</code>');
+                botBubble.innerHTML = badge + formatted;
+                messagesDiv.appendChild(botBubble);
+
+                saChatHistory.push({ role: "user", text: message });
+                saChatHistory.push({ role: "model", text: reply });
+            }
+        } catch (e) {
+            if (loadingBubble.parentNode) {
+                messagesDiv.removeChild(loadingBubble);
+            }
+            const errBubble = document.createElement('div');
+            errBubble.className = "chat-msg-bubble chat-msg-system";
+            errBubble.textContent = `Falha de rede: ${e.message}`;
+            messagesDiv.appendChild(errBubble);
+        } finally {
+            input.disabled = false;
+            if (btn) btn.disabled = false;
+            input.focus();
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    }
+
+    function saClearChatHistory() {
+        if (confirm("Tem a certeza que deseja limpar o histórico de conversção deste ticket?")) {
+            saInitChat(saChatTicketKey);
+        }
+    }
+
+    // ── SAP Job Polling ──────────────────────────────────────────────────────
+
+    async function saStartJobPolling(jobId, bubble, history) {
+        const statusDiv = document.getElementById(`sap-job-status-${jobId}`);
+        const messagesDiv = document.getElementById('sa-chat-messages');
+        const MAX_POLLS = 30; // 30 × 2s = 60s máximo
+        let polls = 0;
+
+        const interval = setInterval(async () => {
+            polls++;
+            try {
+                const r = await fetch(`/api/sap-agent/chat-job/${jobId}`);
+                if (!r.ok) {
+                    clearInterval(interval);
+                    if (statusDiv) statusDiv.innerHTML = '❌ Erro ao verificar job SAP.';
+                    return;
+                }
+                const job = await r.json();
+
+                if (job.state === 'succeeded') {
+                    clearInterval(interval);
+                    const sapResultText = job.result_text || '';
+                    const sapRows = job.rows || [];
+
+                    // Atualizar a bubble com o resultado
+                    if (statusDiv) {
+                        let resultHtml = '';
+                        if (sapRows.length > 0) {
+                            resultHtml = saSapTableHtml(sapRows, job.description || '');
+                        } else if (sapResultText) {
+                            resultHtml = `<div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.1);border-radius:8px;font-size:0.8rem;">${
+                                escapeHtml(sapResultText).replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                            }</div>`;
+                        } else {
+                            resultHtml = '<div style="margin-top:8px;color:var(--text-muted);">Execução concluída (sem dados para mostrar).</div>';
+                        }
+
+                        statusDiv.innerHTML = `
+                            <div style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);border-radius:6px;padding:2px 8px;font-size:0.72rem;color:#4ade80;font-weight:600;">
+                                ✅ Executado no SAP GUI
+                            </div>
+                            ${resultHtml}`;
+                    }
+
+                    // Guardar no histórico do chat
+                    history.push({ role: "model", text: sapResultText || 'Ação SAP executada com sucesso.' });
+                    if (messagesDiv) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+                } else if (job.state === 'failed') {
+                    clearInterval(interval);
+                    if (statusDiv) {
+                        statusDiv.innerHTML = `<div style="color:#f87171;margin-top:8px;">❌ Erro SAP: ${escapeHtml(job.error || 'Falha desconhecida')}</div>`;
+                    }
+                    history.push({ role: "model", text: `Erro ao executar no SAP: ${job.error || 'Falha desconhecida'}` });
+
+                } else if (polls >= MAX_POLLS) {
+                    clearInterval(interval);
+                    if (statusDiv) statusDiv.innerHTML = '⏰ Timeout: o worker SAP não respondeu em 60 segundos.';
+                } else {
+                    // Ainda em progressão
+                    const dots = '.'.repeat((polls % 3) + 1);
+                    if (statusDiv) statusDiv.innerHTML = `<span class="chat-loading-dots">⏳ A executar no SAP GUI${dots}</span>`;
+                }
+            } catch (err) {
+                clearInterval(interval);
+                if (statusDiv) statusDiv.innerHTML = `❌ Falha de rede ao verificar job: ${escapeHtml(err.message)}`;
+            }
+        }, 2000);
+    }
+
+    function saSapTableHtml(rows, description) {
+        if (!rows || rows.length === 0) return '';
+        const cols = Object.keys(rows[0]);
+        const headerRow = cols.map(c => `<th style="padding:4px 8px;background:rgba(255,255,255,0.06);border-bottom:1px solid var(--border);font-size:0.72rem;font-weight:700;white-space:nowrap;">${escapeHtml(c)}</th>`).join('');
+        const dataRows = rows.map(row =>
+            `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">${
+                cols.map(c => `<td style="padding:3px 8px;font-size:0.72rem;white-space:nowrap;">${escapeHtml(String(row[c] || ''))}</td>`).join('')
+            }</tr>`
+        ).join('');
+
+        return `
+            <div style="margin-top:10px;overflow-x:auto;border-radius:8px;border:1px solid var(--border);">
+                <div style="padding:6px 10px;background:rgba(59,130,246,0.1);border-bottom:1px solid var(--border);font-size:0.72rem;color:#60a5fa;font-weight:600;">
+                    📊 ${escapeHtml(description || 'Dados SAP')} — ${rows.length} linha(s)
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead><tr>${headerRow}</tr></thead>
+                        <tbody>${dataRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
+    // ── Event delegation for Reply-to-customer toggle (avoids inline onclick escaping) ──
+    document.addEventListener('click', function(e) {
+        const el = e.target.closest('.js-reply-toggle');
+        if (!el) return;
+        e.preventDefault();
+        const key      = el.dataset.key;
+        const expandId = el.dataset.expandId;
+        if (key && expandId) toggleReplyExpand(key, expandId);
+    });
+
+    // ── Event delegation for Reply-to-customer save button ──
+    document.addEventListener('click', function(e) {
+        const el = e.target.closest('.js-reply-save');
+        if (!el) return;
+        e.preventDefault();
+        const key      = el.dataset.key;
+        const expandId = el.dataset.expandId;
+        if (key && expandId) saveReplyComment(key, expandId);
+    });
 
     loadJobs().then(() => {
         startPolling();

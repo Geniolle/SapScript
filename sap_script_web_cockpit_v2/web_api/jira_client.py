@@ -1,8 +1,113 @@
 import os
+import re
 import requests
 from dotenv import load_dotenv
+from pathlib import Path
 
 load_dotenv()
+
+
+def _safe_filename(filename: str) -> str:
+    """Sanitiza o nome do ficheiro removendo caracteres inválidos."""
+    sanitized = re.sub(r'[<>:"/\\|?*]+', "_", str(filename or "").strip())
+    return sanitized or "anexo_sem_nome"
+
+
+def download_ticket_attachments_to_dir(
+    ticket_key: str,
+    output_dir_container: str,
+    output_dir_windows: str,
+    only_xlsx: bool = True,
+    overwrite: bool = False,
+) -> list[str]:
+    """
+    Descarrega os anexos de um ticket JIRA para uma pasta local.
+
+    Args:
+        ticket_key:           Chave do ticket (ex: 'IZ-56680')
+        output_dir_container: Caminho base dentro do container (ex: '/data/jira')
+        output_dir_windows:   Caminho base no Windows para o worker (ex: r'C:\\Jira')
+        only_xlsx:            Se True, descarrega apenas ficheiros .xlsx
+        overwrite:            Se True, sobrescreve ficheiros já existentes
+
+    Returns:
+        Lista de paths Windows dos ficheiros descarregados (.xlsx mais recente primeiro).
+    """
+    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_email = os.getenv("JIRA_EMAIL", "").strip()
+    jira_token = os.getenv("JIRA_TOKEN", "").strip()
+    jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
+
+    if not jira_base or not jira_email or not jira_token:
+        print(f"[DOWNLOAD] Credenciais JIRA não configuradas para {ticket_key}.")
+        return []
+
+    auth = (jira_email, jira_token)
+    headers = {"Accept": "application/json"}
+
+    # 1. Criar pasta no container: /data/jira/{TICKET_KEY}/
+    ticket_key_upper = ticket_key.strip().upper()
+    issue_folder = Path(output_dir_container) / ticket_key_upper
+    issue_folder.mkdir(parents=True, exist_ok=True)
+
+    # 2. Buscar anexos do ticket
+    url = f"{jira_base}/{jira_api_path}/issue/{ticket_key_upper}"
+    try:
+        res = requests.get(url, params={"fields": "attachment"}, auth=auth,
+                           headers=headers, timeout=30)
+        res.raise_for_status()
+    except Exception as e:
+        print(f"[DOWNLOAD] Erro ao obter anexos de {ticket_key_upper}: {e}")
+        return []
+
+    attachments = res.json().get("fields", {}).get("attachment", []) or []
+    if not attachments:
+        print(f"[DOWNLOAD] {ticket_key_upper}: sem anexos.")
+        return []
+
+    downloaded_windows = []
+
+    for att in attachments:
+        filename = _safe_filename(att.get("filename", "anexo"))
+        if only_xlsx and not filename.lower().endswith(".xlsx"):
+            continue
+
+        content_url = att.get("content")
+        if not content_url:
+            continue
+
+        target = issue_folder / filename
+        if target.exists() and not overwrite:
+            print(f"[DOWNLOAD] {ticket_key_upper}: já existe -> {filename}")
+            # Mesmo que já exista, inclui na lista
+            win_path = str(Path(output_dir_windows) / ticket_key_upper / filename)
+            downloaded_windows.append(win_path)
+            continue
+
+        try:
+            with requests.get(content_url, auth=auth, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(target, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+            print(f"[DOWNLOAD] {ticket_key_upper}: descarregado -> {filename}")
+            win_path = str(Path(output_dir_windows) / ticket_key_upper / filename)
+            downloaded_windows.append(win_path)
+        except Exception as e:
+            print(f"[DOWNLOAD] {ticket_key_upper}: erro ao descarregar {filename}: {e}")
+
+    # Ordena por data de modificação (mais recente primeiro) dentro do container
+    def _mtime(win_path: str) -> float:
+        container_path = issue_folder / Path(win_path).name
+        try:
+            return container_path.stat().st_mtime
+        except Exception:
+            return 0.0
+
+    downloaded_windows.sort(key=_mtime, reverse=True)
+    return downloaded_windows
+
 
 
 def fetch_jira_tickets_from_api() -> list[dict]:
@@ -351,6 +456,146 @@ def transition_jira_issue(key: str, transition_id: str) -> bool:
         return False
 
 
+def fetch_auto_trigger_tickets(
+    assignee_name: str = "",
+    status_name: str = "In Review",
+    supplier_value: str = "Evolutive",
+) -> list[dict]:
+    """
+    Consulta a API do JIRA em busca de tickets elegíveis para auto-trigger SAP.
+
+    Critérios (configuráveis via .env):
+      - status    : JIRA_AUTO_TRIGGER_STATUS   (default: "In Review")
+      - supplier  : JIRA_AUTO_TRIGGER_SUPPLIER (default: "Evolutive")
+      - assignee  : JIRA_AUTO_TRIGGER_ASSIGNEE (default: "Clayton Lopes")
+        → filtrado em Python por displayName (pós-fetch)
+
+    Retorna lista de dicts com: key, summary, status, assignee, process,
+    supplier, updated_at, priority.
+    """
+    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_email = os.getenv("JIRA_EMAIL", "").strip()
+    jira_token = os.getenv("JIRA_TOKEN", "").strip()
+    jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
+
+    if not jira_base or not jira_email or not jira_token:
+        print("Jira auto-trigger: credenciais não configuradas.")
+        return []
+
+    # Parâmetros configuráveis via env
+    env_status = os.getenv("JIRA_AUTO_TRIGGER_STATUS", status_name).strip()
+    env_supplier = os.getenv("JIRA_AUTO_TRIGGER_SUPPLIER", supplier_value).strip()
+    env_assignee = os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEE", assignee_name or "Clayton Lopes").strip()
+
+    # JQL: status + supplier (assignee filtrado em Python)
+    jql = f'status = "{env_status}" AND cf[14595] = "{env_supplier}"'
+
+    url = f"{jira_base}/{jira_api_path}/search/jql"
+    auth = (jira_email, jira_token)
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "jql": jql,
+        "fields": [
+            "summary",
+            "status",
+            "assignee",
+            "updated",
+            "reporter",
+            "customfield_15845",  # process
+            "customfield_14595",  # supplier
+            "customfield_15815",  # priority
+        ],
+        "maxResults": 100,
+    }
+
+    tickets = []
+    next_page_token = None
+
+    while True:
+        if next_page_token:
+            payload["nextPageToken"] = next_page_token
+        else:
+            payload.pop("nextPageToken", None)
+
+        try:
+            response = requests.post(
+                url, auth=auth, headers=headers, json=payload, timeout=15
+            )
+            response.raise_for_status()
+        except Exception as e:
+            print(f"Jira auto-trigger API error: {e}")
+            break
+
+        data = response.json()
+        issues = data.get("issues", [])
+
+        for issue in issues:
+            fields = issue.get("fields", {})
+
+            assignee_data = fields.get("assignee") or {}
+            raw_assignee = (
+                assignee_data.get("displayName")
+                or assignee_data.get("emailAddress")
+                or ""
+            )
+
+            # Filtro de assignee em Python (comparação case-insensitive)
+            if env_assignee and env_assignee.lower() not in raw_assignee.lower():
+                continue
+
+            # Abreviar nome se necessário
+            assignee_parts = raw_assignee.strip().split()
+            if len(assignee_parts) > 2:
+                assignee_display = f"{assignee_parts[0]} {assignee_parts[-1]}"
+            else:
+                assignee_display = raw_assignee
+
+            status_data = fields.get("status") or {}
+            status_val = status_data.get("name") or ""
+
+            process_data = fields.get("customfield_15845")
+            process_name = ""
+            if isinstance(process_data, dict):
+                process_name = process_data.get("value") or ""
+            elif isinstance(process_data, str):
+                process_name = process_data
+
+            supplier_data = fields.get("customfield_14595")
+            supplier_name = ""
+            if isinstance(supplier_data, dict):
+                supplier_name = supplier_data.get("value") or ""
+            elif isinstance(supplier_data, str):
+                supplier_name = supplier_data
+
+            priority_data = fields.get("customfield_15815")
+            priority_name = ""
+            if isinstance(priority_data, dict):
+                priority_name = priority_data.get("value") or ""
+            elif isinstance(priority_data, str):
+                priority_name = priority_data
+
+            tickets.append({
+                "key": issue.get("key"),
+                "summary": fields.get("summary") or "",
+                "status": status_val,
+                "assignee": assignee_display,
+                "process": process_name,
+                "supplier": supplier_name,
+                "priority": priority_name,
+                "updated_at": fields.get("updated") or "",
+            })
+
+        next_page_token = data.get("nextPageToken")
+        is_last = data.get("isLast", True)
+        if not next_page_token or is_last:
+            break
+
+    return tickets
+
+
 def update_jira_ticket_supplier(key: str, supplier: str) -> bool:
     jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
@@ -383,4 +628,122 @@ def update_jira_ticket_supplier(key: str, supplier: str) -> bool:
     except Exception as e:
         print(f"Error updating supplier for {key} to {supplier}: {e}")
         return False
+
+
+def _parse_jira_adf(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        if "text" in value:
+            return str(value["text"])
+        return "\n".join(_parse_jira_adf(item) for item in value.get("content", []))
+    if isinstance(value, list):
+        return "\n".join(_parse_jira_adf(item) for item in value)
+    return str(value)
+
+
+def add_jira_comment(key: str, comment_text: str) -> bool:
+    """
+    Adiciona um comentário público (Reply to customer) a um ticket JIRA.
+
+    Args:
+        key:          Chave do ticket (ex: 'IZ-56680')
+        comment_text: Texto do comentário em formato plano
+
+    Returns:
+        True se bem-sucedido, False caso contrário.
+    """
+    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_email = os.getenv("JIRA_EMAIL", "").strip()
+    jira_token = os.getenv("JIRA_TOKEN", "").strip()
+    jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
+
+    if not jira_base or not jira_email or not jira_token:
+        print(f"[COMMENT] Credenciais JIRA não configuradas para {key}.")
+        return False
+
+    auth = (jira_email, jira_token)
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    url = f"{jira_base}/{jira_api_path}/issue/{key.upper().strip()}/comment"
+
+    # Jira Cloud REST API v3 usa Atlassian Document Format (ADF)
+    payload = {
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": comment_text,
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+    try:
+        res = requests.post(url, auth=auth, headers=headers, json=payload, timeout=15)
+        res.raise_for_status()
+        print(f"[COMMENT] Comentário adicionado ao ticket {key}.")
+        return True
+    except Exception as e:
+        print(f"[COMMENT] Erro ao adicionar comentário ao ticket {key}: {e}")
+        return False
+
+
+def fetch_ticket_details(ticket_key: str) -> dict:
+    """
+    Busca os detalhes de um único ticket (Summary, Description, Comments) do JIRA,
+    convertendo campos no formato ADF (Atlassian Document Format) para texto simples.
+    """
+    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_email = os.getenv("JIRA_EMAIL", "").strip()
+    jira_token = os.getenv("JIRA_TOKEN", "").strip()
+    jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
+
+    if not jira_base or not jira_email or not jira_token:
+        print(f"[CHAT DETAILS] Credenciais JIRA não configuradas para {ticket_key}.")
+        return {"summary": "", "description": "", "comments": []}
+
+    auth = (jira_email, jira_token)
+    headers = {"Accept": "application/json"}
+    url = f"{jira_base}/{jira_api_path}/issue/{ticket_key.upper().strip()}"
+
+    try:
+        res = requests.get(url, auth=auth, headers=headers, timeout=15)
+        res.raise_for_status()
+        data = res.json()
+        fields = data.get("fields", {})
+
+        # Converter descrição ADF para texto simples
+        desc_raw = fields.get("description")
+        description = _parse_jira_adf(desc_raw)
+
+        # Converter comentários ADF para lista de textos simples
+        comments_raw = fields.get("comment", {}).get("comments", [])
+        comments = []
+        for c in comments_raw:
+            author = c.get("author", {}).get("displayName", "User")
+            body = _parse_jira_adf(c.get("body"))
+            comments.append(f"{author}: {body}")
+
+        return {
+            "summary": str(fields.get("summary") or ""),
+            "description": description,
+            "comments": comments
+        }
+    except Exception as e:
+        print(f"[CHAT DETAILS] Erro ao obter detalhes de {ticket_key}: {e}")
+        return {"summary": "", "description": "", "comments": []}
+
 

@@ -1,7 +1,10 @@
 import importlib
+import json
 import os
 from pathlib import Path
 import sys
+import requests
+
 from uuid import uuid4
 from typing import Any
 import time
@@ -14,14 +17,42 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db
-from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis
+from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment
 import asyncio
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 SAP_SCRIPT_PROJECT_DIR = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/uploads"))
 UPLOADS_WINDOWS_DIR = os.getenv("UPLOADS_WINDOWS_DIR", "").strip()
+
+# Auto-trigger configuration
+AUTO_TRIGGER_INTERVAL_SECONDS = int(os.getenv("AUTO_TRIGGER_INTERVAL_SECONDS", "300"))
+AUTO_TRIGGER_AMBIENTE = os.getenv("AUTO_TRIGGER_AMBIENTE", "PRD").strip().upper()
+AUTO_TRIGGER_ENABLED = os.getenv("AUTO_TRIGGER_ENABLED", "true").strip().lower() in ("1", "true", "yes", "sim")
+
+# Diretório de download de anexos JIRA
+# No container Docker: /data/jira  (montado a partir de C:\Jira no host Windows)
+JIRA_DOWNLOAD_DIR_CONTAINER = os.getenv("JIRA_DOWNLOAD_DIR_CONTAINER", "/data/jira").strip()
+JIRA_DOWNLOAD_DIR_WINDOWS = os.getenv("JIRA_DOWNLOAD_DIR_WINDOWS", r"C:\Jira").strip()
+
+# Mapeamento Categoria JIRA → parâmetros SAP
+# Formato JSON: {"Categoria": {"processo": "...", "subprocesso": "...", "request_option": "N"}}
+_DEFAULT_CATEGORY_MAP = json.dumps({
+    "FI Extracto Cadeias de Pesquisa": {
+        "processo": "Cadeias de Pesquisa",
+        "subprocesso": "Criar Atribuir Cadeias.py",
+        "request_option": "1",
+    }
+})
+
+def _load_category_map() -> dict[str, dict]:
+    raw = os.getenv("AUTO_TRIGGER_CATEGORY_MAP", _DEFAULT_CATEGORY_MAP).strip()
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        print(f"[AUTO-TRIGGER] Erro ao carregar AUTO_TRIGGER_CATEGORY_MAP: {exc}")
+        return json.loads(_DEFAULT_CATEGORY_MAP)
 
 app = FastAPI(title="SAP Script Web")
 app.mount("/static", StaticFiles(directory="web_api/static"), name="static")
@@ -279,10 +310,191 @@ async def sync_jira_tickets_loop() -> None:
         await asyncio.sleep(60)
 
 
+async def run_auto_trigger() -> dict[str, Any]:
+    """
+    Lógica central do auto-trigger.
+
+    Para cada ticket elegível:
+      1. Verifica se a categoria tem mapeamento SAP configurado
+      2. Verifica anti-duplicação (ticket_key + updated_at)
+      3. Descarrega o anexo XLSX do ticket JIRA para /data/jira/{key}/
+      4. Cria job SAP com o processo/subprocesso/caminho_ficheiro corretos
+    """
+    result: dict[str, Any] = {
+        "tickets_found": 0,
+        "triggered": 0,
+        "skipped": 0,
+        "errors": 0,
+        "entries": [],
+    }
+
+    try:
+        tickets = await asyncio.to_thread(fetch_auto_trigger_tickets)
+    except Exception as exc:
+        print(f"[AUTO-TRIGGER] Erro ao consultar JIRA: {exc}")
+        return result
+
+    result["tickets_found"] = len(tickets)
+    category_map = _load_category_map()
+
+    for ticket in tickets:
+        key = ticket.get("key", "")
+        summary = ticket.get("summary", "")
+        updated_at = ticket.get("updated_at", "")
+        categoria = ticket.get("process", "")  # IT SALSA - Categoria SAP
+
+        entry: dict[str, Any] = {
+            "key": key,
+            "summary": summary,
+            "categoria": categoria,
+            "status": "",
+            "job_id": None,
+            "reason": "",
+            "caminho_ficheiro": "",
+        }
+
+        try:
+            # ----------------------------------------------------------------
+            # 1. Verificar mapeamento de categoria
+            # ----------------------------------------------------------------
+            sap_config = category_map.get(categoria)
+            if not sap_config:
+                entry["status"] = "skipped"
+                entry["reason"] = f"Sem mapeamento para categoria: '{categoria}'"
+                result["skipped"] += 1
+                await asyncio.to_thread(
+                    log_auto_trigger_entry, key, summary, None, "skipped",
+                    f"sem_mapeamento:{categoria}"
+                )
+                print(f"[AUTO-TRIGGER] {key}: sem mapeamento para '{categoria}'")
+                result["entries"].append(entry)
+                continue
+
+            processo = sap_config.get("processo", "")
+            subprocesso = sap_config.get("subprocesso", "")
+            request_option = sap_config.get("request_option", "1")
+
+            # ----------------------------------------------------------------
+            # 2. Anti-duplicação
+            # ----------------------------------------------------------------
+            already_active = await asyncio.to_thread(
+                has_active_job_for_ticket, key, updated_at
+            )
+            if already_active:
+                entry["status"] = "skipped"
+                entry["reason"] = "Já existe job ativo para esta versão do ticket"
+                result["skipped"] += 1
+                await asyncio.to_thread(
+                    log_auto_trigger_entry, key, summary, None, "skipped", updated_at
+                )
+                result["entries"].append(entry)
+                continue
+
+            # ----------------------------------------------------------------
+            # 3. Download do anexo XLSX do ticket JIRA
+            # ----------------------------------------------------------------
+            xlsx_files = await asyncio.to_thread(
+                download_ticket_attachments_to_dir,
+                key,
+                JIRA_DOWNLOAD_DIR_CONTAINER,
+                JIRA_DOWNLOAD_DIR_WINDOWS,
+                True,   # only_xlsx
+                False,  # overwrite: False → se já existe, usa o existente
+            )
+
+            if not xlsx_files:
+                entry["status"] = "skipped"
+                entry["reason"] = "Sem ficheiro XLSX anexado ao ticket"
+                result["skipped"] += 1
+                await asyncio.to_thread(
+                    log_auto_trigger_entry, key, summary, None, "skipped",
+                    "sem_anexo_xlsx"
+                )
+                print(f"[AUTO-TRIGGER] {key}: sem anexo XLSX - job não criado.")
+                result["entries"].append(entry)
+                continue
+
+            # Usa o ficheiro XLSX mais recente (primeiro da lista, já ordenada)
+            caminho_ficheiro = xlsx_files[0]
+            entry["caminho_ficheiro"] = caminho_ficheiro
+            print(f"[AUTO-TRIGGER] {key}: ficheiro -> {caminho_ficheiro}")
+
+            # ----------------------------------------------------------------
+            # 4. Criar job SAP
+            # ----------------------------------------------------------------
+            job_params: dict[str, Any] = {
+                "jira_key": key,
+                "jira_summary": summary,
+                "jira_updated_at": updated_at,
+                "jira_categoria": categoria,
+                "ambiente": AUTO_TRIGGER_AMBIENTE,
+                "processo": processo,
+                "subprocesso": subprocesso,
+                "request_option": request_option,
+                "request_number": "",
+                "request_desc": f"{key} | {summary}",
+                "request_type": "1",
+                "caminho_ficheiro": caminho_ficheiro,
+                "transacao": "",
+                "auto_triggered": True,
+            }
+            job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
+            job_id = job["id"]
+
+            entry["status"] = "triggered"
+            entry["job_id"] = job_id
+            entry["reason"] = updated_at
+            result["triggered"] += 1
+
+            await asyncio.to_thread(
+                log_auto_trigger_entry, key, summary, job_id, "triggered", updated_at
+            )
+            print(
+                f"[AUTO-TRIGGER] Job criado para {key} | processo={processo} | "
+                f"subprocesso={subprocesso} | ficheiro={caminho_ficheiro} | job_id={job_id}"
+            )
+
+        except Exception as exc:
+            entry["status"] = "error"
+            entry["reason"] = str(exc)
+            result["errors"] += 1
+            await asyncio.to_thread(
+                log_auto_trigger_entry, key, summary, None, "error", str(exc)
+            )
+            print(f"[AUTO-TRIGGER] Erro ao processar {key}: {exc}")
+
+        result["entries"].append(entry)
+
+    return result
+
+
+
+async def auto_trigger_loop() -> None:
+    """
+    Loop em segundo plano que corre o auto-trigger a cada AUTO_TRIGGER_INTERVAL_SECONDS.
+    """
+    # Aguarda 30s no arranque para deixar o servidor estabilizar
+    await asyncio.sleep(30)
+    while True:
+        try:
+            result = await run_auto_trigger()
+            print(
+                f"[AUTO-TRIGGER LOOP] found={result['tickets_found']} "
+                f"triggered={result['triggered']} skipped={result['skipped']} "
+                f"errors={result['errors']}"
+            )
+        except Exception as exc:
+            print(f"[AUTO-TRIGGER LOOP ERROR]: {exc}")
+        await asyncio.sleep(AUTO_TRIGGER_INTERVAL_SECONDS)
+
+
+
 @app.on_event("startup")
 def startup() -> None:
     init_db()
     asyncio.create_task(sync_jira_tickets_loop())
+    if AUTO_TRIGGER_ENABLED:
+        asyncio.create_task(auto_trigger_loop())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -402,6 +614,485 @@ async def api_update_jira_ticket_supplier(ticket_key: str, payload: SupplierRequ
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+class CommentRequest(BaseModel):
+    comment: str
+
+
+@app.post("/api/jira/tickets/{ticket_key}/comment")
+async def api_add_jira_comment(ticket_key: str, payload: CommentRequest) -> dict[str, Any]:
+    """Adiciona um comentário 'Reply to customer' ao ticket JIRA."""
+    try:
+        if not payload.comment or not payload.comment.strip():
+            raise HTTPException(status_code=400, detail="O comentário não pode estar vazio.")
+        success = await asyncio.to_thread(add_jira_comment, ticket_key, payload.comment.strip())
+        return {"status": "success", "jira_updated": success}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/jira/tickets/{ticket_key}/details")
+async def api_get_ticket_details(ticket_key: str) -> dict[str, Any]:
+    """Retorna o sumário, descrição e comentários de um ticket JIRA."""
+    try:
+        details = await asyncio.to_thread(fetch_ticket_details, ticket_key)
+        return {"status": "success", **details}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Auto-Trigger SAP endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/jira/auto-trigger/config")
+def api_auto_trigger_config() -> dict[str, Any]:
+    """Retorna a configuração atual do auto-trigger."""
+    return {
+        "enabled": AUTO_TRIGGER_ENABLED,
+        "interval_seconds": AUTO_TRIGGER_INTERVAL_SECONDS,
+        "ambiente": AUTO_TRIGGER_AMBIENTE,
+        "assignee": os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEE", "Clayton Lopes"),
+        "status_filter": os.getenv("JIRA_AUTO_TRIGGER_STATUS", "In Review"),
+        "supplier_filter": os.getenv("JIRA_AUTO_TRIGGER_SUPPLIER", "Evolutive"),
+        "processo": os.getenv("AUTO_TRIGGER_PROCESSO", ""),
+        "subprocesso": os.getenv("AUTO_TRIGGER_SUBPROCESSO", ""),
+    }
+
+
+@app.get("/api/jira/auto-trigger/preview")
+async def api_auto_trigger_preview() -> dict[str, Any]:
+    """
+    Retorna os tickets JIRA elegíveis para auto-trigger sem criar jobs.
+    Útil para validar os critérios antes de executar.
+    """
+    try:
+        tickets = await asyncio.to_thread(fetch_auto_trigger_tickets)
+        enriched = []
+        for t in tickets:
+            key = t.get("key", "")
+            updated_at = t.get("updated_at", "")
+            already = await asyncio.to_thread(has_active_job_for_ticket, key, updated_at)
+            enriched.append({**t, "already_active": already})
+        return {
+            "tickets_found": len(tickets),
+            "tickets": enriched,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/jira/auto-trigger/run")
+async def api_auto_trigger_run() -> dict[str, Any]:
+    """
+    Executa o auto-trigger manualmente: consulta JIRA e cria jobs SAP
+    para todos os tickets elegíveis (com proteção anti-duplicação).
+    """
+    try:
+        result = await run_auto_trigger()
+        return {"status": "success", **result}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/jira/auto-trigger/log")
+def api_auto_trigger_log(limit: int = 50) -> dict[str, Any]:
+    """Retorna o histórico de execuções do auto-trigger."""
+    try:
+        return {"log": list_auto_trigger_log(limit=limit)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/jira/auto-trigger/log")
+def api_clear_auto_trigger_log() -> dict[str, Any]:
+    """Limpa todo o histórico de execuções do auto-trigger."""
+    try:
+        clear_auto_trigger_log()
+        return {"status": "success", "message": "Histórico do auto-trigger limpo."}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/jira/auto-trigger/log/{entry_id}")
+def api_delete_auto_trigger_log_entry(entry_id: str) -> dict[str, Any]:
+    """Elimina uma entrada específica do histórico do auto-trigger."""
+    try:
+        delete_auto_trigger_log_entry(entry_id)
+        return {"status": "success", "message": f"Entrada {entry_id} removida."}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/sap-agent/analyze/{ticket_key}")
+def api_sap_agent_analyze(ticket_key: str) -> dict[str, Any]:
+    """Cria um job técnico para o worker Windows executar a análise do Agente SAP no ticket indicado."""
+    try:
+        job = create_job("sap_agent_analysis", {"ticket_key": ticket_key})
+        return {"job_id": job["id"], "state": job["state"]}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class SapAgentChatRequest(BaseModel):
+    ticket_key: str
+    message: str
+    history: list[dict[str, str]] = []
+    company_code: str = ""
+    sap_query_enabled: bool = True
+
+
+class SapQueryRequest(BaseModel):
+    object_type: str  # 'internal_order', 'po', 'fi_doc', 'wbs', 'asset'
+    object_number: str
+    company_code: str = ""
+
+
+@app.post("/api/sap-agent/chat")
+def api_sap_agent_chat(request: SapAgentChatRequest) -> dict[str, Any]:
+    """Conversação interativa com o Gemini com base no contexto do ticket e nos sinais SAP extraídos."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="GEMINI_API_KEY não configurada no ficheiro .env. Por favor, adicione a chave e reinicie o cockpit.",
+        )
+
+    # 1. Obter detalhes do ticket no JIRA
+    ticket_info = fetch_ticket_details(request.ticket_key)
+    summary = ticket_info.get("summary") or "Sem sumário"
+    description = ticket_info.get("description") or "Sem descrição"
+    comments_list = ticket_info.get("comments") or []
+    comments_text = "\n".join(comments_list) if comments_list else "Sem comentários"
+
+    # 2. Obter análise do Agente SAP da base de dados
+    analysis_job = get_latest_sap_agent_analysis(request.ticket_key)
+
+    signals_str = "Sem sinais identificados."
+    evidences_str = "Sem evidências recolhidas."
+    probable_cause = "Sem causa provável diagnosticada."
+    proposed_solution = "Sem solução proposta."
+    tests_str = "Sem testes sugeridos."
+
+    if analysis_job and analysis_job.get("status"):
+        try:
+            report = json.loads(analysis_job["status"])
+            sig = report.get("signal") or {}
+            sig_fields = []
+            if sig.get("transaction"): sig_fields.append(f"- Transação: {sig['transaction']}")
+            if sig.get("program"): sig_fields.append(f"- Programa/Classe: {sig['program']}")
+            if sig.get("message_id"): sig_fields.append(f"- Mensagem SAP: {sig['message_id']} {sig.get('message_number') or ''}")
+            if sig.get("company_code"): sig_fields.append(f"- Empresa: {sig['company_code']}")
+            if sig.get("document_number"): sig_fields.append(f"- Documento: {sig['document_number']}")
+            if sig.get("fiscal_year"): sig_fields.append(f"- Exercício: {sig['fiscal_year']}")
+            if sig.get("job_name"): sig_fields.append(f"- Job: {sig['job_name']}")
+            if sig.get("user"): sig_fields.append(f"- Utilizador: {sig['user']}")
+            if sig_fields:
+                signals_str = "\n".join(sig_fields)
+
+            evs = report.get("evidences") or []
+            ev_list = []
+            for e in evs:
+                status_icon = "🟢" if e.get("status") == "ok" else ("🟡" if e.get("status") == "warning" else "🔴")
+                ev_list.append(f"- {status_icon} {e.get('name')}: {e.get('details')}")
+            if ev_list:
+                evidences_str = "\n".join(ev_list)
+
+            probable_cause = report.get("probable_cause") or probable_cause
+            proposed_solution = report.get("proposed_solution") or proposed_solution
+
+            tests = report.get("tests_to_execute") or []
+            if tests:
+                tests_str = "\n".join(f"- {t}" for t in tests)
+        except Exception as e:
+            print(f"[CHAT ERROR] Erro ao decodificar status do job de análise: {e}")
+
+    # 3. Formular prompt do sistema
+    system_prompt = f"""Você é o Assistente Especialista em SAP da Evolutive. Você está inserido no cockpit web para ajudar o Clayton a analisar e resolver um erro específico no ticket JIRA {request.ticket_key}.
+
+Abaixo está o contexto do ticket JIRA:
+- Chave: {request.ticket_key}
+- Sumário: {summary}
+- Descrição:
+{description}
+- Comentários:
+{comments_text}
+
+Abaixo estão as evidências recolhidas pelo Agente SAP (no worker Windows local):
+- Sinais Identificados:
+{signals_str}
+- Evidências recolhidas em SAP:
+{evidences_str}
+- Possível Causa diagnosticada:
+{probable_cause}
+- Prévia de Solução:
+{proposed_solution}
+- Testes sugeridos:
+{tests_str}
+
+O utilizador Clayton Lopes (consultor SAP) está a conversar contigo para explorar este ticket, sugerir novas soluções ou analisar erros adicionais. Responde de forma profissional, direta e técnica. Dá recomendações de tabelas SAP, transações (SM30, SM37, SE16N, etc.) e à análise funcional e técnica. Responde no mesmo idioma do utilizador (português).
+
+Tens acesso a uma ferramenta especial: `sap_gui_action`. Quando o utilizador pedir para "abrir", "entrar", "pesquisar" ou "analisar" algo no SAP, usa esta ferramenta para executar a ação directamente no SAP GUI da máquina Windows.
+Ações disponíveis:
+- se16n_query: Pesquisar numa tabela SAP (EKKO, AUFK, BKPF, EKPO, etc.)
+- open_transaction: Abrir qualquer transação SAP
+- read_sbar: Ler o status bar da sessão SAP actual
+"""
+
+    # 3.5 Detetar intenção de consulta SAP na mensagem do utilizador
+    sap_data_context = ""
+    sap_query_badge = False
+    if request.sap_query_enabled:
+        try:
+            import sys as _sys
+            _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+            if _project_dir and _project_dir not in _sys.path:
+                _sys.path.insert(0, _project_dir)
+            from sap_agent.sap_chat_tools import detect_sap_intent, query_sap_object
+            obj_type, obj_number = detect_sap_intent(request.message)
+            if obj_type and obj_number:
+                sap_result = query_sap_object(
+                    obj_type,
+                    obj_number,
+                    company_code=request.company_code or None,
+                )
+                if sap_result.data_blocks:
+                    header = (
+                        f"\n\n**📊 Dados reais lidos do SAP (objeto: {sap_result.object_type} — {sap_result.object_number}):**"
+                        if sap_result.is_real_data
+                        else f"\n\n**📌 Orientação de consulta SAP (objeto: {sap_result.object_type} — {sap_result.object_number}):**"
+                    )
+                    sap_data_context = header + "\n" + "\n\n".join(sap_result.data_blocks)
+                    sap_query_badge = sap_result.is_real_data
+        except Exception as _sap_exc:
+            print(f"[CHAT SAP QUERY] Aviso ao tentar consultar SAP: {_sap_exc}")
+
+    # 3.6 Actualizar prompt do sistema com os dados SAP detetados
+    if sap_data_context:
+        system_prompt += sap_data_context
+        system_prompt += "\n\nCom base nos dados reais acima lidos do SAP, responde à mensagem do utilizador de forma técnica e precisa."
+
+    # 4. Formular histórico para a chamada da API do Gemini
+    contents = []
+    for h in request.history:
+        role = h.get("role")
+        text = h.get("text")
+        if role and text:
+            contents.append({
+                "role": "user" if role == "user" else "model",
+                "parts": [{"text": text}]
+            })
+
+    # Adicionar mensagem atual do utilizador
+    contents.append({
+        "role": "user",
+        "parts": [{"text": request.message}]
+    })
+
+    # 5. Definir as ferramentas SAP GUI para o Gemini (Function Calling)
+    sap_gui_tools = [
+        {
+            "functionDeclarations": [
+                {
+                    "name": "sap_gui_action",
+                    "description": (
+                        "Executa uma ação directamente no SAP GUI aberto na máquina Windows. "
+                        "Usa para pesquisar tabelas (SE16N), abrir transações, ler status bar."
+                    ),
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "action": {
+                                "type": "STRING",
+                                "enum": ["se16n_query", "open_transaction", "read_sbar"],
+                                "description": "Ação a executar no SAP GUI."
+                            },
+                            "table": {
+                                "type": "STRING",
+                                "description": "Nome da tabela SAP (para se16n_query). Ex: EKKO, AUFK, BKPF."
+                            },
+                            "filters": {
+                                "type": "ARRAY",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "field": {"type": "STRING", "description": "Nome do campo SAP"},
+                                        "value": {"type": "STRING", "description": "Valor do filtro"}
+                                    }
+                                },
+                                "description": "Filtros a aplicar na pesquisa. Ex: [{\"field\": \"EBELN\", \"value\": \"4500123456\"}]"
+                            },
+                            "fields": {
+                                "type": "ARRAY",
+                                "items": {"type": "STRING"},
+                                "description": "Campos a mostrar no resultado. Vazio = todos."
+                            },
+                            "transaction": {
+                                "type": "STRING",
+                                "description": "Código da transação SAP (para open_transaction). Ex: SE16N, KO03, ME23N."
+                            },
+                            "max_rows": {
+                                "type": "INTEGER",
+                                "description": "Número máximo de linhas a retornar (por defeito: 20)."
+                            },
+                            "description": {
+                                "type": "STRING",
+                                "description": "Descrição legível da ação para mostrar no chat."
+                            }
+                        },
+                        "required": ["action"]
+                    }
+                }
+            ]
+        }
+    ]
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": contents,
+        "systemInstruction": {
+            "parts": [{"text": system_prompt}]
+        },
+        "tools": sap_gui_tools,
+    }
+
+    response = None
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=45)
+        response.raise_for_status()
+        res_data = response.json()
+
+        candidates = res_data.get("candidates", [])
+        if not candidates:
+            return {"reply": "Não foi possível obter uma resposta válida do assistente."}
+
+        candidate = candidates[0]
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+
+        # Verificar se o Gemini retornou uma function call (SAP GUI action)
+        for part in parts:
+            fc = part.get("functionCall")
+            if fc and fc.get("name") == "sap_gui_action":
+                fc_args = fc.get("args", {})
+                action_desc = fc_args.get("description") or _build_sap_action_description(fc_args)
+
+                # Criar job no worker Windows para executar a ação SAP GUI
+                try:
+                    job = create_job("sap_gui_chat_action", {
+                        **fc_args,
+                        "ticket_key": request.ticket_key,
+                        "sap_key": "S4PCLNT100",
+                    })
+                    return {
+                        "reply": f"⚙️ A executar no SAP GUI: **{action_desc}**\n\nAguarda enquanto o worker Windows acede ao SAP...",
+                        "waiting_sap": True,
+                        "job_id": job["id"],
+                        "sap_action": fc_args,
+                    }
+                except Exception as job_exc:
+                    return {
+                        "reply": f"❌ Não foi possível criar job SAP: {job_exc}\n\nAcesso manual: {action_desc}"
+                    }
+
+        # Resposta de texto normal
+        if parts:
+            reply = parts[0].get("text", "")
+            return {"reply": reply}
+
+        return {"reply": "Não foi possível obter uma resposta válida do assistente."}
+    except Exception as e:
+        detail_msg = str(e)
+        if response is not None:
+            try:
+                detail_msg = f"{response.status_code} - {response.text}"
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao comunicar com a API do Gemini: {detail_msg}"
+        )
+
+
+def _build_sap_action_description(fc_args: dict) -> str:
+    """Gera descrição legível para uma sap_gui_action."""
+    action = fc_args.get("action", "")
+    if action == "se16n_query":
+        table = fc_args.get("table", "")
+        filters = fc_args.get("filters") or []
+        filter_str = ", ".join(f"{f.get('field')}={f.get('value')}" for f in filters if f.get("field"))
+        return f"SE16N → Tabela {table}" + (f" | Filtros: {filter_str}" if filter_str else "")
+    elif action == "open_transaction":
+        return f"Abrir transação {fc_args.get('transaction', '')}"
+    elif action == "read_sbar":
+        return "Ler status bar SAP"
+    return str(fc_args)
+
+
+@app.get("/api/sap-agent/chat-job/{job_id}")
+def api_sap_agent_chat_job(job_id: str) -> dict[str, Any]:
+    """Polling endpoint: retorna o estado e resultado de um job SAP GUI iniciado pelo chat."""
+    try:
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+
+        state = job.get("state", "pending")
+        status_raw = job.get("status") or ""
+
+        # Tentar desserializar o resultado JSON do worker
+        sap_result = None
+        result_text = ""
+        rows: list = []
+        if state == "succeeded" and status_raw:
+            try:
+                sap_result = json.loads(status_raw)
+                result_text = sap_result.get("result_text", "")
+                rows = sap_result.get("rows", [])
+            except Exception:
+                result_text = status_raw
+
+        return {
+            "job_id": job_id,
+            "state": state,
+            "result_text": result_text,
+            "rows": rows,
+            "error": sap_result.get("error") if sap_result else None,
+            "success": sap_result.get("success", False) if sap_result else False,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/sap-agent/sap-query")
+def api_sap_agent_sap_query(req: SapQueryRequest) -> dict[str, Any]:
+    """Consulta direta ao SAP via RFC. Usa as credenciais do .env.
+    Retorna os dados brutos do SAP para debug ou uso direto no frontend."""
+    try:
+        import sys as _sys
+        _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+        if _project_dir and _project_dir not in _sys.path:
+            _sys.path.insert(0, _project_dir)
+        from sap_agent.sap_chat_tools import query_sap_object
+        result = query_sap_object(
+            req.object_type,
+            req.object_number,
+            company_code=req.company_code or None,
+        )
+        return {
+            "object_type": result.object_type,
+            "object_number": result.object_number,
+            "is_real_data": result.is_real_data,
+            "data_blocks": result.data_blocks,
+            "error": result.error,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 @app.get("/api/environments")
 def api_environments() -> dict[str, Any]:

@@ -17,6 +17,7 @@ services:
       - ..:/sap-script:ro
       - ../sap_script_uploads:/uploads
       - ./web_api:/srv/sap-script-web/web_api
+      - C:/Jira:/data/jira
     restart: unless-stopped
 
 volumes:

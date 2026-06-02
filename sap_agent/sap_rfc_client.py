@@ -129,3 +129,68 @@ class SapRfcClient:
             options=options,
             rowcount=rowcount,
         )
+
+    # ── Ordens Internas CO ─────────────────────────────────────────────
+
+    def get_internal_order(self, order_number: str) -> list[dict[str, str]]:
+        """Lê o mestre da Ordem Interna CO (tabela AUFK)."""
+        return self.read_table(
+            "AUFK",
+            fields=["AUFNR", "AUART", "BUKRS", "KOSTL", "KTEXT", "ERNAM", "ERDAT", "STAT", "OBJNR"],
+            options=[f"AUFNR = '{order_number.zfill(12)}'"],
+            rowcount=5,
+        )
+
+    def get_settlement_rules(self, order_number: str) -> list[dict[str, str]]:
+        """Lê as regras de liquidação da Ordem Interna (tabela AUAK)."""
+        return self.read_table(
+            "AUAK",
+            fields=["AUFNR", "LFDNR", "KSCHL", "PROZS", "BEWAR", "KOSTL", "ANLNR", "ANLN2", "PSPNR"],
+            options=[f"AUFNR = '{order_number.zfill(12)}'"],
+            rowcount=20,
+        )
+
+    # ── WBS / Projetos ─────────────────────────────────────────────────
+
+    def get_wbs_element(self, wbs_internal_id: str) -> list[dict[str, str]]:
+        """Lê o elemento WBS (tabela PRPS)."""
+        return self.read_table(
+            "PRPS",
+            fields=["PSPNR", "POSID", "POST1", "PSPHI", "STUFE", "OBJNR", "BELKZ", "PBUKR"],
+            options=[f"PSPNR = '{wbs_internal_id}'"],
+            rowcount=10,
+        )
+
+    # ── Imobilizados (Asset Accounting) ───────────────────────────────
+
+    def get_asset_master(self, company_code: str, asset_number: str) -> list[dict[str, str]]:
+        """Lê o mestre de imobilizado (tabela ANLA)."""
+        return self.read_table(
+            "ANLA",
+            fields=["BUKRS", "ANLN1", "ANLN2", "AKTIV", "DEAKT", "TXT50", "ANLKL", "KOSTL", "AUFNR"],
+            options=[
+                f"BUKRS = '{company_code}'",
+                f"AND ANLN1 = '{asset_number.zfill(12)}'",
+            ],
+            rowcount=5,
+        )
+
+    # ── Purchase Orders MM ─────────────────────────────────────────────
+
+    def get_purchase_order_header(self, po_number: str) -> list[dict[str, str]]:
+        """Lê o cabeçalho da Purchase Order (tabela EKKO)."""
+        return self.read_table(
+            "EKKO",
+            fields=["EBELN", "BUKRS", "BSART", "LIFNR", "BEDAT", "EKORG", "EKGRP", "WAERS", "PROCSTAT"],
+            options=[f"EBELN = '{po_number.zfill(10)}'"],
+            rowcount=1,
+        )
+
+    def get_purchase_order_items(self, po_number: str) -> list[dict[str, str]]:
+        """Lê as posições da Purchase Order (tabela EKPO)."""
+        return self.read_table(
+            "EKPO",
+            fields=["EBELN", "EBELP", "MATNR", "TXZ01", "MENGE", "MEINS", "NETPR", "WAERS", "ELIKZ"],
+            options=[f"EBELN = '{po_number.zfill(10)}'"],
+            rowcount=20,
+        )

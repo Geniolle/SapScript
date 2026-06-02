@@ -12,6 +12,7 @@ DB_PATH = DATA_DIR / "sap_script_jobs.sqlite3"
 INTERNAL_TASKS = {
     "select_excel_file",
     "sap_search_requests",
+    "sap_agent_analysis",
 }
 
 
@@ -100,6 +101,20 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jira_tickets ADD COLUMN supplier TEXT")
         except sqlite3.OperationalError:
             pass
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jira_auto_trigger_log (
+                id TEXT PRIMARY KEY,
+                triggered_at TEXT NOT NULL,
+                ticket_key TEXT NOT NULL,
+                ticket_summary TEXT,
+                job_id TEXT,
+                status TEXT NOT NULL,
+                reason TEXT
+            )
+            """
+        )
         conn.commit()
 
 
@@ -524,4 +539,127 @@ def update_jira_ticket_supplier_db(key: str, supplier: str) -> None:
             (supplier, utc_now(), key),
         )
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Auto-Trigger Log
+# ---------------------------------------------------------------------------
+
+def log_auto_trigger_entry(
+    ticket_key: str,
+    ticket_summary: str,
+    job_id: str | None,
+    status: str,
+    reason: str = "",
+) -> None:
+    """Regista uma entrada no log do auto-trigger."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO jira_auto_trigger_log
+                (id, triggered_at, ticket_key, ticket_summary, job_id, status, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(uuid.uuid4()),
+                utc_now(),
+                ticket_key,
+                ticket_summary,
+                job_id,
+                status,
+                reason,
+            ),
+        )
+        conn.commit()
+
+
+def list_auto_trigger_log(limit: int = 50) -> list[dict[str, Any]]:
+    """Lista as entradas mais recentes do log do auto-trigger."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM jira_auto_trigger_log
+            ORDER BY triggered_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "triggered_at": row["triggered_at"],
+            "ticket_key": row["ticket_key"],
+            "ticket_summary": row["ticket_summary"],
+            "job_id": row["job_id"],
+            "status": row["status"],
+            "reason": row["reason"],
+        }
+        for row in rows
+    ]
+
+
+def has_active_job_for_ticket(ticket_key: str, updated_at: str) -> bool:
+    """
+    Verifica se já existe um job ativo (pending ou running) para o ticket.
+    Usa ticket_key + updated_at como chave de idempotência.
+    Retorna True se o ticket já foi processado e não deve ser re-acionado.
+    """
+    # Verifica jobs ativos (pending/running) com o mesmo ticket_key
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id FROM jobs
+            WHERE state IN ('pending', 'running')
+              AND params_json LIKE ?
+            LIMIT 1
+            """,
+            (f'%"jira_key": "{ticket_key}"%',),
+        ).fetchone()
+        if row:
+            return True
+
+        # Verifica se já existe entrada de sucesso no log para esta versão do ticket
+        row = conn.execute(
+            """
+            SELECT id FROM jira_auto_trigger_log
+            WHERE ticket_key = ?
+              AND status = 'triggered'
+              AND reason = ?
+            LIMIT 1
+            """,
+            (ticket_key, updated_at),
+        ).fetchone()
+        return row is not None
+
+
+def clear_auto_trigger_log() -> None:
+    """Limpa todo o histórico de execuções do auto-trigger."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM jira_auto_trigger_log")
+        conn.commit()
+
+
+def delete_auto_trigger_log_entry(entry_id: str) -> None:
+    """Elimina uma entrada específica do histórico do auto-trigger."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM jira_auto_trigger_log WHERE id = ?", (entry_id,))
+        conn.commit()
+
+
+def get_latest_sap_agent_analysis(ticket_key: str) -> dict[str, Any] | None:
+    """Retorna o resultado mais recente e com sucesso da análise do Agente SAP para o ticket indicado."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE task = 'sap_agent_analysis'
+              AND state = 'succeeded'
+              AND params_json LIKE ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (f'%"ticket_key": "{ticket_key}"%',),
+        ).fetchone()
+        return row_to_job(row) if row else None
+
 
