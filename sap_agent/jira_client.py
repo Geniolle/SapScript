@@ -43,11 +43,20 @@ class JiraClient:
         
         description = self._plain_text(fields.get("description"))
         attachments = fields.get("attachment", []) or []
+        attachment_names = [att.get("filename", "") for att in attachments if att.get("filename")]
         
         # Extrair texto das capturas de ecrã (prints) anexadas
+        att_texts = []
         image_text = self._extract_text_from_images(attachments)
         if image_text:
             description += f"\n\n{image_text}"
+            att_texts.append(image_text)
+            
+        # Extrair texto de outros ficheiros (PDF, MSG, EML, TXT)
+        file_text = self._extract_text_from_other_files(attachments)
+        if file_text:
+            description += f"\n\n{file_text}"
+            att_texts.append(file_text)
 
         return TicketContext(
             key=issue.get("key", ""),
@@ -56,6 +65,8 @@ class JiraClient:
             comments=[self._plain_text(comment.get("body")) for comment in comments],
             labels=list(fields.get("labels") or []),
             components=[component.get("name", "") for component in fields.get("components", [])],
+            attachments=attachment_names,
+            attachment_texts=att_texts,
             raw=issue,
         )
 
@@ -88,6 +99,62 @@ class JiraClient:
                     extracted_texts.append(f"--- [Texto extraído do print: {att.get('filename')}] ---\n{text}")
             except Exception as e:
                 print(f"[OCR WARNING] Erro ao processar anexo {att.get('filename')}: {e}")
+                
+        return "\n\n".join(extracted_texts)
+
+    def _extract_text_from_other_files(self, attachments: list[dict[str, Any]]) -> str:
+        extracted_texts = []
+        for att in attachments:
+            mime_type = str(att.get("mimeType") or "").lower()
+            filename = str(att.get("filename") or "").lower()
+            
+            content_url = att.get("content")
+            if not content_url:
+                continue
+                
+            # Ignore images (they are handled in _extract_text_from_images)
+            if mime_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".gif")):
+                continue
+
+            try:
+                if filename.endswith(".msg"):
+                    import extract_msg
+                    res = requests.get(content_url, auth=self.auth, timeout=15)
+                    res.raise_for_status()
+                    msg = extract_msg.Message(io.BytesIO(res.content))
+                    text = f"Assunto: {msg.subject}\n\n{msg.body}"
+                    extracted_texts.append(f"--- [Texto do anexo: {att.get('filename')}] ---\n{text.strip()}")
+                elif filename.endswith(".eml"):
+                    import email
+                    from email import policy
+                    res = requests.get(content_url, auth=self.auth, timeout=15)
+                    res.raise_for_status()
+                    msg = email.message_from_bytes(res.content, policy=policy.default)
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            if part.get_content_type() == "text/plain":
+                                body += part.get_payload(decode=True).decode(errors="ignore") + "\n"
+                    else:
+                        body = msg.get_payload(decode=True).decode(errors="ignore")
+                    text = f"Assunto: {msg['subject']}\n\n{body}"
+                    extracted_texts.append(f"--- [Texto do anexo: {att.get('filename')}] ---\n{text.strip()}")
+                elif filename.endswith(".pdf"):
+                    import PyPDF2
+                    res = requests.get(content_url, auth=self.auth, timeout=15)
+                    res.raise_for_status()
+                    pdf = PyPDF2.PdfReader(io.BytesIO(res.content))
+                    text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+                    extracted_texts.append(f"--- [Texto do anexo: {att.get('filename')}] ---\n{text.strip()}")
+                elif filename.endswith((".txt", ".csv", ".json", ".xml", ".log")):
+                    res = requests.get(content_url, auth=self.auth, timeout=15)
+                    res.raise_for_status()
+                    text = res.text
+                    extracted_texts.append(f"--- [Texto do anexo: {att.get('filename')}] ---\n{text.strip()}")
+            except Exception as e:
+                err_msg = f"Erro ao extrair texto do anexo {att.get('filename')}: {e}"
+                print(f"[EXTRACT WARNING] {err_msg}")
+                extracted_texts.append(f"--- [Erro de Extração: {att.get('filename')}] ---\n{err_msg}")
                 
         return "\n\n".join(extracted_texts)
 

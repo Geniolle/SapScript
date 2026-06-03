@@ -109,6 +109,181 @@ def download_ticket_attachments_to_dir(
     return downloaded_windows
 
 
+def _parse_issue(issue: dict) -> dict:
+    """Converte um objeto issue da API JIRA num dict normalizado."""
+    fields = issue.get("fields", {})
+    assignee_data = fields.get("assignee") or {}
+    raw_assignee = (
+        assignee_data.get("displayName")
+        or assignee_data.get("emailAddress")
+        or ""
+    )
+    assignee_parts = raw_assignee.strip().split()
+    if len(assignee_parts) > 2:
+        assignee_name = f"{assignee_parts[0]} {assignee_parts[-1]}"
+    else:
+        assignee_name = raw_assignee
+
+    status_data = fields.get("status") or {}
+    status_name = status_data.get("name") or "Unknown"
+
+    reporter_data = fields.get("reporter") or {}
+    raw_creator = reporter_data.get("displayName") or ""
+    creator_parts = raw_creator.strip().split()
+    if len(creator_parts) > 2:
+        creator_name = f"{creator_parts[0]} {creator_parts[-1]}"
+    else:
+        creator_name = raw_creator
+
+    # Project field
+    project_data = fields.get("project") or {}
+    project_name = project_data.get("name") or ""
+
+    # Priority option field
+    priority_data = fields.get("customfield_15815")
+    priority_name = ""
+    if isinstance(priority_data, dict):
+        priority_name = priority_data.get("value") or ""
+    elif isinstance(priority_data, str):
+        priority_name = priority_data
+
+    # Ticket type option field
+    type_data = fields.get("customfield_15810")
+    type_name = ""
+    if isinstance(type_data, dict):
+        type_name = type_data.get("value") or ""
+    elif isinstance(type_data, str):
+        type_name = type_data
+
+    # Team field (customfield_15839)
+    team_data = fields.get("customfield_15839")
+    team_name = ""
+    if isinstance(team_data, dict):
+        team_name = team_data.get("value") or ""
+    elif isinstance(team_data, str):
+        team_name = team_data
+
+    # Stream field (customfield_15260)
+    stream_data = fields.get("customfield_15260")
+    stream_name = ""
+    if isinstance(stream_data, dict):
+        stream_name = stream_data.get("value") or ""
+    elif isinstance(stream_data, str):
+        stream_name = stream_data
+
+    # Process field (customfield_15845)
+    process_data = fields.get("customfield_15845")
+    process_name = ""
+    if isinstance(process_data, dict):
+        process_name = process_data.get("value") or ""
+    elif isinstance(process_data, str):
+        process_name = process_data
+
+    # Time to resolution field (customfield_14560)
+    sla_data = fields.get("customfield_14560")
+    time_to_resolution = ""
+    if isinstance(sla_data, dict):
+        ongoing = sla_data.get("ongoingCycle")
+        if isinstance(ongoing, dict):
+            breached = ongoing.get("breached", False)
+            rem = ongoing.get("remainingTime")
+            friendly = ""
+            if isinstance(rem, dict):
+                friendly = rem.get("friendly", "")
+            if breached:
+                if friendly:
+                    time_to_resolution = friendly if friendly.startswith("-") else f"-{friendly}"
+                else:
+                    time_to_resolution = "Excedido"
+            else:
+                time_to_resolution = friendly or "Pendente"
+        else:
+            completed = sla_data.get("completedCycles")
+            if isinstance(completed, list) and len(completed) > 0:
+                last_cycle = completed[-1]
+                if isinstance(last_cycle, dict):
+                    breached = last_cycle.get("breached", False)
+                    elapsed = last_cycle.get("elapsedTime")
+                    friendly_elapsed = ""
+                    if isinstance(elapsed, dict):
+                        friendly_elapsed = elapsed.get("friendly", "")
+                    status = "Resolvido"
+                    if breached:
+                        status = "Resolvido com atraso"
+                    if friendly_elapsed:
+                        time_to_resolution = f"{status} ({friendly_elapsed})"
+                    else:
+                        time_to_resolution = status
+
+    # Supplier option field (customfield_14595)
+    supplier_data = fields.get("customfield_14595")
+    supplier_name = ""
+    if isinstance(supplier_data, dict):
+        supplier_name = supplier_data.get("value") or ""
+    elif isinstance(supplier_data, str):
+        supplier_name = supplier_data
+
+    linked_keys: list[str] = []
+    done_statuses = ["DONE", "CONCLU", "RESOLV", "FECHADO", "FECHADA", "CLOSED"]
+    
+    for link in fields.get("issuelinks", []) or []:
+        # "inwardIssue" = ticket que linka ESTE; "outwardIssue" = ticket que ESTE linka
+        for direction in ("inwardIssue", "outwardIssue"):
+            linked_issue = link.get(direction)
+            if linked_issue and linked_issue.get("key"):
+                issue_fields = linked_issue.get("fields") or {}
+                status_obj = issue_fields.get("status") or {}
+                link_status = status_obj.get("name", "").upper()
+                
+                # Check if the linked issue status is in the done_statuses
+                if not any(ds in link_status for ds in done_statuses):
+                    linked_keys.append(linked_issue["key"])
+
+    return {
+        "key": issue.get("key"),
+        "summary": fields.get("summary") or "",
+        "status": status_name,
+        "assignee": assignee_name,
+        "created_at": fields.get("created") or "",
+        "updated_at": fields.get("updated") or "",
+        "priority": priority_name,
+        "ticket_type": type_name,
+        "creator": creator_name,
+        "project": project_name,
+        "team": team_name,
+        "stream": stream_name,
+        "process": process_name,
+        "time_to_resolution": time_to_resolution,
+        "supplier": supplier_name,
+        "linked_keys": linked_keys,
+    }
+
+
+def _fetch_single_issue(
+    key: str,
+    jira_base: str,
+    jira_api_path: str,
+    auth: tuple,
+    headers: dict,
+) -> dict | None:
+    """Busca e parseia um único issue JIRA pelo seu key."""
+    url = f"{jira_base}/{jira_api_path}/issue/{key.strip().upper()}"
+    params = {
+        "fields": ",".join([
+            "summary", "status", "assignee", "created", "updated",
+            "reporter", "project", "customfield_15815", "customfield_15810",
+            "customfield_15839", "customfield_15260", "customfield_15845",
+            "customfield_14560", "customfield_14595", "issuelinks",
+        ])
+    }
+    try:
+        res = requests.get(url, auth=auth, headers=headers, params=params, timeout=15)
+        res.raise_for_status()
+        return _parse_issue(res.json())
+    except Exception as e:
+        print(f"[JIRA SYNC] Erro ao buscar ticket linkado {key}: {e}")
+        return None
+
 
 def fetch_jira_tickets_from_api() -> list[dict]:
     jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
@@ -150,6 +325,7 @@ def fetch_jira_tickets_from_api() -> list[dict]:
             "customfield_15845",
             "customfield_14560",
             "customfield_14595",
+            "issuelinks",
         ],
         "maxResults": 100,
     }
@@ -178,140 +354,22 @@ def fetch_jira_tickets_from_api() -> list[dict]:
         issues = data.get("issues", [])
 
         for issue in issues:
-            fields = issue.get("fields", {})
-            assignee_data = fields.get("assignee") or {}
-            raw_assignee = (
-                assignee_data.get("displayName")
-                or assignee_data.get("emailAddress")
-                or ""
-            )
-            assignee_parts = raw_assignee.strip().split()
-            if len(assignee_parts) > 2:
-                assignee_name = f"{assignee_parts[0]} {assignee_parts[-1]}"
-            else:
-                assignee_name = raw_assignee
-
-            status_data = fields.get("status") or {}
-            status_name = status_data.get("name") or "Unknown"
-
-            reporter_data = fields.get("reporter") or {}
-            raw_creator = reporter_data.get("displayName") or ""
-            creator_parts = raw_creator.strip().split()
-            if len(creator_parts) > 2:
-                creator_name = f"{creator_parts[0]} {creator_parts[-1]}"
-            else:
-                creator_name = raw_creator
-
-            # Project field
-            project_data = fields.get("project") or {}
-            project_name = project_data.get("name") or ""
-
-            # Priority option field
-            priority_data = fields.get("customfield_15815")
-            priority_name = ""
-            if isinstance(priority_data, dict):
-                priority_name = priority_data.get("value") or ""
-            elif isinstance(priority_data, str):
-                priority_name = priority_data
-
-            # Ticket type option field
-            type_data = fields.get("customfield_15810")
-            type_name = ""
-            if isinstance(type_data, dict):
-                type_name = type_data.get("value") or ""
-            elif isinstance(type_data, str):
-                type_name = type_data
-
-            # Team field (customfield_15839)
-            team_data = fields.get("customfield_15839")
-            team_name = ""
-            if isinstance(team_data, dict):
-                team_name = team_data.get("value") or ""
-            elif isinstance(team_data, str):
-                team_name = team_data
-
-            # Stream field (customfield_15260)
-            stream_data = fields.get("customfield_15260")
-            stream_name = ""
-            if isinstance(stream_data, dict):
-                stream_name = stream_data.get("value") or ""
-            elif isinstance(stream_data, str):
-                stream_name = stream_data
-
-            # Process field (customfield_15845)
-            process_data = fields.get("customfield_15845")
-            process_name = ""
-            if isinstance(process_data, dict):
-                process_name = process_data.get("value") or ""
-            elif isinstance(process_data, str):
-                process_name = process_data
-
-            # Time to resolution field (customfield_14560)
-            sla_data = fields.get("customfield_14560")
-            time_to_resolution = ""
-            if isinstance(sla_data, dict):
-                ongoing = sla_data.get("ongoingCycle")
-                if isinstance(ongoing, dict):
-                    breached = ongoing.get("breached", False)
-                    rem = ongoing.get("remainingTime")
-                    friendly = ""
-                    if isinstance(rem, dict):
-                        friendly = rem.get("friendly", "")
-                    if breached:
-                        if friendly:
-                            time_to_resolution = friendly if friendly.startswith("-") else f"-{friendly}"
-                        else:
-                            time_to_resolution = "Excedido"
-                    else:
-                        time_to_resolution = friendly or "Pendente"
-                else:
-                    completed = sla_data.get("completedCycles")
-                    if isinstance(completed, list) and len(completed) > 0:
-                        last_cycle = completed[-1]
-                        if isinstance(last_cycle, dict):
-                            breached = last_cycle.get("breached", False)
-                            elapsed = last_cycle.get("elapsedTime")
-                            friendly_elapsed = ""
-                            if isinstance(elapsed, dict):
-                                friendly_elapsed = elapsed.get("friendly", "")
-                            status = "Resolvido"
-                            if breached:
-                                status = "Resolvido com atraso"
-                            if friendly_elapsed:
-                                time_to_resolution = f"{status} ({friendly_elapsed})"
-                            else:
-                                time_to_resolution = status
-
-            # Supplier option field (customfield_14595)
-            supplier_data = fields.get("customfield_14595")
-            supplier_name = ""
-            if isinstance(supplier_data, dict):
-                supplier_name = supplier_data.get("value") or ""
-            elif isinstance(supplier_data, str):
-                supplier_name = supplier_data
-
-            tickets.append({
-                "key": issue.get("key"),
-                "summary": fields.get("summary") or "",
-                "status": status_name,
-                "assignee": assignee_name,
-                "created_at": fields.get("created") or "",
-                "updated_at": fields.get("updated") or "",
-                "priority": priority_name,
-                "ticket_type": type_name,
-                "creator": creator_name,
-                "project": project_name,
-                "team": team_name,
-                "stream": stream_name,
-                "process": process_name,
-                "time_to_resolution": time_to_resolution,
-                "supplier": supplier_name,
-            })
+            parsed_ticket = _parse_issue(issue)
+            
+            # Regra de exclusão: Não selecionar resultados do projeto IZ com status DONE/Resolvido/Fechada
+            if parsed_ticket["key"].upper().startswith("IZ-"):
+                status_name = parsed_ticket.get("status", "").upper()
+                if any(done_status in status_name for done_status in ["DONE", "CONCLU", "RESOLV", "FECHADO", "FECHADA", "CLOSED"]):
+                    continue
+                    
+            tickets.append(parsed_ticket)
 
         next_page_token = data.get("nextPageToken")
         is_last = data.get("isLast", True)
         if not next_page_token or is_last:
             break
+
+    # ─────────────────────────────────────────────────────────────────────────
 
     return tickets
 
@@ -713,14 +771,20 @@ def fetch_ticket_details(ticket_key: str) -> dict:
 
     if not jira_base or not jira_email or not jira_token:
         print(f"[CHAT DETAILS] Credenciais JIRA não configuradas para {ticket_key}.")
-        return {"summary": "", "description": "", "comments": []}
+        return {"summary": "", "description": "", "comments": [], "categoria_sap": ""}
 
     auth = (jira_email, jira_token)
     headers = {"Accept": "application/json"}
     url = f"{jira_base}/{jira_api_path}/issue/{ticket_key.upper().strip()}"
 
     try:
-        res = requests.get(url, auth=auth, headers=headers, timeout=15)
+        res = requests.get(
+            url,
+            auth=auth,
+            headers=headers,
+            params={"fields": "summary,description,comment,customfield_15845"},
+            timeout=15,
+        )
         res.raise_for_status()
         data = res.json()
         fields = data.get("fields", {})
@@ -737,13 +801,23 @@ def fetch_ticket_details(ticket_key: str) -> dict:
             body = _parse_jira_adf(c.get("body"))
             comments.append(f"{author}: {body}")
 
+        # IT SALSA - Categoria SAP (customfield_15845)
+        categoria_raw = fields.get("customfield_15845")
+        if isinstance(categoria_raw, dict):
+            categoria_sap = categoria_raw.get("value") or ""
+        elif isinstance(categoria_raw, str):
+            categoria_sap = categoria_raw
+        else:
+            categoria_sap = ""
+
         return {
             "summary": str(fields.get("summary") or ""),
             "description": description,
-            "comments": comments
+            "comments": comments,
+            "categoria_sap": categoria_sap,
         }
     except Exception as e:
         print(f"[CHAT DETAILS] Erro ao obter detalhes de {ticket_key}: {e}")
-        return {"summary": "", "description": "", "comments": []}
+        return {"summary": "", "description": "", "comments": [], "categoria_sap": ""}
 
 

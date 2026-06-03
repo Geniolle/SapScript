@@ -959,62 +959,91 @@ Ações disponíveis:
         "tools": sap_gui_tools,
     }
 
+    # Retry com backoff exponencial para erros 503/429 (Gemini sobrecarregado)
+    MAX_RETRIES = 3
+    RETRY_DELAYS = [2, 4, 8]  # segundos
     response = None
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=45)
-        response.raise_for_status()
-        res_data = response.json()
 
-        candidates = res_data.get("candidates", [])
-        if not candidates:
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=45)
+
+            # Se 503 ou 429, tentar novamente após backoff
+            if response.status_code in (503, 429) and attempt < MAX_RETRIES - 1:
+                import time as _time
+                wait = RETRY_DELAYS[attempt]
+                print(f"[GEMINI] Erro {response.status_code} na tentativa {attempt + 1}/{MAX_RETRIES}. A aguardar {wait}s...")
+                _time.sleep(wait)
+                continue
+
+            response.raise_for_status()
+            res_data = response.json()
+
+            candidates = res_data.get("candidates", [])
+            if not candidates:
+                return {"reply": "Não foi possível obter uma resposta válida do assistente."}
+
+            candidate = candidates[0]
+            content = candidate.get("content", {})
+            parts = content.get("parts", [])
+
+            # Verificar se o Gemini retornou uma function call (SAP GUI action)
+            for part in parts:
+                fc = part.get("functionCall")
+                if fc and fc.get("name") == "sap_gui_action":
+                    fc_args = fc.get("args", {})
+                    action_desc = fc_args.get("description") or _build_sap_action_description(fc_args)
+
+                    # Criar job no worker Windows para executar a ação SAP GUI
+                    try:
+                        job = create_job("sap_gui_chat_action", {
+                            **fc_args,
+                            "ticket_key": request.ticket_key,
+                            "sap_key": "S4PCLNT100",
+                        })
+                        return {
+                            "reply": f"⚙️ A executar no SAP GUI: **{action_desc}**\n\nAguarda enquanto o worker Windows acede ao SAP...",
+                            "waiting_sap": True,
+                            "job_id": job["id"],
+                            "sap_action": fc_args,
+                        }
+                    except Exception as job_exc:
+                        return {
+                            "reply": f"❌ Não foi possível criar job SAP: {job_exc}\n\nAcesso manual: {action_desc}"
+                        }
+
+            # Resposta de texto normal
+            if parts:
+                reply = parts[0].get("text", "")
+                return {"reply": reply}
+
             return {"reply": "Não foi possível obter uma resposta válida do assistente."}
 
-        candidate = candidates[0]
-        content = candidate.get("content", {})
-        parts = content.get("parts", [])
-
-        # Verificar se o Gemini retornou uma function call (SAP GUI action)
-        for part in parts:
-            fc = part.get("functionCall")
-            if fc and fc.get("name") == "sap_gui_action":
-                fc_args = fc.get("args", {})
-                action_desc = fc_args.get("description") or _build_sap_action_description(fc_args)
-
-                # Criar job no worker Windows para executar a ação SAP GUI
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1 and response is not None and response.status_code in (503, 429):
+                continue
+            detail_msg = str(e)
+            if response is not None:
                 try:
-                    job = create_job("sap_gui_chat_action", {
-                        **fc_args,
-                        "ticket_key": request.ticket_key,
-                        "sap_key": "S4PCLNT100",
-                    })
-                    return {
-                        "reply": f"⚙️ A executar no SAP GUI: **{action_desc}**\n\nAguarda enquanto o worker Windows acede ao SAP...",
-                        "waiting_sap": True,
-                        "job_id": job["id"],
-                        "sap_action": fc_args,
-                    }
-                except Exception as job_exc:
-                    return {
-                        "reply": f"❌ Não foi possível criar job SAP: {job_exc}\n\nAcesso manual: {action_desc}"
-                    }
+                    detail_msg = f"{response.status_code} - {response.text}"
+                except Exception:
+                    pass
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro ao comunicar com a API do Gemini: {detail_msg}"
+            )
 
-        # Resposta de texto normal
-        if parts:
-            reply = parts[0].get("text", "")
-            return {"reply": reply}
-
-        return {"reply": "Não foi possível obter uma resposta válida do assistente."}
-    except Exception as e:
-        detail_msg = str(e)
-        if response is not None:
-            try:
-                detail_msg = f"{response.status_code} - {response.text}"
-            except Exception:
-                pass
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao comunicar com a API do Gemini: {detail_msg}"
-        )
+    # Esgotadas as tentativas
+    detail_msg = ""
+    if response is not None:
+        try:
+            detail_msg = f"{response.status_code} - {response.text}"
+        except Exception:
+            pass
+    raise HTTPException(
+        status_code=503,
+        detail=f"A API do Gemini está temporariamente indisponível (503). Por favor, tente novamente em alguns segundos. Detalhes: {detail_msg}"
+    )
 
 
 def _build_sap_action_description(fc_args: dict) -> str:

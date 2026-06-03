@@ -11,6 +11,12 @@ class SapDiagnosisEngine:
 
     def diagnose(self, ticket: TicketContext) -> DiagnosisResult:
         signal = extract_signal(ticket)
+        
+        if signal.transaction and not signal.program:
+            program = self.validator.get_program_for_transaction(signal.transaction)
+            if program:
+                signal.program = program
+
         evidences = self.validator.validate(ticket, signal)
         probable_cause = self._probable_cause(signal, evidences)
         proposed_solution = self._proposed_solution(signal, evidences)
@@ -24,6 +30,8 @@ class SapDiagnosisEngine:
             proposed_solution=proposed_solution,
             tests_to_execute=tests,
             confidence=confidence,
+            ticket_attachments=ticket.attachments,
+            ticket_attachment_texts=ticket.attachment_texts,
         )
 
     def _probable_cause(self, signal: SapErrorSignal, evidences: list[ValidationEvidence]) -> str:

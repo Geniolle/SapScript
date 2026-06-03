@@ -12,6 +12,8 @@ class TicketContext:
     comments: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
     components: list[str] = field(default_factory=list)
+    attachments: list[str] = field(default_factory=list)
+    attachment_texts: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -22,7 +24,9 @@ class TicketContext:
 @dataclass
 class SapErrorSignal:
     transaction: str | None = None
+    transaction_description: str | None = None
     program: str | None = None
+    program_description: str | None = None
     message_id: str | None = None
     message_number: str | None = None
     company_code: str | None = None
@@ -52,6 +56,8 @@ class DiagnosisResult:
     proposed_solution: str
     tests_to_execute: list[str]
     confidence: str = "baixa"
+    ticket_attachments: list[str] = field(default_factory=list)
+    ticket_attachment_texts: list[str] = field(default_factory=list)
 
     def to_jira_comment(self, prefix: str = "Pré-análise automática SAP") -> str:
         evidence_text = "\n".join(
@@ -59,14 +65,16 @@ class DiagnosisResult:
         ) or "- Nenhuma evidência técnica recolhida."
         tests = "\n".join(f"- {test}" for test in self.tests_to_execute) or "- Não definido."
         signal = self.signal
+        t_desc = f" ({signal.transaction_description})" if signal.transaction_description else ""
+        p_desc = f" ({signal.program_description})" if signal.program_description else ""
         return f"""h3. {prefix}
 
 *Ticket:* {self.ticket_key}
 *Confiança:* {self.confidence}
 
 h4. Sinais identificados
-- Transação: {signal.transaction or 'não identificada'}
-- Programa/Classe: {signal.program or 'não identificado'}
+- Transação: {signal.transaction or 'não identificada'}{t_desc}
+- Programa/Classe: {signal.program or 'não identificado'}{p_desc}
 - Mensagem SAP: {(signal.message_id or '')} {(signal.message_number or '')}
 - Empresa: {signal.company_code or 'não identificada'}
 - Documento: {signal.document_number or 'não identificado'}

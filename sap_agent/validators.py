@@ -8,7 +8,49 @@ class SapReadOnlyValidator:
     def __init__(self, sap_client: SapRfcClient):
         self.sap = sap_client
 
+    def get_program_for_transaction(self, tcode: str) -> str | None:
+        try:
+            rows = self.sap.read_table(
+                "TSTC",
+                fields=["TCODE", "PGMNA"],
+                options=[f"TCODE = '{tcode}'"],
+                rowcount=1,
+            )
+            if rows:
+                return rows[0].get("PGMNA")
+        except Exception:
+            pass
+        return None
+
+    def enrich_signal(self, signal: SapErrorSignal) -> None:
+        if signal.transaction and not signal.transaction_description:
+            try:
+                rows = self.sap.read_table(
+                    "TSTCT",
+                    fields=["TTEXT"],
+                    options=[f"TCODE = '{signal.transaction}'"],
+                    rowcount=1,
+                )
+                if rows:
+                    signal.transaction_description = rows[0].get("TTEXT")
+            except Exception:
+                pass
+
+        if signal.program and not signal.program_description:
+            try:
+                rows = self.sap.read_table(
+                    "TRDIRT",
+                    fields=["TEXT"],
+                    options=[f"NAME = '{signal.program}'"],
+                    rowcount=1,
+                )
+                if rows:
+                    signal.program_description = rows[0].get("TEXT")
+            except Exception:
+                pass
+
     def validate(self, ticket: TicketContext, signal: SapErrorSignal) -> list[ValidationEvidence]:
+        self.enrich_signal(signal)
         evidences: list[ValidationEvidence] = []
         evidences.append(self._validate_connection())
 

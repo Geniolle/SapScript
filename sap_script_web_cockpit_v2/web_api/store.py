@@ -101,6 +101,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jira_tickets ADD COLUMN supplier TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN linked_keys TEXT")
+        except sqlite3.OperationalError:
+            pass
 
         conn.execute(
             """
@@ -409,8 +413,8 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
         for t in tickets:
             conn.execute(
                 """
-                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution, supplier)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution, supplier, linked_keys)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     summary = excluded.summary,
                     status = excluded.status,
@@ -426,7 +430,8 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                     stream = excluded.stream,
                     process = excluded.process,
                     time_to_resolution = excluded.time_to_resolution,
-                    supplier = excluded.supplier
+                    supplier = excluded.supplier,
+                    linked_keys = excluded.linked_keys
                 """,
                 (
                     t["key"],
@@ -445,6 +450,7 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                     t.get("process"),
                     t.get("time_to_resolution"),
                     t.get("supplier"),
+                    json.dumps(t.get("linked_keys", [])),
                 ),
             )
 
@@ -500,6 +506,7 @@ def list_jira_tickets(limit: int = 50) -> list[dict[str, Any]]:
             "process": row["process"],
             "time_to_resolution": row["time_to_resolution"] if "time_to_resolution" in row.keys() else "",
             "supplier": row["supplier"] if "supplier" in row.keys() else "",
+            "linked_keys": json.loads(row["linked_keys"]) if "linked_keys" in row.keys() and row["linked_keys"] else [],
         }
         for row in rows
     ]

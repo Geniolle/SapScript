@@ -970,10 +970,10 @@
             <span class="nav-toggle-arrow">&#9660;</span>
           </a>
           <div class="nav-sub-list" id="nav-jira-sub">
+            <a class="nav-item" id="nav-item-sap-agent" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('sap-agent')">🤖 Agente SAP</a>
             <a class="nav-item" id="nav-item-jira" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira')">🎫 Tickets</a>
             <a class="nav-item" id="nav-item-jira-dashboard" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
             <a class="nav-item" id="nav-item-auto-trigger" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('auto-trigger')">⚡ Auto-Trigger SAP</a>
-            <a class="nav-item" id="nav-item-sap-agent" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('sap-agent')">🤖 Agente SAP</a>
           </div>
         </div>
         <div class="nav-sub-wrapper">
@@ -1015,7 +1015,7 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="main-content">
+    <main class="main-content" style="overflow: hidden; display: flex; flex-direction: column; padding-bottom: 0;">
       
       <!-- Top Header -->
       <header class="top-header">
@@ -1056,7 +1056,7 @@
       </header>
 
       <!-- Visão Geral View -->
-      <div id="view-visao-geral">
+      <div id="view-visao-geral" style="flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <!-- KPIs -->
         <section class="kpi-grid">
           <div class="kpi-card" onclick="openKpiJobsModal('running')">
@@ -1134,10 +1134,10 @@
       </div>
 
       <!-- JIRA View -->
-      <div id="view-jira" style="display: none;">
-        <div id="view-jira-tickets-wrapper">
+      <div id="view-jira" style="display: none; flex: 1; min-height: 0; flex-direction: column;">
+        <div id="view-jira-tickets-wrapper" style="display: flex; flex-direction: column; height: 100%; padding-bottom: 24px;">
           <!-- Jira KPIs -->
-        <section class="kpi-grid" id="jira-kpi-grid" style="margin-bottom: 24px;">
+        <section class="kpi-grid" id="jira-kpi-grid" style="margin-bottom: 24px; flex-shrink: 0;">
           <!-- Card 1: Total de Tickets -->
           <div class="kpi-card" id="jira-card-total" onclick="setKpiCardFilter('total')">
             <div class="kpi-icon-wrapper blue">
@@ -1240,7 +1240,7 @@
         </section>
 
         <!-- JIRA Filters Panel (compact inline) -->
-        <div class="card" style="padding: 14px 20px;">
+        <div class="card" style="padding: 14px 20px; flex-shrink: 0; margin-bottom: 24px;">
           <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 6px; color: var(--primary); flex-shrink: 0;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
@@ -1313,9 +1313,9 @@
         </div>
 
         <!-- Jira Main Table Card -->
-        <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+        <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 20px; flex: 1; min-height: 0;">
 
-          <div class="custom-scroll" style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(0,0,0,0.01);">
+          <div class="custom-scroll" style="overflow-x: auto; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(0,0,0,0.01); flex: 1;">
             <table id="jira-tickets-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
               <thead>
                 <tr style="background: rgba(0,0,0,0.03); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-primary); text-align: center;">
@@ -1344,7 +1344,7 @@
         </div> <!-- End of view-jira-tickets-wrapper -->
 
         <!-- ====== AUTO-TRIGGER VIEW (inside JIRA section) ====== -->
-        <div id="view-auto-trigger" style="display: none;">
+        <div id="view-auto-trigger" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
           <div style="max-width: 1000px; margin: 0 auto;">
 
             <!-- Header -->
@@ -1506,10 +1506,11 @@
 
               <!-- Ticket Description Banner -->
               <div id="sa-ticket-description-box" style="display:none; margin-bottom: 18px; background: linear-gradient(135deg, rgba(16,185,129,0.06), rgba(59,130,246,0.04)); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 16px 20px;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8"/><line x1="12" y1="12" x2="12" y2="16"/></svg>
                   <span style="font-size: 0.78rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">Motivo de Abertura do Ticket</span>
-                  <span id="sa-ticket-summary-label" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-left: 4px;"></span>
+                  <span id="sa-ticket-summary-label" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-left: 2px;"></span>
+                  <span id="sa-ticket-categoria" style="display:none; font-size: 0.72rem; font-weight: 700; padding: 2px 10px; border-radius: 20px; background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); margin-left: 4px; white-space: nowrap;"></span>
                 </div>
                 <div id="sa-ticket-description-text" style="font-size: 0.85rem; color: var(--text-primary); line-height: 1.65; white-space: pre-wrap; max-height: 160px; overflow-y: auto; padding-right: 4px;"></div>
               </div>
@@ -1526,10 +1527,17 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;" id="sa-signals-list">
                       <!-- Dynamic fields -->
                     </div>
+
+                    <div id="sa-attachment-texts-container" style="display: none; margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
+                        <details>
+                            <summary style="font-size: 0.8rem; color: var(--text-secondary); cursor: pointer; user-select: none;">📄 Ver texto extraído dos anexos</summary>
+                            <pre id="sa-attachment-texts" style="margin-top: 10px; font-size: 0.75rem; color: var(--text-primary); background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; white-space: pre-wrap; max-height: 250px; overflow-y: auto;"></pre>
+                        </details>
+                    </div>
                   </div>
 
                   <!-- RFC Evidences -->
-                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                  <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
                     <h4 style="margin: 0 0 12px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">💾 Evidências de Leitura SAP</h4>
                     <div style="display: flex; flex-direction: column; gap: 10px;" id="sa-evidences-list">
                       <!-- Dynamic fields -->
@@ -1537,19 +1545,19 @@
                   </div>
 
                   <!-- Explanation & Diagnosis -->
-                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                  <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
                     <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">⚠️ Possível Causa</h4>
                     <p id="sa-possible-cause" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
                   </div>
 
                   <!-- Proposed Solution -->
-                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                  <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
                     <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">💡 Prévia de Solução</h4>
                     <p id="sa-proposed-solution" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
                   </div>
 
                   <!-- Suggested Tests -->
-                  <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
+                  <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
                     <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">🧪 Testes/Validações Sugeridos</h4>
                     <p id="sa-suggested-tests" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
                   </div>
@@ -4139,7 +4147,6 @@
                 
                 // Refresh JIRA KPI metrics and rendering
                 filterAndRenderJiraTickets();
-                updateJiraKpis(jiraTickets);
             } else {
                 showToast('Erro ao atualizar o responsável.', 'error');
             }
@@ -4181,7 +4188,6 @@
 
                 // Refresh JIRA KPI metrics and rendering
                 filterAndRenderJiraTickets();
-                updateJiraKpis(jiraTickets);
             } else {
                 showToast('Erro ao atualizar o tipo do ticket.', 'error');
             }
@@ -4216,7 +4222,6 @@
                 
                 // Refresh JIRA KPI metrics and rendering
                 filterAndRenderJiraTickets();
-                updateJiraKpis(jiraTickets);
             } else {
                 showToast('Erro ao atualizar o supplier.', 'error');
             }
@@ -4444,7 +4449,6 @@
                 // ─────────────────────────────────────────────────────
 
                 filterAndRenderJiraTickets();
-                updateJiraKpis(jiraTickets);
             } else {
                 showToast('Erro ao transicionar o estado do ticket.', 'error');
                 filterAndRenderJiraTickets();
@@ -4682,7 +4686,7 @@
 
         if (viewName === 'visao-geral') {
             document.getElementById('nav-item-visao-geral').classList.add('active');
-            visaoGeralView.style.display = 'block';
+            visaoGeralView.style.display = 'flex';
             jiraView.style.display = 'none';
             if (historicoView) historicoView.style.display = 'none';
             if (headerTitle) headerTitle.textContent = 'Cockpit SAP Script';
@@ -4701,7 +4705,7 @@
                 if (jiraSub) jiraSub.classList.add('open');
             }
             visaoGeralView.style.display = 'none';
-            jiraView.style.display = 'block';
+            jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
             const atView = document.getElementById('view-auto-trigger');
@@ -4709,7 +4713,7 @@
             const saView = document.getElementById('view-sap-agent');
             if (saView) saView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
-            if (twrapper) twrapper.style.display = 'block';
+            if (twrapper) twrapper.style.display = 'flex';
             if (historicoView) historicoView.style.display = 'none';
             if (headerTitle) headerTitle.textContent = 'Fila de Tickets JIRA';
             if (headerSub) headerSub.textContent = 'Tickets em aberto e sincronização automática a cada minuto.';
@@ -4731,7 +4735,7 @@
             visaoGeralView.style.display = 'none';
             jiraView.style.display = 'none';
             const dashView = document.getElementById('view-jira-dashboard');
-            if (dashView) dashView.style.display = 'block';
+            if (dashView) dashView.style.display = 'flex';
             if (historicoView) historicoView.style.display = 'none';
             if (headerTitle) headerTitle.textContent = 'Dashboard JIRA';
             if (headerSub) headerSub.textContent = 'Visão gráfica e analítica dos tickets de suporte.';
@@ -4751,7 +4755,7 @@
             jiraView.style.display = 'none';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
-            if (historicoView) historicoView.style.display = 'block';
+            if (historicoView) historicoView.style.display = 'flex';
             if (headerTitle) headerTitle.textContent = 'Histórico de Jobs Arquivados';
             if (headerSub) headerSub.textContent = 'Visualização e gestão de rotinas antigas e arquivadas.';
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
@@ -4770,11 +4774,11 @@
                 if (jiraSub) jiraSub.classList.add('open');
             }
             visaoGeralView.style.display = 'none';
-            jiraView.style.display = 'block';
+            jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
             const atView = document.getElementById('view-auto-trigger');
-            if (atView) atView.style.display = 'block';
+            if (atView) atView.style.display = 'flex';
             const saView = document.getElementById('view-sap-agent');
             if (saView) saView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
@@ -4798,7 +4802,7 @@
                 if (jiraSub) jiraSub.classList.add('open');
             }
             visaoGeralView.style.display = 'none';
-            jiraView.style.display = 'block';
+            jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
             const atView = document.getElementById('view-auto-trigger');
@@ -4806,7 +4810,7 @@
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'none';
             const saView = document.getElementById('view-sap-agent');
-            if (saView) saView.style.display = 'block';
+            if (saView) saView.style.display = 'flex';
             if (historicoView) historicoView.style.display = 'none';
             if (headerTitle) headerTitle.textContent = 'Agente SAP';
             if (headerSub) headerSub.textContent = 'Análise interativa e depuração de erros SAP com inteligência artificial.';
@@ -4924,18 +4928,21 @@
         }
     }
 
-    async function loadJiraTickets() {
+    async function loadJiraTickets(silent = false) {
         const tbody = document.getElementById('jira-tickets-table-body');
         if (!tbody) return;
 
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="14" style="padding: 40px; text-align: center; color: var(--text-secondary);">
-                    <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; display: inline-block;">⏳</div>
-                    <p style="margin-top: 8px;">A carregar tickets do JIRA...</p>
-                </td>
-            </tr>
-        `;
+        // Only show loading spinner on first load; silent mode keeps existing rows visible
+        if (!silent) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="14" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                        <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; display: inline-block;">⏳</div>
+                        <p style="margin-top: 8px;">A carregar tickets do JIRA...</p>
+                    </td>
+                </tr>
+            `;
+        }
 
         try {
             const res = await fetch('/api/jira/tickets?limit=1000');
@@ -4944,7 +4951,6 @@
             jiraTickets = data.tickets || [];
 
             filterAndRenderJiraTickets();
-            updateJiraKpis(jiraTickets);
             updateKpiCardHighlight();
 
             // Update last sync timestamp
@@ -4954,13 +4960,15 @@
             const el = document.getElementById('jira-last-sync-text');
             if (el) el.textContent = `Última sincronização: ${syncText}`;
         } catch (err) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="14" style="padding: 40px; text-align: center; color: var(--danger);">
-                        ❌ Erro ao carregar tickets: ${err.message}
-                    </td>
-                </tr>
-            `;
+            if (!silent) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="14" style="padding: 40px; text-align: center; color: var(--danger);">
+                            ❌ Erro ao carregar tickets: ${err.message}
+                        </td>
+                    </tr>
+                `;
+            }
         }
     }
 
@@ -5069,6 +5077,7 @@
             });
         }
 
+        // Não agrupar mais como linhas separadas, vamos usar 'filtered' diretamente
         if (filtered.length === 0) {
             tbody.innerHTML = `
                 <tr>
@@ -5115,12 +5124,20 @@
             }
 
             const expandId = `reply-expand-${t.key.replace(/[^a-z0-9]/gi,'-')}`;
+            
+            // Colocar as chaves linkadas na mesma célula
+            let keyDisplay = `<a href="${ticketUrl}" target="_blank" style="color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">${escapeHtml(t.key)} 🔗</a>`;
+            if (t.linked_keys && t.linked_keys.length > 0) {
+                const linksHtml = t.linked_keys.map(k => {
+                    return `<div style="margin-top: 4px;"><a href="${jiraBase}/browse/${k}" target="_blank" style="color: var(--text-secondary); text-decoration: none; font-size: 0.9em; display: inline-flex; align-items: center; gap: 4px;">↳ ${escapeHtml(k)}</a></div>`;
+                }).join('');
+                keyDisplay += linksHtml;
+            }
+
             return `
                 <tr class="kpi-table-row" id="row-${t.key.replace(/[^a-z0-9]/gi,'-')}">
                     <td style="padding: 14px 16px; font-family: monospace; font-weight: bold;">
-                        <a href="${ticketUrl}" target="_blank" style="color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
-                            ${escapeHtml(t.key)} 🔗
-                        </a>
+                        ${keyDisplay}
                     </td>
                     <td style="padding: 14px 16px; color: var(--text-primary); font-weight: 500;">
                         <a class="summary-link js-reply-toggle" id="summary-link-${t.key.replace(/[^a-z0-9]/gi,'-')}" data-key="${t.key.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" title="Adicionar comentário Reply to customer" style="cursor:pointer;">
@@ -5450,6 +5467,20 @@
                 }
             });
         }
+
+        // ── Auto-sync JIRA tickets every 60 seconds ──────────────────────
+        setInterval(async () => {
+            const jiraView = document.getElementById('view-jira');
+            const ticketsWrapper = document.getElementById('view-jira-tickets-wrapper');
+            // Only refresh when the Jira tickets view is visible
+            if (
+                jiraView && jiraView.style.display !== 'none' &&
+                ticketsWrapper && ticketsWrapper.style.display !== 'none'
+            ) {
+                await loadJiraTickets(true);
+            }
+        }, 60000);
+        // ─────────────────────────────────────────────────────────────────
 
         // Set up Dashboard filter listeners
         const dashFilterIds = [
@@ -6025,17 +6056,36 @@
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
-                    const desc = (d.description || '').trim();
-                    const summ = (d.summary || '').trim();
+                    const desc     = (d.description   || '').trim();
+                    const summ     = (d.summary        || '').trim();
+                    const categ    = (d.categoria_sap  || '').trim();
+                    const categEl  = document.getElementById('sa-ticket-categoria');
+
+                    // Guardar globalmente para uso na saudação do chat
+                    saTicketSummary = summ;
+                    saTicketDescription = desc;
+
                     if (detailsBox) {
-                        detailsBox.style.display = desc ? 'block' : 'none';
-                        if (detailsText) detailsText.textContent = desc || '';
+                        detailsBox.style.display = (desc || categ) ? 'block' : 'none';
+                        if (detailsText)  detailsText.textContent  = desc || '';
                         if (summaryLabel) summaryLabel.textContent = summ ? `— ${summ}` : '';
+                        if (categEl) {
+                            if (categ) {
+                                categEl.textContent    = `🟷️ IT SALSA - ${categ}`;
+                                categEl.style.display  = 'inline-block';
+                            } else {
+                                categEl.style.display  = 'none';
+                            }
+                        }
                     }
-                    // Show result card if hidden (might be first time)
+                    // Show result card if hidden
                     const card = document.getElementById('sa-result-card');
-                    if (card && card.style.display === 'none' && desc) {
+                    if (card && card.style.display === 'none' && (desc || categ)) {
                         card.style.display = 'block';
+                    }
+                    // Atualizar saudação do chat com o contexto do ticket se já iniciado
+                    if (saChatTicketKey === key) {
+                        saInitChat(key, summ, desc);
                     }
                 })
                 .catch(() => {});
@@ -6130,14 +6180,15 @@
             signalsList.innerHTML = '';
             const sig = report.signal || {};
             const fields = [
-                { label: 'Transação', val: sig.transaction },
-                { label: 'Programa/Classe', val: sig.program },
+                { label: 'Transação', val: sig.transaction ? (sig.transaction_description ? `${sig.transaction} (${sig.transaction_description})` : sig.transaction) : null },
+                { label: 'Programa/Classe', val: sig.program ? (sig.program_description ? `${sig.program} (${sig.program_description})` : sig.program) : null },
                 { label: 'Mensagem SAP', val: sig.message_id ? `${sig.message_id} ${sig.message_number || ''}` : null },
                 { label: 'Empresa', val: sig.company_code },
                 { label: 'Documento', val: sig.document_number },
                 { label: 'Exercício', val: sig.fiscal_year },
                 { label: 'Job', val: sig.job_name },
-                { label: 'Utilizador', val: sig.user }
+                { label: 'Utilizador', val: sig.user },
+                { label: 'Anexos', val: report.ticket_attachments && report.ticket_attachments.length > 0 ? report.ticket_attachments.join(', ') : null }
             ];
             fields.forEach(f => {
                 const displayVal = f.val ? `<span style="font-weight:600; color:var(--text-primary);">${escapeHtml(f.val)}</span>` : '<span style="color:var(--text-secondary); font-style:italic;">não identificada</span>';
@@ -6146,6 +6197,16 @@
                     <div>${displayVal}</div>
                 </div>`;
             });
+
+            // Attachment texts
+            const attTexts = report.ticket_attachment_texts || [];
+            if (attTexts.length > 0) {
+                document.getElementById('sa-attachment-texts-container').style.display = 'block';
+                document.getElementById('sa-attachment-texts').textContent = attTexts.join('\n\n');
+            } else {
+                document.getElementById('sa-attachment-texts-container').style.display = 'none';
+                document.getElementById('sa-attachment-texts').textContent = '';
+            }
 
             // 3. Evidências
             const evidencesList = document.getElementById('sa-evidences-list');
@@ -6209,21 +6270,106 @@
 
     let saChatHistory = [];
     let saChatTicketKey = "";
+    let saTicketSummary = "";
+    let saTicketDescription = "";
 
-    function saInitChat(ticketKey) {
+    async function saInitChat(ticketKey, summary, description) {
         saChatTicketKey = ticketKey;
         saChatHistory = [];
         const messagesDiv = document.getElementById('sa-chat-messages');
         if (!messagesDiv) return;
 
+        // Usar valores passados ou os guardados globalmente
+        const summ = (summary || saTicketSummary || '').trim();
+        const desc = (description || saTicketDescription || '').trim();
+
         messagesDiv.innerHTML = "";
-        
-        const welcomeText = `Olá Clayton! Sou o Assistente SAP da Evolutive. Analisei o ticket **${ticketKey}** e registei os dados do relatório ao lado.\n\nComo posso ajudar-te a explorar este caso? Podes:\n• Colocar dúvidas sobre a causa provável\n• Sugerir alterações funcionais ou novas pistas\n• Dizer **"entra no pedido 6000066481 e analisa"** — vou aceder diretamente ao SAP e ler os dados reais das tabelas relevantes (AUFK, AUAK, EKKO, BKPF, ANLA...)\n• Pedir análise de ordens internas, POs, documentos FI, imobilizados ou WBS elements`;
-        
-        const welcomeBubble = document.createElement('div');
-        welcomeBubble.className = "chat-msg-bubble chat-msg-bot";
-        welcomeBubble.innerHTML = welcomeText.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        messagesDiv.appendChild(welcomeBubble);
+
+        // Se não temos descrição do ticket ainda, mostrar mensagem estática simples e aguardar
+        if (!summ && !desc) {
+            const waitBubble = document.createElement('div');
+            waitBubble.className = "chat-msg-bubble chat-msg-bot";
+            waitBubble.innerHTML = `A carregar contexto do ticket <strong>${ticketKey}</strong>...`;
+            messagesDiv.appendChild(waitBubble);
+            return;
+        }
+
+        // Mostrar bubble de "a pensar..." enquanto a IA processa
+        const loadingBubble = document.createElement('div');
+        loadingBubble.className = "chat-msg-bubble chat-msg-bot chat-msg-loading";
+        loadingBubble.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:1rem">🤖</span> A analisar o pedido do ticket...</span>';
+        messagesDiv.appendChild(loadingBubble);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+        // Construir a primeira mensagem automática com o contexto do ticket
+        let primeiroMensagem = 'Com base no pedido deste ticket JIRA, o que devemos fazer em SAP?';
+        if (summ || desc) {
+            const partes = [];
+            if (summ) partes.push(`Motivo de abertura: ${summ}`);
+            if (desc) partes.push(`Pedido do utilizador:\n${desc}`);
+            primeiroMensagem = `${partes.join('\n\n')}\n\nCom base neste pedido, o que devemos fazer em SAP? Dá-me orientações concretas e práticas.`;
+        }
+
+        try {
+            const payload = {
+                ticket_key: ticketKey,
+                message: primeiroMensagem,
+                history: [],
+                sap_query_enabled: false
+            };
+
+            const response = await fetch('/api/sap-agent/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (loadingBubble.parentNode) messagesDiv.removeChild(loadingBubble);
+
+            if (!response.ok) {
+                const errData = await response.json();
+                const detail = errData.detail || 'Falha de comunicação.';
+                const is503 = response.status === 503 || detail.includes('503') || detail.includes('high demand') || detail.includes('UNAVAILABLE');
+                const errBubble = document.createElement('div');
+                errBubble.className = "chat-msg-bubble chat-msg-system";
+                errBubble.innerHTML = is503
+                    ? `⏳ <strong>A API de IA está temporariamente sobrecarregada.</strong> O servidor tentou automaticamente — por favor aguarda alguns segundos e clica em Tentar novamente.<br><br>
+                       <button onclick="saInitChat(saChatTicketKey, saTicketSummary, saTicketDescription)" style="margin-top:6px;padding:5px 14px;border-radius:7px;border:none;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;font-size:0.78rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                         🔄 Tentar novamente
+                       </button>`
+                    : `❌ Erro ao gerar análise inicial: ${escapeHtml(detail)}<br><br>
+                       <button onclick="saInitChat(saChatTicketKey, saTicketSummary, saTicketDescription)" style="margin-top:6px;padding:5px 14px;border-radius:7px;border:none;background:rgba(255,255,255,0.08);color:var(--text-primary);font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,0.12);">
+                         🔄 Tentar novamente
+                       </button>`;
+                messagesDiv.appendChild(errBubble);
+            } else {
+                const data = await response.json();
+                const reply = data.reply || "";
+
+                const botBubble = document.createElement('div');
+                botBubble.className = "chat-msg-bubble chat-msg-bot";
+                let formatted = escapeHtml(reply)
+                    .replace(/\n/g, '<br>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/`([^`]+)`/g, '<code>$1</code>');
+                botBubble.innerHTML = formatted;
+                messagesDiv.appendChild(botBubble);
+
+                // Guardar no histórico para contexto nas mensagens seguintes
+                saChatHistory.push({ role: "user", text: primeiroMensagem });
+                saChatHistory.push({ role: "model", text: reply });
+            }
+        } catch (e) {
+            if (loadingBubble.parentNode) messagesDiv.removeChild(loadingBubble);
+            const errBubble = document.createElement('div');
+            errBubble.className = "chat-msg-bubble chat-msg-system";
+            errBubble.innerHTML = `⚠️ Falha de rede: <em>${escapeHtml(e.message)}</em><br><br>
+                <button onclick="saInitChat(saChatTicketKey, saTicketSummary, saTicketDescription)" style="margin-top:6px;padding:5px 14px;border-radius:7px;border:none;background:rgba(255,255,255,0.08);color:var(--text-primary);font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,0.12);">
+                  🔄 Tentar novamente
+                </button>`;
+            messagesDiv.appendChild(errBubble);
+        }
+
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
