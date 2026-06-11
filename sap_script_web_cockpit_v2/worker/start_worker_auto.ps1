@@ -1,9 +1,21 @@
 $ErrorActionPreference = "Continue"
 
-$WorkerDir = "C:\workspace\sap-script\sap_script_web_cockpit_v2\worker"
+$ProjectDir = "C:\workspace\sap-script"
+$WorkerDir = "$ProjectDir\sap_script_web_cockpit_v2\worker"
 $LogPath = Join-Path $WorkerDir "worker_auto.log"
 
-cd $WorkerDir
+Set-Location $WorkerDir
+
+# Ler WORKER_TOKEN do .env uma vez antes do loop
+$EnvFile = "$ProjectDir\.env"
+$TokenFromEnv = "change-me"
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | ForEach-Object {
+        if ($_ -match '^\s*WORKER_TOKEN\s*=\s*(.+)$') {
+            $TokenFromEnv = $matches[1].Trim('"').Trim("'")
+        }
+    }
+}
 
 while ($true) {
     try {
@@ -30,12 +42,12 @@ while ($true) {
         $env:PYTHONUTF8 = "1"
         $env:PYTHONIOENCODING = "utf-8"
         $env:API_BASE_URL = "http://localhost:8010"
-        $env:WORKER_TOKEN = "change-me"
-        $env:SAP_SCRIPT_PROJECT_DIR = "C:\workspace\sap-script"
+        $env:WORKER_TOKEN = $TokenFromEnv
+        $env:SAP_SCRIPT_PROJECT_DIR = $ProjectDir
         $env:SAP_COCKPIT_MODULE = "sap_script_web_cockpit_v2.sap_cockpit_web_ready"
         $env:POLL_SECONDS = "1"
 
-        "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Iniciando worker..." | Out-File $LogPath -Append -Encoding UTF8
+        "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Iniciando worker (token lido do .env)..." | Out-File $LogPath -Append -Encoding UTF8
 
         python -u worker.py *>> $LogPath
     }

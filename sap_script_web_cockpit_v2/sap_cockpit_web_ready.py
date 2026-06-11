@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import inspect
 import msvcrt
@@ -257,6 +258,26 @@ def _resolve_processo_path(processo: str) -> str:
         raise SapCockpitError(f"Pasta de processo nao encontrada: {caminho}")
 
     return caminho
+
+
+def _read_subprocess_web_config(processo_path: str, subprocesso: str) -> dict:
+    """Lê WEB_CONFIG de um subprocess via AST (sem executar o código)."""
+    nome = subprocesso if subprocesso.lower().endswith(".py") else f"{subprocesso}.py"
+    script_path = os.path.join(processo_path, nome)
+    if not os.path.isfile(script_path):
+        return {}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            source = f.read()
+        tree = ast.parse(source, filename=script_path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "WEB_CONFIG":
+                        return ast.literal_eval(node.value) or {}
+    except Exception:
+        pass
+    return {}
 
 
 def selecionar_pasta_processo(payload: dict[str, Any] | None = None, interactive: bool = True):
@@ -799,6 +820,21 @@ def _build_exec_kwargs(
         if info_exec["p_pedir_confirmacao"]:
             kwargs[info_exec["p_pedir_confirmacao"].name] = False
 
+    # Passa parâmetros custom do payload que coincidam com o nome de parâmetros da função
+    # (exclui os já preenchidos e o parâmetro posicional ambiente_cockpit)
+    SKIP_NAMES = {"self", "ambiente_cockpit", "session"}
+    if payload:
+        for p in info_exec["params"]:
+            if (
+                p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                or p.name in SKIP_NAMES
+                or p.name in kwargs
+            ):
+                continue
+            raw = payload.get(p.name)
+            if raw is not None and str(raw).strip():
+                kwargs[p.name] = raw
+
     return kwargs
 
 
@@ -1191,9 +1227,18 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
 
         info(f"Iniciando execucao. Ambiente: {ambiente_cockpit} | Sistema: {sistema_desejado}")
 
-        session, _connection = obter_sessao_sap(ambiente_cockpit, interactive=False)
-
         caminho_processo = selecionar_pasta_processo(payload=payload, interactive=False)
+
+        # Verificar se o subprocess gere a sua própria sessão SAP
+        subprocesso_payload = str(payload.get("subprocesso") or payload.get("script") or "").strip()
+        web_config = _read_subprocess_web_config(caminho_processo, subprocesso_payload) if subprocesso_payload else {}
+        manages_own_session = web_config.get("manages_own_session", False)
+
+        if manages_own_session:
+            info("Subprocess gere a propria sessao SAP — a saltar obter_sessao_sap().")
+            session = None
+        else:
+            session, _connection = obter_sessao_sap(ambiente_cockpit, interactive=False)
         log_lines.append(f"Processo: {caminho_processo}")
 
         status = executar_processo(
@@ -1205,7 +1250,7 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
             interactive=False,
         )
 
-        status = status or read_sbar_status(session)
+        status = status or (read_sbar_status(session) if session is not None else "")
         log_lines.append(f"STATUS: {status}")
 
         return {

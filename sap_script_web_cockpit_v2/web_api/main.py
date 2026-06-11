@@ -1,3 +1,4 @@
+import ast
 import importlib
 import json
 import os
@@ -258,6 +259,9 @@ def get_available_subprocesses(processo: str) -> list[dict[str, str]]:
         if not os.path.isfile(caminho):
             continue
 
+        if _extract_ast_var(caminho, "WEB_HIDDEN") is True:
+            continue
+
         subprocessos.append({
             "nome": nome,
             "label": nome,
@@ -266,6 +270,49 @@ def get_available_subprocesses(processo: str) -> list[dict[str, str]]:
 
     return subprocessos
 
+
+def _extract_ast_var(script_path: str, var_name: str):
+    """
+    Extrai o valor de uma variável de módulo de um ficheiro .py via AST,
+    sem executar o código (evita side-effects como logging, SAP, etc.).
+    Suporta apenas literais Python (listas, dicts, strings, bools, None).
+    """
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            source = f.read()
+        tree = ast.parse(source, filename=script_path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == var_name:
+                        return ast.literal_eval(node.value)
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/subprocess-web-params")
+def api_subprocess_web_params(processo: str = "", subprocesso: str = "") -> dict[str, Any]:
+    """
+    Retorna WEB_PARAMS e WEB_CONFIG definidos num subprocess .py via análise AST.
+    Usado pelo frontend para construir o popup dinamicamente por processo.
+    """
+    process_path = _resolve_process_path(processo)
+    if not process_path:
+        return {"params": None, "config": None}
+
+    nome = str(subprocesso).strip()
+    if not nome.lower().endswith(".py"):
+        nome = f"{nome}.py"
+
+    script_path = os.path.join(process_path, nome)
+    if not os.path.isfile(script_path):
+        return {"params": None, "config": None}
+
+    return {
+        "params": _extract_ast_var(script_path, "WEB_PARAMS"),
+        "config": _extract_ast_var(script_path, "WEB_CONFIG"),
+    }
 
 
 def _safe_upload_filename(filename: str) -> str:
@@ -1183,30 +1230,42 @@ async def api_upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
         "size": len(content),
     }
 
+_KNOWN_JOB_FORM_FIELDS = {
+    "task", "ambiente", "processo", "subprocesso",
+    "request_option", "request_number", "request_desc",
+    "request_type", "caminho_ficheiro", "transacao",
+}
+
 @app.post("/jobs")
-def create_job_from_form(
-    task: str = Form(...),
-    ambiente: str = Form(""),
-    processo: str = Form(""),
-    subprocesso: str = Form(""),
-    request_option: str = Form("4"),
-    request_number: str = Form(""),
-    request_desc: str = Form(""),
-    request_type: str = Form("1"),
-    caminho_ficheiro: str = Form(""),
-    transacao: str = Form(""),
-) -> dict[str, Any]:
+async def create_job_from_form(request: Request) -> dict[str, Any]:
+    form = await request.form()
+    task = str(form.get("task") or "").strip()
+    ambiente = str(form.get("ambiente") or "").strip().upper()
+    processo = str(form.get("processo") or "").strip()
+    subprocesso = str(form.get("subprocesso") or "").strip()
+    request_option = str(form.get("request_option") or "4").strip() or "4"
+    request_number = str(form.get("request_number") or "").strip().upper()
+    request_desc = str(form.get("request_desc") or "").strip()
+    request_type = str(form.get("request_type") or "1").strip() or "1"
+    caminho_ficheiro = str(form.get("caminho_ficheiro") or "").strip()
+    transacao = str(form.get("transacao") or "").strip()
+
     params = {
-        "ambiente": ambiente.strip().upper(),
-        "processo": processo.strip(),
-        "subprocesso": subprocesso.strip(),
-        "request_option": request_option.strip() or "4",
-        "request_number": request_number.strip().upper(),
-        "request_desc": request_desc.strip(),
-        "request_type": request_type.strip() or "1",
-        "caminho_ficheiro": caminho_ficheiro.strip(),
-        "transacao": transacao.strip(),
+        "ambiente": ambiente,
+        "processo": processo,
+        "subprocesso": subprocesso,
+        "request_option": request_option,
+        "request_number": request_number,
+        "request_desc": request_desc,
+        "request_type": request_type,
+        "caminho_ficheiro": caminho_ficheiro,
+        "transacao": transacao,
     }
+
+    for key, value in form.multi_items():
+        if key not in _KNOWN_JOB_FORM_FIELDS:
+            params[key] = str(value).strip()
+
     return create_job(task=task, params=params)
 
 

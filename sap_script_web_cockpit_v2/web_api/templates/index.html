@@ -1818,6 +1818,10 @@
           </select>
         </label>
 
+        <!-- Campos dinâmicos por subprocesso (WEB_PARAMS) -->
+        <div id="web-params-container"></div>
+
+        <div id="file-picker-section">
         <label for="caminho-ficheiro-input">
           Caminho do ficheiro (opcional)
         </label>
@@ -1827,7 +1831,9 @@
           <button type="button" id="clear-excel-button" class="btn btn-danger" style="padding: 10px;">&times;</button>
         </div>
         <input type="file" id="browser-file-input" style="display: none;">
+        </div>
 
+        <div id="request-options-section">
         <label>
           Opção de request
           <select name="request_option" id="request-option-select">
@@ -1859,6 +1865,7 @@
             <option value="2">Workbench</option>
           </select>
         </label>
+        </div>
 
         <div class="form-actions">
            <button type="button" id="cancel-modal-btn" class="btn btn-secondary">Cancelar</button>
@@ -2174,22 +2181,115 @@
       }
     }
 
-    function abrirSubprocessoModal(processo, subprocesso) {
+    async function abrirSubprocessoModal(processo, subprocesso) {
       const modal = document.getElementById('modal-novo-job');
       if (!modal) return;
       document.getElementById('job-form').reset();
+      _resetWebParams();
       const procSelect = document.getElementById('processo-select');
       if (procSelect) {
         procSelect.value = processo;
-        // Ocultar os campos imediatamente para evitar flickers no modal
         _lockModalMenuFields();
-        // Carregar os subprocessos dinamicamente e selecionar o subprocesso correto de forma síncrona/determinista
-        loadSubprocessos(subprocesso).then(() => {
-          const reqSel = document.getElementById('request-option-select');
-          if (reqSel) reqSel.dispatchEvent(new Event('change'));
-        });
+        await loadSubprocessos(subprocesso);
+        const reqSel = document.getElementById('request-option-select');
+        if (reqSel) reqSel.dispatchEvent(new Event('change'));
+      }
+      // Carregar WEB_PARAMS do subprocesso (sem executar código SAP)
+      try {
+        const res = await fetch(`/api/subprocess-web-params?processo=${encodeURIComponent(processo)}&subprocesso=${encodeURIComponent(subprocesso)}`);
+        const data = await res.json();
+        _applyWebParamsToModal(data.params || null, data.config || null);
+      } catch (e) {
+        // Em caso de falha, mostrar formulário genérico normal
       }
       modal.classList.add('active');
+    }
+
+    function _applyWebParamsToModal(params, config) {
+      const fileSec   = document.getElementById('file-picker-section');
+      const reqSec    = document.getElementById('request-options-section');
+      const ambSel    = document.getElementById('ambiente-select');
+      const container = document.getElementById('web-params-container');
+
+      // Aplicar WEB_CONFIG
+      if (config) {
+        if (config.show_file_picker === false && fileSec) fileSec.hidden = true;
+        if (config.show_request_options === false && reqSec) reqSec.hidden = true;
+        if (config.ambiente && ambSel) {
+          ambSel.value = config.ambiente;
+          const ambLabel = ambSel.closest('label');
+          if (ambLabel) ambLabel.hidden = true;
+          // badge de bloqueio para ambiente
+          const badgeId = 'lock-badge-ambiente-select';
+          if (!document.getElementById(badgeId)) {
+            const badge = document.createElement('div');
+            badge.id = badgeId;
+            badge.className = 'select-lock-badge';
+            badge.innerHTML = `🔒 Ambiente fixo: ${config.ambiente}`;
+            ambSel.parentNode.insertBefore(badge, ambSel.nextSibling);
+          }
+        }
+      }
+
+      // Renderizar WEB_PARAMS
+      if (!params || !params.length || !container) return;
+      const html = params.map(p => {
+        const req = p.required ? ' <span style="color:#ef4444">*</span>' : '';
+        if (p.type === 'select') {
+          const opts = (p.options || []).map(o =>
+            `<option value="${_esc(o.value)}">${_esc(o.label)}</option>`
+          ).join('');
+          return `<label class="web-param-field" data-param-name="${_esc(p.name)}">
+            ${_esc(p.label)}${req}
+            <select data-web-param="${_esc(p.name)}" ${p.required ? 'required' : ''}>
+              <option value="">Selecione...</option>
+              ${opts}
+            </select>
+          </label>`;
+        }
+        const xform = p.transform === 'uppercase' ? 'style="text-transform:uppercase"' : '';
+        return `<label class="web-param-field" data-param-name="${_esc(p.name)}">
+          ${_esc(p.label)}${req}
+          <input type="${p.type === 'password' ? 'password' : 'text'}"
+            data-web-param="${_esc(p.name)}"
+            placeholder="${_esc(p.placeholder || '')}"
+            ${p.required ? 'required' : ''}
+            ${xform}
+            autocomplete="off">
+        </label>`;
+      }).join('');
+      container.innerHTML = html;
+
+      // uppercase transform: converter em tempo real
+      container.querySelectorAll('input[data-web-param]').forEach(inp => {
+        const label = inp.closest('label');
+        const pName = label ? label.dataset.paramName : null;
+        if (!pName) return;
+        const pDef = params.find(p => p.name === pName);
+        if (pDef && pDef.transform === 'uppercase') {
+          inp.addEventListener('input', () => { inp.value = inp.value.toUpperCase(); });
+        }
+      });
+    }
+
+    function _esc(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function _resetWebParams() {
+      const container = document.getElementById('web-params-container');
+      if (container) container.innerHTML = '';
+      const fileSec = document.getElementById('file-picker-section');
+      if (fileSec) fileSec.hidden = false;
+      const reqSec = document.getElementById('request-options-section');
+      if (reqSec) reqSec.hidden = false;
+      const ambSel = document.getElementById('ambiente-select');
+      if (ambSel) {
+        const ambLabel = ambSel.closest('label');
+        if (ambLabel) ambLabel.hidden = false;
+      }
+      const badge = document.getElementById('lock-badge-ambiente-select');
+      if (badge) badge.remove();
     }
 
     function _lockModalMenuFields() {
@@ -2219,7 +2319,6 @@
         const el = document.getElementById(id);
         if (el) {
           el.classList.remove('select-locked');
-          // Restaura a visibilidade dos campos
           const label = el.closest('label');
           if (label) {
             label.hidden = false;
@@ -2228,6 +2327,7 @@
         const badge = document.getElementById(`lock-badge-${id}`);
         if (badge) badge.remove();
       });
+      _resetWebParams();
     }
 
     let currentTab = 'running';
@@ -2524,10 +2624,16 @@
       document.getElementById('submit-job-btn').disabled = true;
       formMessage.textContent = 'A processar...';
       try {
-        const res = await fetch('/jobs', { method: 'POST', body: new FormData(form) });
+        const fd = new FormData(form);
+        // Incluir valores dos campos dinâmicos WEB_PARAMS
+        document.querySelectorAll('#web-params-container [data-web-param]').forEach(el => {
+          const name = el.dataset.webParam;
+          if (name) fd.set(name, el.value || '');
+        });
+        const res = await fetch('/jobs', { method: 'POST', body: fd });
         if (!res.ok) throw new Error('Erro');
         const novoJob = await res.json();
-        activeJobId = novoJob.id; // Foca no novo job criado
+        activeJobId = novoJob.id;
         formMessage.textContent = 'Criado com sucesso!';
         setTimeout(() => modal.classList.remove('active'), 1000);
         await loadJobs();
@@ -5021,7 +5127,12 @@
         const valKey = (document.getElementById('jira-filter-key')?.value || '').toLowerCase().trim();
         const query = (document.getElementById('jira-search-input')?.value || '').toLowerCase().trim();
 
+        const CLOSED_STATUSES = new Set(['done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada']);
+
         const filtered = jiraTickets.filter(t => {
+            // Excluir sempre tickets fechados/concluídos da fila activa
+            if (CLOSED_STATUSES.has((t.status || '').toLowerCase().trim())) return false;
+
             if (valTeam && t.team !== valTeam) return false;
             if (valStream && t.stream !== valStream) return false;
             if (valType && t.ticket_type !== valType) return false;
@@ -5208,7 +5319,7 @@
                             }).join('');
                             return `
                                 <select class="assignee-cell-select" onchange="updateTicketAssignee('${t.key}', this.value)">
-                                    <option value=""${isNoAssignee ? ' selected' : ''}>Sem responsável</option>
+                                    <option value=""${isNoAssignee ? ' selected' : ''}></option>
                                     ${assigneeSelectOptions}
                                 </select>
                             `;
@@ -5224,7 +5335,7 @@
                             }).join('');
                             return `
                                 <select class="supplier-cell-select" onchange="updateTicketSupplier('${t.key}', this.value)">
-                                    <option value=""${!currentSupplier ? ' selected' : ''}>Sem supplier</option>
+                                    <option value=""${!currentSupplier ? ' selected' : ''}></option>
                                     ${supplierSelectOptions}
                                 </select>
                             `;

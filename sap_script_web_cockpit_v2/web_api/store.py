@@ -457,22 +457,11 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
         if active_keys:
             placeholders = ",".join("?" for _ in active_keys)
             conn.execute(
-                f"""
-                UPDATE jira_tickets
-                SET status = 'Done', last_sync_at = ?
-                WHERE key NOT IN ({placeholders}) AND status != 'Done'
-                """,
-                (now, *active_keys),
+                f"DELETE FROM jira_tickets WHERE key NOT IN ({placeholders})",
+                (*active_keys,),
             )
         else:
-            conn.execute(
-                """
-                UPDATE jira_tickets
-                SET status = 'Done', last_sync_at = ?
-                WHERE status != 'Done'
-                """,
-                (now,),
-            )
+            conn.execute("DELETE FROM jira_tickets")
         conn.commit()
 
 

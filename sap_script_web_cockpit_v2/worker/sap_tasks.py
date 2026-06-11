@@ -220,6 +220,7 @@ def _run_sap_cockpit(params: dict[str, Any]) -> tuple[str, str]:
 
     try:
         cockpit = importlib.import_module(module_name)
+        importlib.reload(cockpit)
     except Exception as exc:
         raise SapExecutionError(
             f"Nao foi possivel importar o modulo '{module_name}'. "

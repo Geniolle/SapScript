@@ -8,10 +8,11 @@ services:
       - ../.env
     environment:
       DATA_DIR: /data
-      WORKER_TOKEN: change-me
       SAP_SCRIPT_PROJECT_DIR: /sap-script
       UPLOADS_DIR: /uploads
       UPLOADS_WINDOWS_DIR: 'C:\workspace\sap-script\sap_script_uploads'
+      JIRA_DOWNLOAD_DIR_CONTAINER: /data/jira
+      JIRA_DOWNLOAD_DIR_WINDOWS: 'C:\Jira'
     volumes:
       - sap_script_data:/data
       - ..:/sap-script:ro
