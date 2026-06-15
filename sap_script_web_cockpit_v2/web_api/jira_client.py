@@ -45,25 +45,40 @@ def download_ticket_attachments_to_dir(
     auth = (jira_email, jira_token)
     headers = {"Accept": "application/json"}
 
-    # 1. Criar pasta no container: /data/jira/{TICKET_KEY}/
     ticket_key_upper = ticket_key.strip().upper()
-    issue_folder = Path(output_dir_container) / ticket_key_upper
-    issue_folder.mkdir(parents=True, exist_ok=True)
 
-    # 2. Buscar anexos do ticket
+    # 1. Buscar anexos e sumário do ticket
     url = f"{jira_base}/{jira_api_path}/issue/{ticket_key_upper}"
     try:
-        res = requests.get(url, params={"fields": "attachment"}, auth=auth,
+        res = requests.get(url, params={"fields": "attachment,summary"}, auth=auth,
                            headers=headers, timeout=30)
         res.raise_for_status()
     except Exception as e:
-        print(f"[DOWNLOAD] Erro ao obter anexos de {ticket_key_upper}: {e}")
+        print(f"[DOWNLOAD] Erro ao obter detalhes de {ticket_key_upper}: {e}")
         return []
 
-    attachments = res.json().get("fields", {}).get("attachment", []) or []
+    data = res.json()
+    summary = data.get("fields", {}).get("summary", "")
+    attachments = data.get("fields", {}).get("attachment", []) or []
+
     if not attachments:
         print(f"[DOWNLOAD] {ticket_key_upper}: sem anexos.")
         return []
+
+    # Sanitizar o sumário e limitar a 30 caracteres
+    clean_summary = ""
+    if summary:
+        clean_summary = _safe_filename(summary).strip()
+        clean_summary = clean_summary[:30].strip()
+
+    # Nome da pasta: CHAVE ou CHAVE_SUMARIO
+    folder_name = ticket_key_upper
+    if clean_summary:
+        folder_name = f"{ticket_key_upper}_{clean_summary}"
+
+    # 2. Criar pasta no container: /data/jira/{folder_name}/
+    issue_folder = Path(output_dir_container) / folder_name
+    issue_folder.mkdir(parents=True, exist_ok=True)
 
     downloaded_windows = []
 
@@ -80,7 +95,7 @@ def download_ticket_attachments_to_dir(
         if target.exists() and not overwrite:
             print(f"[DOWNLOAD] {ticket_key_upper}: já existe -> {filename}")
             # Mesmo que já exista, inclui na lista
-            win_path = str(Path(output_dir_windows) / ticket_key_upper / filename)
+            win_path = str(Path(output_dir_windows) / folder_name / filename)
             downloaded_windows.append(win_path)
             continue
 
@@ -92,7 +107,7 @@ def download_ticket_attachments_to_dir(
                         if chunk:
                             f.write(chunk)
             print(f"[DOWNLOAD] {ticket_key_upper}: descarregado -> {filename}")
-            win_path = str(Path(output_dir_windows) / ticket_key_upper / filename)
+            win_path = str(Path(output_dir_windows) / folder_name / filename)
             downloaded_windows.append(win_path)
         except Exception as e:
             print(f"[DOWNLOAD] {ticket_key_upper}: erro ao descarregar {filename}: {e}")
@@ -256,6 +271,7 @@ def _parse_issue(issue: dict) -> dict:
         "time_to_resolution": time_to_resolution,
         "supplier": supplier_name,
         "linked_keys": linked_keys,
+        "resolved_at": fields.get("resolutiondate") or "",
     }
 
 
@@ -274,6 +290,7 @@ def _fetch_single_issue(
             "reporter", "project", "customfield_15815", "customfield_15810",
             "customfield_15839", "customfield_15260", "customfield_15845",
             "customfield_14560", "customfield_14595", "issuelinks",
+            "resolutiondate",
         ])
     }
     try:
@@ -285,7 +302,7 @@ def _fetch_single_issue(
         return None
 
 
-def fetch_jira_tickets_from_api() -> list[dict]:
+def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list[dict]:
     jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
@@ -298,9 +315,10 @@ def fetch_jira_tickets_from_api() -> list[dict]:
         return []
 
     # Query para buscar tickets abertos atribuídos ao usuário logado
-    jql = os.getenv(
-        "JIRA_SYNC_JQL", "assignee = currentUser() AND statusCategory != Done"
-    )
+    if not jql:
+        jql = os.getenv(
+            "JIRA_SYNC_JQL", "assignee = currentUser() AND statusCategory != Done"
+        )
 
     url = f"{jira_base}/{jira_api_path}/search/jql"
     auth = (jira_email, jira_token)
@@ -326,6 +344,7 @@ def fetch_jira_tickets_from_api() -> list[dict]:
             "customfield_14560",
             "customfield_14595",
             "issuelinks",
+            "resolutiondate",
         ],
         "maxResults": 100,
     }
@@ -352,17 +371,18 @@ def fetch_jira_tickets_from_api() -> list[dict]:
 
         data = response.json()
         issues = data.get("issues", [])
+        page_tickets = []
 
         for issue in issues:
             parsed_ticket = _parse_issue(issue)
-            
-            # Regra de exclusão: Não selecionar resultados do projeto IZ com status DONE/Resolvido/Fechada
-            if parsed_ticket["key"].upper().startswith("IZ-"):
-                status_name = parsed_ticket.get("status", "").upper()
-                if any(done_status in status_name for done_status in ["DONE", "CONCLU", "RESOLV", "FECHADO", "FECHADA", "CLOSED"]):
-                    continue
-                    
             tickets.append(parsed_ticket)
+            page_tickets.append(parsed_ticket)
+
+        if on_page_fetched and page_tickets:
+            try:
+                on_page_fetched(page_tickets)
+            except Exception as cb_err:
+                print(f"[JIRA SYNC] Error in on_page_fetched callback: {cb_err}")
 
         next_page_token = data.get("nextPageToken")
         is_last = data.get("isLast", True)
@@ -819,5 +839,19 @@ def fetch_ticket_details(ticket_key: str) -> dict:
     except Exception as e:
         print(f"[CHAT DETAILS] Erro ao obter detalhes de {ticket_key}: {e}")
         return {"summary": "", "description": "", "comments": [], "categoria_sap": ""}
+
+
+def fetch_single_ticket_for_trigger(key: str) -> dict | None:
+    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_email = os.getenv("JIRA_EMAIL", "").strip()
+    jira_token = os.getenv("JIRA_TOKEN", "").strip()
+    jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
+
+    if not jira_base or not jira_email or not jira_token:
+        return None
+
+    auth = (jira_email, jira_token)
+    headers = {"Accept": "application/json"}
+    return _fetch_single_issue(key, jira_base, jira_api_path, auth, headers)
 
 

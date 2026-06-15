@@ -2,7 +2,7 @@
   "meta": {
     "system": "S4D",
     "user": "CSILVA",
-    "generated_at": "2026-05-22 17:54:01"
+    "generated_at": "2026-06-15 16:58:59"
   },
   "items": [
     {
@@ -12,43 +12,33 @@
     },
     {
       "idx": 2,
-      "TRKORR": "S4DK951811",
-      "AS4TEXT": "WS - Sumarização 77161 - Compactação de lançamentos Financei"
-    },
-    {
-      "idx": 3,
-      "TRKORR": "S4DK951813",
-      "AS4TEXT": "WS - Sumarização Fi nota 77161 - Compactação de lançamentos"
-    },
-    {
-      "idx": 4,
       "TRKORR": "S4DK952206",
       "AS4TEXT": "IZ-53180 Criação de tipo de movimento no TRM"
     },
     {
-      "idx": 5,
-      "TRKORR": "S4DK952743",
-      "AS4TEXT": "COMPACTAÇÂO FI"
-    },
-    {
-      "idx": 6,
+      "idx": 3,
       "TRKORR": "S4DK952991",
       "AS4TEXT": "Cadeia de pesquisa eliminar"
     },
     {
-      "idx": 7,
+      "idx": 4,
       "TRKORR": "S4DK953052",
       "AS4TEXT": "MID"
     },
     {
-      "idx": 8,
-      "TRKORR": "S4DK953161",
-      "AS4TEXT": "IZ-57134 Cadeia de pesquisa"
+      "idx": 5,
+      "TRKORR": "S4DK953234",
+      "AS4TEXT": "IZ-52936 - Projeto Perfil de autorização"
     },
     {
-      "idx": 9,
-      "TRKORR": "S4DK953163",
-      "AS4TEXT": "IZ-57134 - Cadeia de pesquisa"
+      "idx": 6,
+      "TRKORR": "S4DK953299",
+      "AS4TEXT": "Erro chave de lançamento"
+    },
+    {
+      "idx": 7,
+      "TRKORR": "S4DK953306",
+      "AS4TEXT": "IZ-57534 - Chaves de Pesquisa"
     }
   ]
 }

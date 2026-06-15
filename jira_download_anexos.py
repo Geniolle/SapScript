@@ -47,16 +47,16 @@ def safe_filename(filename: str) -> str:
     return sanitized or "anexo_sem_nome"
 
 
-def get_issue_attachments(
+def get_issue_attachments_and_summary(
     base_url: str,
     api_path: str,
     issue_key: str,
     auth: tuple[str, str],
-) -> List[Dict]:
+) -> tuple[List[Dict], str]:
     issue_url = f"{base_url}/{api_path}/issue/{issue_key}"
     response = requests.get(
         issue_url,
-        params={"fields": "attachment"},
+        params={"fields": "attachment,summary"},
         auth=auth,
         headers={"Accept": "application/json"},
         timeout=30,
@@ -73,7 +73,8 @@ def get_issue_attachments(
     payload = response.json()
     fields = payload.get("fields", {})
     attachments = fields.get("attachment", [])
-    return attachments if isinstance(attachments, list) else []
+    summary = fields.get("summary", "")
+    return (attachments if isinstance(attachments, list) else []), summary
 
 
 def download_attachment(
@@ -118,18 +119,28 @@ def download_issue_attachments(
     verbose: bool = True,
 ) -> Dict[str, int | str]:
     normalized_issue = issue_key.strip().upper()
-    issue_folder = output_base / normalized_issue
-    issue_folder.mkdir(parents=True, exist_ok=True)
 
-    if verbose:
-        print(f"Ticket: {normalized_issue}")
-
-    attachments = get_issue_attachments(
+    attachments, summary = get_issue_attachments_and_summary(
         base_url=base_url,
         api_path=api_path,
         issue_key=normalized_issue,
         auth=auth,
     )
+
+    clean_summary = ""
+    if summary:
+        clean_summary = safe_filename(summary).strip()
+        clean_summary = clean_summary[:30].strip()
+
+    folder_name = normalized_issue
+    if clean_summary:
+        folder_name = f"{normalized_issue}_{clean_summary}"
+
+    issue_folder = output_base / folder_name
+    issue_folder.mkdir(parents=True, exist_ok=True)
+
+    if verbose:
+        print(f"Ticket: {normalized_issue} -> Pasta: {folder_name}")
 
     downloaded = 0
     skipped = 0

@@ -986,11 +986,31 @@ def _is_sap_logado(session, cliente_esperado: str) -> bool:
         return False
 
 
+def _dismiss_popup_if_any(session) -> None:
+    try:
+        session.findById("wnd[1]")
+    except Exception:
+        return
+
+    for btn in ("wnd[1]/tbar[0]/btn[0]", "wnd[1]/tbar[0]/btn[11]", "wnd[1]/tbar[0]/btn[12]"):
+        try:
+            session.findById(btn).press()
+            return
+        except Exception:
+            continue
+
+    try:
+        session.findById("wnd[1]").sendVKey(0)
+    except Exception:
+        pass
+
+
 def _aguardar_login(session, cliente_esperado: str, timeout_s: int = 20) -> bool:
     t0 = time.time()
     while time.time() - t0 <= timeout_s:
         if _is_sap_logado(session, cliente_esperado):
             return True
+        _dismiss_popup_if_any(session)
         time.sleep(0.5)
     return False
 
@@ -1089,11 +1109,9 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
         try:
             SapGuiAuto = win32com.client.GetObject("SAPGUI")
         except Exception:
-            if not interactive:
-                raise
-            warn("SAP Logon nao detectado. Iniciando executavel...")
+            info("SAP Logon nao detectado. Iniciando executavel...")
             subprocess.Popen(SAPLOGON_PATH)
-            time.sleep(5)
+            time.sleep(5.0)
             SapGuiAuto = win32com.client.GetObject("SAPGUI")
 
         application = SapGuiAuto.GetScriptingEngine
@@ -1143,15 +1161,38 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
                 except Exception:
                     pass
 
+                try:
+                    wnd0 = session.findById("wnd[0]")
+                    wnd0.maximize()
+                    wnd0.setFocus()
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
                 session.findById("wnd[0]/usr/txtRSYST-MANDT").text = cliente_esperado
                 session.findById("wnd[0]/usr/txtRSYST-BNAME").text = usuario
+
+                try:
+                    pwd_fld = session.findById("wnd[0]/usr/pwdRSYST-BCODE")
+                    pwd_fld.setFocus()
+                except Exception:
+                    pass
+
                 session.findById("wnd[0]/usr/pwdRSYST-BCODE").text = senha
                 session.findById("wnd[0]/usr/txtRSYST-LANGU").text = idioma
                 session.findById("wnd[0]").sendVKey(0)
 
                 if not _aguardar_login(session, cliente_esperado, timeout_s=20):
+                    sbar_text = ""
+                    try:
+                        sbar_text = str(session.findById("wnd[0]/sbar").Text).strip()
+                    except Exception:
+                        pass
+                    msg_erro = "Login nao foi confirmado (User/Client nao disponiveis). Verifique pop-up, senha extra, ou falha de login."
+                    if sbar_text:
+                        msg_erro += f" [Status SAP: {sbar_text}]"
                     _raise_or_exit(
-                        "Login nao foi confirmado (User/Client nao disponiveis). Verifique pop-up, senha extra, ou falha de login.",
+                        msg_erro,
                         interactive,
                     )
             except Exception as e:
@@ -1190,7 +1231,15 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
         input("Pressione ENTER assim que tiver terminado o login...")
 
         if not _aguardar_login(session, cliente_esperado, timeout_s=20):
-            _raise_or_exit("O login ainda nao foi detectado corretamente apos confirmacao.", interactive)
+            sbar_text = ""
+            try:
+                sbar_text = str(session.findById("wnd[0]/sbar").Text).strip()
+            except Exception:
+                pass
+            msg_erro = "O login ainda nao foi detectado corretamente apos confirmacao."
+            if sbar_text:
+                msg_erro += f" [Status SAP: {sbar_text}]"
+            _raise_or_exit(msg_erro, interactive)
 
     _log_scripting_status_apenas_quando_logado(session, cliente_esperado)
 

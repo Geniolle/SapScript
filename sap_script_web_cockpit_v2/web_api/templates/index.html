@@ -1037,21 +1037,6 @@
           </div>
           <button type="button" id="refresh-button" class="btn btn-secondary" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
           <button type="button" id="new-job-btn" class="btn btn-primary">+ Novo job</button>
-          
-          <span style="width: 1px; height: 24px; background: var(--border-color); margin: 0 4px;"></span>
-          
-          <button type="button" class="btn-icon" title="Alternar Tema">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-          </button>
-          
-          <button type="button" class="btn-icon" title="Notificações" style="position: relative;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-            <span style="position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; background: var(--danger); border-radius: 50%;"></span>
-          </button>
-          
-          <div class="user-profile" style="display: flex; align-items: center; cursor: pointer;">
-            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&h=100&q=80" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color);" />
-          </div>
         </div>
       </header>
 
@@ -1387,6 +1372,22 @@
               </div>
             </div>
 
+            <!-- FORÇAR EXECUÇÃO MANUAL (BYPASS STATUS) -->
+            <div class="card" style="padding: 16px 20px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-card);">
+              <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                Forçar Execução Manual (Bypass Status)
+              </div>
+              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="at-force-ticket-key" placeholder="Chave do ticket (ex: IZ-56680)" style="flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text-primary); font-size: 0.8rem;" />
+                <button class="btn btn-primary" id="btn-at-force-run" onclick="atForceRun()" style="font-size: 0.78rem; padding: 8px 16px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Disparar Manualmente
+                </button>
+              </div>
+              <p style="margin: 0; font-size: 0.7rem; color: var(--text-secondary);">Esta ação irá consultar o ticket indicado no JIRA, baixar o arquivo XLSX e criar o job SAP, mesmo que o status não seja "Work In Progress" ou "In Review".</p>
+            </div>
+
             <!-- Stats KPI Grid -->
             <div id="at-stats-row" class="kpi-grid" style="margin-bottom: 24px; display: none;">
               <!-- Encontrados -->
@@ -1596,7 +1597,7 @@
         <!-- ====== END SAP AGENT VIEW ====== -->
 
       </div>      <!-- JIRA Dashboard View -->
-      <div id="view-jira-dashboard" style="display: none;">
+      <div id="view-jira-dashboard" style="display: none; flex: 1; min-height: 0; overflow-y: auto; flex-direction: column; padding-bottom: 24px;">
         <div style="display: flex; flex-direction: column; gap: 20px;">
 
           <!-- Dashboard Filters Bar -->
@@ -1646,22 +1647,177 @@
             </div>
           </div>
 
-          <!-- Row 1: 3 charts -->
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+          <!-- Row 1: Status Distribution (1 col), User Status Table (2 cols), and Ticket Type (1 col) -->
+          <div style="display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 24px; margin-bottom: 24px;">
 
             <!-- Chart: Status Distribution -->
             <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
-              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Distribuição por Status</div>
-              <div style="position: relative; display: flex; justify-content: center; align-items: center; height: 180px;">
-                <canvas id="dash-chart-status" width="180" height="180"></canvas>
-                <div id="dash-status-center" style="position: absolute; text-align: center; pointer-events: none;">
-                  <div id="dash-status-total" style="font-size: 1.6rem; font-weight: 800; color: var(--text-primary);">0</div>
-                  <div style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">tickets</div>
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Por Status</div>
+                <div style="display: flex; gap: 10px; color: var(--text-secondary); font-size: 0.8rem; font-weight: bold; cursor: pointer;">
+                  <span>⤢</span>
+                  <span>⤡</span>
+                  <span>↻</span>
+                  <span>🔗</span>
                 </div>
               </div>
-              <div id="dash-status-legend" style="display: flex; flex-direction: column; gap: 5px; font-size: 0.72rem;"></div>
+              <div style="display: flex; flex-direction: column; text-align: center; justify-content: space-between; flex: 1; min-height: 220px; gap: 6px; padding: 4px 0;">
+                <!-- Total -->
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <div id="status-val-total" style="font-size: 1.35rem; font-weight: 800; color: var(--text-primary); line-height: 1.1;">0</div>
+                  <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 1px;">Total</div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
+                
+                <!-- In Review -->
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <div id="status-val-in-review" style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1;">0</div>
+                  <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 1px;">Status - In Review</div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
+
+                <!-- Work In Progress -->
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <div id="status-val-wip" style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1;">0</div>
+                  <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 1px;">Status - Work In Progress</div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
+
+                <!-- Reopened -->
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <div id="status-val-reopened" style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1;">0</div>
+                  <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 1px;">Status - Reopened</div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
+
+                <!-- Waiting for Specialized Support -->
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <div id="status-val-waiting-support" style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1;">0</div>
+                  <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 1px;">Status - Waiting for Specialized Support</div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
+
+                <!-- Waiting for Customer -->
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <div id="status-val-waiting-customer" style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1;">0</div>
+                  <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 1px;">Status - Waiting for Customer</div>
+                </div>
+              </div>
+              <div style="font-size: 0.68rem; color: var(--text-secondary); text-align: left; padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; align-items: center; gap: 6px;">
+                <span>↺</span> <span id="status-card-refresh-time">Last refreshed just now</span>
+              </div>
             </div>
+
+            <!-- Chart: Por utilizador -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Por utilizador</div>
+                <div style="display: flex; gap: 10px; color: var(--text-secondary); font-size: 0.8rem; font-weight: bold; cursor: pointer;">
+                  <span>⤢</span>
+                  <span>⤡</span>
+                  <span>↻</span>
+                  <span>🔗</span>
+                </div>
+              </div>
+              
+              <!-- Table Wrapper -->
+              <div style="flex: 1; min-height: 220px; overflow-x: auto; display: flex; flex-direction: column; justify-content: space-between;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.72rem; color: var(--text-primary);">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: bold;">
+                      <th style="text-align: left; padding: 10px 14px; font-size: 0.68rem;">Responsável</th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="In Review"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); text-transform: uppercase; cursor: help;">REV</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="Work In Progress"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); text-transform: uppercase; cursor: help;">WIP</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="Reopened"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); text-transform: uppercase; cursor: help;">REO</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="Waiting for Specialized Support"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); text-transform: uppercase; cursor: help;">SUP</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="Waiting for Customer"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); text-transform: uppercase; cursor: help;">CLI</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem; font-weight: 800;" title="Total">T</th>
+                    </tr>
+                  </thead>
+                  <tbody id="user-status-table-body">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                  <tfoot>
+                    <tr style="border-top: 1px solid var(--border-color); font-weight: bold; background: rgba(255,255,255,0.02);">
+                      <td style="text-align: left; padding: 12px 14px;">Total de Pendências Únicas:</td>
+                      <td id="user-status-total-rev" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-status-total-wip" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-status-total-reo" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-status-total-sup" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-status-total-cli" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-status-total-grand" style="text-align: center; padding: 12px 14px; font-weight: 800; color: var(--text-primary);">0</td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                <!-- Sub-info and stats text -->
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); margin-top: 10px; padding-top: 8px; border-top: 1px dotted var(--border-color);">
+                  <span>Agrupado por: Status do ticket</span>
+                  <span id="user-status-count-stats">Mostrando 0 de 0 estatísticas.</span>
+                </div>
+              </div>
+
+              <!-- Footer with last refresh time -->
+              <div style="font-size: 0.68rem; color: var(--text-secondary); text-align: left; padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; align-items: center; gap: 6px;">
+                <span>↺</span> <span id="user-status-refresh-time">Last refreshed just now</span>
+              </div>
+            </div>
+
+            <!-- Chart: Ticket Type -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tipo de Ticket</div>
+                <div style="display: flex; gap: 10px; color: var(--text-secondary); font-size: 0.8rem; font-weight: bold; cursor: pointer;">
+                  <span>⤢</span>
+                  <span>⤡</span>
+                  <span>↻</span>
+                  <span>🔗</span>
+                </div>
+              </div>
+              
+              <!-- Table Wrapper -->
+              <div style="flex: 1; min-height: 220px; overflow-x: auto; display: flex; flex-direction: column; justify-content: space-between;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.72rem; color: var(--text-primary);">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: bold;">
+                      <th style="text-align: left; padding: 10px 14px; font-size: 0.68rem;">Responsável</th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="Service Request"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); text-transform: uppercase; cursor: help;">Service Request</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="Incident"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(239,68,68,0.1); color: #ef4444; text-transform: uppercase; font-weight: bold; cursor: help;">Incident</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem;" title="Project"><span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); text-transform: uppercase; cursor: help;">Project</span></th>
+                      <th style="text-align: center; padding: 10px 14px; font-size: 0.68rem; font-weight: 800;" title="Total">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="user-type-table-body">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                  <tfoot>
+                    <tr style="border-top: 1px solid var(--border-color); font-weight: bold; background: rgba(255,255,255,0.02);">
+                      <td style="text-align: left; padding: 12px 14px;">Total de Pendências Únicas:</td>
+                      <td id="user-type-total-sr" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-type-total-inc" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-type-total-prj" style="text-align: center; padding: 12px 14px; color: var(--text-primary);">0</td>
+                      <td id="user-type-total-grand" style="text-align: center; padding: 12px 14px; font-weight: 800; color: var(--text-primary);">0</td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                <!-- Sub-info and stats text -->
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); margin-top: 10px; padding-top: 8px; border-top: 1px dotted var(--border-color);">
+                  <span>Agrupado por: Tipo de ticket</span>
+                  <span id="user-type-count-stats">Mostrando 0 de 0 estatísticas.</span>
+                </div>
+              </div>
+
+              <!-- Footer with last refresh time -->
+              <div style="font-size: 0.68rem; color: var(--text-secondary); text-align: left; padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; align-items: center; gap: 6px;">
+                <span>↺</span> <span id="user-type-refresh-time">Last refreshed just now</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Row 2: Priority (1fr), TTR por Mês (2fr), and Resumo TTR (1fr) -->
+          <div style="display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 24px; margin-bottom: 24px;">
 
             <!-- Chart: Priority Distribution -->
             <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
@@ -1671,35 +1827,67 @@
               </div>
             </div>
 
-            <!-- Chart: Ticket Type -->
+            <!-- Chart: TTR por Mês -->
             <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
-              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tipo de Ticket</div>
-              <div style="position: relative; display: flex; justify-content: center; align-items: center; height: 180px;">
-                <canvas id="dash-chart-type" width="180" height="180"></canvas>
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Média de Time to Resolution (Dias) - Ano Corrente</div>
+              <div style="flex: 1; display: flex; align-items: flex-end; height: 180px;">
+                <canvas id="dash-chart-ttr" style="width: 100%; height: 180px;"></canvas>
               </div>
-              <div id="dash-type-legend" style="display: flex; flex-direction: column; gap: 5px; font-size: 0.72rem;"></div>
+            </div>
+
+            <!-- Card: TTR Estatísticas -->
+            <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Resumo TTR (Ano Corrente)</div>
+              <div style="display: flex; flex-direction: column; gap: 12px; min-height: 180px; justify-content: center;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                  <span style="font-size: 0.8rem; color: var(--text-secondary);">Média Geral</span>
+                  <span id="ttr-val-average" style="font-size: 1.2rem; font-weight: 800; color: var(--primary);">0.0 dias</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                  <span style="font-size: 0.8rem; color: var(--text-secondary);">Tickets Resolvidos</span>
+                  <span id="ttr-val-resolved-count" style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary);">0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                  <span style="font-size: 0.8rem; color: var(--text-secondary);">Dentro do SLA</span>
+                  <span id="ttr-val-sla-ok" style="font-size: 0.95rem; font-weight: 700; color: var(--success);">0% (0)</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-size: 0.8rem; color: var(--text-secondary);">Fora do SLA</span>
+                  <span id="ttr-val-sla-breached" style="font-size: 0.95rem; font-weight: 700; color: var(--danger);">0% (0)</span>
+                </div>
+              </div>
             </div>
 
           </div>
 
-          <!-- Row 2: 3 charts -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+          <!-- Row 3: Team (1fr), SLA Status (1fr), and Top Assignees (1fr) -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-bottom: 24px;">
 
-            <!-- Chart: Tickets por Equipa -->
+            <!-- Card: Tickets por Processo -->
             <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
-              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tickets por Equipa</div>
-              <div style="flex: 1; display: flex; align-items: flex-end; height: 180px;">
-                <canvas id="dash-chart-team" style="width: 100%; height: 180px;"></canvas>
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tickets por Processo - Ano Corrente</div>
+              <div style="flex: 1; height: 180px; overflow-y: auto; min-height: 180px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.72rem; color: var(--text-primary);">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: bold; height: 28px;">
+                      <th style="text-align: left; padding: 6px 8px; font-size: 0.68rem;">Processo</th>
+                      <th style="text-align: center; padding: 6px 8px; font-size: 0.68rem; width: 50px;">Qtd</th>
+                      <th style="text-align: center; padding: 6px 8px; font-size: 0.68rem; width: 60px;">%</th>
+                    </tr>
+                  </thead>
+                  <tbody id="user-process-table-body">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            <!-- Chart: SLA Status -->
+            <!-- Chart: Tickets por Ano -->
             <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
-              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Estado SLA Resolução</div>
-              <div style="position: relative; display: flex; justify-content: center; align-items: center; height: 180px;">
-                <canvas id="dash-chart-sla" width="180" height="180"></canvas>
+              <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);">Tickets por Ano</div>
+              <div style="flex: 1; display: flex; align-items: flex-end; height: 180px;">
+                <canvas id="dash-chart-sla" style="width: 100%; height: 180px;"></canvas>
               </div>
-              <div id="dash-sla-legend" style="display: flex; flex-direction: column; gap: 5px; font-size: 0.72rem;"></div>
             </div>
 
             <!-- Chart: Top Responsáveis -->
@@ -4991,17 +5179,9 @@
             if (config.key === 'assignee') {
                 const activeTeamFilter = currentValues['jira-filter-team'];
                 if (activeTeamFilter && TEAM_MEMBERS[activeTeamFilter]) {
-                    // Filter down to only members of this specific team
+                    // Keep present assignees for this team, and add all predefined members of this specific team
                     const teamMembers = TEAM_MEMBERS[activeTeamFilter];
-                    const filteredValues = new Set();
-                    presentValues.forEach(val => {
-                        if (teamMembers.includes(val)) {
-                            filteredValues.add(val);
-                        }
-                    });
-                    // Also make sure all predefined team members are present
-                    teamMembers.forEach(val => filteredValues.add(val));
-                    presentValues = filteredValues;
+                    teamMembers.forEach(val => presentValues.add(val));
                 } else {
                     // No team filter is active, show all present assignees, and make sure Clayton Lopes is there
                     presentValues.add("Clayton Lopes");
@@ -5011,6 +5191,7 @@
                     }
                 }
             }
+
 
             let html = ``;
 
@@ -5051,7 +5232,7 @@
         }
 
         try {
-            const res = await fetch('/api/jira/tickets?limit=1000');
+            const res = await fetch('/api/jira/tickets?limit=50000');
             if (!res.ok) throw new Error('Falha ao carregar tickets');
             const data = await res.json();
             jiraTickets = data.tickets || [];
@@ -5112,8 +5293,12 @@
         }
         const sortedAssignees = Array.from(uniqueAssignees).sort((a, b) => a.localeCompare(b));
 
-        // 1. Faceted update: refresh dropdown options list based on active filters
-        populateAllDropdownsFaceted(jiraTickets);
+        // 1. Faceted update: refresh dropdown options list based on active filters (only for open tickets to avoid freezing the browser)
+        const openTicketsOnly = jiraTickets.filter(t => {
+            const s = (t.status || '').toLowerCase().trim();
+            return !['done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled'].includes(s);
+        });
+        populateAllDropdownsFaceted(openTicketsOnly);
 
         // 2. Read values of active filters (which are preserved during populating)
         const valTeam = document.getElementById('jira-filter-team')?.value || '';
@@ -5127,7 +5312,7 @@
         const valKey = (document.getElementById('jira-filter-key')?.value || '').toLowerCase().trim();
         const query = (document.getElementById('jira-search-input')?.value || '').toLowerCase().trim();
 
-        const CLOSED_STATUSES = new Set(['done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada']);
+        const CLOSED_STATUSES = new Set(['done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled']);
 
         const filtered = jiraTickets.filter(t => {
             // Excluir sempre tickets fechados/concluídos da fila activa
@@ -5644,7 +5829,25 @@
         const sel = document.getElementById(selectId);
         if (!sel) return;
         const current = sel.value;
-        const values = [...new Set(tickets.map(t => (t[field] || '').trim()).filter(Boolean))].sort();
+        
+        let filteredTickets = tickets;
+        if (selectId === 'dash-filter-assignee') {
+            const activeTeamFilter = document.getElementById('dash-filter-team')?.value || '';
+            if (activeTeamFilter) {
+                filteredTickets = tickets.filter(t => (t.team || '').trim() === activeTeamFilter);
+            }
+        }
+        
+        const valuesSet = new Set(filteredTickets.map(t => (t[field] || '').trim()).filter(v => v && String(v).trim() !== ""));
+        
+        if (selectId === 'dash-filter-assignee') {
+            const activeTeamFilter = document.getElementById('dash-filter-team')?.value || '';
+            if (activeTeamFilter && TEAM_MEMBERS[activeTeamFilter]) {
+                TEAM_MEMBERS[activeTeamFilter].forEach(member => valuesSet.add(member));
+            }
+        }
+        
+        const values = Array.from(valuesSet).sort((a, b) => a.localeCompare(b));
         sel.innerHTML = `<option value="">${placeholder}</option>` +
             values.map(v => `<option value="${escapeHtml(v)}"${v === current ? ' selected' : ''}>${escapeHtml(v)}</option>`).join('');
     }
@@ -5840,14 +6043,304 @@
             });
         }
 
-        // ─── 1. Status donut ───
-        const statusMap = countByField(tickets, 'status');
-        const statusData = sortedEntries(statusMap, 8).map(([lbl, val], i) => ({ label: lbl, value: val, color: PALETTE[i % PALETTE.length] }));
-        drawDonut('dash-chart-status', statusData, 'dash-status-legend', 'dash-status-total');
+        // ── HORIZONTAL BAR CHART ──
+        function drawHorizontalBar(canvasId, labels, values, colors) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const parent = canvas.parentElement;
+            canvas.width = parent ? parent.clientWidth || 260 : 260;
+            canvas.height = 180;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+
+            const max = Math.max(...values, 1);
+            const pad = { top: 15, right: 30, bottom: 10, left: 40 };
+            const chartW = W - pad.left - pad.right;
+            const chartH = H - pad.top - pad.bottom;
+            const barH = Math.max(4, (chartH / labels.length) - 8);
+
+            // Vertical grid lines
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            ctx.lineWidth = 1;
+            [0.25, 0.5, 0.75, 1].forEach(f => {
+                const x = pad.left + chartW * f;
+                ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, H - pad.bottom); ctx.stroke();
+            });
+
+            labels.forEach((lbl, i) => {
+                const y = pad.top + i * (chartH / labels.length) + (chartH / labels.length - barH) / 2;
+                const barW = (values[i] / max) * chartW;
+                const x = pad.left;
+
+                // Gradient
+                const grad = ctx.createLinearGradient(x, y, x + barW, y);
+                const col = colors[i % colors.length];
+                grad.addColorStop(0, col + '55');
+                grad.addColorStop(1, col);
+                ctx.fillStyle = grad;
+
+                // Rounded bar
+                const radius = Math.min(5, barH / 2);
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x + barW - radius, y);
+                ctx.quadraticCurveTo(x + barW, y, x + barW, y + radius);
+                ctx.lineTo(x + barW, y + barH - radius);
+                ctx.quadraticCurveTo(x + barW, y + barH, x + barW - radius, y + barH);
+                ctx.lineTo(x, y + barH);
+                ctx.closePath();
+                ctx.fill();
+
+                // Value next to the bar
+                ctx.fillStyle = textColor;
+                ctx.font = 'bold 10px Inter,system-ui,sans-serif';
+                ctx.textAlign = 'left';
+                if (values[i] > 0) {
+                    ctx.fillText(values[i], x + barW + 5, y + barH / 2 + 3);
+                }
+
+                // Label on the left
+                ctx.fillStyle = textColor;
+                ctx.font = '9px Inter,system-ui,sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(lbl, x - 6, y + barH / 2 + 3);
+            });
+        }
+
+
+        // ─── 1. Status list (Somente tickets em aberto, igual imagem JIRA Live)
+        const openTicketsForStatus = tickets.filter(t => {
+            const s = (t.status || '').toLowerCase().trim();
+            return !['done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled'].includes(s);
+        });
+
+        const countStatus = (statusNameList) => {
+            return openTicketsForStatus.filter(t => {
+                const s = (t.status || '').toLowerCase().trim();
+                return statusNameList.includes(s);
+            }).length;
+        };
+
+        const inReviewCount = countStatus(['in review', 'sob revisão']);
+        const wipCount = countStatus(['work in progress', 'em progresso', 'wip']);
+        const reopenedCount = countStatus(['reopened', 'reaberto']);
+        const waitingSupportCount = countStatus(['waiting for specialized support', 'aguarda suporte especializado', 'waiting for specialized support']);
+        const waitingCustomerCount = countStatus(['waiting for customer', 'aguarda cliente']);
+        const totalOpen = inReviewCount + wipCount + reopenedCount + waitingSupportCount + waitingCustomerCount;
+
+        // Update UI elements
+        const totalEl = document.getElementById('status-val-total');
+        if (totalEl) totalEl.textContent = totalOpen;
+
+        const inReviewEl = document.getElementById('status-val-in-review');
+        if (inReviewEl) inReviewEl.textContent = inReviewCount;
+
+        const wipEl = document.getElementById('status-val-wip');
+        if (wipEl) wipEl.textContent = wipCount;
+
+        const reopenedEl = document.getElementById('status-val-reopened');
+        if (reopenedEl) reopenedEl.textContent = reopenedCount;
+
+        const supportEl = document.getElementById('status-val-waiting-support');
+        if (supportEl) supportEl.textContent = waitingSupportCount;
+
+        const customerEl = document.getElementById('status-val-waiting-customer');
+        if (customerEl) customerEl.textContent = waitingCustomerCount;
+
+        // Update last refreshed time
+        const refreshEl = document.getElementById('status-card-refresh-time');
+        if (refreshEl) {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            refreshEl.textContent = `Last refreshed at ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        }
+
+        // ─── 1.5. User Status Table (Distribuição por Utilizador / Status) ───
+        const userStatusGroups = {};
+        openTicketsForStatus.forEach(t => {
+            let assignee = (t.assignee || '').trim();
+            if (!assignee || assignee.toLowerCase() === 'sem responsável') {
+                assignee = 'Sem responsável';
+            }
+            if (!userStatusGroups[assignee]) {
+                userStatusGroups[assignee] = {
+                    rev: 0,
+                    wip: 0,
+                    reo: 0,
+                    sup: 0,
+                    cli: 0,
+                    total: 0
+                };
+            }
+            const s = (t.status || '').toLowerCase().trim();
+            if (['in review', 'sob revisão'].includes(s)) {
+                userStatusGroups[assignee].rev++;
+            } else if (['work in progress', 'em progresso', 'wip'].includes(s)) {
+                userStatusGroups[assignee].wip++;
+            } else if (['reopened', 'reaberto'].includes(s)) {
+                userStatusGroups[assignee].reo++;
+            } else if (['waiting for specialized support', 'aguarda suporte especializado'].includes(s)) {
+                userStatusGroups[assignee].sup++;
+            } else if (['waiting for customer', 'aguarda cliente'].includes(s)) {
+                userStatusGroups[assignee].cli++;
+            }
+            userStatusGroups[assignee].total++;
+        });
+
+        const sortedStatusAssignees = Object.keys(userStatusGroups).sort((a, b) => {
+            if (a === 'Sem responsável') return 1;
+            if (b === 'Sem responsável') return -1;
+            return a.localeCompare(b);
+        });
+
+        let totalRev = 0, totalWip = 0, totalReo = 0, totalSup = 0, totalCli = 0, grandStatusTotal = 0;
+
+        sortedStatusAssignees.forEach(assignee => {
+            const data = userStatusGroups[assignee];
+            totalRev += data.rev;
+            totalWip += data.wip;
+            totalReo += data.reo;
+            totalSup += data.sup;
+            totalCli += data.cli;
+            grandStatusTotal += data.total;
+        });
+
+        const statusTbodyEl = document.getElementById('user-status-table-body');
+        if (statusTbodyEl) {
+            if (sortedStatusAssignees.length === 0) {
+                statusTbodyEl.innerHTML = `<tr><td colspan="7" style="padding: 16px; text-align: center; color: var(--text-secondary);">Sem dados de pendências por utilizador.</td></tr>`;
+            } else {
+                statusTbodyEl.innerHTML = sortedStatusAssignees.map(assignee => {
+                    const data = userStatusGroups[assignee];
+                    return `
+                        <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
+                          <td style="text-align: left; padding: 10px 14px; font-weight: 500; color: var(--text-primary); white-space: nowrap;">${escapeHtml(assignee)}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.rev > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.rev}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.wip > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.wip}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.reo > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.reo}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.sup > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.sup}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.cli > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.cli}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 800; color: var(--text-primary);">${data.total}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        const footerRev = document.getElementById('user-status-total-rev');
+        if (footerRev) footerRev.textContent = totalRev;
+        const footerWip = document.getElementById('user-status-total-wip');
+        if (footerWip) footerWip.textContent = totalWip;
+        const footerReo = document.getElementById('user-status-total-reo');
+        if (footerReo) footerReo.textContent = totalReo;
+        const footerSup = document.getElementById('user-status-total-sup');
+        if (footerSup) footerSup.textContent = totalSup;
+        const footerCli = document.getElementById('user-status-total-cli');
+        if (footerCli) footerCli.textContent = totalCli;
+        const footerGrand = document.getElementById('user-status-total-grand');
+        if (footerGrand) footerGrand.textContent = grandStatusTotal;
+
+        const countStatsEl = document.getElementById('user-status-count-stats');
+        if (countStatsEl) {
+            countStatsEl.textContent = `Mostrando ${sortedStatusAssignees.length} de ${sortedStatusAssignees.length} estatísticas.`;
+        }
+
+        const userRefreshEl = document.getElementById('user-status-refresh-time');
+        if (userRefreshEl) {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            userRefreshEl.textContent = `Last refreshed at ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        }
+
+
+        // ─── 1.6. User Ticket Type Table (Distribuição por Utilizador / Tipo de Ticket) ───
+        const userTypeGroups = {};
+        openTicketsForStatus.forEach(t => {
+            let assignee = (t.assignee || '').trim();
+            if (!assignee || assignee.toLowerCase() === 'sem responsável') {
+                assignee = 'Sem responsável';
+            }
+            if (!userTypeGroups[assignee]) {
+                userTypeGroups[assignee] = {
+                    sr: 0,
+                    inc: 0,
+                    prj: 0,
+                    total: 0
+                };
+            }
+            const type = (t.ticket_type || '').toLowerCase().trim();
+            if (type.includes('incident')) {
+                userTypeGroups[assignee].inc++;
+            } else if (type.includes('request') || type.includes('service')) {
+                userTypeGroups[assignee].sr++;
+            } else {
+                userTypeGroups[assignee].prj++;
+            }
+            userTypeGroups[assignee].total++;
+        });
+
+        const sortedTypeAssignees = Object.keys(userTypeGroups).sort((a, b) => {
+            if (a === 'Sem responsável') return 1;
+            if (b === 'Sem responsável') return -1;
+            return a.localeCompare(b);
+        });
+
+        let totalTypeSr = 0, totalTypeInc = 0, totalTypePrj = 0, grandTypeTotal = 0;
+
+        sortedTypeAssignees.forEach(assignee => {
+            const data = userTypeGroups[assignee];
+            totalTypeSr += data.sr;
+            totalTypeInc += data.inc;
+            totalTypePrj += data.prj;
+            grandTypeTotal += data.total;
+        });
+
+        const typeTbodyEl = document.getElementById('user-type-table-body');
+        if (typeTbodyEl) {
+            if (sortedTypeAssignees.length === 0) {
+                typeTbodyEl.innerHTML = `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--text-secondary);">Sem dados de pendências por utilizador.</td></tr>`;
+            } else {
+                typeTbodyEl.innerHTML = sortedTypeAssignees.map(assignee => {
+                    const data = userTypeGroups[assignee];
+                    return `
+                        <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
+                          <td style="text-align: left; padding: 10px 14px; font-weight: 500; color: var(--text-primary); white-space: nowrap;">${escapeHtml(assignee)}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.sr > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.sr}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.inc > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.inc}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 600; color: ${data.prj > 0 ? 'var(--text-primary)' : 'var(--text-secondary)'};">${data.prj}</td>
+                          <td style="text-align: center; padding: 10px 14px; font-weight: 800; color: var(--text-primary);">${data.total}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        const footerSr = document.getElementById('user-type-total-sr');
+        if (footerSr) footerSr.textContent = totalTypeSr;
+        const footerInc = document.getElementById('user-type-total-inc');
+        if (footerInc) footerInc.textContent = totalTypeInc;
+        const footerPrj = document.getElementById('user-type-total-prj');
+        if (footerPrj) footerPrj.textContent = totalTypePrj;
+        const footerTypeGrand = document.getElementById('user-type-total-grand');
+        if (footerTypeGrand) footerTypeGrand.textContent = grandTypeTotal;
+
+        const countTypeStatsEl = document.getElementById('user-type-count-stats');
+        if (countTypeStatsEl) {
+            countTypeStatsEl.textContent = `Mostrando ${sortedTypeAssignees.length} de ${sortedTypeAssignees.length} estatísticas.`;
+        }
+
+        const typeRefreshEl = document.getElementById('user-type-refresh-time');
+        if (typeRefreshEl) {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            typeRefreshEl.textContent = `Last refreshed at ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        }
+
 
         // ─── 2. Priority bar ───
         const PRIORITY_ORDER = ['Critical','Highest','High','Medium','Low','Lowest'];
-        const prioMap = countByField(tickets, 'priority');
+        const prioMap = countByField(openTicketsForStatus, 'priority');
         const prioColors = { Critical:'#ef4444', Highest:'#f97316', High:'#f59e0b', Medium:'#3b82f6', Low:'#10b981', Lowest:'#6366f1' };
         const prioLabels = PRIORITY_ORDER.filter(p => prioMap[p] > 0);
         const prioValues = prioLabels.map(p => prioMap[p]);
@@ -5856,35 +6349,159 @@
         Object.keys(prioMap).forEach(p => { if (!PRIORITY_ORDER.includes(p)) { prioLabels.push(p); prioValues.push(prioMap[p]); prioColArr.push('#8b5cf6'); } });
         drawBar('dash-chart-priority', prioLabels.length ? prioLabels : ['Sem dados'], prioValues.length ? prioValues : [0], prioColArr.length ? prioColArr : ['#6366f1']);
 
-        // ─── 3. Ticket type donut ───
-        const typeMap = countByField(tickets, 'ticket_type');
-        const typeData = sortedEntries(typeMap, 8).map(([lbl, val], i) => ({ label: lbl, value: val, color: PALETTE[i % PALETTE.length] }));
-        drawDonut('dash-chart-type', typeData, 'dash-type-legend', null);
+        // ─── 4. Process Table (Replacing Team bar) ───
+        const processMap = {};
+        let totalProcessTickets = 0;
+        const currentYear = new Date().getFullYear();
+        tickets.forEach(t => {
+            const s = (t.status || '').toLowerCase().trim();
+            const isOpen = !['done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled'].includes(s);
+            let isCurrentYear = isOpen;
+            if (!isOpen && t.resolved_at) {
+                const resDate = new Date(t.resolved_at);
+                if (!isNaN(resDate.getTime()) && resDate.getFullYear() === currentYear) {
+                    isCurrentYear = true;
+                }
+            }
+            if (!isCurrentYear) return;
 
-        // ─── 4. Team bar ───
-        const teamMap = countByField(tickets, 'team');
-        const teamEntries = sortedEntries(teamMap, 8);
-        drawBar('dash-chart-team', teamEntries.map(e=>e[0]), teamEntries.map(e=>e[1]), PALETTE);
+            const p = (t.process && t.process.trim()) ? t.process.trim() : 'Sem processo';
+            processMap[p] = (processMap[p] || 0) + 1;
+            totalProcessTickets++;
+        });
 
-        // ─── 5. SLA donut ───
-        const slaOk = tickets.filter(t => t.time_to_resolution && !t.time_to_resolution.toLowerCase().includes('excedido') && t.time_to_resolution.trim() !== '').length;
-        const slaBreached = tickets.filter(t => t.time_to_resolution && t.time_to_resolution.toLowerCase().includes('excedido')).length;
-        const slaNone = tickets.filter(t => !t.time_to_resolution || t.time_to_resolution.trim() === '').length;
-        const slaData = [
-            { label: 'Dentro do prazo', value: slaOk, color: '#10b981' },
-            { label: 'SLA Excedido', value: slaBreached, color: '#ef4444' },
-            { label: 'Sem SLA', value: slaNone, color: '#374151' },
-        ].filter(d => d.value > 0);
-        drawDonut('dash-chart-sla', slaData, 'dash-sla-legend', null);
+        const sortedProcesses = Object.entries(processMap)
+            .sort((a, b) => b[1] - a[1]);
+
+        const processTbodyEl = document.getElementById('user-process-table-body');
+        if (processTbodyEl) {
+            if (sortedProcesses.length === 0) {
+                processTbodyEl.innerHTML = `<tr><td colspan="3" style="padding: 16px; text-align: center; color: var(--text-secondary);">Sem dados de processos.</td></tr>`;
+            } else {
+                processTbodyEl.innerHTML = sortedProcesses.map(([proc, count]) => {
+                    const pct = totalProcessTickets > 0 ? ((count / totalProcessTickets) * 100).toFixed(1) : '0.0';
+                    return `
+                        <tr style="border-bottom: 1px solid var(--border-color); height: 32px;">
+                          <td style="text-align: left; padding: 6px 8px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;" title="${escapeHtml(proc)}">${escapeHtml(proc)}</td>
+                          <td style="text-align: center; padding: 6px 8px; font-weight: 700; color: var(--text-primary);">${count}</td>
+                          <td style="text-align: center; padding: 6px 8px; font-weight: 600; color: var(--text-secondary);">${pct}%</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        // ─── 5. Tickets por Ano bar chart (Replacing SLA donut) ───
+        const yearMap = {
+            2023: 12815,
+            2024: 7929,
+            2025: 5691
+        };
+        tickets.forEach(t => {
+            if (!t.resolved_at) return;
+            const resDate = new Date(t.resolved_at);
+            if (isNaN(resDate.getTime())) return;
+            const year = resDate.getFullYear();
+            if (year >= 2026) {
+                yearMap[year] = (yearMap[year] || 0) + 1;
+            }
+        });
+
+        const sortedYears = Object.keys(yearMap).sort((a, b) => parseInt(a) - parseInt(b));
+        const yearLabels = sortedYears;
+        const yearValues = sortedYears.map(y => yearMap[y]);
+
+        drawHorizontalBar('dash-chart-sla', yearLabels.length ? yearLabels : ['Sem dados'], yearValues.length ? yearValues : [0], ['#10b981']);
 
         // ─── 6. Top assignees bar ───
         const assigneeMap = {};
-        tickets.forEach(t => {
+        openTicketsForStatus.forEach(t => {
             const a = (t.assignee && t.assignee.trim() && t.assignee.toLowerCase() !== 'sem responsável') ? t.assignee.trim() : null;
             if (a) assigneeMap[a] = (assigneeMap[a] || 0) + 1;
         });
         const assigneeEntries = sortedEntries(assigneeMap, 8);
         drawBar('dash-chart-assignee', assigneeEntries.map(e=>e[0]), assigneeEntries.map(e=>e[1]), PALETTE);
+ 
+        // ─── 6.5. Time to Resolution (TTR) ───
+        const EXCLUDED_TTR_TICKETS = new Set(['IZ-52956']);
+        const ttrSums = Array(12).fill(0);
+        const ttrCounts = Array(12).fill(0);
+        let averageSum = 0;
+        let averageCount = 0;
+        let overallCount = 0;
+        let slaOkCount = 0;
+        let slaBreachedCount = 0;
+
+        tickets.forEach(t => {
+            if (t.key && EXCLUDED_TTR_TICKETS.has(t.key)) return;
+            if (!t.created_at || !t.resolved_at) return;
+            const createdDate = new Date(t.created_at);
+            const resolvedDate = new Date(t.resolved_at);
+            if (isNaN(createdDate.getTime()) || isNaN(resolvedDate.getTime())) return;
+
+            if (resolvedDate.getFullYear() === currentYear) {
+                const isProject = t.ticket_type && t.ticket_type.trim().toLowerCase() === 'project';
+                
+                overallCount++;
+
+                if (isProject) {
+                    slaOkCount++;
+                } else {
+                    if (t.time_to_resolution) {
+                        const slaLower = t.time_to_resolution.toLowerCase();
+                        if (slaLower.includes('atraso') || slaLower.includes('excedido')) {
+                            slaBreachedCount++;
+                        } else if (slaLower.includes('resolvido')) {
+                            slaOkCount++;
+                        }
+                    }
+                }
+
+                if (!isProject) {
+                    const ttrMs = resolvedDate - createdDate;
+                    const ttrDays = Math.max(0, ttrMs / (1000 * 60 * 60 * 24)); // ttr in days
+
+                    const month = resolvedDate.getMonth(); // 0-11
+                    ttrSums[month] += ttrDays;
+                    ttrCounts[month]++;
+
+                    averageSum += ttrDays;
+                    averageCount++;
+                }
+            }
+        });
+
+        const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const ttrAverages = MONTH_LABELS.map((_, i) => {
+            return ttrCounts[i] > 0 ? parseFloat((ttrSums[i] / ttrCounts[i]).toFixed(1)) : 0;
+        });
+
+        // Draw Monthly TTR Bar Chart
+        drawBar('dash-chart-ttr', MONTH_LABELS, ttrAverages, ['#3b82f6']);
+
+        // Update TTR Statistics Labels
+        const avgEl = document.getElementById('ttr-val-average');
+        if (avgEl) {
+            avgEl.textContent = averageCount > 0 ? `${(averageSum / averageCount).toFixed(1)} dias` : '—';
+        }
+        const countEl = document.getElementById('ttr-val-resolved-count');
+        if (countEl) {
+            countEl.textContent = overallCount;
+        }
+
+        // SLA percentages
+        const totalSlaResolved = slaOkCount + slaBreachedCount;
+        const slaOkPercent = totalSlaResolved > 0 ? ((slaOkCount / totalSlaResolved) * 100).toFixed(1) : '0.0';
+        const slaBreachedPercent = totalSlaResolved > 0 ? ((slaBreachedCount / totalSlaResolved) * 100).toFixed(1) : '0.0';
+
+        const slaOkEl = document.getElementById('ttr-val-sla-ok');
+        if (slaOkEl) {
+            slaOkEl.textContent = `${slaOkPercent}% (${slaOkCount})`;
+        }
+        const slaBreachedEl = document.getElementById('ttr-val-sla-breached');
+        if (slaBreachedEl) {
+            slaBreachedEl.textContent = `${slaBreachedPercent}% (${slaBreachedCount})`;
+        }
 
         // ─── 7. Backlog crítico ───
         const critical = tickets.filter(t => {
@@ -6061,6 +6678,56 @@
             showToast('Erro ao executar auto-trigger: ' + e.message, 'error');
         } finally {
             if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg> Executar agora'; }
+        }
+    }
+
+    async function atForceRun() {
+        const input = document.getElementById('at-force-ticket-key');
+        if (!input) return;
+        const key = input.value.trim().toUpperCase();
+        if (!key) {
+            showToast('Por favor, introduza a chave do ticket JIRA.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-at-force-run');
+        if (btn) { btn.disabled = true; btn.innerHTML = 'A disparar...'; }
+
+        try {
+            const res = await fetch('/api/jira/auto-trigger/force-run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticket_key: key })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Erro na API');
+
+            showToast(data.message || 'Job SAP criado com sucesso!', 'success');
+            input.value = ''; // clear input
+
+            // Reload logs and results
+            atLoadLog();
+
+            // Re-render execution result in results card
+            document.getElementById('at-results-title').textContent = 'Resultado da Execução Manual';
+            document.getElementById('at-results-count').textContent = `1 job criado`;
+
+            const tbody = document.getElementById('at-results-tbody');
+            const jobLink = data.job_id ? `<a href="#" onclick="showJobLog('${data.job_id}')" style="color:var(--primary); font-weight:600; font-size:11px;">#${data.job_id.substring(0,8)}</a>` : '—';
+            tbody.innerHTML = `<tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding:10px 14px; text-align:center; white-space:nowrap;"><a href="{{ jira_base }}/browse/${key}" target="_blank" style="color:var(--primary); font-weight:700; text-decoration:none;">${key}</a></td>
+                <td style="padding:10px 14px; color:var(--text-primary);">${escapeHtml(data.subprocesso || '')}</td>
+                <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">${escapeHtml(data.processo || '—')}</td>
+                <td style="padding:10px 14px; text-align:center;"><span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">✅ Criado</span></td>
+                <td style="padding:10px 14px; text-align:center;">${jobLink}</td>
+            </tr>`;
+            document.getElementById('at-results-card').style.display = 'block';
+            document.getElementById('at-stats-row').style.display = 'none';
+
+        } catch (e) {
+            showToast('Erro ao forçar execução: ' + e.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg> Disparar Manualmente'; }
         }
     }
 

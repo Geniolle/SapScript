@@ -323,8 +323,23 @@ def _try_minimize_saplogon_windows() -> None:
 
 
 def _submit_login(session, target: SapTarget) -> None:
+    try:
+        wnd0 = session.findById("wnd[0]")
+        wnd0.maximize()
+        wnd0.setFocus()
+    except Exception:
+        pass
+    time.sleep(0.5)
+
     session.findById("wnd[0]/usr/txtRSYST-MANDT").text = target.client
     session.findById("wnd[0]/usr/txtRSYST-BNAME").text = target.user
+
+    try:
+        pwd_fld = session.findById("wnd[0]/usr/pwdRSYST-BCODE")
+        pwd_fld.setFocus()
+    except Exception:
+        pass
+
     session.findById("wnd[0]/usr/pwdRSYST-BCODE").text = target.password
     session.findById("wnd[0]/usr/txtRSYST-LANGU").text = target.language
     session.findById("wnd[0]").sendVKey(0)

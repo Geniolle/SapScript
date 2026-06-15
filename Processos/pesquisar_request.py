@@ -260,27 +260,42 @@ def _aplicar_filtros_base(session, user):
     tbl = _find_table_control(session)
     if not tbl:
         tbl_id = "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC"
-        row_count = 10
+        row_count = 12
+        visible_rows = 12
     else:
         tbl_id = tbl.Id
         try:
             row_count = int(tbl.RowCount)
         except Exception:
-            row_count = 10
+            row_count = 12
+        try:
+            visible_rows = int(tbl.VisibleRowCount)
+        except Exception:
+            visible_rows = 12
 
+    # Otimização 1: Acesso direto rápido para a tabela E070 (TRSTATUS costuma ser a linha 2, AS4USER a linha 3)
+    try:
+        f2 = session.findById(f"{tbl_id}/txtGS_SELFIELDS-FIELDNAME[13,2]").text.strip().upper()
+        f3 = session.findById(f"{tbl_id}/txtGS_SELFIELDS-FIELDNAME[13,3]").text.strip().upper()
+        if f2 == "TRSTATUS" and f3 == "AS4USER":
+            if _set_low_value(session, tbl_id, 2, "D") and _set_low_value(session, tbl_id, 3, user):
+                return True
+    except Exception:
+        pass
+
+    # Otimização 2: Fallback dinâmico apenas nas linhas visíveis para evitar erros COM lentos
     status_set = False
     user_set = False
+    limite_linhas = min(row_count, visible_rows, 20)
 
-    for r in range(row_count):
+    for r in range(limite_linhas):
         fieldname = ""
-        for prefix in ["txt", "ctxt"]:
-            try:
-                fname_id = f"{tbl_id}/{prefix}GS_SELFIELDS-FIELDNAME[13,{r}]"
-                fieldname = session.findById(fname_id).text.strip().upper()
-                if fieldname:
-                    break
-            except Exception:
-                pass
+        try:
+            # O nome do campo é sempre um label de texto ("txt"), nunca de entrada ("ctxt")
+            fname_id = f"{tbl_id}/txtGS_SELFIELDS-FIELDNAME[13,{r}]"
+            fieldname = session.findById(fname_id).text.strip().upper()
+        except Exception:
+            continue
 
         if not fieldname:
             continue
@@ -357,6 +372,23 @@ def _score_grid_candidate(obj):
 
 
 def _find_best_grid(session):
+    # Otimização 1: Tentar caminhos diretos comuns do ALV Grid em SE16H/SE16N primeiro
+    comuns = [
+        "wnd[0]/usr/cntlRESULT/shellcont/shell",
+        "wnd[0]/usr/cntlGRID1/shellcont/shell",
+        "wnd[0]/usr/shellcont/shell",
+    ]
+    for c in comuns:
+        try:
+            obj = session.findById(c)
+            # verifica se possui RowCount e GetCellValue (assinatura de GridView)
+            _ = obj.RowCount
+            _ = obj.GetCellValue(0, "TRKORR")
+            return obj
+        except Exception:
+            continue
+
+    # Otimização 2: Fallback com varredura genérica caso os caminhos diretos não existam
     roots = []
     try:
         roots.append(session.findById("wnd[0]/usr"))

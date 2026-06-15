@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment
 import asyncio
 
@@ -44,6 +44,7 @@ _DEFAULT_CATEGORY_MAP = json.dumps({
         "processo": "Cadeias de Pesquisa",
         "subprocesso": "Criar Atribuir Cadeias.py",
         "request_option": "1",
+        "ambiente": "DEV",
     }
 })
 
@@ -342,6 +343,37 @@ def _windows_upload_path(saved_name: str) -> str:
 
     return str(UPLOADS_DIR / saved_name)
 
+def _fetch_all_sync_tickets() -> list[dict]:
+    # 1. Fetch standard tickets (open tickets based on JIRA_SYNC_JQL)
+    open_tickets = fetch_jira_tickets_from_api()
+    
+    # 2. Fetch resolved tickets for current year (2026 onwards)
+    jql = os.getenv("JIRA_SYNC_JQL", "assignee = currentUser() AND statusCategory != Done")
+    if "statusCategory != Done" in jql:
+        resolved_jql = jql.replace("statusCategory != Done", "statusCategory = Done")
+    else:
+        resolved_jql = "(project = 'IT - Salsa Jeans' OR project = 'SAP - Desenvolvimento') AND statusCategory = Done"
+    
+    # Restrict to current year resolves for performance
+    resolved_jql += ' AND resolved >= "2026-01-01"'
+    
+    try:
+        resolved_tickets = fetch_jira_tickets_from_api(jql=resolved_jql)
+    except Exception as exc:
+        print(f"[JIRA SYNC] Erro ao buscar tickets resolvidos: {exc}")
+        resolved_tickets = []
+        
+    combined = {}
+    for t in open_tickets:
+        if t.get("key"):
+            combined[t["key"]] = t
+    for t in resolved_tickets:
+        if t.get("key"):
+            combined[t["key"]] = t
+            
+    return list(combined.values())
+
+
 async def sync_jira_tickets_loop() -> None:
     """
     Loop em segundo plano que roda a cada 60 segundos buscando os tickets JIRA.
@@ -349,12 +381,43 @@ async def sync_jira_tickets_loop() -> None:
     while True:
         try:
             # Executa a busca HTTP em thread pool para evitar travar o event loop do FastAPI
-            tickets = await asyncio.to_thread(fetch_jira_tickets_from_api)
+            tickets = await asyncio.to_thread(_fetch_all_sync_tickets)
             # Guarda na BD local
             await asyncio.to_thread(save_jira_tickets_to_db, tickets)
         except Exception as exc:
             print(f"[JIRA SYNC LOOP ERROR]: {exc}")
         await asyncio.sleep(60)
+
+
+async def historical_jira_sync() -> None:
+    """
+    Sincronização histórica executada em segundo plano.
+    Busca tickets resolvidos de anos anteriores (antes de 2026) e salva em lotes na BD local.
+    """
+    print("[JIRA HISTORICAL SYNC] A verificar necessidade de sincronização histórica...")
+    try:
+        from web_api.store import get_connection, save_jira_ticket_batch_only
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT count(*) FROM jira_tickets WHERE resolved_at IS NOT NULL AND resolved_at != '' AND resolved_at < '2026-01-01'"
+            ).fetchone()
+            count = row[0] if row else 0
+
+        if count >= 100:
+            print(f"[JIRA HISTORICAL SYNC] Encontrados {count} tickets históricos na BD. Sincronização histórica ignorada.")
+            return
+
+        print("[JIRA HISTORICAL SYNC] A iniciar sincronização histórica (tickets resolvidos antes de 2026)...")
+        historical_jql = '(project = "IT - Salsa Jeans" OR project = "SAP - Desenvolvimento") AND statusCategory = Done AND resolved < "2026-01-01"'
+
+        def save_batch(batch):
+            save_jira_ticket_batch_only(batch)
+            print(f"[JIRA HISTORICAL SYNC] Gravados {len(batch)} tickets históricos na BD.")
+
+        await asyncio.to_thread(fetch_jira_tickets_from_api, historical_jql, save_batch)
+        print("[JIRA HISTORICAL SYNC] Sincronização histórica concluída com sucesso!")
+    except Exception as exc:
+        print(f"[JIRA HISTORICAL SYNC ERROR]: {exc}")
 
 
 async def run_auto_trigger() -> dict[str, Any]:
@@ -420,6 +483,7 @@ async def run_auto_trigger() -> dict[str, Any]:
             processo = sap_config.get("processo", "")
             subprocesso = sap_config.get("subprocesso", "")
             request_option = sap_config.get("request_option", "1")
+            ambiente = sap_config.get("ambiente", AUTO_TRIGGER_AMBIENTE)
 
             # ----------------------------------------------------------------
             # 2. Anti-duplicação
@@ -474,7 +538,7 @@ async def run_auto_trigger() -> dict[str, Any]:
                 "jira_summary": summary,
                 "jira_updated_at": updated_at,
                 "jira_categoria": categoria,
-                "ambiente": AUTO_TRIGGER_AMBIENTE,
+                "ambiente": ambiente,
                 "processo": processo,
                 "subprocesso": subprocesso,
                 "request_option": request_option,
@@ -540,6 +604,7 @@ async def auto_trigger_loop() -> None:
 def startup() -> None:
     init_db()
     asyncio.create_task(sync_jira_tickets_loop())
+    asyncio.create_task(historical_jira_sync())
     if AUTO_TRIGGER_ENABLED:
         asyncio.create_task(auto_trigger_loop())
 
@@ -572,8 +637,10 @@ def api_list_jira_tickets(limit: int = 50) -> dict[str, Any]:
 @app.post("/api/jira/sync")
 async def api_force_jira_sync() -> dict[str, Any]:
     try:
-        tickets = await asyncio.to_thread(fetch_jira_tickets_from_api)
+        tickets = await asyncio.to_thread(_fetch_all_sync_tickets)
         await asyncio.to_thread(save_jira_tickets_to_db, tickets)
+        # Dispara sincronização histórica se necessário
+        asyncio.create_task(historical_jira_sync())
         return {"status": "success", "synced_count": len(tickets)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Erro ao sincronizar com JIRA: {str(exc)}")
@@ -742,6 +809,102 @@ async def api_auto_trigger_run() -> dict[str, Any]:
         return {"status": "success", **result}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ForceRunRequest(BaseModel):
+    ticket_key: str
+
+
+@app.post("/api/jira/auto-trigger/force-run")
+async def api_auto_trigger_force_run(payload: ForceRunRequest) -> dict[str, Any]:
+    """
+    Força a execução do auto-trigger para um único ticket específico,
+    ignorando o status do ticket, mas validando os outros critérios.
+    """
+    ticket_key = payload.ticket_key.strip().upper()
+    if not ticket_key:
+        raise HTTPException(status_code=400, detail="Chave do ticket não fornecida.")
+
+    try:
+        from web_api.jira_client import fetch_single_ticket_for_trigger
+        ticket = await asyncio.to_thread(fetch_single_ticket_for_trigger, ticket_key)
+        if not ticket:
+            raise HTTPException(status_code=404, detail=f"Ticket {ticket_key} não encontrado no JIRA.")
+
+        category_map = _load_category_map()
+        categoria = ticket.get("process", "")  # IT SALSA - Categoria SAP
+
+        # 1. Validar mapeamento de categoria
+        sap_config = category_map.get(categoria)
+        if not sap_config:
+            error_msg = f"Sem mapeamento configurado para a categoria: '{categoria}'"
+            await asyncio.to_thread(
+                log_auto_trigger_entry, ticket_key, ticket.get("summary", ""), None, "error", error_msg
+            )
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        processo = sap_config.get("processo", "")
+        subprocesso = sap_config.get("subprocesso", "")
+        request_option = sap_config.get("request_option", "1")
+        ambiente = sap_config.get("ambiente", AUTO_TRIGGER_AMBIENTE)
+
+        # 2. Download do anexo XLSX
+        xlsx_files = await asyncio.to_thread(
+            download_ticket_attachments_to_dir,
+            ticket_key,
+            JIRA_DOWNLOAD_DIR_CONTAINER,
+            JIRA_DOWNLOAD_DIR_WINDOWS,
+            True,   # only_xlsx
+            False,  # overwrite: False (se já existe, usa o existente)
+        )
+
+        if not xlsx_files:
+            error_msg = "Sem ficheiro XLSX anexado ao ticket."
+            await asyncio.to_thread(
+                log_auto_trigger_entry, ticket_key, ticket.get("summary", ""), None, "error", error_msg
+            )
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        caminho_ficheiro = xlsx_files[0]
+
+        # 3. Criar job SAP
+        job_params: dict[str, Any] = {
+            "jira_key": ticket_key,
+            "jira_summary": ticket.get("summary", ""),
+            "jira_updated_at": ticket.get("updated_at", ""),
+            "jira_categoria": categoria,
+            "ambiente": ambiente,
+            "processo": processo,
+            "subprocesso": subprocesso,
+            "request_option": request_option,
+            "request_number": "",
+            "request_desc": f"{ticket_key} | {ticket.get('summary', '')}",
+            "request_type": "1",
+            "caminho_ficheiro": caminho_ficheiro,
+            "transacao": "",
+            "auto_triggered": True,
+        }
+
+        job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
+        job_id = job["id"]
+
+        await asyncio.to_thread(
+            log_auto_trigger_entry, ticket_key, ticket.get("summary", ""), job_id, "triggered", f"Execução manual forçada ({ticket.get('updated_at', '')})"
+        )
+
+        return {
+            "status": "success",
+            "message": f"Job SAP #{job_id[:8]} criado com sucesso para o ticket {ticket_key}.",
+            "job_id": job_id,
+            "processo": processo,
+            "subprocesso": subprocesso,
+            "caminho_ficheiro": caminho_ficheiro,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao forçar execução: {str(exc)}")
 
 
 @app.get("/api/jira/auto-trigger/log")

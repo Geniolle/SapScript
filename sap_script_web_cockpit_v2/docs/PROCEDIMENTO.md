@@ -56,3 +56,13 @@ Pagina web -> cria job -> worker Windows -> run_sap_cockpit(payload) -> SAP GUI
   "request_desc": "REQUEST CRIADA VIA WEB"
 }
 ```
+
+## Configuração de Auto-Trigger por Categoria (JIRA)
+
+O sistema de Auto-Trigger lê categorias do JIRA para rotinas SAP. O mapeamento é definido pela variável `AUTO_TRIGGER_CATEGORY_MAP` no `.env`.
+
+* **Categoria:** `"FI Extracto Cadeias de Pesquisa"`
+  * **Processo:** `"Cadeias de Pesquisa"`
+  * **Subprocesso:** `"Criar Atribuir Cadeias.py"`
+  * **Ambiente SAP (Sistema):** `DEV` (DESENVOLVIMENTO)
+

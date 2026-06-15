@@ -38,6 +38,11 @@ def executar(
     from tkinter import filedialog
     import sys
 
+    registro_fase1 = {}
+    registro_fase2 = {}
+    evidencias_dir = ""
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+
     def _parse_env_line(line: str):
         raw = str(line or "").strip()
         if not raw or raw.startswith("#") or "=" not in raw:
@@ -498,7 +503,7 @@ def executar(
     def _cadeia_existe_em_tpama(sess, nome_cadeia):
         nome_cadeia = (nome_cadeia or "").strip()[:20]
         if not nome_cadeia:
-            return False, "Nome da cadeia vazio."
+            return False, "Nome da cadeia vazio.", ""
 
         try:
             sess.findById("wnd[0]/tbar[0]/okcd").text = "/NSE16H"
@@ -506,19 +511,19 @@ def executar(
 
             mt, sb = get_statusbar(sess)
             if mt in ("E", "A") and sb:
-                return None, sb
+                return None, sb, ""
 
             if not _try_set_text(sess, [
                 "wnd[0]/usr/ctxtGD-TAB",
                 "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
                 "wnd[0]/usr/ctxtTABNAME",
             ], "TPAMA"):
-                return None, "Nao consegui preencher a tabela TPAMA na SE16H."
+                return None, "Nao consegui preencher a tabela TPAMA na SE16H.", ""
 
             _send_vkey(sess, 0)
             mt, sb = get_statusbar(sess)
             if mt in ("E", "A") and sb:
-                return None, sb
+                return None, sb, ""
 
             campo_panam = _esperar_objeto(
                 sess,
@@ -526,38 +531,42 @@ def executar(
                 timeout=2.5,
             )
             if not campo_panam:
-                return None, "Nao consegui localizar o campo PANAM na TPAMA."
+                return None, "Nao consegui localizar o campo PANAM na TPAMA.", ""
 
             campo_panam.text = nome_cadeia
 
             if not try_press(sess, ["wnd[0]/tbar[1]/btn[8]"]):
-                return None, "Nao consegui executar a pesquisa na TPAMA."
+                return None, "Nao consegui executar a pesquisa na TPAMA.", ""
 
             nao_encontrou_tokens = ("NO VALUES", "NOT FOUND", "NENHUM", "NAO ENCONTR", "SEM REGIST")
             encontrou_tokens = ("SELECION", "SELECTED", "REGIST", "ENTRAD", "VALUES")
 
+            scr = ""
             for _ in range(20):
                 mt, sb = get_statusbar(sess)
                 msg_norm = norm(sb)
 
                 if msg_norm and any(t in msg_norm for t in nao_encontrou_tokens):
-                    return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA."
+                    return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA.", ""
                 if msg_norm and any(t in msg_norm for t in encontrou_tokens):
-                    return True, sb
+                    scr = capturar_print_sap(sess, f"Validacao_TPAMA_{nome_cadeia}")
+                    return True, sb, scr
 
                 wnd0 = _safe_find(sess, "wnd[0]")
                 wnd_text = norm(getattr(wnd0, "Text", "") if wnd0 else "")
                 if "ENTRADAS ENCONTRADAS" in wnd_text or "ENTRIES FOUND" in wnd_text:
-                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA."
+                    scr = capturar_print_sap(sess, f"Validacao_TPAMA_{nome_cadeia}")
+                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA.", scr
 
                 if _se16h_tem_resultados(sess):
-                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA."
+                    scr = capturar_print_sap(sess, f"Validacao_TPAMA_{nome_cadeia}")
+                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA.", scr
 
                 time.sleep(0.2)
 
-            return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA."
+            return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA.", ""
         except Exception as e:
-            return None, str(e)
+            return None, str(e), ""
         finally:
             if not keep_validation_screen:
                 limpar_para_home(sess)
@@ -573,7 +582,7 @@ def executar(
                 "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
                 "wnd[0]/usr/ctxtTABNAME",
             ], "T028P"):
-                return None, "Nao consegui definir T028P na SE16H."
+                return None, "Nao consegui definir T028P na SE16H.", None, set(), ""
 
             sess.findById("wnd[0]").sendVKey(0)
             time.sleep(0.2)
@@ -581,12 +590,12 @@ def executar(
             base = "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC"
             panam = safe_value(panam)
             if not panam:
-                return None, "PANAM vazio para validacao da T028P.", None, set()
+                return None, "PANAM vazio para validacao da T028P.", None, set(), ""
 
             ctrl_id = f"{base}/ctxtGS_SELFIELDS-LOW[2,5]"
             obj = _safe_find(sess, ctrl_id)
             if not obj:
-                return None, "Campo PANAM nao encontrado na selecao da SE16H.", None, set()
+                return None, "Campo PANAM nao encontrado na selecao da SE16H.", None, set(), ""
             obj.text = panam
 
             sess.findById("wnd[0]/tbar[1]/btn[8]").press()
@@ -601,7 +610,7 @@ def executar(
                 status_msg = sb or status_msg
                 sbar_norm = norm(sb)
                 if sbar_norm and any(token in sbar_norm for token in not_found_tokens):
-                    return False, sb, 0, set()
+                    return False, sb, 0, set(), ""
                 if sbar_norm and any(token in sbar_norm for token in found_tokens):
                     reported_count = _extract_first_int(sb)
                     break
@@ -651,15 +660,19 @@ def executar(
                     if any(item):
                         extracted_keys.add(item)
 
+            scr = ""
+            if extracted_keys or (reported_count and int(reported_count) > 0):
+                scr = capturar_print_sap(sess, f"Validacao_T028P_{panam}")
+
             if extracted_keys:
-                return True, status_msg or f"Registos lidos na T028P para PANAM={panam}.", reported_count, extracted_keys
+                return True, status_msg or f"Registos lidos na T028P para PANAM={panam}.", reported_count, extracted_keys, scr
 
             if reported_count and int(reported_count) > 0:
-                return True, status_msg or f"{reported_count} registo(s) encontrado(s) na T028P.", reported_count, set()
+                return True, status_msg or f"{reported_count} registo(s) encontrado(s) na T028P.", reported_count, set(), scr
 
-            return False, status_msg or "Sem entradas encontradas na T028P.", reported_count or 0, set()
+            return False, status_msg or "Sem entradas encontradas na T028P.", reported_count or 0, set(), ""
         except Exception as e:
-            return None, str(e), None, set()
+            return None, str(e), None, set(), ""
         finally:
             if not keep_validation_screen:
                 try:
@@ -671,7 +684,7 @@ def executar(
     def _validar_cadeia_na_tpama(sess, nome_cadeia, tentativas=3, pausa=1.0):
         ultima_msg = ""
         for _ in range(max(1, int(tentativas))):
-            existe, msg = _cadeia_existe_em_tpama(sess, nome_cadeia)
+            existe, msg, _ = _cadeia_existe_em_tpama(sess, nome_cadeia)
             ultima_msg = msg or ultima_msg
             if existe is True:
                 return True, msg or f"Cadeia '{nome_cadeia}' confirmada na TPAMA."
@@ -915,6 +928,29 @@ def executar(
         except Exception:
             return None
 
+    def capturar_print_sap(sess, name: str) -> str:
+        try:
+            if not evidencias_dir:
+                return ""
+            os.makedirs(evidencias_dir, exist_ok=True)
+            path = os.path.join(evidencias_dir, f"{name}.bmp")
+            wnd = sess.findById("wnd[0]")
+            try:
+                wnd.hardCopy(path, 2)
+            except Exception:
+                try:
+                    wnd.HardCopy(path, 2)
+                except Exception:
+                    try:
+                        wnd.hardCopy(path)
+                    except Exception:
+                        wnd.HardCopy(path)
+            if os.path.exists(path):
+                return path
+        except Exception as e:
+            print(f"  ├─ Aviso: Falha ao capturar screenshot: {e}")
+        return ""
+
     ###################################################################################
     # LÓGICA SAP - CRIAR CADEIA
     ###################################################################################
@@ -922,12 +958,14 @@ def executar(
         nonlocal request_number
         nome_cadeia = (nome_cadeia or "").strip()
         nome_cadeia_limite = nome_cadeia[:20]
+        screenshot_path = ""
 
         try:
             print(f"  |- A validar existencia de '{nome_cadeia_limite}' na TPAMA (SE16H)...")
-            existe_tpama, msg_tpama = _cadeia_existe_em_tpama(sess, nome_cadeia_limite)
+            existe_tpama, msg_tpama, scr_val = _cadeia_existe_em_tpama(sess, nome_cadeia_limite)
             if existe_tpama is True:
                 msg = msg_tpama or f"Cadeia '{nome_cadeia_limite}' ja existe na TPAMA."
+                registro_fase1[nome_cadeia] = {"status": "Já existia", "msg": msg, "screenshot": scr_val}
                 return {"ok": True, "msg": msg}
             if existe_tpama is None:
                 print(f"  |- Aviso: validacao TPAMA indisponivel ({msg_tpama}). Vou seguir com a criacao.")
@@ -942,6 +980,7 @@ def executar(
 
             mt, sb = get_statusbar(sess)
             if mt in ("E", "A") and sb:
+                registro_fase1[nome_cadeia] = {"status": "Erro", "msg": sb, "screenshot": ""}
                 return {"ok": False, "msg": sb}
 
             print(f"  ├─ A clicar em Criar...")
@@ -950,6 +989,7 @@ def executar(
 
             mt, sb = get_statusbar(sess)
             if mt in ("E", "A") and sb:
+                registro_fase1[nome_cadeia] = {"status": "Erro", "msg": sb, "screenshot": ""}
                 return {"ok": False, "msg": sb}
 
             print(f"  ├─ A ativar modo de edição...")
@@ -972,10 +1012,14 @@ def executar(
             except Exception:
                 pass
 
+            # CAPTURA PRINT SCREEN ANTES DE DAR ENTER
+            screenshot_path = capturar_print_sap(sess, f"Criar_Cadeia_{nome_cadeia_limite}")
+
             _send_vkey(sess, 0)
 
             mt, sb = get_statusbar(sess)
             if mt in ("E", "A") and sb:
+                registro_fase1[nome_cadeia] = {"status": "Erro", "msg": sb, "screenshot": screenshot_path}
                 return {"ok": False, "msg": sb}
 
             total_linhas_limpeza = max(20, len(nome_cadeia))
@@ -992,6 +1036,7 @@ def executar(
 
             mt, sb = get_statusbar(sess)
             if mt in ("E", "A") and sb:
+                registro_fase1[nome_cadeia] = {"status": "Erro", "msg": sb, "screenshot": screenshot_path}
                 return {"ok": False, "msg": sb}
 
             print(f"  ├─ A guardar...")
@@ -1017,6 +1062,7 @@ def executar(
             if mt in ("E", "A"):
                 msg = sb or f"Erro ao criar cadeia '{nome_cadeia_limite}'."
                 limpar_para_home(sess)
+                registro_fase1[nome_cadeia] = {"status": "Erro", "msg": msg, "screenshot": screenshot_path}
                 return {"ok": False, "msg": msg}
 
             msg_criacao = sb or f"Cadeia '{nome_cadeia_limite}' criada com sucesso."
@@ -1024,9 +1070,12 @@ def executar(
             validada, msg_validacao = _validar_cadeia_na_tpama(sess, nome_cadeia_limite, tentativas=4, pausa=1.0)
             if not validada:
                 msg = f"Criacao executada, mas sem confirmacao na TPAMA. Criacao SAP='{msg_criacao}' | Validacao='{msg_validacao}'"
+                registro_fase1[nome_cadeia] = {"status": "Erro de Validação", "msg": msg, "screenshot": screenshot_path}
                 return {"ok": False, "msg": msg}
 
-            return {"ok": True, "msg": msg_validacao or msg_criacao}
+            res_msg = msg_validacao or msg_criacao
+            registro_fase1[nome_cadeia] = {"status": "Criado com Sucesso", "msg": res_msg, "screenshot": screenshot_path}
+            return {"ok": True, "msg": res_msg}
 
         except Exception as e:
             mt, sb = get_statusbar(sess)
@@ -1036,6 +1085,7 @@ def executar(
             except Exception:
                 pass
             limpar_para_home(sess)
+            registro_fase1[nome_cadeia] = {"status": "Erro", "msg": msg, "screenshot": screenshot_path}
             return {"ok": False, "msg": msg}
 
 
@@ -1052,6 +1102,9 @@ def executar(
     if not os.path.exists(caminho_ficheiro):
         print(f"❌ Ficheiro não encontrado: {caminho_ficheiro}")
         return
+
+    excel_dir = os.path.dirname(caminho_ficheiro)
+    evidencias_dir = os.path.join(excel_dir, f"Evidencias_Cadeias_{timestamp}")
 
     df = abrir_excel_para_dataframe(caminho_ficheiro)
     cols_map, faltantes = resolver_colunas(df)
@@ -1105,11 +1158,12 @@ def executar(
             expected_by_panam.setdefault(panam, set()).add(key_tuple)
 
         if not expected_by_panam:
-            return False, "Nao foi possivel resolver PANAM para validacao na T028P."
+            return False, "Nao foi possivel resolver PANAM para validacao na T028P.", []
 
         missing = []
         details = []
         total_expected = 0
+        screenshots = []
         for panam, keys in expected_by_panam.items():
             expected_set = set(
                 _norm_key_tuple(
@@ -1128,9 +1182,11 @@ def executar(
             )
             expected_count = len(expected_set)
             total_expected += expected_count
-            exists, msg, qtd, extracted = _t028p_fetch_keys_by_panam(session, panam)
+            exists, msg, qtd, extracted, scr = _t028p_fetch_keys_by_panam(session, panam)
             if exists is None:
-                return None, msg or f"Validacao T028P indisponivel para PANAM={panam}."
+                return None, msg or f"Validacao T028P indisponivel para PANAM={panam}.", []
+            if scr:
+                screenshots.append(scr)
             if not exists:
                 missing.append(f"PANAM={panam} (esperado>={expected_count})")
                 details.append(f"{panam}: esperado={expected_count} encontrado=0")
@@ -1150,19 +1206,19 @@ def executar(
 
         if missing:
             preview = "; ".join(missing[:3])
-            return False, f"Entradas nao encontradas na T028P ({len(missing)}): {preview}"
+            return False, f"Entradas nao encontradas na T028P ({len(missing)}): {preview}", screenshots
 
-        return True, f"Validacao T028P por PANAM concluida ({total_expected} entrada(s) esperadas). " + "; ".join(details[:3])
+        return True, f"Validacao T028P por PANAM concluida ({total_expected} entrada(s) esperadas). " + "; ".join(details[:3]), screenshots
 
     def _confirm_subset_in_t028p(sess, subset, tentativas=4, pausa=1.0):
         last_msg = ""
         for _ in range(max(1, int(tentativas))):
-            exists, msg = _subset_exists_in_t028p(sess, subset)
+            exists, msg, scrs = _subset_exists_in_t028p(sess, subset)
             last_msg = msg or last_msg
             if exists is True:
-                return True, msg or "Subconjunto confirmado na T028P."
+                return True, msg or "Subconjunto confirmado na T028P.", scrs
             time.sleep(max(0.0, float(pausa)))
-        return False, last_msg or "Nao foi possivel confirmar o subconjunto na T028P."
+        return False, last_msg or "Nao foi possivel confirmar o subconjunto na T028P.", []
 
     if "STATUS" not in df.columns:
         df["STATUS"] = ""
@@ -1388,12 +1444,19 @@ def executar(
         print(f"\n▶ A atribuir função '{funcao}' ({len(subset)} linha(s))")
 
         print("  |- A validar existencia na T028P (SE16H)...")
-        pre_exists, pre_msg = _subset_exists_in_t028p(session, subset)
+        pre_exists, pre_msg, pre_scrs = _subset_exists_in_t028p(session, subset)
         if pre_exists is True:
             msg_done = pre_msg or "Entradas ja existem na T028P."
             df.loc[subset["index"], "STATUS"] = "CONCLUIDO"
             df.loc[subset["index"], "MSG"] = msg_done
             print(f"  |- CONCLUIDO sem lancamento: {msg_done}")
+            scr_val = pre_scrs[0] if pre_scrs else ""
+            registro_fase2[funcao] = {
+                "status": "Já existia",
+                "msg": msg_done,
+                "screenshot": scr_val,
+                "linhas": subset.to_dict(orient="records")
+            }
             continue
         if pre_exists is None:
             print(f"  |- Aviso: validacao inicial T028P indisponivel ({pre_msg}). Vou seguir com o lancamento.")
@@ -1402,6 +1465,7 @@ def executar(
             print("  |- Sem request no contexto. A criar request automaticamente...")
             _garantir_request(session, f"Atribuir Cadeia Pesquisa | {funcao}")
 
+        screenshot_path = ""
         try:
             session.findById("wnd[0]/tbar[0]/okcd").text = "/nOTPM"
             session.findById("wnd[0]").sendVKey(0)
@@ -1433,6 +1497,9 @@ def executar(
                 except Exception:
                     pass
 
+            # CAPTURA PRINT SCREEN ANTES DE DAR ENTER
+            screenshot_path = capturar_print_sap(session, f"Atribuir_Cadeia_{sanitize_paname(funcao, 12)}")
+
             print(f"  |- Lote preenchido ({total_linhas_lote} linha(s)). A validar consistencia no SAP...")
             session.findById("wnd[0]").sendVKey(0)
             err = sbar_error(session)
@@ -1446,7 +1513,7 @@ def executar(
 
             msg_gravacao = session.findById("wnd[0]/sbar").Text.strip()
             print("  |- A validar gravacao na T028P (SE16H)...")
-            validado, msg_validacao = _confirm_subset_in_t028p(session, subset, tentativas=4, pausa=1.0)
+            validado, msg_validacao, scrs_val = _confirm_subset_in_t028p(session, subset, tentativas=4, pausa=1.0)
             if not validado:
                 raise RuntimeError(f"Lancamento executado sem confirmacao na T028P. Gravacao SAP='{msg_gravacao}' | Validacao='{msg_validacao}'")
 
@@ -1455,18 +1522,166 @@ def executar(
             df.loc[subset["index"], "MSG"] = msg_final
             print(f"  |- CONCLUIDO: {msg_final}")
 
+            registro_fase2[funcao] = {
+                "status": "Atribuído com Sucesso",
+                "msg": msg_final,
+                "screenshot": screenshot_path,
+                "linhas": subset.to_dict(orient="records")
+            }
+
         except Exception as e:
             msg_erro = f"Erro ao lancar '{funcao}': {e}"
             df.loc[subset["index"], "STATUS"] = "Erro no processamento"
             df.loc[subset["index"], "MSG"] = msg_erro
             print(f"ERRO: {msg_erro}")
 
+            registro_fase2[funcao] = {
+                "status": "Erro",
+                "msg": msg_erro,
+                "screenshot": screenshot_path,
+                "linhas": subset.to_dict(orient="records")
+            }
+
     # Salvar o Excel com todas as alterações
+    def gerar_documento_configuracao():
+        if not registro_fase1 and not registro_fase2:
+            return
+        
+        md_path = os.path.join(excel_dir, f"Configuracao_Cadeias_{timestamp}.md")
+        try:
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(f"# Documento de Configuração e Validação SAP - Cadeias de Pesquisa\n\n")
+                f.write(f"**Data/Hora:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"**Ambiente:** {ambiente_cockpit} ({SISTEMA_ESPERADO})\n")
+                f.write(f"**Cliente/Mandante:** {CLIENTE_ESPERADO or '-'}\n")
+                if request_number:
+                    f.write(f"**Ordem de Transporte (Request):** {request_number}\n")
+                f.write(f"\n## Transações Utilizadas\n")
+                f.write(f"1. **OTPM**: Manutenção de cadeias de pesquisa (TPAMA) e atribuição de regras (T028P).\n")
+                f.write(f"2. **SE16H**: Consulta direta às tabelas para validação física da gravação.\n\n")
+                
+                if registro_fase1:
+                    f.write(f"## 1. Configuração de Cadeias de Pesquisa (TPAMA)\n")
+                    for c_nome, info_c in registro_fase1.items():
+                        f.write(f"### Cadeia: {c_nome}\n")
+                        f.write(f"- **Estado:** {info_c['status']}\n")
+                        f.write(f"- **Mensagem:** {info_c['msg']}\n")
+                        if info_c['screenshot']:
+                            rel_path = os.path.basename(info_c['screenshot'])
+                            label_print = "Evidência de validação (existente no SAP)" if info_c['status'] == "Já existia" else "Screenshot antes de gravar"
+                            f.write(f"- **{label_print}:** [BMP](Evidencias_Cadeias_{timestamp}/{rel_path})\n")
+                        f.write(f"\n")
+                
+                if registro_fase2:
+                    f.write(f"## 2. Atribuição de Cadeias (T028P)\n")
+                    for grp_nome, info_a in registro_fase2.items():
+                        f.write(f"### Grupo/Função: {grp_nome}\n")
+                        f.write(f"- **Estado:** {info_a['status']}\n")
+                        f.write(f"- **Mensagem:** {info_a['msg']}\n")
+                        if info_a['screenshot']:
+                            rel_path = os.path.basename(info_a['screenshot'])
+                            label_print = "Evidência de validação (existente no SAP)" if info_a['status'] == "Já existia" else "Screenshot antes de gravar"
+                            f.write(f"- **{label_print}:** [BMP](Evidencias_Cadeias_{timestamp}/{rel_path})\n")
+                        
+                        f.write(f"\n| Empresa | Banco | Conta | Op. Externa | Sinal | Alvo (TARGFI) | Base (PREFIX) |\n")
+                        f.write(f"|---|---|---|---|---|---|---|\n")
+                        for r in info_a['linhas']:
+                            f.write(f"| {r.get(C_EMP, '')} | {r.get(C_BANCO, '')} | {r.get(C_IDCT, '')} | {r.get(C_OPEXT, '')} | {r.get(C_SINAL, '')} | {r.get(C_DEST, '')} | {r.get(C_BASE, '')} |\n")
+                        f.write(f"\n")
+            print(f"  ├─ Documento Markdown gerado: {md_path}")
+        except Exception as e:
+            print(f"  ├─ Aviso: Erro ao gerar Markdown: {e}")
+
+        docx_path = os.path.join(excel_dir, f"Configuracao_Cadeias_{timestamp}.docx")
+        try:
+            import pythoncom
+            import win32com.client
+            pythoncom.CoInitialize()
+            app = None
+            doc = None
+            try:
+                app = win32com.client.DispatchEx("Word.Application")
+                app.Visible = False
+                doc = app.Documents.Add()
+                sel = app.Selection
+                
+                def _line(text: str = "", bold=False):
+                    sel.Font.Bold = bold
+                    sel.TypeText(str(text))
+                    sel.TypeParagraph()
+                
+                _line("Documento de Configuração e Validação SAP - Cadeias de Pesquisa", bold=True)
+                _line(f"Data/Hora: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                _line(f"Ambiente: {ambiente_cockpit} ({SISTEMA_ESPERADO})")
+                _line(f"Cliente/Mandante: {CLIENTE_ESPERADO or '-'}")
+                if request_number:
+                    _line(f"Ordem de Transporte (Request): {request_number}")
+                _line()
+                
+                _line("Transações Utilizadas:", bold=True)
+                _line("1. OTPM - Manutenção de Cadeias de Pesquisa (TPAMA) e Regras (T028P)")
+                _line("2. SE16H - Consulta direta para verificação e validação física")
+                _line()
+                
+                if registro_fase1:
+                    _line("1. Configuração de Cadeias de Pesquisa (TPAMA)", bold=True)
+                    for c_nome, info_c in registro_fase1.items():
+                        _line(f"Cadeia: {c_nome}", bold=True)
+                        _line(f"Estado: {info_c['status']}")
+                        _line(f"Mensagem: {info_c['msg']}")
+                        scr = info_c['screenshot']
+                        if scr and os.path.exists(scr):
+                            try:
+                                label_print = "Evidência de validação (existente no SAP)" if info_c['status'] == "Já existia" else "Screenshot antes de gravar"
+                                _line(label_print)
+                                sel.InlineShapes.AddPicture(FileName=str(os.path.abspath(scr)), LinkToFile=False, SaveWithDocument=True)
+                                sel.TypeParagraph()
+                            except Exception as e:
+                                _line(f"Falha ao adicionar imagem ao Word: {e}")
+                        else:
+                            _line("Captura de ecrã: Não aplicável ou já existente")
+                        _line()
+                
+                if registro_fase2:
+                    _line("2. Atribuição de Cadeias de Pesquisa (T028P)", bold=True)
+                    for grp_nome, info_a in registro_fase2.items():
+                        _line(f"Grupo / Função: {grp_nome}", bold=True)
+                        _line(f"Estado: {info_a['status']}")
+                        _line(f"Mensagem: {info_a['msg']}")
+                        scr = info_a['screenshot']
+                        if scr and os.path.exists(scr):
+                            try:
+                                label_print = "Evidência de validação (existente no SAP)" if info_a['status'] == "Já existia" else "Screenshot antes de gravar"
+                                _line(label_print)
+                                sel.InlineShapes.AddPicture(FileName=str(os.path.abspath(scr)), LinkToFile=False, SaveWithDocument=True)
+                                sel.TypeParagraph()
+                            except Exception as e:
+                                _line(f"Falha ao adicionar imagem ao Word: {e}")
+                        else:
+                            _line("Captura de ecrã: Não aplicável ou já existente")
+                        _line()
+                
+                doc.SaveAs(str(os.path.abspath(docx_path)), FileFormat=12)
+                print(f"  ├─ Documento Word (.docx) gerado com sucesso: {docx_path}")
+            finally:
+                if doc is not None:
+                    doc.Close(False)
+                if app is not None:
+                    app.Quit()
+                pythoncom.CoUninitialize()
+        except Exception as e:
+            print(f"  ├─ Aviso: Word não disponível ou erro na geração do docx: {e}")
+
     try:
         df.to_excel(caminho_ficheiro, index=False)
         print(f"\n💾 Ficheiro de controlo atualizado com sucesso: {caminho_ficheiro}")
     except Exception as e:
         print(f"❌ Erro ao guardar o ficheiro de controlo: {e}")
+
+    try:
+        gerar_documento_configuracao()
+    except Exception as e:
+        print(f"⚠️ Erro ao gerar documentação: {e}")
 
     if request_number:
         print(f"REQUEST_NUMBER={request_number}")

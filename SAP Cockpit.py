@@ -835,11 +835,31 @@ def _is_sap_logado(session, cliente_esperado: str) -> bool:
         return False
 
 
+def _dismiss_popup_if_any(session) -> None:
+    try:
+        session.findById("wnd[1]")
+    except Exception:
+        return
+
+    for btn in ("wnd[1]/tbar[0]/btn[0]", "wnd[1]/tbar[0]/btn[11]", "wnd[1]/tbar[0]/btn[12]"):
+        try:
+            session.findById(btn).press()
+            return
+        except Exception:
+            continue
+
+    try:
+        session.findById("wnd[1]").sendVKey(0)
+    except Exception:
+        pass
+
+
 def _aguardar_login(session, cliente_esperado: str, timeout_s: int = 20) -> bool:
     t0 = time.time()
     while time.time() - t0 <= timeout_s:
         if _is_sap_logado(session, cliente_esperado):
             return True
+        _dismiss_popup_if_any(session)
         time.sleep(0.5)
     return False
 
@@ -964,8 +984,23 @@ if session is None:
             except Exception:
                 pass
 
+            try:
+                wnd0 = session.findById("wnd[0]")
+                wnd0.maximize()
+                wnd0.setFocus()
+            except Exception:
+                pass
+            time.sleep(0.5)
+
             session.findById("wnd[0]/usr/txtRSYST-MANDT").text = cliente_esperado
             session.findById("wnd[0]/usr/txtRSYST-BNAME").text = usuario
+
+            try:
+                pwd_fld = session.findById("wnd[0]/usr/pwdRSYST-BCODE")
+                pwd_fld.setFocus()
+            except Exception:
+                pass
+
             session.findById("wnd[0]/usr/pwdRSYST-BCODE").text = senha
             session.findById("wnd[0]/usr/txtRSYST-LANGU").text = idioma
             session.findById("wnd[0]").sendVKey(0)
@@ -980,7 +1015,15 @@ if session is None:
                 sys.exit(1)
 
         if not _aguardar_login(session, cliente_esperado, timeout_s=20):
-            erro("Login não foi confirmado (User/Client não disponíveis).")
+            sbar_text = ""
+            try:
+                sbar_text = str(session.findById("wnd[0]/sbar").Text).strip()
+            except Exception:
+                pass
+            msg = "Login não foi confirmado (User/Client não disponíveis)."
+            if sbar_text:
+                msg += f" [Status SAP: {sbar_text}]"
+            erro(msg)
             warn("Verifique se o SAP pediu pop-up, senha extra, ou se o login falhou.")
             sys.exit(1)
 

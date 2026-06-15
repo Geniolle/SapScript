@@ -105,6 +105,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jira_tickets ADD COLUMN linked_keys TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE jira_tickets ADD COLUMN resolved_at TEXT")
+        except sqlite3.OperationalError:
+            pass
 
         conn.execute(
             """
@@ -405,16 +409,14 @@ def update_job_params(job_id: str, new_params: dict[str, Any]) -> dict[str, Any]
     return job
 
 
-def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
+def save_jira_ticket_batch_only(tickets: list[dict[str, Any]]) -> None:
     now = utc_now()
-    active_keys = [t["key"] for t in tickets]
-
     with get_connection() as conn:
         for t in tickets:
             conn.execute(
                 """
-                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution, supplier, linked_keys)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution, supplier, linked_keys, resolved_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     summary = excluded.summary,
                     status = excluded.status,
@@ -431,7 +433,8 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                     process = excluded.process,
                     time_to_resolution = excluded.time_to_resolution,
                     supplier = excluded.supplier,
-                    linked_keys = excluded.linked_keys
+                    linked_keys = excluded.linked_keys,
+                    resolved_at = excluded.resolved_at
                 """,
                 (
                     t["key"],
@@ -451,17 +454,81 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                     t.get("time_to_resolution"),
                     t.get("supplier"),
                     json.dumps(t.get("linked_keys", [])),
+                    t.get("resolved_at"),
+                ),
+            )
+        conn.commit()
+
+
+def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
+    now = utc_now()
+    active_keys = [t["key"] for t in tickets]
+
+    with get_connection() as conn:
+        for t in tickets:
+            conn.execute(
+                """
+                INSERT INTO jira_tickets (key, summary, status, assignee, created_at, updated_at, last_sync_at, priority, ticket_type, creator, project, team, stream, process, time_to_resolution, supplier, linked_keys, resolved_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    summary = excluded.summary,
+                    status = excluded.status,
+                    assignee = excluded.assignee,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    last_sync_at = excluded.last_sync_at,
+                    priority = excluded.priority,
+                    ticket_type = excluded.ticket_type,
+                    creator = excluded.creator,
+                    project = excluded.project,
+                    team = excluded.team,
+                    stream = excluded.stream,
+                    process = excluded.process,
+                    time_to_resolution = excluded.time_to_resolution,
+                    supplier = excluded.supplier,
+                    linked_keys = excluded.linked_keys,
+                    resolved_at = excluded.resolved_at
+                """,
+                (
+                    t["key"],
+                    t["summary"],
+                    t["status"],
+                    t["assignee"],
+                    t["created_at"],
+                    t["updated_at"],
+                    now,
+                    t.get("priority"),
+                    t.get("ticket_type"),
+                    t.get("creator"),
+                    t.get("project"),
+                    t.get("team"),
+                    t.get("stream"),
+                    t.get("process"),
+                    t.get("time_to_resolution"),
+                    t.get("supplier"),
+                    json.dumps(t.get("linked_keys", [])),
+                    t.get("resolved_at"),
                 ),
             )
 
+        # Only delete OPEN tickets that are not in the active sync set
         if active_keys:
             placeholders = ",".join("?" for _ in active_keys)
             conn.execute(
-                f"DELETE FROM jira_tickets WHERE key NOT IN ({placeholders})",
+                f"""
+                DELETE FROM jira_tickets 
+                WHERE key NOT IN ({placeholders})
+                  AND lower(status) NOT IN ('done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled')
+                """,
                 (*active_keys,),
             )
         else:
-            conn.execute("DELETE FROM jira_tickets")
+            conn.execute(
+                """
+                DELETE FROM jira_tickets 
+                WHERE lower(status) NOT IN ('done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled')
+                """
+            )
         conn.commit()
 
 
@@ -471,7 +538,7 @@ def list_jira_tickets(limit: int = 50) -> list[dict[str, Any]]:
             """
             SELECT * FROM jira_tickets
             ORDER BY
-                CASE WHEN status != 'Done' THEN 0 ELSE 1 END,
+                CASE WHEN lower(status) IN ('done', 'concluído', 'resolvido', 'fechada', 'closed', 'cancelled', 'fechado') THEN 1 ELSE 0 END,
                 updated_at DESC
             LIMIT ?
             """,
@@ -496,6 +563,7 @@ def list_jira_tickets(limit: int = 50) -> list[dict[str, Any]]:
             "time_to_resolution": row["time_to_resolution"] if "time_to_resolution" in row.keys() else "",
             "supplier": row["supplier"] if "supplier" in row.keys() else "",
             "linked_keys": json.loads(row["linked_keys"]) if "linked_keys" in row.keys() and row["linked_keys"] else [],
+            "resolved_at": row["resolved_at"] if "resolved_at" in row.keys() else "",
         }
         for row in rows
     ]
