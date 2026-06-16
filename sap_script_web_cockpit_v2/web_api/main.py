@@ -627,9 +627,9 @@ def index(request: Request) -> HTMLResponse:
 
 
 @app.get("/api/jira/tickets")
-def api_list_jira_tickets(limit: int = 50) -> dict[str, Any]:
+def api_list_jira_tickets(limit: int = 50, exclude_closed: bool = True) -> dict[str, Any]:
     try:
-        return {"tickets": list_jira_tickets(limit=limit)}
+        return {"tickets": list_jira_tickets(limit=limit, exclude_closed=exclude_closed)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

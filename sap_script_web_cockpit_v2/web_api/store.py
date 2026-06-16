@@ -110,6 +110,13 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass
 
+        # Index creation for JIRA tickets performance
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jira_tickets_status ON jira_tickets(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jira_tickets_updated_at ON jira_tickets(updated_at)")
+        except sqlite3.OperationalError:
+            pass
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS jira_auto_trigger_log (
@@ -532,18 +539,24 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
         conn.commit()
 
 
-def list_jira_tickets(limit: int = 50) -> list[dict[str, Any]]:
+def list_jira_tickets(limit: int = 50, exclude_closed: bool = True) -> list[dict[str, Any]]:
     with get_connection() as conn:
-        rows = conn.execute(
+        if exclude_closed:
+            query = """
+                SELECT * FROM jira_tickets
+                WHERE lower(status) NOT IN ('done', 'concluído', 'resolvido', 'fechada', 'closed', 'cancelled', 'fechado')
+                ORDER BY updated_at DESC
+                LIMIT ?
             """
-            SELECT * FROM jira_tickets
-            ORDER BY
-                CASE WHEN lower(status) IN ('done', 'concluído', 'resolvido', 'fechada', 'closed', 'cancelled', 'fechado') THEN 1 ELSE 0 END,
-                updated_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        else:
+            query = """
+                SELECT * FROM jira_tickets
+                ORDER BY
+                    CASE WHEN lower(status) IN ('done', 'concluído', 'resolvido', 'fechada', 'closed', 'cancelled', 'fechado') THEN 1 ELSE 0 END,
+                    updated_at DESC
+                LIMIT ?
+            """
+        rows = conn.execute(query, (limit,)).fetchall()
     return [
         {
             "key": row["key"],

@@ -456,9 +456,9 @@
       word-break: break-word;
     }
 
-    /* JIRA KPI Grid 8 Column Layout Override (Single Row) */
+    /* JIRA KPI Grid 9 Column Layout Override (Single Row) */
     #jira-kpi-grid {
-      grid-template-columns: repeat(8, 1fr) !important;
+      grid-template-columns: repeat(9, 1fr) !important;
       gap: 6px !important;
     }
     #jira-kpi-grid .kpi-card {
@@ -945,6 +945,35 @@
     }
     .summary-link:hover .link-icon { opacity: 1; }
     .summary-link.expanded .link-icon { transform: rotate(180deg); opacity: 1; color: #3b82f6; }
+
+    /* Premium Tooltip Style */
+    .premium-tooltip {
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #e5e7eb;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      max-width: 400px;
+      max-height: 250px;
+      overflow-y: auto;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(8px);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: inherit;
+    }
+    .premium-tooltip::-webkit-scrollbar {
+      width: 4px;
+    }
+    .premium-tooltip::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .premium-tooltip::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+    }
   </style>
 </head>
 <body>
@@ -1131,6 +1160,22 @@
             <div class="kpi-data">
               <div class="kpi-title">Total de Tickets</div>
               <div class="kpi-value"><span id="jira-kpi-total">0</span> <span class="kpi-sub">Em aberto</span></div>
+            </div>
+          </div>
+
+          <!-- Card 2: Criados Hoje -->
+          <div class="kpi-card" id="jira-card-today" onclick="setKpiCardFilter('today')">
+            <div class="kpi-icon-wrapper green">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Criados Hoje</div>
+              <div class="kpi-value"><span id="jira-kpi-today">0</span> <span class="kpi-sub">Novos tickets</span></div>
             </div>
           </div>
 
@@ -3699,9 +3744,8 @@
                  </div>
              </div>
           `;
-          // Build two-row horizontal stepper: row1 = circles + connectors, row2 = labels
-          let circlesRowHtml = '';
-          let labelsRowHtml = '';
+          // Build single-row horizontal stepper: step -> connector -> step -> connector
+          let stepperRowHtml = '';
           for (let s = 0; s < numStages; s++) {
               const stageData = parseStageLabel(stageLabels[s], s);
               const cls = stepClasses[s];
@@ -3719,42 +3763,34 @@
               if (cls === 'completed') circleColorStyle = 'border-color: var(--success); color: var(--success); background: rgba(16, 185, 129, 0.08);';
               else if (cls === 'active') circleColorStyle = 'border-color: var(--primary); color: var(--primary); background: rgba(59, 130, 246, 0.08); box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);';
               else if (cls === 'failed') circleColorStyle = 'border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08);';
-              else circleColorStyle = 'border-color: #d1d5db; color: #9ca3af; background: white;';
+              else circleColorStyle = 'border-color: var(--border-color); color: var(--text-secondary); background: transparent;';
 
               // Connector line (after each step except last)
               let connectorHtml = '';
               if (s < numStages - 1) {
-                  let connectorColor = '#e5e7eb';
+                  let connectorColor = 'var(--border-color)';
                   if (stepClasses[s] === 'completed') connectorColor = 'var(--success)';
                   else if (stepClasses[s] === 'active') connectorColor = 'var(--primary)';
-                  connectorHtml = `<div style="flex: 1; height: 2px; background: ${connectorColor}; margin-top: -1px; transition: background 0.3s ease;"></div>`;
+                  connectorHtml = `<div style="flex: 1; height: 2px; background: ${connectorColor}; margin: 0 12px; transition: background 0.3s ease;"></div>`;
               }
 
-              circlesRowHtml += `
-                  <div style="display: flex; flex-direction: column; align-items: center; flex: 1;">
-                      <div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.3s ease; ${circleColorStyle}">${iconContent}</div>
+              // Step markup (Circle + Labels side-by-side)
+              stepperRowHtml += `
+                  <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                      <div style="width: 24px; height: 24px; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.3s ease; ${circleColorStyle}">${iconContent}</div>
+                      <div style="display: flex; flex-direction: column;">
+                          <div style="font-size: 11px; font-weight: 700; color: var(--text-primary); white-space: nowrap;">${s+1}. ${escapeHtml(stageData.title)}</div>
+                          <div style="font-size: 9px; color: var(--text-secondary); white-space: nowrap; margin-top: 1px;">${escapeHtml(stageData.sub)}</div>
+                      </div>
                   </div>
                   ${connectorHtml}
               `;
-              
-              // Label below circle — titles always dark, only circle keeps status color
-              labelsRowHtml += `
-                  <div style="flex: 1; text-align: center; padding: 0 4px;">
-                      <div style="font-size: 11px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${s+1}. ${escapeHtml(stageData.title)}</div>
-                      <div style="font-size: 10px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(stageData.sub)}</div>
-                  </div>
-              `;
           }
           let timelineHtml = `
-             <!-- Connected Stages Timeline - Horizontal Two-Row -->
-             <div style="margin-top: 24px; background: rgba(0,0,0,0.01); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px 20px;">
-                 <!-- Row 1: Circles + Connectors -->
-                 <div style="display: flex; align-items: center; width: 100%; margin-bottom: 10px;">
-                     ${circlesRowHtml}
-                 </div>
-                 <!-- Row 2: Labels -->
-                 <div style="display: flex; align-items: flex-start; width: 100%;">
-                     ${labelsRowHtml}
+             <!-- Connected Stages Timeline - Single Row Stepper -->
+             <div style="margin-top: 24px; background: rgba(0,0,0,0.01); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px;">
+                 <div style="display: flex; align-items: center; width: 100%; justify-content: space-between;">
+                     ${stepperRowHtml}
                  </div>
              </div>
              
@@ -4395,6 +4431,7 @@
     function updateKpiCardHighlight() {
         const cardIds = {
             'total': 'jira-card-total',
+            'today': 'jira-card-today',
             'review': 'jira-card-review',
             'wip': 'jira-card-wip',
             'waiting-customer': 'jira-card-waiting-customer',
@@ -5232,7 +5269,7 @@
         }
 
         try {
-            const res = await fetch('/api/jira/tickets?limit=50000');
+            const res = await fetch('/api/jira/tickets?limit=50000&exclude_closed=true');
             if (!res.ok) throw new Error('Falha ao carregar tickets');
             const data = await res.json();
             jiraTickets = data.tickets || [];
@@ -5335,6 +5372,14 @@
                 const type = (t.ticket_type || '').toLowerCase().trim();
                 const sla = (t.time_to_resolution || '').toLowerCase();
 
+                if (activeKpiCardFilter === 'today') {
+                    const now = new Date();
+                    const createdDate = new Date(t.created_at);
+                    const isToday = createdDate.getDate() === now.getDate() &&
+                                    createdDate.getMonth() === now.getMonth() &&
+                                    createdDate.getFullYear() === now.getFullYear();
+                    if (!isToday) return false;
+                }
                 if (activeKpiCardFilter === 'review' && status !== 'in review') return false;
                 if (activeKpiCardFilter === 'wip' && status !== 'work in progress') return false;
                 if (activeKpiCardFilter === 'waiting-customer' && status !== 'waiting for customer') return false;
@@ -5436,7 +5481,7 @@
                         ${keyDisplay}
                     </td>
                     <td style="padding: 14px 16px; color: var(--text-primary); font-weight: 500;">
-                        <a class="summary-link js-reply-toggle" id="summary-link-${t.key.replace(/[^a-z0-9]/gi,'-')}" data-key="${t.key.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" title="Adicionar comentário Reply to customer" style="cursor:pointer;">
+                        <a class="summary-link js-reply-toggle" id="summary-link-${t.key.replace(/[^a-z0-9]/gi,'-')}" data-key="${t.key.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" style="cursor:pointer;">
                             ${escapeHtml(t.summary)}
                             <span class="link-icon">▾</span>
                         </a>
@@ -5574,6 +5619,20 @@
         if (!totalEl) return;
  
         totalEl.textContent = tickets.length;
+
+        // Card: Criados Hoje
+        const todayEl = document.getElementById('jira-kpi-today');
+        if (todayEl) {
+            const now = new Date();
+            const todayCount = tickets.filter(t => {
+                if (!t.created_at) return false;
+                const createdDate = new Date(t.created_at);
+                return createdDate.getDate() === now.getDate() &&
+                       createdDate.getMonth() === now.getMonth() &&
+                       createdDate.getFullYear() === now.getFullYear();
+            }).length;
+            todayEl.textContent = todayCount;
+        }
         
         if (progressEl) {
             const inProgressCount = tickets.filter(t => {
@@ -7392,6 +7451,87 @@
         const key      = el.dataset.key;
         const expandId = el.dataset.expandId;
         if (key && expandId) saveReplyComment(key, expandId);
+    });
+
+    // ── Premium Tooltip for Ticket Description on Hover ──
+    const ticketDescriptionCache = {};
+    let tooltipTimeout = null;
+    let activeTooltipKey = null;
+
+    // Create global tooltip element
+    const tooltipEl = document.createElement('div');
+    tooltipEl.className = 'premium-tooltip';
+    tooltipEl.style.position = 'absolute';
+    tooltipEl.style.display = 'none';
+    tooltipEl.style.zIndex = '99999';
+    tooltipEl.style.pointerEvents = 'none';
+    document.body.appendChild(tooltipEl);
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const ticketsTable = document.getElementById('jira-tickets-table');
+        if (!ticketsTable) return;
+
+        ticketsTable.addEventListener('mouseover', (e) => {
+            const link = e.target.closest('.summary-link');
+            if (!link) return;
+
+            const key = link.getAttribute('data-key');
+            if (!key) return;
+
+            if (tooltipTimeout) {
+                clearTimeout(tooltipTimeout);
+                tooltipTimeout = null;
+            }
+
+            activeTooltipKey = key;
+
+            // Calculate position
+            const rect = link.getBoundingClientRect();
+            const tooltipWidth = 400;
+            let left = window.scrollX + rect.left;
+            if (rect.left + tooltipWidth > window.innerWidth) {
+                left = window.scrollX + window.innerWidth - tooltipWidth - 20;
+            }
+            tooltipEl.style.left = `${left}px`;
+            tooltipEl.style.top = `${window.scrollY + rect.bottom + 8}px`;
+            tooltipEl.style.display = 'block';
+
+            if (ticketDescriptionCache[key] !== undefined) {
+                tooltipEl.textContent = ticketDescriptionCache[key] || 'Sem descrição disponível.';
+            } else {
+                tooltipEl.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px; color: #9ca3af;">
+                        <svg class="spinner" width="12" height="12" viewBox="0 0 50 50" style="animation: spin 1s linear infinite; display: inline-block;">
+                            <circle class="path" cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray: 1, 150; stroke-dashoffset: 0; animation: dash 1.5s ease-in-out infinite;"></circle>
+                        </svg>
+                        <span>A carregar descrição...</span>
+                    </div>
+                `;
+
+                fetch(`/api/jira/tickets/${encodeURIComponent(key)}/details`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => {
+                        if (activeTooltipKey !== key) return;
+                        const desc = d && d.description ? d.description.trim() : null;
+                        ticketDescriptionCache[key] = desc || '';
+                        tooltipEl.textContent = ticketDescriptionCache[key] || 'Sem descrição disponível.';
+                    })
+                    .catch(err => {
+                        if (activeTooltipKey !== key) return;
+                        tooltipEl.textContent = 'Erro ao carregar descrição.';
+                    });
+            }
+        });
+
+        ticketsTable.addEventListener('mouseout', (e) => {
+            const link = e.target.closest('.summary-link');
+            if (!link) return;
+
+            activeTooltipKey = null;
+            tooltipTimeout = setTimeout(() => {
+                tooltipEl.style.display = 'none';
+            }, 100);
+        });
     });
 
     loadJobs().then(() => {
