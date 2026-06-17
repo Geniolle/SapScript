@@ -25,6 +25,18 @@ import json
 import os
 import win32com.client
 
+# Garantir codificação UTF-8 para evitar erros UnicodeEncodeError em consolas Windows
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 MSG_RZ11_SCRIPTING = 'Ativar na transação RZ11 o nome do parametro "sapgui/user_scripting" alterar para "TRUE"'
 
 
@@ -196,13 +208,28 @@ def _close_window(session):
         pass
 
 
-def _set_table_e070(session):
+def _wait_for_table_input_field(session, timeout_s=5):
     candidates = [
         "wnd[0]/usr/ctxtGD-TAB",
         "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
         "wnd[0]/usr/ctxtTABNAME",
     ]
-    for cid in candidates:
+    t0 = time.time()
+    while time.time() - t0 <= timeout_s:
+        for cid in candidates:
+            try:
+                element = session.findById(cid)
+                if element is not None:
+                    return cid
+            except Exception:
+                pass
+        time.sleep(0.1)
+    return None
+
+
+def _set_table_e070(session):
+    cid = _wait_for_table_input_field(session, 5)
+    if cid:
         if _try_set_text(session, cid, "E070"):
             try:
                 session.findById("wnd[0]").sendVKey(0)
@@ -235,7 +262,8 @@ def _find_table_control(session):
     while stack:
         obj = stack.pop()
         try:
-            if obj.Name == "tblSAPLSE16NSELFIELDS_TC":
+            # Check both Name and ID to be fully bulletproof (Name is often without the "tbl" prefix)
+            if obj.Name == "SAPLSE16NSELFIELDS_TC" or obj.Id.endswith("tblSAPLSE16NSELFIELDS_TC"):
                 return obj
         except Exception:
             pass
@@ -248,74 +276,116 @@ def _find_table_control(session):
     return None
 
 
-def _set_low_value(session, tbl_id, row_idx, value):
-    for prefix in ["ctxt", "txt"]:
-        target_id = f"{tbl_id}/{prefix}GS_SELFIELDS-LOW[2,{row_idx}]"
-        if _try_set_text(session, target_id, value):
-            return True
-    return False
+def _wait_for_table_control(session, timeout_s=8):
+    t0 = time.time()
+    while time.time() - t0 <= timeout_s:
+        tbl = _find_table_control(session)
+        if tbl is not None:
+            return tbl
+        time.sleep(0.1)
+    return None
+
+
+def _set_low_value(session, tbl_id, prefix_path, col_idx, row_idx, value):
+    target_id = f"{tbl_id}/{prefix_path}[{col_idx},{row_idx}]"
+    return _try_set_text(session, target_id, value)
+
+
+def _detect_columns(tbl):
+    col_info = {
+        "technical_name_col": 13,
+        "technical_name_prefix": "txtGS_SELFIELDS-FIELDNAME",
+        "low_col": 2,
+        "low_prefix": "ctxtGS_SELFIELDS-LOW",
+        "option_col": 4,
+        "option_prefix": "txtGS_SELFIELDS-OPTION"
+    }
+    try:
+        for i in range(tbl.Children.Count):
+            child = tbl.Children(i)
+            id_str = child.Id
+            if "[" in id_str and "]" in id_str:
+                bracket_part = id_str.rsplit("[", 1)[-1].split("]")[0]
+                parts = bracket_part.split(",")
+                if len(parts) == 2:
+                    col_idx = int(parts[0])
+                    row_idx = int(parts[1])
+                    if row_idx == 0:
+                        prefix_path = id_str.rsplit("[", 1)[0]
+                        prefix = prefix_path.split("/")[-1]
+                        name = child.Name.upper()
+                        
+                        # Suffix match or exact match to avoid matching TOPLOW
+                        if name.endswith("-LOW") or name == "GS_SELFIELDS-LOW":
+                            col_info["low_col"] = col_idx
+                            col_info["low_prefix"] = prefix
+                        elif name.endswith("-OPTION") or name == "GS_SELFIELDS-OPTION" or name == "OPTION":
+                            col_info["option_col"] = col_idx
+                            col_info["option_prefix"] = prefix
+                        elif "FIELDNAME" in name:
+                            if col_idx > 10:
+                                col_info["technical_name_col"] = col_idx
+                                col_info["technical_name_prefix"] = prefix
+    except Exception:
+        pass
+    return col_info
 
 
 def _aplicar_filtros_base(session, user):
-    tbl = _find_table_control(session)
+    tbl = _wait_for_table_control(session, 8)
     if not tbl:
-        tbl_id = "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC"
-        row_count = 12
-        visible_rows = 12
-    else:
-        tbl_id = tbl.Id
-        try:
-            row_count = int(tbl.RowCount)
-        except Exception:
-            row_count = 12
-        try:
-            visible_rows = int(tbl.VisibleRowCount)
-        except Exception:
-            visible_rows = 12
+        return False
 
-    # Otimização 1: Acesso direto rápido para a tabela E070 (TRSTATUS costuma ser a linha 2, AS4USER a linha 3)
-    try:
-        f2 = session.findById(f"{tbl_id}/txtGS_SELFIELDS-FIELDNAME[13,2]").text.strip().upper()
-        f3 = session.findById(f"{tbl_id}/txtGS_SELFIELDS-FIELDNAME[13,3]").text.strip().upper()
-        if f2 == "TRSTATUS" and f3 == "AS4USER":
-            if _set_low_value(session, tbl_id, 2, "D") and _set_low_value(session, tbl_id, 3, user):
-                return True
-    except Exception:
-        pass
+    tbl_id = tbl.Id
+    row_count = int(tbl.RowCount)
+    visible_rows = int(tbl.VisibleRowCount)
 
-    # Otimização 2: Fallback dinâmico apenas nas linhas visíveis para evitar erros COM lentos
+    col_info = _detect_columns(tbl)
+    col_fieldname_orig = col_info["technical_name_col"]
+    col_fieldname_prefix = col_info["technical_name_prefix"]
+    col_option = col_info["option_col"]
+    col_option_prefix = col_info["option_prefix"]
+    col_low = col_info["low_col"]
+    col_low_prefix = col_info["low_prefix"]
+
+    fields_to_find = {"TRSTATUS": None, "AS4USER": None, "STRKORR": None}
+    
+    # Read visible rows to find positions of the filter fields
+    for r in range(min(row_count, visible_rows)):
+        try:
+            fname_id = f"{tbl_id}/{col_fieldname_prefix}[{col_fieldname_orig},{r}]"
+            fieldname = session.findById(fname_id).text.strip().upper()
+            if fieldname in fields_to_find:
+                fields_to_find[fieldname] = r
+        except Exception:
+            continue
+
     status_set = False
     user_set = False
-    limite_linhas = min(row_count, visible_rows, 20)
 
-    for r in range(limite_linhas):
-        fieldname = ""
-        try:
-            # O nome do campo é sempre um label de texto ("txt"), nunca de entrada ("ctxt")
-            fname_id = f"{tbl_id}/txtGS_SELFIELDS-FIELDNAME[13,{r}]"
-            fieldname = session.findById(fname_id).text.strip().upper()
-        except Exception:
-            continue
+    # 1. Set TRSTATUS = 'D'
+    r_status = fields_to_find.get("TRSTATUS")
+    if r_status is not None:
+        status_set = _set_low_value(session, tbl_id, col_low_prefix, col_low, r_status, "D")
 
-        if not fieldname:
-            continue
+    # 2. Set AS4USER = user
+    r_user = fields_to_find.get("AS4USER")
+    if r_user is not None:
+        user_set = _set_low_value(session, tbl_id, col_low_prefix, col_low, r_user, user)
 
-        if fieldname == "TRSTATUS":
-            if _set_low_value(session, tbl_id, r, "D"):
-                status_set = True
-            else:
-                print(f"⚠️ Falha ao definir filtro TRSTATUS na linha {r}")
-
-        elif fieldname == "AS4USER":
-            if _set_low_value(session, tbl_id, r, user):
-                user_set = True
-            else:
-                print(f"⚠️ Falha ao definir filtro AS4USER na linha {r}")
-
-        if status_set and user_set:
-            break
+    # 3. Set STRKORR != "" (Option = "NE", Low = "")
+    r_strkorr = fields_to_find.get("STRKORR")
+    if r_strkorr is not None:
+        low_id = f"{tbl_id}/{col_low_prefix}[{col_low},{r_strkorr}]"
+        _try_set_text(session, low_id, "")
+        
+        # Only set option text if the option column is a text field, not a button
+        if not col_option_prefix.lower().startswith("btn"):
+            opt_id = f"{tbl_id}/{col_option_prefix}[{col_option},{r_strkorr}]"
+            _try_set_text(session, opt_id, "NE")
 
     return status_set and user_set
+
 
 
 
@@ -424,12 +494,13 @@ def _open_se16h_new_mode(session):
     """
     Abre /ose16h em novo modo e devolve (new_session, created_flag).
     """
+    before_ids = set()
     try:
         connection = session.Parent
-        before = int(connection.Children.Count)
+        for i in range(connection.Children.Count):
+            before_ids.add(connection.Children(i).Id)
     except Exception:
         connection = None
-        before = None
 
     try:
         session.findById("wnd[0]/tbar[0]/okcd").text = "/ose16h"
@@ -437,16 +508,16 @@ def _open_se16h_new_mode(session):
     except Exception:
         return session, False
 
-    if connection is not None and before is not None:
+    if connection is not None:
         t0 = time.time()
-        while time.time() - t0 <= 6:
+        while time.time() - t0 <= 8:
             try:
-                now = int(connection.Children.Count)
-                if now > before:
-                    new_sess = connection.Children(now - 1)
-                    _wait_not_busy(new_sess, 12)
-                    time.sleep(0.2)
-                    return new_sess, True
+                for i in range(connection.Children.Count):
+                    c = connection.Children(i)
+                    if c.Id not in before_ids:
+                        _wait_not_busy(c, 12)
+                        time.sleep(0.3)
+                        return c, True
             except Exception:
                 pass
             time.sleep(0.2)
@@ -464,6 +535,20 @@ def listar_requests(
     minimize=True,
     close_after=True,
 ):
+    times = {}
+    t_total_start = time.perf_counter()
+
+    def print_profile():
+        total_time = time.perf_counter() - t_total_start
+        print("\n⏱️  PERFIL DE TEMPO DA EXECUÇÃO (Mapeamento de Gargalos):")
+        print("=" * 65)
+        for task_name, duration in times.items():
+            percentage = (duration / total_time) * 100
+            print(f"- {task_name:<45}: {duration:6.2f}s ({percentage:5.1f}%)")
+        print("-" * 65)
+        print(f"{'Tempo Total':<45}: {total_time:6.2f}s (100.0%)")
+        print("=" * 65)
+
     # Mapear o sistema para a chave do ambiente de forma a usar o login automático se necessário
     key = None
     if system_name:
@@ -477,6 +562,7 @@ def listar_requests(
         elif sys_upper == "SPA":
             key = "SPACLNT001"
 
+    t_start = time.perf_counter()
     base_session = None
     try:
         # Importar dinamicamente sap_session da raiz do projeto
@@ -503,9 +589,12 @@ def listar_requests(
         print(f"❌ {msg}")
         raise RuntimeError(msg)
 
+    times["Conexão / Acesso SAP GUI"] = time.perf_counter() - t_start
+
     work_session = base_session
     created_new = False
 
+    t_start = time.perf_counter()
     if use_new_mode:
         work_session, created_new = _open_se16h_new_mode(base_session)
     else:
@@ -516,16 +605,20 @@ def listar_requests(
             time.sleep(0.2)
         except Exception:
             pass
+    times["Abertura do SE16H (Novo Modo ou Transição)"] = time.perf_counter() - t_start
 
-    if minimize:
-        _iconify(work_session)
-
+    t_start = time.perf_counter()
     _set_table_e070(work_session)
     _set_max_ocorrencias(work_session, max_rows=max_rows)
 
     if not _aplicar_filtros_base(work_session, user):
-        print("⚠️ Não consegui aplicar TRSTATUS/AS4USER de forma dinâmica. Vou executar mesmo assim.")
+        print("⚠️ Não consegui aplicar TRSTATUS/AS4USER/STRKORR de forma dinâmica. Vou executar mesmo assim.")
 
+    if minimize:
+        _iconify(work_session)
+    times["Configuração dos Filtros (E070, User, Status)"] = time.perf_counter() - t_start
+
+    t_start = time.perf_counter()
     if not _press_execute(work_session):
         if created_new and close_after:
             _close_window(work_session)
@@ -539,10 +632,14 @@ def listar_requests(
             print(f"ℹ️ SAP Status Bar: {sbar.Text}")
             if created_new and close_after:
                 _close_window(work_session)
+            times["Execução da Consulta no SAP (F8)"] = time.perf_counter() - t_start
+            print_profile()
             return []
     except Exception:
         pass
+    times["Execução da Consulta no SAP (F8)"] = time.perf_counter() - t_start
 
+    t_start = time.perf_counter()
     grid = _find_best_grid(work_session)
     if not grid:
         if created_new and close_after:
@@ -555,19 +652,23 @@ def listar_requests(
         if created_new and close_after:
             _close_window(work_session)
         raise RuntimeError(f"Não foi possível obter RowCount da grelha de resultados: {e}")
+    times["Localização do ALV Grid"] = time.perf_counter() - t_start
 
+    t_start = time.perf_counter()
     results = []
     for r in range(row_count):
-        trkorr = _get_cell(grid, r, "TRKORR")
+        # Micro-otimização: Ler a coluna STRKORR primeiro. Se estiver vazia, ignoramos imediatamente
+        # a linha e poupamos 2 chamadas COM adicionais (TRKORR e AS4TEXT).
         strkorr = _get_cell(grid, r, "STRKORR")
-        as4text = _get_cell(grid, r, "AS4TEXT") or _get_cell(grid, r, "TXT_BREVE") or _get_cell(grid, r, "TEXT")
-
-        # Ajuste exigido: Ignorar todas as linhas onde a coluna STRKORR for vazia
         if not strkorr:
             continue
 
+        trkorr = _get_cell(grid, r, "TRKORR")
+        as4text = _get_cell(grid, r, "AS4TEXT") or _get_cell(grid, r, "TXT_BREVE") or _get_cell(grid, r, "TEXT")
+
         if trkorr or as4text:
             results.append((trkorr, as4text))
+    times["Leitura dos Resultados (Loop COM no ALV)"] = time.perf_counter() - t_start
 
     # impressão NUMERADA
     try:
@@ -584,8 +685,13 @@ def listar_requests(
     # guarda para seleção futura por número
     _save_results(results, system_name=sysname, user=user)
 
+    t_start = time.perf_counter()
     if created_new and close_after:
         _close_window(work_session)
+    if created_new and close_after:
+        times["Fecho da Janela / Sessão do SE16H"] = time.perf_counter() - t_start
+
+    print_profile()
 
     return results
 

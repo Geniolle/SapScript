@@ -2,7 +2,7 @@
   "meta": {
     "system": "S4D",
     "user": "CSILVA",
-    "generated_at": "2026-06-15 16:58:59"
+    "generated_at": "2026-06-17 15:26:38"
   },
   "items": [
     {
@@ -34,11 +34,6 @@
       "idx": 6,
       "TRKORR": "S4DK953299",
       "AS4TEXT": "Erro chave de lançamento"
-    },
-    {
-      "idx": 7,
-      "TRKORR": "S4DK953306",
-      "AS4TEXT": "IZ-57534 - Chaves de Pesquisa"
     }
   ]
 }

@@ -25,10 +25,6 @@ def _safe_name(value: str) -> str:
 
 
 def _resolve_doc_output_dir(base_dir: Path, row_context: Dict[str, str]) -> Path:
-    xlsx_path = Path(str(row_context.get("xlsx_path", "")).strip())
-    if xlsx_path.exists() and xlsx_path.parent.exists():
-        return xlsx_path.parent.resolve()
-
     template = str(os.getenv("WORKFLOW_DOC_OUTPUT_DIR", "") or "").strip()
     if template:
         rendered = template.format_map({k: str(v or "") for k, v in row_context.items()})
@@ -36,6 +32,10 @@ def _resolve_doc_output_dir(base_dir: Path, row_context: Dict[str, str]) -> Path
         if not folder.is_absolute():
             folder = (base_dir / folder).resolve()
         return folder
+
+    xlsx_path = Path(str(row_context.get("xlsx_path", "")).strip())
+    if xlsx_path.exists() and xlsx_path.parent.exists():
+        return xlsx_path.parent.resolve()
 
     return (base_dir / "cache" / "documentacao").resolve()
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SAP Script Cockpit</title>
-  <link rel="stylesheet" href="/static/styles.css?v=5">
+  <link rel="stylesheet" href="/static/styles.css?v=6">
   <style>
     .custom-scroll::-webkit-scrollbar {
       width: 4px;
@@ -974,6 +974,24 @@
       background: rgba(255, 255, 255, 0.2);
       border-radius: 2px;
     }
+    
+    /* Custom terminal scrollbar for activity logs */
+    .terminal-scroll::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    .terminal-scroll::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+    }
+    .terminal-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.18);
+      border-radius: 4px;
+      border: 2px solid #0d1117;
+    }
+    .terminal-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
   </style>
 </head>
 <body>
@@ -1109,6 +1127,33 @@
               <div class="kpi-value"><span id="kpi-failed">0</span> <span class="kpi-sub">Requer validação</span></div>
             </div>
           </div>
+          <div class="kpi-card" style="cursor: default;">
+            <div class="kpi-icon-wrapper blue">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Tempo médio</div>
+              <div class="kpi-value"><span id="kpi-avg-time">0s</span> <span class="kpi-sub">De concluídos</span></div>
+            </div>
+          </div>
+          <div class="kpi-card" style="cursor: default;">
+            <div class="kpi-icon-wrapper green">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Taxa de sucesso</div>
+              <div class="kpi-value"><span id="kpi-success-rate-general">100%</span> <span class="kpi-sub">Geral dos jobs</span></div>
+            </div>
+          </div>
+          <div class="kpi-card" style="cursor: default;">
+            <div class="kpi-icon-wrapper yellow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            </div>
+            <div class="kpi-data">
+              <div class="kpi-title">Última execução</div>
+              <div class="kpi-value"><span id="kpi-latest-time" style="font-size: 0.95rem;">---</span> <span class="kpi-sub">Data do último job</span></div>
+            </div>
+          </div>
         </section>
 
         <!-- Main Grid -->
@@ -1122,7 +1167,7 @@
           </div>
 
           <!-- Right Column: Queue & Terminal -->
-          <div style="display:flex; flex-direction:column; gap:24px;">
+          <div style="display:none; flex-direction:column; gap:24px;">
             
 
             <div class="card" style="background: #0d1117; border-color: #30363d; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
@@ -2066,6 +2111,11 @@
         <input type="file" id="browser-file-input" style="display: none;">
         </div>
 
+        <label>
+          Nome da pasta (Opcional)
+          <input name="nome_pasta" id="nome-pasta-input" placeholder="Ex.: Cadastro_Cadeias_Empresa" autocomplete="off">
+        </label>
+
         <div id="request-options-section">
         <label>
           Opção de request
@@ -2207,6 +2257,16 @@
         const stepMs = diffMs / (totalLines - 1 || 1);
         const lineTime = new Date(start.getTime() + (lineIndex * stepMs));
         return formatTimeOnly(lineTime);
+    }
+    function getRawDateForLine(job, lineIndex, totalLines) {
+        const start = new Date(job.created_at);
+        const end = (job.state === 'running' || job.state === 'pending') ? new Date() : new Date(job.updated_at);
+        const diffMs = Math.max(0, end - start);
+        if (totalLines <= 1) {
+            return start;
+        }
+        const stepMs = diffMs / (totalLines - 1 || 1);
+        return new Date(start.getTime() + (lineIndex * stepMs));
     }
     function formatDuration(startStr, endStr) {
         const start = new Date(startStr);
@@ -2567,6 +2627,11 @@
     let activeJobId = null;
     let activeJobDetailsExpanded = true;
     let expandedJobs = {};
+    let activeLogQuery = '';
+    let activeLogLevel = 'ALL';
+    let activeLogState = 'ALL';
+    let activeLogTime = 'ALL';
+    let expandedLogItems = {};
 
     // Elementos DOM
     const modal = document.getElementById('modal-novo-job');
@@ -2954,16 +3019,43 @@
       const now = new Date();
       let running = 0, pending = 0, successToday = 0, errorToday = 0;
       let latestRunningProcess = '';
+      
+      let totalCompletedAllTime = 0;
+      let successAllTime = 0;
+      let totalDurationMs = 0;
+      let latestJobTime = null;
 
       allJobs.forEach(job => {
         const isToday = new Date(job.created_at).toDateString() === now.toDateString();
+        
+        // Track latest job timestamp
+        const jobDate = new Date(job.created_at);
+        if (!latestJobTime || jobDate > latestJobTime) {
+            latestJobTime = jobDate;
+        }
+
         if (job.state === 'running') {
             running++;
             if (!latestRunningProcess) latestRunningProcess = job.params?.subprocesso || job.task;
         }
         if (job.state === 'pending') pending++;
+        
         if (isToday && job.state === 'succeeded') successToday++;
         if (isToday && job.state === 'failed') errorToday++;
+        
+        // General stats for all-time rates
+        if (job.state === 'succeeded') {
+            successAllTime++;
+            totalCompletedAllTime++;
+            
+            // Calculate duration
+            const duration = new Date(job.updated_at) - new Date(job.created_at);
+            if (duration > 0) {
+                totalDurationMs += duration;
+            }
+        } else if (job.state === 'failed') {
+            totalCompletedAllTime++;
+        }
       });
 
       document.getElementById('kpi-running').textContent = running;
@@ -2972,11 +3064,37 @@
       document.getElementById('kpi-pending').textContent = pending;
       
       document.getElementById('kpi-success').textContent = successToday;
-      const totalCompleted = successToday + errorToday;
-      const rate = totalCompleted > 0 ? Math.round((successToday / totalCompleted) * 100) : 100;
-      document.getElementById('kpi-success-rate').textContent = `${rate}% sem erro`;
+      const totalCompletedToday = successToday + errorToday;
+      const todayRate = totalCompletedToday > 0 ? Math.round((successToday / totalCompletedToday) * 100) : 100;
+      document.getElementById('kpi-success-rate').textContent = `${todayRate}% sem erro`;
 
       document.getElementById('kpi-failed').textContent = errorToday;
+      
+      // Calculate avg duration
+      let avgDurationStr = '0s';
+      if (successAllTime > 0) {
+          const avgMs = totalDurationMs / successAllTime;
+          const avgSecs = Math.round(avgMs / 1000);
+          if (avgSecs < 60) {
+              avgDurationStr = `${avgSecs}s`;
+          } else {
+              const mins = Math.floor(avgSecs / 60);
+              const secs = avgSecs % 60;
+              avgDurationStr = `${mins}m ${secs}s`;
+          }
+      }
+      document.getElementById('kpi-avg-time').textContent = avgDurationStr;
+      
+      // General success rate
+      const generalRate = totalCompletedAllTime > 0 ? Math.round((successAllTime / totalCompletedAllTime) * 100) : 100;
+      document.getElementById('kpi-success-rate-general').textContent = `${generalRate}%`;
+      
+      // Latest time
+      let latestTimeStr = '---';
+      if (latestJobTime) {
+          latestTimeStr = latestJobTime.toLocaleDateString('pt-PT') + ' ' + latestJobTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      }
+      document.getElementById('kpi-latest-time').textContent = latestTimeStr;
     }
 
     function renderQueue() {
@@ -3446,45 +3564,50 @@
                   } else if (isActive) {
                       completedTimeStr = 'A processar...';
                   }
-                  rows += `
-                     <tr class="role-history-table-row ${isActive ? 'active-row' : ''}">
-                        <td style="padding: 8px; font-weight: bold; color: var(--text-secondary); width: 60px;">${String(idx+1).padStart(2, '0')}</td>
-                        <td style="padding: 8px; font-weight: 600; color: ${isActive ? 'var(--primary)' : 'var(--text-primary)'};">${escapeHtml(r.name)}</td>
-                        <td style="padding: 8px; font-family: monospace; color: var(--text-secondary);">${actionsCount}</td>
-                        <td style="padding: 8px;">${statusBadge}</td>
-                        <td style="padding: 8px; color: var(--text-secondary); font-size: 11px;">${completedTimeStr}</td>
-                     </tr>
-                  `;
+                  
+                  if (!isCadeiaProcess) {
+                      rows += `
+                         <tr class="role-history-table-row ${isActive ? 'active-row' : ''}">
+                            <td style="padding: 8px; font-weight: bold; color: var(--text-secondary); width: 60px;">${String(idx+1).padStart(2, '0')}</td>
+                            <td style="padding: 8px; font-weight: 600; color: ${isActive ? 'var(--primary)' : 'var(--text-primary)'};">${escapeHtml(r.name)}</td>
+                            <td style="padding: 8px; font-family: monospace; color: var(--text-secondary);">${actionsCount}</td>
+                            <td style="padding: 8px;">${statusBadge}</td>
+                            <td style="padding: 8px; color: var(--text-secondary); font-size: 11px;">${completedTimeStr}</td>
+                         </tr>
+                      `;
+                  }
               });
               
-              roleHistoryHtml = `
-                 <div style="flex: 1.2; min-width: 320px;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:12px; align-items: center;">
-                       <span style="font-weight:bold; color:var(--text-primary); font-size:14px;">${isCadeiaProcess ? 'Histórico de Verificação das Cadeias' : 'Histórico de Execução das Roles'}</span>
-                       <span style="font-size:11px; font-weight:bold; color:var(--success);">${concludedRoles}/${totalRoles} ${isCadeiaProcess ? 'Verificadas' : 'Concluídas'}</span>
-                    </div>
-                    <div class="role-history-scroll custom-scroll" style="max-height:220px; overflow-y:auto; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(0,0,0,0.01);">
-                       <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
-                          <thead>
-                             <tr style="background: rgba(0,0,0,0.02); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-secondary);">
-                                <th style="padding: 8px; width: 60px;">Ordem</th>
-                                <th style="padding: 8px;">${isCadeiaProcess ? 'Cadeia de Pesquisa' : 'Role'}</th>
-                                <th style="padding: 8px; width: 60px;">Ações</th>
-                                <th style="padding: 8px; width: 110px;">Status</th>
-                                <th style="padding: 8px; width: 140px;">Concluído em</th>
-                             </tr>
-                          </thead>
-                          <tbody>
-                             ${rows}
-                          </tbody>
-                       </table>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 11px; color: var(--text-secondary);">
-                       <span>Exibindo ${allRolesParam.length} de ${allRolesParam.length} ${isCadeiaProcess ? 'cadeias' : 'roles'}</span>
-                       <a href="#" style="color: var(--primary); text-decoration: none; font-weight: 600;" onclick="event.preventDefault();">Ver todas as ${isCadeiaProcess ? 'cadeias' : 'roles'} &rarr;</a>
-                    </div>
-                 </div>
-              `;
+              if (!isCadeiaProcess) {
+                  roleHistoryHtml = `
+                     <div style="flex: 1.2; min-width: 320px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:12px; align-items: center;">
+                           <span style="font-weight:bold; color:var(--text-primary); font-size:14px;">Histórico de Execução das Roles</span>
+                           <span style="font-size:11px; font-weight:bold; color:var(--success);">${concludedRoles}/${totalRoles} Concluídas</span>
+                        </div>
+                        <div class="role-history-scroll custom-scroll" style="max-height:320px; overflow-y:auto; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(0,0,0,0.01);">
+                           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
+                              <thead>
+                                 <tr style="background: rgba(0,0,0,0.02); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-secondary);">
+                                    <th style="padding: 8px; width: 60px;">Ordem</th>
+                                    <th style="padding: 8px;">Role</th>
+                                    <th style="padding: 8px; width: 60px;">Ações</th>
+                                    <th style="padding: 8px; width: 110px;">Status</th>
+                                    <th style="padding: 8px; width: 140px;">Concluído em</th>
+                                 </tr>
+                              </thead>
+                              <tbody>
+                                 ${rows}
+                              </tbody>
+                           </table>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 11px; color: var(--text-secondary);">
+                           <span>Exibindo ${allRolesParam.length} de ${allRolesParam.length} roles</span>
+                           <a href="#" style="color: var(--primary); text-decoration: none; font-weight: 600;" onclick="event.preventDefault();">Ver todas as roles &rarr;</a>
+                        </div>
+                     </div>
+                  `;
+              }
           }
           let stageLabels = ['Inicialização e Logon SAP', 'Abertura e Verificação de Tela', 'Processamento Principal / Ações GUI', 'Conclusão / Geração de Logs'];
           const subLower = sub.toLowerCase();
@@ -3606,141 +3729,315 @@
                   stepClasses[0] = 'failed';
               }
           }
-          // Parse activities for visual log list with timestamps
-          let taskLogRows = '';
+          // Group lines into steps
           let taskLogCount = 0;
-          lines.forEach((line, idx) => {
-              const tr = line.trim();
-              if (!tr) return;
-              
-              const lower = tr.toLowerCase();
-              // Skip pure metadata/system lines that are not useful in the activity log
-              if (lower.startsWith('job:') || 
-                  lower.startsWith('task:') || 
-                  lower.startsWith('params:') || 
-                  lower.startsWith('processo:') || 
-                  lower.startsWith('traceback') || 
-                  lower.includes('[sap_sbar]') || 
-                  lower.startsWith('file "') || 
-                  lower.includes('{' + 'ambiente') || 
-                  tr.startsWith('{') || 
-                  tr.startsWith('}') || 
-                  tr.startsWith('(') || 
-                  tr.startsWith(')') ||
-                  tr.startsWith('class ') ||
-                  tr.startsWith('def ')) {
-                  return;
+          let steps = [];
+          let currentStep = null;
+          
+          let cmdArgs = [];
+          if (p.ambiente) cmdArgs.push(`--ambiente ${p.ambiente}`);
+          if (p.sap_system) cmdArgs.push(`--system ${p.sap_system}`);
+          if (p.sap_client) cmdArgs.push(`--client ${p.sap_client}`);
+          let cmdStr = `python Processos/${job.task} ${cmdArgs.join(' ')}`;
+          const initTs = getTimestampForLine(job, 0, lines.length);
+          
+          currentStep = {
+              title: 'Inicializar Subprocesso',
+              dotColor: 'var(--primary)',
+              inContent: cmdStr,
+              outLines: [],
+              lineIndex: 0,
+              timestamp: initTs
+          };
+          steps.push(currentStep);
+          
+           lines.forEach((line, idx) => {
+               const tr = line.trim();
+               if (!tr) return;
+               
+               const lower = tr.toLowerCase();
+               
+               // Skip raw divider lines (equal signs, hyphens, etc.)
+               if (/^[=\-_ ]+$/.test(tr)) {
+                   return;
+               }
+               
+               // Skip unnecessary system/redundant logs
+               if (lower.includes('ficheiro .env') || 
+                   lower.includes('credenciais carregadas') || 
+                   lower.includes('chave_password') ||
+                   lower.includes('verificar disponibilidade do sap gui') ||
+                   (lower.includes('sap gui scripting') && lower.includes('ativo')) ||
+                   lower.includes('sessão sap encontrada') ||
+                   (lower.includes('[sap_sbar]') && lower.includes('visão de atualização'))) {
+                   return;
+               }
+               
+               let cleanLine = line;
+               
+               // Clean up Windows COM exception tuples and trailing commas
+               cleanLine = cleanLine.replace(/\(-?\d+,\s*'([^']*)'.*?\)/g, '$1');
+               cleanLine = cleanLine.replace(/\('([^']*)',\)/g, '$1');
+               
+               let isNewStep = false;
+               let newStepTitle = '';
+               let newStepColor = 'var(--primary)';
+               
+               const roleMatch = cleanLine.match(/▶\s*\[\d+\/\d+\]\s*(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\-]+)/i);
+               const chainMatch = cleanLine.match(/^([✅❌])\s*([^-]+)\s*-\s*(.*)$/);
+               const phaseMatch = cleanLine.match(/===+\s*(FASE\s+\d+:\s+[^=]+)\s*===+/i) || cleanLine.match(/(FASE\s+\d+:\s+.*)/i);
+               
+               if (roleMatch) {
+                   isNewStep = true;
+                   newStepTitle = cleanLine.trim();
+                   newStepColor = 'var(--primary)';
+               } else if (phaseMatch) {
+                   isNewStep = true;
+                   let titleStr = phaseMatch[1].trim();
+                   if (titleStr.toUpperCase() === titleStr) {
+                       titleStr = titleStr.toLowerCase().replace(/^(fase\s+\d+:?)\s*(.*)$/, (match, p1, p2) => {
+                           const part1 = p1.charAt(0).toUpperCase() + p1.slice(1);
+                           const prepositions = ['de', 'do', 'da', 'dos', 'das', 'em', 'para', 'com', 'por', 'a', 'o', 'e'];
+                           const words = p2.split(/\s+/).map((w, index) => {
+                               if (index === 0) return w.charAt(0).toUpperCase() + w.slice(1);
+                               if (prepositions.includes(w)) return w;
+                               return w.charAt(0).toUpperCase() + w.slice(1);
+                           });
+                           return part1 + ' ' + words.join(' ');
+                       });
+                   }
+                   newStepTitle = titleStr;
+                   newStepColor = 'var(--primary)';
+               } else if (chainMatch) {
+                   isNewStep = true;
+                   newStepTitle = `Validar Cadeia: ${chainMatch[2].trim()}`;
+                   newStepColor = chainMatch[1] === '✅' ? 'var(--success)' : 'var(--danger)';
+               } else if (cleanLine.startsWith('[Etapa ') || cleanLine.includes('[Etapa ')) {
+                   isNewStep = true;
+                   newStepTitle = cleanLine.trim();
+                   newStepColor = 'var(--primary)';
+               } else if (cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌ SAP Erro:') || cleanLine.includes('❌ Erro') || cleanLine.includes('❌ Falha') || cleanLine.startsWith('Traceback') || cleanLine.startsWith('ERRO:')) {
+                   if (currentStep) {
+                       currentStep.dotColor = 'var(--danger)';
+                   }
+               }
+               
+               if (isNewStep) {
+                   currentStep = {
+                       title: newStepTitle,
+                       dotColor: newStepColor,
+                       inContent: cleanLine.trim(),
+                       outLines: [],
+                       lineIndex: idx,
+                       timestamp: getTimestampForLine(job, idx, lines.length)
+                   };
+                   steps.push(currentStep);
+               } else {
+                   if (currentStep) {
+                       currentStep.outLines.push(cleanLine);
+                       
+                       const lowerLine = cleanLine.toLowerCase();
+                       if (cleanLine.includes('🟢 SUCESSO') || cleanLine.includes('✅') || lowerLine.includes('sucesso') || lowerLine.includes('concluída') || lowerLine.includes('concluido')) {
+                           currentStep.dotColor = 'var(--success)';
+                       } else if (cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌') || lowerLine.includes('falha') || lowerLine.includes('erro') || lowerLine.includes('exception') || lowerLine.includes('traceback') || cleanLine.startsWith('ERRO:')) {
+                           currentStep.dotColor = 'var(--danger)';
+                       } else if (cleanLine.includes('⚠️') || lowerLine.includes('warning') || lowerLine.includes('aviso') || cleanLine.startsWith('[WARN]')) {
+                           if (currentStep.dotColor !== 'var(--danger)' && currentStep.dotColor !== 'var(--success)') {
+                               currentStep.dotColor = 'var(--warning)';
+                           }
+                       }
+                   }
+               }
+           });
+          
+          let taskLogRows = '';
+          steps.forEach((step, idx) => {
+              // Determine level
+              let level = 'INFO';
+              if (step.dotColor === 'var(--danger)' || step.dotColor === 'red' || step.dotColor === '#ef4444') {
+                  level = 'ERROR';
+              } else if (step.dotColor === 'var(--warning)' || step.dotColor === 'orange' || step.dotColor === '#f59e0b') {
+                  level = 'WARN';
               }
               
-              if (tr.includes('▶') || tr.includes('Roles a processar') || tr.includes('Resumo das Roles') || tr.includes('Roles a eliminar')) {
-                  return;
-              }
+              let outContent = step.outLines.join('\n').trim();
               
-              // Allow: [INFO], [OK], [WARN], [WARNING], [ERRO], [ERROR], [FAIL] prefixed lines
-              const startsWithBracketPrefix = tr.startsWith('[INFO]') || tr.startsWith('[OK]') || 
-                  tr.startsWith('[WARN]') || tr.startsWith('[WARNING]') || 
-                  tr.startsWith('[ERRO]') || tr.startsWith('[ERROR]') || tr.startsWith('[FAIL]');
+              // Show terminal box for subprocess initialization OR if traceback is detected
+              const isCommandStep = step.title === 'Inicializar Subprocesso';
+              const hasTraceback = outContent.includes('Traceback') || outContent.includes('Exception') || outContent.toLowerCase().includes('erro:');
+              const showCard = isCommandStep || hasTraceback;
               
-              // Allow emoji-prefixed lines
-              const allowedEmojis = ['🔍', '✅', '❌', '✔️', '🟢', '🔴', '💾', '🚀', '⚠️', '✨', '🔑', '📁', '📎', '📝'];
-              const startsWithAllowedEmoji = allowedEmojis.some(emoji => tr.startsWith(emoji));
+              let stepCardHtml = '';
+              let subTextHtml = '';
               
-              // Allow error/traceback lines when job failed
-              let isErrorOrTraceback = false;
-              if (job.state === 'failed') {
-                  const lowerTr = tr.toLowerCase();
-                  isErrorOrTraceback = lowerTr.includes('error') || 
-                                       lowerTr.includes('exception') || 
-                                       lowerTr.includes('falha') || 
-                                       lowerTr.includes('erro') || 
-                                       lowerTr.includes('traceback') || 
-                                       tr.startsWith('File "') ||
-                                       /^[a-zA-Z0-9_.]+(Error|Exception):/.test(tr);
-              }
-              if (!startsWithBracketPrefix && !startsWithAllowedEmoji && !isErrorOrTraceback) {
-                  return;
-              }
-              
-              let wrapperClass = 'icon-default';
-              let rowClass = 'row-info';
-              let icon = '🔹';
-              let text = tr;
-              let textColor = 'var(--text-primary)';
-              
-              if (tr.startsWith('[INFO]')) {
-                  wrapperClass = 'icon-info';
-                  rowClass = 'row-info';
-                  icon = '🔹';
-                  text = tr.substring(6).trim();
-                  textColor = 'var(--text-secondary)';
-              } else if (tr.startsWith('[OK]')) {
-                  wrapperClass = 'icon-success';
-                  rowClass = 'row-success';
-                  icon = '✓';
-                  text = tr.substring(4).trim();
-                  textColor = 'var(--success)';
-              } else if (tr.startsWith('[WARN]') || tr.startsWith('[WARNING]')) {
-                  wrapperClass = 'icon-warning';
-                  rowClass = 'row-warning';
-                  icon = '⚠️';
-                  text = tr.startsWith('[WARN]') ? tr.substring(6).trim() : tr.substring(9).trim();
-                  textColor = 'var(--warning)';
-              } else if (tr.startsWith('[ERRO]') || tr.startsWith('[ERROR]') || tr.startsWith('[FAIL]')) {
-                  wrapperClass = 'icon-error';
-                  rowClass = 'row-error';
-                  icon = '✗';
-                  if (tr.startsWith('[ERRO]')) text = tr.substring(6).trim();
-                  else if (tr.startsWith('[ERROR]')) text = tr.substring(7).trim();
-                  else text = tr.substring(6).trim();
-                  textColor = 'var(--danger)';
-              } else {
-                  const emojiRegex = /^([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]|🚀|✅|🔍|💾|⚠️|❌|🟢|🔴|ℹ️|✨|⚙️|▶|⚡|✔️|⏱️|🔑|📁|📎|📝)/;
-                  const emojiMatch = tr.match(emojiRegex);
-                  if (emojiMatch) {
-                      icon = emojiMatch[0];
-                      text = tr.substring(icon.length).trim();
+              if (showCard) {
+                  let outSectionHtml = outContent 
+                      ? `<div style="display: flex; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-color, #e5e7eb);"><span style="color: var(--text-secondary); font-weight: bold; flex-shrink: 0; width: 32px; user-select: none; font-size: 11px;">OUT</span><span style="color: var(--text-primary); white-space: pre-wrap; word-break: break-all; font-family: Consolas, Monaco, monospace; font-size: 11px;">${escapeHtml(outContent)}</span></div>`
+                      : '';
                       
-                      if (icon === '✅' || icon === '🟢' || icon === '✔️') {
-                          wrapperClass = 'icon-success';
-                          rowClass = 'row-success';
-                          textColor = 'var(--success)';
-                      } else if (icon === '❌' || icon === '🔴') {
-                          wrapperClass = 'icon-error';
-                          rowClass = 'row-error';
-                          textColor = 'var(--danger)';
-                      } else if (icon === '⚠️') {
-                          wrapperClass = 'icon-warning';
-                          rowClass = 'row-warning';
-                          textColor = 'var(--warning)';
-                      } else {
-                          wrapperClass = 'icon-info';
-                          rowClass = 'row-info';
-                          textColor = 'var(--text-primary)';
+                  stepCardHtml = `
+                      <div class="timeline-detail-card" style="margin-top: 8px; margin-bottom: 8px; background: #f6f8fa; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; padding: 10px 14px; font-family: Consolas, Monaco, 'Courier New', monospace; font-size: 11px; line-height: 1.4; color: var(--text-primary); box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);">
+                          <div style="display: flex; gap: 8px;"><span style="color: var(--text-secondary); font-weight: bold; flex-shrink: 0; width: 32px; user-select: none; font-size: 11px;">IN</span><span style="white-space: pre-wrap; word-break: break-all; color: #032f62; font-size: 11px;">${escapeHtml(step.inContent)}</span></div>
+                          ${outSectionHtml}
+                      </div>
+                  `;
+              } else {
+                  let linesToRender = step.outLines.filter(l => l.trim() !== '');
+                  if (linesToRender.length > 0) {
+                      let groupedLines = [];
+                      let currentGroup = [];
+                      const processStepGroup = (group) => {
+                          if (group.length === 1) {
+                              return group[0].replace(/^(\s*)\|-\s*/, '$1├─ ').replace(/^(\s*)\| - \s*/, '$1├─ ');
+                          }
+                          const firstLine = group[0];
+                          const prefixMatch = firstLine.match(/^([|\-├─\s]+)/);
+                          const prefix = prefixMatch ? prefixMatch[0].replace('|-', '├─').replace('| -', '├─') : '├─ ';
+                          const cleanedParts = group.map(line => {
+                              return line.replace(/^([|\-├─\s]+)/, '')
+                                         .replace(/\.\.\.$/, '')
+                                         .trim();
+                          });
+                          return prefix + cleanedParts.join(' -> ');
+                      };
+                      
+                      linesToRender.forEach(l => {
+                          const trimmed = l.trim();
+                          const isGroupable = trimmed.startsWith('|-') || trimmed.startsWith('├─') || trimmed.startsWith('| -');
+                          if (isGroupable) {
+                              currentGroup.push(l);
+                          } else {
+                              if (currentGroup.length > 0) {
+                                  groupedLines.push(processStepGroup(currentGroup));
+                                  currentGroup = [];
+                              }
+                              groupedLines.push(l);
+                          }
+                      });
+                      if (currentGroup.length > 0) {
+                          groupedLines.push(processStepGroup(currentGroup));
                       }
+                      linesToRender = groupedLines;
+
+                      subTextHtml = `
+                          <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-left: 2px;">
+                              ${linesToRender.map(l => {
+                                  const isThought = l.toLowerCase().includes('thought') || l.toLowerCase().startsWith('vou ') || l.toLowerCase().includes('analisando') || l.toLowerCase().includes('validar existencia');
+                                  const textColor = isThought ? 'var(--text-secondary)' : 'var(--text-primary)';
+                                  const fontSize = isThought ? '11px' : '12px';
+                                  const icon = isThought ? '💡' : '·';
+                                  return `<div style="font-size: ${fontSize}; color: ${textColor}; display: flex; gap: 6px; align-items: flex-start; line-height: 1.4;">
+                                      <span style="opacity: 0.6; flex-shrink: 0;">${icon}</span>
+                                      <span>${escapeHtml(l)}</span>
+                                  </div>`;
+                              }).join('')}
+                          </div>
+                      `;
                   }
               }
               
-              const ts = getTimestampForLine(job, idx, lines.length);
+              const startDate = getRawDateForLine(job, step.lineIndex, lines.length);
+              let endDate;
+              if (idx < steps.length - 1) {
+                  endDate = getRawDateForLine(job, steps[idx + 1].lineIndex, lines.length);
+              } else {
+                  endDate = (job.state === 'running' || job.state === 'pending') 
+                      ? new Date() 
+                      : new Date(job.updated_at);
+              }
               
+              const startTimeStr = step.timestamp;
+              const endTimeStr = formatTimeOnly(endDate);
+              
+              const diffMs = Math.max(0, endDate - startDate);
+              const diffSecs = Math.round(diffMs / 1000);
+              let durationStr = '';
+              if (diffSecs < 60) {
+                  durationStr = `${diffSecs}s`;
+              } else {
+                  const mins = Math.floor(diffSecs / 60);
+                  const secs = diffSecs % 60;
+                  durationStr = `${mins}m ${secs}s`;
+              }
+              
+              const timeRangeStr = `${startTimeStr} · ${durationStr} ago`;
+              
+              let dotColor = '#2da44e'; // green
+              if (level === 'ERROR') {
+                  dotColor = '#cf222e'; // red
+              } else if (level === 'WARN') {
+                  dotColor = '#9a6700'; // orange
+              } else if (step.title.toLowerCase().includes('thought') || step.title.toLowerCase().includes('info')) {
+                  dotColor = '#8c959f'; // gray
+              }
+              
+              const hasDetails = (subTextHtml.trim() !== '' || stepCardHtml.trim() !== '');
+              let titleWithToggleHtml = '';
+              let detailsWrapperHtml = '';
+              
+              if (hasDetails) {
+                  titleWithToggleHtml = `
+                      <div style="display: flex; align-items: center; gap: 4px;">
+                          <span style="font-weight: 600; font-size: 13px; color: var(--text-primary); cursor: pointer;" onclick="const btn = document.getElementById('toggle-btn-${job.id}-${idx}'); if (btn) btn.click();">${escapeHtml(step.title)}</span>
+                          <button id="toggle-btn-${job.id}-${idx}" onclick="event.stopPropagation(); toggleStepDetails(this, 'step-details-${job.id}-${idx}')" style="background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; font-size: 13px; padding: 0 4px; display: inline-flex; align-items: center; outline: none;">(+)</button>
+                      </div>
+                  `;
+                  detailsWrapperHtml = `
+                      <div id="step-details-${job.id}-${idx}" style="display: none; width: 100%;">
+                          ${subTextHtml}
+                          ${stepCardHtml}
+                      </div>
+                  `;
+              } else {
+                  titleWithToggleHtml = `
+                      <span style="font-weight: 600; font-size: 13px; color: var(--text-primary);">${escapeHtml(step.title)}</span>
+                  `;
+              }
+
               taskLogRows += `
-                  <div class="task-log-row ${rowClass}" style="display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.02);">
-                     <span style="color: var(--text-secondary); font-family: monospace; font-size: 11px; flex-shrink: 0; width: 55px;">${ts}</span>
-                     <div class="log-icon-wrapper ${wrapperClass}" style="width: 18px; height: 18px; font-size: 9px; display: inline-flex; align-items: center; justify-content: center;">${icon}</div>
-                     <span class="task-log-text" style="color: ${textColor}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;" title="${escapeHtml(text)}">${escapeHtml(text)}</span>
+                  <div class="timeline-item" data-level="${level}" style="position: relative; padding-left: 36px; margin-bottom: 16px; display: flex; flex-direction: column;">
+                      <div class="timeline-dot-wrapper" style="position: absolute; left: 6px; top: 4px; z-index: 2; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">
+                          <span style="width: 10px; height: 10px; border-radius: 50%; background: ${dotColor}; display: inline-block; border: 2px solid #ffffff; box-shadow: 0 0 0 1px rgba(27,31,35,0.15);"></span>
+                      </div>
+                      
+                      <div class="timeline-content" style="display: flex; flex-direction: column;">
+                          <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between; width: 100%;">
+                              ${titleWithToggleHtml}
+                              <span style="color: var(--text-secondary); font-family: monospace; font-size: 11px; margin-left: auto; white-space: nowrap;">${timeRangeStr}</span>
+                          </div>
+                          ${detailsWrapperHtml}
+                      </div>
                   </div>
               `;
               taskLogCount++;
           });
+          
+          let lineHtml = (taskLogRows) ? `<div style="position: absolute; left: 33px; top: 32px; bottom: 32px; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
+          
           let taskLogsHtml = `
              <div style="flex: 1; min-width: 320px; display: flex; flex-direction: column;">
-                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <span style="font-weight: bold; color: var(--text-primary); font-size: 14px; display: flex; align-items: center; gap: 6px;">
-                       Registro de Atividades
+                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+                    <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
+                       Registro de Atividades (Logs)
                     </span>
-                    <a href="#" style="color: var(--primary); text-decoration: none; font-size: 11px; font-weight: 600;" onclick="event.preventDefault();">Ver todas</a>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                       <input type="text" id="log-search-input" placeholder="Search logs" oninput="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-primary); width: 140px; outline: none; height: 28px;">
+                       <select id="log-level-select" onchange="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); cursor: pointer; outline: none; height: 28px;">
+                          <option value="ALL">Log Level</option>
+                          <option value="INFO">Info</option>
+                          <option value="WARN">Warning</option>
+                          <option value="ERROR">Error</option>
+                       </select>
+                       <button class="btn" onclick="copyJobLog('${job.id}')" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 500; height: 28px;">
+                          📋 Copiar Logs
+                       </button>
+                    </div>
                  </div>
-                 <div class="activity-log-scroll custom-scroll" id="activity-log-scroll-${job.id}" style="height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(0,0,0,0.01); display: flex; flex-direction: column;">
-                    ${taskLogRows || '<div style="padding: 16px; text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic;">Sem atividades registadas...</div>'}
+                 <div class="activity-log-scroll terminal-scroll" id="activity-log-scroll-${job.id}" style="height: 380px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: #ffffff; display: flex; flex-direction: column; position: relative; padding: 24px 20px;">
+                    ${lineHtml}
+                    <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px;">
+                        ${taskLogRows || '<div style="text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 20px;">Nenhuma atividade registrada...</div>'}
+                    </div>
                  </div>
              </div>
           `;
@@ -3787,13 +4084,6 @@
               `;
           }
           let timelineHtml = `
-             <!-- Connected Stages Timeline - Single Row Stepper -->
-             <div style="margin-top: 24px; background: rgba(0,0,0,0.01); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px;">
-                 <div style="display: flex; align-items: center; width: 100%; justify-content: space-between;">
-                     ${stepperRowHtml}
-                 </div>
-             </div>
-             
              <!-- Active Job KPIs Row -->
              <div class="active-job-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px;">
                 <!-- Card 1: Roles Concluídas -->
@@ -3919,7 +4209,6 @@
 
           const shortId = job.id.substring(0, 8);
           const isFocused = job.id === activeJobId;
-          const isExpanded = expandedJobs[job.id] !== false;
 
           const borderStyle = isFocused 
               ? 'border: 2px solid var(--primary); box-shadow: 0 0 16px rgba(59, 130, 246, 0.2);' 
@@ -3937,25 +4226,22 @@
               ? `<span style="font-size: 9px; font-weight: 800; background: var(--primary); color: white; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 2px;">⚡ Focado</span>` 
               : `<span style="font-size: 9px; font-weight: 600; background: rgba(255,255,255,0.03); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 2px;">Visualizar log</span>`;
           card.innerHTML = `
-             <div style="display: flex; gap: 16px; align-items: flex-start; margin-bottom: 16px; position: relative;">
+             <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; position: relative;">
                 <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(59, 130, 246, 0.08); display: flex; align-items: center; justify-content: center; color: var(--primary); flex-shrink: 0;">
                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 </div>
                 <div style="flex: 1; min-width: 0;">
-                   <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                      <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: var(--text-primary);">${escapeHtml(sub || proc || job.task)}</h3>
-                      <span style="font-size: 13px; font-family: monospace; color: var(--text-secondary);">#${shortId}</span>
-                   </div>
-                   
-                   <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
-                      <span class="badge-tag blue">${escapeHtml(job.ambiente || p.ambiente || 'DEV')}</span>
-                      <span class="badge-tag blue">${escapeHtml(p.sap_system || 'S4D')}</span>
-                      <span class="badge-tag gray">Cliente ${escapeHtml(p.sap_client || '100')}</span>
-                      <span class="badge-tag gray">Utilizador: ${escapeHtml(p.sap_user || 'CSILVA')}</span>
+                   <div style="font-size: 11px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                      <span>📅 <strong>Data:</strong> ${data}</span>
+                      <span style="opacity: 0.4">·</span>
+                      <span>💻 <strong>Executado por:</strong> ${escapeHtml(job.worker_name || 'Sistema')}</span>
+                      <span style="opacity: 0.4">·</span>
+                      <span><strong>Sistema:</strong> ${escapeHtml(p.sap_system || 'S4D')} | <strong>Cliente:</strong> ${escapeHtml(p.sap_client || '100')}${p.sap_user ? ` | <strong>Utilizador SAP:</strong> ${escapeHtml(p.sap_user)}` : ''} | <strong>Processo:</strong> ${escapeHtml(sub || proc || job.task)} <span style="font-family: monospace; font-size: 11px;">#${shortId}</span></span>
                    </div>
                 </div>
                 
                 <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+                   ${focusIndicator}
                    <span class="badge-outline ${job.state}">${job.state.toUpperCase()}</span>
                    <div style="position: relative; display: inline-block;">
                       <button type="button" class="btn-icon" style="padding: 4px; color: var(--text-secondary);" onclick="event.stopPropagation(); toggleJobOptionsDropdown(event, '${job.id}')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg></button>
@@ -3965,17 +4251,17 @@
                    </div>
                 </div>
              </div>
-             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                <span>📅 <strong>Data:</strong> ${data}</span>
-                <span style="opacity: 0.4">·</span>
-                <span>💻 <strong>Executado por:</strong> ${escapeHtml(job.worker_name || 'Sistema')}</span>
-                <span style="opacity: 0.4">·</span>
-                <span><strong>Ambiente:</strong> ${escapeHtml(job.ambiente || p.ambiente || 'DEV')} | <strong>Sistema:</strong> ${escapeHtml(p.sap_system || 'S4D')} | <strong>Cliente:</strong> ${escapeHtml(p.sap_client || '100')}</span>
-                <div style="margin-left: auto;">${focusIndicator}</div>
+             
+             <!-- Connected Stages Timeline -->
+             <div style="margin-bottom: 24px; background: rgba(0,0,0,0.01); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px;">
+                 <div style="display: flex; align-items: center; width: 100%; justify-content: space-between;">
+                     ${stepperRowHtml}
+                 </div>
              </div>
+
              <div style="display: flex; gap: 20px; align-items: stretch; margin-bottom: 24px; flex-wrap: wrap;">
-                <!-- Progress Bar (60%) -->
-                <div class="card-inner" style="flex: 3; min-width: 250px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: 12px;">
+                <!-- Progress Bar -->
+                <div class="card-inner" style="flex: 1; min-width: 250px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: 12px;">
                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600;">
                       ${progressLabelsHtml}
                    </div>
@@ -3984,24 +4270,8 @@
                    </div>
                    ${currentRoleName && job.state === 'running' ? `<div style="font-size:11px; color:var(--primary); font-weight:bold; animation: pulse-opacity 1.5s infinite;">A processar: ${escapeHtml(currentRoleName)}</div>` : ''}
                 </div>
-                
-                <!-- SAP Status Card (40%) -->
-                <div class="card-inner" style="flex: 2; min-width: 200px; background: rgba(59, 130, 246, 0.02); border: 1px solid rgba(59, 130, 246, 0.15); padding: 16px; border-radius: 12px; display: flex; align-items: center; gap: 12px;">
-                   <div style="width: 28px; height: 28px; border-radius: 50%; background: rgba(59, 130, 246, 0.08); display: flex; align-items: center; justify-content: center; color: var(--primary); flex-shrink: 0;">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                   </div>
-                   <div style="min-width: 0; flex: 1;">
-                      <div style="font-size: 10px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px;">SAP Status</div>
-                      <div style="font-size: 12px; color: var(--text-primary); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(sapSbarText || 'Nenhum valor encontrado')}">${escapeHtml(sapSbarText || 'Nenhum valor encontrado')}</div>
-                   </div>
-                 </div>
-              </div>
-             <div style="display: flex; justify-content: center; margin-bottom: 12px;">
-                <button class="btn" style="padding: 4px 16px; font-size: 11px; font-weight: bold; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); color: var(--text-secondary); border-radius: 20px; cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px;" onclick="event.stopPropagation(); toggleJobDetails('${job.id}')">
-                    <span id="toggle-icon-${job.id}">${isExpanded ? '▲' : '▼'}</span> <span id="toggle-text-${job.id}">${isExpanded ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}</span>
-                </button>
              </div>
-             <div id="details-${job.id}" style="display: ${isExpanded ? 'block' : 'none'};">
+             <div id="details-${job.id}">
                 ${timelineHtml}
              </div>
           `;
@@ -4058,6 +4328,21 @@
               }
           }
        });
+
+       // Restore input value and trigger filter for all cards
+       const queryInput = document.getElementById('log-search-input');
+       const stateSelect = document.getElementById('log-state-select');
+       const timeSelect = document.getElementById('log-time-select');
+       if (queryInput) {
+           queryInput.value = activeLogQuery;
+       }
+       if (stateSelect) {
+           stateSelect.value = activeLogState;
+       }
+       if (timeSelect) {
+           timeSelect.value = activeLogTime;
+       }
+       filterLogs();
 
        // Render Focused Job Logs in the sidebar
        const focusedJob = allJobs.find(j => j.id === activeJobId);
@@ -4133,16 +4418,112 @@
                    logContainer.scrollTop = logContainer.scrollHeight;
                }
            }
-// Copy log action
-          document.getElementById('btn-copy-log').onclick = () => {
-             navigator.clipboard.writeText(focusedJob.log || '');
-             const old = document.getElementById('btn-copy-log').textContent;
-             document.getElementById('btn-copy-log').textContent = 'Copiado!';
-             setTimeout(() => document.getElementById('btn-copy-log').textContent = old, 2000);
-          };
+           // Copy log action
+           document.getElementById('btn-copy-log').onclick = () => {
+              navigator.clipboard.writeText(focusedJob.log || '');
+              const old = document.getElementById('btn-copy-log').textContent;
+              document.getElementById('btn-copy-log').textContent = 'Copiado!';
+              setTimeout(() => document.getElementById('btn-copy-log').textContent = old, 2000);
+           };
        } else if (logContainer) {
           logContainer.innerHTML = 'Nenhum job em foco para visualização de logs.';
        }
+    }
+
+    function filterLogs() {
+        const queryInput = document.getElementById('log-search-input');
+        const stateSelect = document.getElementById('log-state-select');
+        const timeSelect = document.getElementById('log-time-select');
+        
+        activeLogQuery = queryInput ? queryInput.value.toLowerCase() : '';
+        activeLogState = stateSelect ? stateSelect.value : 'ALL';
+        activeLogTime = timeSelect ? timeSelect.value : 'ALL';
+        
+        const now = Date.now();
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        
+        const items = document.querySelectorAll('.timeline-item');
+        items.forEach(item => {
+            const text = item.textContent.toLowerCase();
+            const state = item.getAttribute('data-state') || 'completed';
+            const timestamp = parseInt(item.getAttribute('data-time') || '0');
+            
+            const matchQuery = text.includes(activeLogQuery);
+            const matchState = (activeLogState === 'ALL') || (state === activeLogState);
+            
+            let matchTime = true;
+            if (activeLogTime === 'TODAY') {
+                const todayStart = new Date().setHours(0,0,0,0);
+                matchTime = timestamp >= todayStart;
+            } else if (activeLogTime === '24H') {
+                matchTime = (now - timestamp) <= oneDayMs;
+            } else if (activeLogTime === '7D') {
+                matchTime = (now - timestamp) <= (7 * oneDayMs);
+            } else if (activeLogTime === '30D') {
+                matchTime = (now - timestamp) <= (30 * oneDayMs);
+            }
+            
+            if (matchQuery && matchState && matchTime) {
+                item.style.display = 'flex';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+
+    function toggleLogItemDetails(itemId) {
+        expandedLogItems[itemId] = !expandedLogItems[itemId];
+        const container = document.getElementById(`log-item-details-${itemId}`);
+        const icon = document.getElementById(`chevron-icon-${itemId}`);
+        if (container) {
+            container.style.display = expandedLogItems[itemId] ? 'block' : 'none';
+        }
+        if (icon) {
+            icon.style.transform = expandedLogItems[itemId] ? 'rotate(180deg)' : '';
+        }
+    }
+
+    function handleLogExport(el, jobId) {
+        const val = el.value;
+        if (!val) return;
+        
+        el.value = ''; // Reset select
+        
+        const job = allJobs.find(j => j.id === jobId);
+        if (!job) return;
+        
+        if (val === 'COPY') {
+            navigator.clipboard.writeText(job.log || '');
+            alert('Logs copiados para a área de transferência!');
+        } else if (val === 'JSON') {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(job, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href",     dataStr);
+            downloadAnchor.setAttribute("download", `job_${job.id}_logs.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        } else if (val === 'TXT') {
+            const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(job.log || '');
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href",     dataStr);
+            downloadAnchor.setAttribute("download", `job_${job.id}_logs.txt`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+    }
+
+    function toggleStepDetails(btn, detailsId) {
+        const detailsDiv = document.getElementById(detailsId);
+        if (!detailsDiv) return;
+        if (detailsDiv.style.display === 'none') {
+            detailsDiv.style.display = 'block';
+            btn.textContent = '(-)';
+        } else {
+            detailsDiv.style.display = 'none';
+            btn.textContent = '(+)';
+        }
     }
 
     function focusJob(jobId) {
@@ -4150,18 +4531,7 @@
         renderQueue();
     }
 
-    function toggleJobDetails(jobId) {
-        expandedJobs[jobId] = expandedJobs[jobId] === false ? true : false;
-        const container = document.getElementById(`details-${jobId}`);
-        const icon = document.getElementById(`toggle-icon-${jobId}`);
-        const text = document.getElementById(`toggle-text-${jobId}`);
-        if (container) {
-            const isExpanded = expandedJobs[jobId] !== false;
-            container.style.display = isExpanded ? 'block' : 'none';
-            if (icon) icon.textContent = isExpanded ? '▲' : '▼';
-            if (text) text.textContent = isExpanded ? 'Ocultar Detalhes' : 'Mostrar Detalhes';
-        }
-    }
+
 
     async function cancelJob(jobId) {
         try {

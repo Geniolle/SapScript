@@ -106,6 +106,14 @@ def download_ticket_attachments_to_dir(
                     for chunk in r.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
+            
+            # Clean excel file leading spaces right after download!
+            if filename.lower().endswith(".xlsx"):
+                try:
+                    clean_excel_leading_spaces(str(target))
+                except Exception as exc:
+                    print(f"[DOWNLOAD] Erro ao limpar espaços do excel: {exc}")
+
             print(f"[DOWNLOAD] {ticket_key_upper}: descarregado -> {filename}")
             win_path = str(Path(output_dir_windows) / folder_name / filename)
             downloaded_windows.append(win_path)
@@ -853,5 +861,30 @@ def fetch_single_ticket_for_trigger(key: str) -> dict | None:
     auth = (jira_email, jira_token)
     headers = {"Accept": "application/json"}
     return _fetch_single_issue(key, jira_base, jira_api_path, auth, headers)
+
+
+def clean_excel_leading_spaces(file_path: str) -> None:
+    """
+    Abre o ficheiro Excel com openpyxl e, para cada célula de texto em todas as folhas,
+    se o valor começar com um espaço (" "), remove apenas esse primeiro caractere.
+    Grava as alterações mantendo a formatação e as fórmulas intactas.
+    """
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(file_path)
+        modified = False
+        for sheet in wb.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    val = cell.value
+                    if isinstance(val, str) and val.startswith(" "):
+                        cell.value = val[1:]
+                        modified = True
+        if modified:
+            wb.save(file_path)
+            print(f"[EXCEL CLEAN] Ficheiro {file_path} limpo e gravado com sucesso.")
+        wb.close()
+    except Exception as e:
+        print(f"[EXCEL CLEAN ERROR] Erro ao processar/limpar espaços de {file_path}: {e}")
 
 

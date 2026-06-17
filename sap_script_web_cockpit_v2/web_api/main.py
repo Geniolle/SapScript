@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only
-from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment
+from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 import asyncio
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
@@ -1385,6 +1385,13 @@ async def api_upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
 
     target_path.write_bytes(content)
 
+    # Clean excel file leading spaces right after upload!
+    if saved_name.lower().endswith(".xlsx"):
+        try:
+            clean_excel_leading_spaces(str(target_path))
+        except Exception as exc:
+            print(f"[UPLOAD] Erro ao limpar espaços do excel: {exc}")
+
     return {
         "filename": file.filename,
         "saved_name": saved_name,
@@ -1397,6 +1404,7 @@ _KNOWN_JOB_FORM_FIELDS = {
     "task", "ambiente", "processo", "subprocesso",
     "request_option", "request_number", "request_desc",
     "request_type", "caminho_ficheiro", "transacao",
+    "nome_pasta",
 }
 
 @app.post("/jobs")
@@ -1412,6 +1420,7 @@ async def create_job_from_form(request: Request) -> dict[str, Any]:
     request_type = str(form.get("request_type") or "1").strip() or "1"
     caminho_ficheiro = str(form.get("caminho_ficheiro") or "").strip()
     transacao = str(form.get("transacao") or "").strip()
+    nome_pasta = str(form.get("nome_pasta") or "").strip()
 
     params = {
         "ambiente": ambiente,
@@ -1423,6 +1432,7 @@ async def create_job_from_form(request: Request) -> dict[str, Any]:
         "request_type": request_type,
         "caminho_ficheiro": caminho_ficheiro,
         "transacao": transacao,
+        "nome_pasta": nome_pasta,
     }
 
     for key, value in form.multi_items():

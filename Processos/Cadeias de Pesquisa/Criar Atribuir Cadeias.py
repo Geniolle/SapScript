@@ -24,7 +24,8 @@ def executar(
     modo_nao_interativo=False,
     pedir_confirmacao=True,
     cliente_sap=None,
-    chamado_pelo_main=False
+    chamado_pelo_main=False,
+    nome_pasta=None
 ):
     import re
     import os
@@ -1104,6 +1105,15 @@ def executar(
         return
 
     excel_dir = os.path.dirname(caminho_ficheiro)
+    env_output_dir = os.getenv("WORKFLOW_DOC_OUTPUT_DIR", "").strip()
+    if env_output_dir:
+        excel_dir = env_output_dir
+
+    nome_pasta_val = str(nome_pasta or "").strip()
+    if nome_pasta_val:
+        excel_dir = os.path.join(excel_dir, nome_pasta_val)
+        os.makedirs(excel_dir, exist_ok=True)
+
     evidencias_dir = os.path.join(excel_dir, f"Evidencias_Cadeias_{timestamp}")
 
     df = abrir_excel_para_dataframe(caminho_ficheiro)
@@ -1547,52 +1557,10 @@ def executar(
         if not registro_fase1 and not registro_fase2:
             return
         
-        md_path = os.path.join(excel_dir, f"Configuracao_Cadeias_{timestamp}.md")
-        try:
-            with open(md_path, "w", encoding="utf-8") as f:
-                f.write(f"# Documento de Configuração e Validação SAP - Cadeias de Pesquisa\n\n")
-                f.write(f"**Data/Hora:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"**Ambiente:** {ambiente_cockpit} ({SISTEMA_ESPERADO})\n")
-                f.write(f"**Cliente/Mandante:** {CLIENTE_ESPERADO or '-'}\n")
-                if request_number:
-                    f.write(f"**Ordem de Transporte (Request):** {request_number}\n")
-                f.write(f"\n## Transações Utilizadas\n")
-                f.write(f"1. **OTPM**: Manutenção de cadeias de pesquisa (TPAMA) e atribuição de regras (T028P).\n")
-                f.write(f"2. **SE16H**: Consulta direta às tabelas para validação física da gravação.\n\n")
-                
-                if registro_fase1:
-                    f.write(f"## 1. Configuração de Cadeias de Pesquisa (TPAMA)\n")
-                    for c_nome, info_c in registro_fase1.items():
-                        f.write(f"### Cadeia: {c_nome}\n")
-                        f.write(f"- **Estado:** {info_c['status']}\n")
-                        f.write(f"- **Mensagem:** {info_c['msg']}\n")
-                        if info_c['screenshot']:
-                            rel_path = os.path.basename(info_c['screenshot'])
-                            label_print = "Evidência de validação (existente no SAP)" if info_c['status'] == "Já existia" else "Screenshot antes de gravar"
-                            f.write(f"- **{label_print}:** [BMP](Evidencias_Cadeias_{timestamp}/{rel_path})\n")
-                        f.write(f"\n")
-                
-                if registro_fase2:
-                    f.write(f"## 2. Atribuição de Cadeias (T028P)\n")
-                    for grp_nome, info_a in registro_fase2.items():
-                        f.write(f"### Grupo/Função: {grp_nome}\n")
-                        f.write(f"- **Estado:** {info_a['status']}\n")
-                        f.write(f"- **Mensagem:** {info_a['msg']}\n")
-                        if info_a['screenshot']:
-                            rel_path = os.path.basename(info_a['screenshot'])
-                            label_print = "Evidência de validação (existente no SAP)" if info_a['status'] == "Já existia" else "Screenshot antes de gravar"
-                            f.write(f"- **{label_print}:** [BMP](Evidencias_Cadeias_{timestamp}/{rel_path})\n")
-                        
-                        f.write(f"\n| Empresa | Banco | Conta | Op. Externa | Sinal | Alvo (TARGFI) | Base (PREFIX) |\n")
-                        f.write(f"|---|---|---|---|---|---|---|\n")
-                        for r in info_a['linhas']:
-                            f.write(f"| {r.get(C_EMP, '')} | {r.get(C_BANCO, '')} | {r.get(C_IDCT, '')} | {r.get(C_OPEXT, '')} | {r.get(C_SINAL, '')} | {r.get(C_DEST, '')} | {r.get(C_BASE, '')} |\n")
-                        f.write(f"\n")
-            print(f"  ├─ Documento Markdown gerado: {md_path}")
-        except Exception as e:
-            print(f"  ├─ Aviso: Erro ao gerar Markdown: {e}")
-
-        docx_path = os.path.join(excel_dir, f"Configuracao_Cadeias_{timestamp}.docx")
+        if nome_pasta_val:
+            docx_path = os.path.join(excel_dir, f"{nome_pasta_val}.docx")
+        else:
+            docx_path = os.path.join(excel_dir, f"Configuracao_Cadeias_{timestamp}.docx")
         try:
             import pythoncom
             import win32com.client
@@ -1605,64 +1573,179 @@ def executar(
                 doc = app.Documents.Add()
                 sel = app.Selection
                 
-                def _line(text: str = "", bold=False):
-                    sel.Font.Bold = bold
-                    sel.TypeText(str(text))
+                def rgb(r, g, b):
+                    return r + (g << 8) + (b << 16)
+                
+                def heading1(text):
+                    sel.Style = doc.Styles("Título 1") if "Título 1" in [s.NameLocal for s in doc.Styles] else doc.Styles("Heading 1")
+                    sel.Font.Bold = True
+                    sel.Font.Size = 16
+                    sel.Font.Color = rgb(0, 51, 102) # Dark Blue
+                    sel.TypeText(text)
+                    sel.TypeParagraph()
+                    sel.Style = doc.Styles("Normal")
+                
+                def heading2(text):
+                    sel.Style = doc.Styles("Título 2") if "Título 2" in [s.NameLocal for s in doc.Styles] else doc.Styles("Heading 2")
+                    sel.Font.Bold = True
+                    sel.Font.Size = 13
+                    sel.Font.Color = rgb(0, 102, 153)
+                    sel.TypeText(text)
+                    sel.TypeParagraph()
+                    sel.Style = doc.Styles("Normal")
+                
+                def body_text(text, bold_prefix="", italic=False):
+                    sel.Font.Bold = False
+                    sel.Font.Italic = italic
+                    sel.Font.Size = 11
+                    sel.Font.Color = rgb(0, 0, 0)
+                    if bold_prefix:
+                        sel.Font.Bold = True
+                        sel.TypeText(bold_prefix)
+                        sel.Font.Bold = False
+                    sel.TypeText(text)
                     sel.TypeParagraph()
                 
-                _line("Documento de Configuração e Validação SAP - Cadeias de Pesquisa", bold=True)
-                _line(f"Data/Hora: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-                _line(f"Ambiente: {ambiente_cockpit} ({SISTEMA_ESPERADO})")
-                _line(f"Cliente/Mandante: {CLIENTE_ESPERADO or '-'}")
+                def insert_image(img_path, caption):
+                    if img_path and os.path.exists(img_path):
+                        sel.TypeParagraph()
+                        sel.InlineShapes.AddPicture(
+                            FileName=str(os.path.abspath(img_path)),
+                            LinkToFile=False,
+                            SaveWithDocument=True
+                        )
+                        sel.TypeParagraph()
+                        sel.Font.Italic = True
+                        sel.Font.Size = 9
+                        sel.Font.Color = rgb(102, 102, 102)
+                        sel.TypeText(f"Figura: {caption}")
+                        sel.TypeParagraph()
+                        sel.Font.Italic = False
+                        sel.TypeParagraph()
+                    else:
+                        body_text(f"[Imagem não disponível]", italic=True)
+                
+                def create_table(headers, rows):
+                    num_rows = len(rows) + 1
+                    num_cols = len(headers)
+                    table = doc.Tables.Add(Range=sel.Range, NumRows=num_rows, NumColumns=num_cols)
+                    table.Borders.Enable = True
+                    
+                    # Style Headers
+                    for col_idx, header in enumerate(headers, 1):
+                        cell = table.Cell(1, col_idx)
+                        cell.Range.Text = header
+                        cell.Range.Font.Bold = True
+                        cell.Range.Font.Color = rgb(255, 255, 255)
+                        cell.Shading.BackgroundPatternColor = rgb(0, 51, 102) # Dark Blue header background
+                        
+                    # Write Rows
+                    for row_idx, row_data in enumerate(rows, 2):
+                        for col_idx, val in enumerate(row_data, 1):
+                            table.Cell(row_idx, col_idx).Range.Text = str(val)
+                            
+                    # Move selection past the table
+                    sel.Start = table.Range.End
+                    sel.TypeParagraph()
+
+                # Document Header
+                sel.Font.Bold = True
+                sel.Font.Size = 20
+                sel.Font.Color = rgb(0, 51, 102)
+                sel.TypeText("DOCUMENTAÇÃO TÉCNICA E FUNCIONAL SAP")
+                sel.TypeParagraph()
+                
+                sel.Font.Bold = False
+                sel.Font.Size = 12
+                sel.Font.Color = rgb(102, 102, 102)
+                sel.TypeText("Processo: Cadeias de Pesquisa")
+                sel.TypeParagraph()
+                sel.TypeText("Subprocesso: Criar e Atribuir Cadeias de pesquisa")
+                sel.TypeParagraph()
+                sel.TypeText(f"Ambiente: {ambiente_cockpit} ({SISTEMA_ESPERADO}) | Cliente: {CLIENTE_ESPERADO or '-'}")
+                sel.TypeParagraph()
                 if request_number:
-                    _line(f"Ordem de Transporte (Request): {request_number}")
-                _line()
-                
-                _line("Transações Utilizadas:", bold=True)
-                _line("1. OTPM - Manutenção de Cadeias de Pesquisa (TPAMA) e Regras (T028P)")
-                _line("2. SE16H - Consulta direta para verificação e validação física")
-                _line()
-                
+                    sel.TypeText(f"Ordem de Transporte (Request): {request_number}")
+                    sel.TypeParagraph()
+                sel.TypeText(f"Executor SAP: {str(os.getenv('SAP_USER', 'CSILVA')).upper()} | Data de Execução: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                sel.TypeParagraph()
+                sel.TypeParagraph()
+
+                # SECTION 1
+                heading1("1. Configuração de Cadeias de Pesquisa (TPAMA)")
+                body_text("Nesta secção é efetuada a criação física das cadeias de pesquisa SAP na tabela TPAMA através da transação OTPM.")
+                sel.TypeParagraph()
+
                 if registro_fase1:
-                    _line("1. Configuração de Cadeias de Pesquisa (TPAMA)", bold=True)
                     for c_nome, info_c in registro_fase1.items():
-                        _line(f"Cadeia: {c_nome}", bold=True)
-                        _line(f"Estado: {info_c['status']}")
-                        _line(f"Mensagem: {info_c['msg']}")
+                        heading2(f"1.1. Cadeia: {c_nome}")
+                        body_text(f"O processo de criação da cadeia de pesquisa '{c_nome}' consistiu nos seguintes passos detalhados:")
+                        body_text("Aceder à transação OTPM.", bold_prefix="• ")
+                        body_text("Clicar no botão Criar para iniciar um novo registo.", bold_prefix="• ")
+                        body_text("Ativar o modo de edição na tabela.", bold_prefix="• ")
+                        body_text("Preencher os dados principais correspondentes à cadeia (ex: Nome do modelo de pesquisa e parâmetros).", bold_prefix="• ")
+                        body_text("Limpar linhas da tabela de mapeamento para reestruturação dos dados.", bold_prefix="• ")
+                        body_text("Clicar no botão A guardar para persistir os dados no SAP.", bold_prefix="• ")
+
                         scr = info_c['screenshot']
                         if scr and os.path.exists(scr):
-                            try:
-                                label_print = "Evidência de validação (existente no SAP)" if info_c['status'] == "Já existia" else "Screenshot antes de gravar"
-                                _line(label_print)
-                                sel.InlineShapes.AddPicture(FileName=str(os.path.abspath(scr)), LinkToFile=False, SaveWithDocument=True)
-                                sel.TypeParagraph()
-                            except Exception as e:
-                                _line(f"Falha ao adicionar imagem ao Word: {e}")
-                        else:
-                            _line("Captura de ecrã: Não aplicável ou já existente")
-                        _line()
-                
+                            label_print = "Evidência de validação (existente no SAP)" if info_c['status'] == "Já existia" else "Screenshot antes de gravar"
+                            body_text(f"Evidência do registo no ecrã SAP antes de guardar:", bold_prefix="Evidência Visual: ", italic=True)
+                            insert_image(scr, f"{label_print} da cadeia {c_nome} na OTPM.")
+                        
+                        body_text(f"Gravação efetuada com sucesso. Estado: {info_c['status']}. Mensagem: {info_c['msg']}", bold_prefix="• ")
+                        sel.TypeParagraph()
+                else:
+                    body_text("Nenhuma cadeia de pesquisa foi criada nesta execução (todas já existiam ou nenhuma estava elegível).", italic=True)
+                    sel.TypeParagraph()
+
+                # SECTION 2
+                heading1("2. Atribuição de Cadeias (T028P)")
+                body_text("Nesta secção é detalhada a atribuição de regras e contas às cadeias criadas, persistidas na tabela T028P.")
+                sel.TypeParagraph()
+
                 if registro_fase2:
-                    _line("2. Atribuição de Cadeias de Pesquisa (T028P)", bold=True)
                     for grp_nome, info_a in registro_fase2.items():
-                        _line(f"Grupo / Função: {grp_nome}", bold=True)
-                        _line(f"Estado: {info_a['status']}")
-                        _line(f"Mensagem: {info_a['msg']}")
+                        heading2(f"2.1. Grupo/Função: {grp_nome}")
+                        body_text(f"Foram atribuídas regras à cadeia '{grp_nome}'.")
+                        body_text(f"Valores de atribuição configurados:", bold_prefix="Regras de Mapeamento: ", italic=True)
+
+                        headers = ["Empresa", "Banco", "Conta", "Op. Externa", "Sinal", "Alvo (TARGFI)", "Base (PREFIX)"]
+                        rows_data = []
+                        for r in info_a['linhas']:
+                            rows_data.append([
+                                r.get(C_EMP, ""),
+                                r.get(C_BANCO, ""),
+                                r.get(C_IDCT, ""),
+                                r.get(C_OPEXT, ""),
+                                r.get(C_SINAL, ""),
+                                r.get(C_DEST, ""),
+                                r.get(C_BASE, "")
+                            ])
+                        create_table(headers, rows_data)
+
                         scr = info_a['screenshot']
                         if scr and os.path.exists(scr):
-                            try:
-                                label_print = "Evidência de validação (existente no SAP)" if info_a['status'] == "Já existia" else "Screenshot antes de gravar"
-                                _line(label_print)
-                                sel.InlineShapes.AddPicture(FileName=str(os.path.abspath(scr)), LinkToFile=False, SaveWithDocument=True)
-                                sel.TypeParagraph()
-                            except Exception as e:
-                                _line(f"Falha ao adicionar imagem ao Word: {e}")
-                        else:
-                            _line("Captura de ecrã: Não aplicável ou já existente")
-                        _line()
-                
+                            label_print = "Evidência de validação (existente no SAP)" if info_a['status'] == "Já existia" else "Screenshot antes de gravar"
+                            body_text(f"Evidência do lote preenchido e validação de consistência no SAP:", bold_prefix="Evidência Visual: ", italic=True)
+                            insert_image(scr, f"{label_print} das regras da cadeia {grp_nome} no ecrã do SAP.")
+                        
+                        body_text(f"Confirmação física na tabela T028P através da SE16H: {info_a['msg']} (Estado: {info_a['status']})", bold_prefix="• ")
+                        sel.TypeParagraph()
+                else:
+                    body_text("Nenhuma atribuição foi realizada nesta execução.", italic=True)
+                    sel.TypeParagraph()
+
                 doc.SaveAs(str(os.path.abspath(docx_path)), FileFormat=12)
                 print(f"  ├─ Documento Word (.docx) gerado com sucesso: {docx_path}")
+
+                # Limpeza da pasta temporária de evidências (loose screenshots)
+                import shutil
+                if evidencias_dir and os.path.exists(evidencias_dir):
+                    try:
+                        shutil.rmtree(evidencias_dir, ignore_errors=True)
+                    except Exception:
+                        pass
             finally:
                 if doc is not None:
                     doc.Close(False)
@@ -1702,6 +1785,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-confirm", action="store_true")
     parser.add_argument("--client")
     parser.add_argument("--from-main", action="store_true")
+    parser.add_argument("--nome-pasta", help="Nome da pasta opcional para guardar a documentação.")
     args = parser.parse_args()
 
     from_main_cli = bool(args.from_main) or str(os.getenv("SAP_CALLED_BY_MAIN", "")).strip().lower() in {
@@ -1730,4 +1814,5 @@ if __name__ == "__main__":
         pedir_confirmacao=((not args.no_confirm) and (not from_main_cli)),
         cliente_sap=args.client,
         chamado_pelo_main=from_main_cli,
+        nome_pasta=args.nome_pasta
     )
