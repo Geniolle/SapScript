@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -112,8 +113,12 @@ def init_db() -> None:
 
         # Index creation for JIRA tickets performance
         try:
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_jira_tickets_status ON jira_tickets(status)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_jira_tickets_updated_at ON jira_tickets(updated_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jira_tickets_status ON jira_tickets(status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jira_tickets_updated_at ON jira_tickets(updated_at)"
+            )
         except sqlite3.OperationalError:
             pass
 
@@ -140,6 +145,9 @@ def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 campo TEXT NOT NULL,
                 valor TEXT NOT NULL,
+                nome_parametro TEXT,
+                processo TEXT,
+                subprocesso TEXT,
                 transacao_sap TEXT,
                 notas TEXT,
                 tags TEXT,
@@ -148,6 +156,20 @@ def init_db() -> None:
             )
             """
         )
+        try:
+            conn.execute(
+                "ALTER TABLE agent_context_rules ADD COLUMN nome_parametro TEXT"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE agent_context_rules ADD COLUMN processo TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE agent_context_rules ADD COLUMN subprocesso TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -204,7 +226,9 @@ def get_job(job_id: str) -> dict[str, Any] | None:
     return row_to_job(row) if row else None
 
 
-def list_jobs(limit: int = 50, include_internal: bool = False, include_archived: bool = False) -> list[dict[str, Any]]:
+def list_jobs(
+    limit: int = 50, include_internal: bool = False, include_archived: bool = False
+) -> list[dict[str, Any]]:
     """
     Lista a fila/histórico visível.
 
@@ -287,11 +311,13 @@ def complete_job(job_id: str, state: str, status: str, log: str) -> dict[str, An
     log = (log or "").strip()
 
     with get_connection() as conn:
-        row = conn.execute("SELECT log, task FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute(
+            "SELECT log, task FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
         if row:
             current_log = (row["log"] or "").strip()
             task = row["task"]
-            
+
             if current_log:
                 if task == "sap_cockpit":
                     # Se for sap_cockpit e terminou com sucesso, o log do streaming já está completo.
@@ -332,6 +358,7 @@ def complete_job(job_id: str, state: str, status: str, log: str) -> dict[str, An
 
     return job
 
+
 def cancel_job(job_id: str) -> dict[str, Any]:
     now = utc_now()
 
@@ -352,6 +379,7 @@ def cancel_job(job_id: str) -> dict[str, Any]:
         raise RuntimeError("Job cancelado mas não encontrado na base de dados.")
 
     return job
+
 
 def append_job_log(job_id: str, log_line: str) -> dict[str, Any]:
     now = utc_now()
@@ -390,6 +418,7 @@ def archive_job(job_id: str) -> dict[str, Any]:
         raise RuntimeError("Job arquivado mas não encontrado na base de dados.")
     return job
 
+
 def unarchive_job(job_id: str) -> dict[str, Any]:
     now = utc_now()
     with get_connection() as conn:
@@ -408,6 +437,7 @@ def unarchive_job(job_id: str) -> dict[str, Any]:
         raise RuntimeError("Job desarquivado mas não encontrado na base de dados.")
     return job
 
+
 def delete_job(job_id: str) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
@@ -417,7 +447,9 @@ def delete_job(job_id: str) -> None:
 def update_job_params(job_id: str, new_params: dict[str, Any]) -> dict[str, Any]:
     now = utc_now()
     with get_connection() as conn:
-        row = conn.execute("SELECT params_json FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute(
+            "SELECT params_json FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
         if not row:
             raise RuntimeError("Job não encontrado para atualizar params.")
         params = json.loads(row["params_json"] or "{}")
@@ -541,7 +573,7 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
             placeholders = ",".join("?" for _ in active_keys)
             conn.execute(
                 f"""
-                DELETE FROM jira_tickets 
+                DELETE FROM jira_tickets
                 WHERE key NOT IN ({placeholders})
                   AND lower(status) NOT IN ('done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled')
                 """,
@@ -550,14 +582,16 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
         else:
             conn.execute(
                 """
-                DELETE FROM jira_tickets 
+                DELETE FROM jira_tickets
                 WHERE lower(status) NOT IN ('done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled')
                 """
             )
         conn.commit()
 
 
-def list_jira_tickets(limit: int = 50, exclude_closed: bool = True) -> list[dict[str, Any]]:
+def list_jira_tickets(
+    limit: int = 50, exclude_closed: bool = True
+) -> list[dict[str, Any]]:
     with get_connection() as conn:
         if exclude_closed:
             query = """
@@ -591,9 +625,13 @@ def list_jira_tickets(limit: int = 50, exclude_closed: bool = True) -> list[dict
             "team": row["team"],
             "stream": row["stream"],
             "process": row["process"],
-            "time_to_resolution": row["time_to_resolution"] if "time_to_resolution" in row.keys() else "",
+            "time_to_resolution": row["time_to_resolution"]
+            if "time_to_resolution" in row.keys()
+            else "",
             "supplier": row["supplier"] if "supplier" in row.keys() else "",
-            "linked_keys": json.loads(row["linked_keys"]) if "linked_keys" in row.keys() and row["linked_keys"] else [],
+            "linked_keys": json.loads(row["linked_keys"])
+            if "linked_keys" in row.keys() and row["linked_keys"]
+            else [],
             "resolved_at": row["resolved_at"] if "resolved_at" in row.keys() else "",
         }
         for row in rows
@@ -639,6 +677,7 @@ def update_jira_ticket_supplier_db(key: str, supplier: str) -> None:
 # ---------------------------------------------------------------------------
 # Auto-Trigger Log
 # ---------------------------------------------------------------------------
+
 
 def log_auto_trigger_entry(
     ticket_key: str,
@@ -762,22 +801,29 @@ def get_latest_sap_agent_analysis(ticket_key: str) -> dict[str, Any] | None:
 # Agent Context Rules CRUD
 # ---------------------------------------------------------------------------
 
+
 def _row_to_rule(row: sqlite3.Row) -> dict[str, Any]:
     return {
-        "id":            row["id"],
-        "campo":         row["campo"],
-        "valor":         row["valor"],
+        "id": row["id"],
+        "campo": row["campo"],
+        "valor": row["valor"],
+        "nome_parametro": row["nome_parametro"] or "",
+        "processo": row["processo"] or "",
+        "subprocesso": row["subprocesso"] or "",
         "transacao_sap": row["transacao_sap"] or "",
-        "notas":         row["notas"] or "",
-        "tags":          row["tags"] or "",
-        "created_at":    row["created_at"],
-        "updated_at":    row["updated_at"],
+        "notas": row["notas"] or "",
+        "tags": row["tags"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
     }
 
 
 def create_agent_rule(
     campo: str,
     valor: str,
+    nome_parametro: str = "",
+    processo: str = "",
+    subprocesso: str = "",
     transacao_sap: str = "",
     notas: str = "",
     tags: str = "",
@@ -789,11 +835,22 @@ def create_agent_rule(
         conn.execute(
             """
             INSERT INTO agent_context_rules
-                (id, campo, valor, transacao_sap, notas, tags, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, campo, valor, nome_parametro, processo, subprocesso, transacao_sap, notas, tags, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (rule_id, campo.strip(), valor.strip(), transacao_sap.strip(),
-             notas.strip(), tags.strip(), now, now),
+            (
+                rule_id,
+                campo.strip(),
+                valor.strip(),
+                nome_parametro.strip(),
+                processo.strip(),
+                subprocesso.strip(),
+                transacao_sap.strip(),
+                notas.strip(),
+                tags.strip(),
+                now,
+                now,
+            ),
         )
         conn.commit()
     return get_agent_rule(rule_id)
@@ -808,10 +865,20 @@ def get_agent_rule(rule_id: str) -> dict[str, Any] | None:
 
 
 def list_agent_rules() -> list[dict[str, Any]]:
-    """Lista todas as regras de contexto ordenadas por campo e valor."""
+    """Lista todas as regras de contexto ordenadas pelo nome do parametro."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM agent_context_rules ORDER BY campo, valor"
+            """
+            SELECT * FROM agent_context_rules
+            ORDER BY
+                CASE
+                    WHEN TRIM(COALESCE(nome_parametro, '')) = '' THEN 1
+                    ELSE 0
+                END,
+                nome_parametro COLLATE NOCASE,
+                campo COLLATE NOCASE,
+                valor COLLATE NOCASE
+            """
         ).fetchall()
     return [_row_to_rule(r) for r in rows]
 
@@ -820,6 +887,9 @@ def update_agent_rule(
     rule_id: str,
     campo: str,
     valor: str,
+    nome_parametro: str = "",
+    processo: str = "",
+    subprocesso: str = "",
     transacao_sap: str = "",
     notas: str = "",
     tags: str = "",
@@ -830,11 +900,21 @@ def update_agent_rule(
         conn.execute(
             """
             UPDATE agent_context_rules
-            SET campo = ?, valor = ?, transacao_sap = ?, notas = ?, tags = ?, updated_at = ?
+            SET campo = ?, valor = ?, nome_parametro = ?, processo = ?, subprocesso = ?, transacao_sap = ?, notas = ?, tags = ?, updated_at = ?
             WHERE id = ?
             """,
-            (campo.strip(), valor.strip(), transacao_sap.strip(),
-             notas.strip(), tags.strip(), now, rule_id),
+            (
+                campo.strip(),
+                valor.strip(),
+                nome_parametro.strip(),
+                processo.strip(),
+                subprocesso.strip(),
+                transacao_sap.strip(),
+                notas.strip(),
+                tags.strip(),
+                now,
+                rule_id,
+            ),
         )
         conn.commit()
     return get_agent_rule(rule_id)
@@ -843,9 +923,7 @@ def update_agent_rule(
 def delete_agent_rule(rule_id: str) -> None:
     """Elimina uma regra de contexto."""
     with get_connection() as conn:
-        conn.execute(
-            "DELETE FROM agent_context_rules WHERE id = ?", (rule_id,)
-        )
+        conn.execute("DELETE FROM agent_context_rules WHERE id = ?", (rule_id,))
         conn.commit()
 
 
@@ -864,8 +942,8 @@ def get_agent_rules_for_ticket(
 
     field_map = {
         "IT SALSA - Categoria SAP": processo,
-        "Tipo de Ticket":           ticket_type,
-        "Stream":                   stream,
+        "Tipo de Ticket": ticket_type,
+        "Stream": stream,
     }
 
     for rule in all_rules:

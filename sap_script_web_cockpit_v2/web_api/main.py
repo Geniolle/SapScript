@@ -1,4 +1,5 @@
 import ast
+import dataclasses
 import importlib
 import json
 import os
@@ -13,7 +14,7 @@ import time
 last_worker_ping: float = 0.0
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -752,7 +753,43 @@ async def api_get_ticket_details(ticket_key: str) -> dict[str, Any]:
     """Retorna o sumário, descrição e comentários de um ticket JIRA."""
     try:
         details = await asyncio.to_thread(fetch_ticket_details, ticket_key)
-        return {"status": "success", **details}
+        signal_preview: dict[str, Any] = {}
+        context_matches: list[dict[str, Any]] = []
+
+        try:
+            from sap_agent.extractor import extract_signal
+            from sap_agent.models import TicketContext
+
+            preview_ticket = TicketContext(
+                key=str(ticket_key or "").strip().upper(),
+                summary=str(details.get("summary") or ""),
+                description=str(details.get("description") or ""),
+                comments=list(details.get("comments") or []),
+            )
+            signal = extract_signal(preview_ticket)
+            context_matches = get_agent_rules_for_ticket(
+                processo=str(details.get("categoria_sap") or ""),
+            )
+
+            first_rule_with_transaction = next(
+                (rule for rule in context_matches if rule.get("transacao_sap")),
+                None,
+            )
+            if first_rule_with_transaction and not signal.transaction:
+                signal.transaction = first_rule_with_transaction["transacao_sap"]
+
+            signal_preview = dataclasses.asdict(signal)
+        except Exception as preview_exc:
+            print(
+                f"[SAP AGENT PREVIEW] Falha ao extrair sinais do ticket {ticket_key}: {preview_exc}"
+            )
+
+        return {
+            "status": "success",
+            **details,
+            "signal_preview": signal_preview,
+            "context_matches": context_matches,
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -1603,34 +1640,55 @@ def validate_worker_token(token: str) -> None:
 class AgentRuleRequest(BaseModel):
     campo: str
     valor: str
+    nome_parametro: str = ""
+    processo: str = ""
+    subprocesso: str = ""
     transacao_sap: str = ""
     notas: str = ""
     tags: str = ""
 
 
+def _json_no_store(payload: dict[str, Any], status_code: int = 200) -> JSONResponse:
+    response = JSONResponse(content=payload, status_code=status_code)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/api/agent/rules")
-def api_list_agent_rules() -> dict[str, Any]:
+def api_list_agent_rules() -> JSONResponse:
     """Lista todas as regras de contexto do Agente SAP."""
     try:
-        return {"rules": list_agent_rules()}
+        return _json_no_store({"rules": list_agent_rules()})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/agent/rules")
-def api_create_agent_rule(payload: AgentRuleRequest) -> dict[str, Any]:
+def api_create_agent_rule(payload: AgentRuleRequest) -> JSONResponse:
     """Cria uma nova regra de contexto."""
     try:
-        if not payload.campo.strip() or not payload.valor.strip():
-            raise HTTPException(status_code=400, detail="Campo e Valor são obrigatórios.")
+        if (
+            not payload.nome_parametro.strip()
+            or not payload.campo.strip()
+            or not payload.valor.strip()
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Nome do parametro, Campo e Valor sao obrigatorios.",
+            )
         rule = create_agent_rule(
             campo=payload.campo,
             valor=payload.valor,
+            nome_parametro=payload.nome_parametro,
+            processo=payload.processo,
+            subprocesso=payload.subprocesso,
             transacao_sap=payload.transacao_sap,
             notas=payload.notas,
             tags=payload.tags,
         )
-        return {"status": "success", "rule": rule}
+        return _json_no_store({"status": "success", "rule": rule})
     except HTTPException:
         raise
     except Exception as exc:
@@ -1638,22 +1696,32 @@ def api_create_agent_rule(payload: AgentRuleRequest) -> dict[str, Any]:
 
 
 @app.put("/api/agent/rules/{rule_id}")
-def api_update_agent_rule(rule_id: str, payload: AgentRuleRequest) -> dict[str, Any]:
+def api_update_agent_rule(rule_id: str, payload: AgentRuleRequest) -> JSONResponse:
     """Actualiza uma regra de contexto existente."""
     try:
-        if not payload.campo.strip() or not payload.valor.strip():
-            raise HTTPException(status_code=400, detail="Campo e Valor são obrigatórios.")
+        if (
+            not payload.nome_parametro.strip()
+            or not payload.campo.strip()
+            or not payload.valor.strip()
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Nome do parametro, Campo e Valor sao obrigatorios.",
+            )
         rule = update_agent_rule(
             rule_id=rule_id,
             campo=payload.campo,
             valor=payload.valor,
+            nome_parametro=payload.nome_parametro,
+            processo=payload.processo,
+            subprocesso=payload.subprocesso,
             transacao_sap=payload.transacao_sap,
             notas=payload.notas,
             tags=payload.tags,
         )
         if not rule:
             raise HTTPException(status_code=404, detail="Regra não encontrada.")
-        return {"status": "success", "rule": rule}
+        return _json_no_store({"status": "success", "rule": rule})
     except HTTPException:
         raise
     except Exception as exc:
@@ -1661,11 +1729,11 @@ def api_update_agent_rule(rule_id: str, payload: AgentRuleRequest) -> dict[str, 
 
 
 @app.delete("/api/agent/rules/{rule_id}")
-def api_delete_agent_rule(rule_id: str) -> dict[str, Any]:
+def api_delete_agent_rule(rule_id: str) -> JSONResponse:
     """Elimina uma regra de contexto."""
     try:
         delete_agent_rule(rule_id)
-        return {"status": "success"}
+        return _json_no_store({"status": "success"})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -1675,7 +1743,7 @@ def api_match_agent_rules(
     processo: str = "",
     ticket_type: str = "",
     stream: str = "",
-) -> dict[str, Any]:
+) -> JSONResponse:
     """Retorna regras que correspondem aos metadados do ticket."""
     try:
         rules = get_agent_rules_for_ticket(
@@ -1683,6 +1751,6 @@ def api_match_agent_rules(
             ticket_type=ticket_type,
             stream=stream,
         )
-        return {"rules": rules}
+        return _json_no_store({"rules": rules})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
