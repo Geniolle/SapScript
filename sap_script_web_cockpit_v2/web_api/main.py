@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 import asyncio
 
@@ -771,6 +771,24 @@ async def api_get_ticket_details(ticket_key: str) -> dict[str, Any]:
                 processo=str(details.get("categoria_sap") or ""),
             )
 
+            # ------------------------------------------------------------------
+            # 1ª prioridade: IT SALSA - Categoria SAP → coluna Processo nas
+            # Definições → Transação SAP (preenchimento automático principal).
+            # Quando o utilizador clica em "Analisar", a primeira pesquisa é:
+            # - Ler o valor do campo "IT SALSA - Categoria SAP" do ticket
+            # - Encontrar a regra nas Definições onde Processo == esse valor
+            # - Preencher automaticamente o campo Transação com transacao_sap
+            # ------------------------------------------------------------------
+            categoria_sap_val = str(details.get("categoria_sap") or "").strip()
+            if categoria_sap_val and not signal.transaction:
+                transacao_por_processo = get_transacao_by_processo(categoria_sap_val)
+                if transacao_por_processo:
+                    signal.transaction = transacao_por_processo
+
+            # ------------------------------------------------------------------
+            # 2ª prioridade: campo+valor (context_matches) — fallback se o
+            # lookup por Processo não encontrou transação.
+            # ------------------------------------------------------------------
             first_rule_with_transaction = next(
                 (rule for rule in context_matches if rule.get("transacao_sap")),
                 None,

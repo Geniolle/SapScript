@@ -934,7 +934,7 @@ def get_agent_rules_for_ticket(
 ) -> list[dict[str, Any]]:
     """
     Retorna as regras de contexto que correspondem ao ticket.
-    Faz match em qualquer combinação de campo+valor que coincida
+    Faz match em qualquer combinacao de campo+valor que coincida
     com os metadados fornecidos.
     """
     all_rules = list_agent_rules()
@@ -952,3 +952,34 @@ def get_agent_rules_for_ticket(
             matches.append(rule)
 
     return matches
+
+
+def get_transacao_by_processo(categoria_sap: str) -> str:
+    """
+    Procura a Transacao SAP correspondente a Categoria SAP do ticket.
+
+    Logica:
+      1. Percorre todas as regras de contexto do Agente SAP.
+      2. Encontra a primeira regra onde a coluna processo corresponde
+         (case-insensitive) ao valor de categoria_sap fornecido.
+      3. Devolve o valor de transacao_sap dessa regra, ou string vazia se nao encontrar.
+
+    Isto e usado ao analisar um ticket: o valor do campo
+    IT SALSA - Categoria SAP e pesquisado na coluna Processo das Definicoes
+    e a Transacao SAP correspondente e preenchida automaticamente nos
+    Sinais Identificados.
+    """
+    if not categoria_sap or not categoria_sap.strip():
+        return ""
+
+    categoria_norm = categoria_sap.strip().lower()
+    all_rules = list_agent_rules()
+
+    for rule in all_rules:
+        processo_val = (rule.get("processo") or "").strip().lower()
+        if processo_val and processo_val == categoria_norm:
+            transacao = (rule.get("transacao_sap") or "").strip()
+            if transacao:
+                return transacao
+
+    return ""
