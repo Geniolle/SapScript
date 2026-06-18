@@ -383,6 +383,13 @@ def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
 
 
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
+    from dotenv import load_dotenv
+    _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if _project_dir:
+        load_dotenv(os.path.join(_project_dir, ".env"))
+    else:
+        load_dotenv()
+
     task = job["task"]
     params = job.get("params", {}) or {}
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
@@ -423,9 +430,9 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             os.environ["SAP_JOB_ID"] = str(job["id"])
             os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
             os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
-            
+
             main_thread_id = threading.get_ident()
-            
+
             class APILogStream:
                 def __init__(self, job_id, original_stream, main_thread_id):
                     self.job_id = job_id
@@ -475,7 +482,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                     while self.running or not self.queue.empty():
                         lines = []
                         deadline = time.monotonic() + BATCH_WINDOW_S
-                        
+
                         # Colhe linhas durante a janela de tempo
                         while time.monotonic() < deadline:
                             remaining = max(0.01, deadline - time.monotonic())
@@ -483,7 +490,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                                 lines.append(self.queue.get(timeout=remaining))
                             except queue.Empty:
                                 break
-                        
+
                         # Esvazia o restante da fila sem esperar (até 200 linhas no total)
                         while len(lines) < 200:
                             try:
@@ -575,6 +582,41 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             streamer = APILogStream(job["id"], orig_stdout, main_thread_id)
             sys.stdout = streamer
 
+            # ── Inicializar documentação de evidências ─────────────────────────────
+            documentation = None
+            doc_row_context: dict[str, str] = {}
+            try:
+                import importlib.util as _ilu
+                from pathlib import Path as _Path
+                _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+                if _project_dir and _project_dir not in sys.path:
+                    sys.path.insert(0, _project_dir)
+                from workflow_documentation import WorkflowDocumentation  # type: ignore
+                _ticket_key = (
+                    str(params.get("jira_key") or "").strip().upper()
+                    or str(job.get("id", ""))[:8].upper()
+                )
+                _processo = str(params.get("processo") or "").strip()
+                _subprocesso = str(params.get("subprocesso") or "").strip()
+                _workflow_name = " | ".join(p for p in (_processo, _subprocesso) if p) or "sap_cockpit"
+                doc_row_context = {
+                    "ticket_key": _ticket_key,
+                    "categoria_sap": _processo,
+                    "request_number": str(params.get("request_number") or "").strip().upper(),
+                    "xlsx_path": str(params.get("caminho_ficheiro") or "").strip(),
+                    "ambiente": str(params.get("ambiente") or "").strip(),
+                }
+                documentation = WorkflowDocumentation.from_env(
+                    base_dir=_Path(_project_dir) if _project_dir else _Path("."),
+                    row_context=doc_row_context,
+                    workflow_name=_workflow_name,
+                )
+            except Exception as _doc_init_exc:
+                print(f"[DOC] Aviso: não foi possível inicializar documentação: {_doc_init_exc}")
+            # ──────────────────────────────────────────────────────────────────────
+
+            _cockpit_ok = True
+            _cockpit_error = ""
             try:
                 status, log = _run_sap_cockpit(params)
             except JobCancelledException:
@@ -597,14 +639,44 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                     pass
                 status = "Cancelado"
                 log = "Execução cancelada pelo utilizador."
+                _cockpit_ok = False
+                _cockpit_error = "Cancelado pelo utilizador."
                 _force_terminate_worker()
+            except Exception as _cockpit_exc:
+                _cockpit_ok = False
+                _cockpit_error = str(_cockpit_exc)
+                raise
             finally:
                 cancel_event.set()
+                # ── Gerar documento de evidências ──────────────────────────────────────
+                if documentation:
+                    try:
+                        _step_name = (
+                            str(params.get("subprocesso") or params.get("processo") or "Execução SAP")
+                        )
+                        documentation.capture_step(
+                            step_name=_step_name,
+                            row_context=doc_row_context,
+                            note="" if _cockpit_ok else f"Erro: {_cockpit_error}",
+                            allow_live_capture=_cockpit_ok,
+                        )
+                        _doc_path = documentation.finalize(
+                            row_context=doc_row_context,
+                            success=_cockpit_ok,
+                            error=_cockpit_error,
+                        )
+                        if _doc_path:
+                            print(f"[DOC] Documento de evidências gerado: {_doc_path}")
+                            log_lines.append(f"[DOC] Evidências: {_doc_path}")
+                    except Exception as _doc_fin_exc:
+                        print(f"[DOC] Aviso: falha ao gerar documento: {_doc_fin_exc}")
+                # ──────────────────────────────────────────────────────────────────────
                 sys.stdout = orig_stdout
                 streamer.close()
 
             log_lines.append(log)
             return status or "Execucao concluida, mas STATUS veio vazio.", "\n".join(log_lines)
+
 
         raise SapExecutionError(f"Rotina desconhecida: {task}")
 

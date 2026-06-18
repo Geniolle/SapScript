@@ -130,6 +130,24 @@ def init_db() -> None:
             )
             """
         )
+
+        # ---------------------------------------------------------------------------
+        # Agent Context Rules — tabela de parâmetros de contexto para o Agente SAP
+        # ---------------------------------------------------------------------------
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_context_rules (
+                id TEXT PRIMARY KEY,
+                campo TEXT NOT NULL,
+                valor TEXT NOT NULL,
+                transacao_sap TEXT,
+                notas TEXT,
+                tags TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -740,3 +758,119 @@ def get_latest_sap_agent_analysis(ticket_key: str) -> dict[str, Any] | None:
         return row_to_job(row) if row else None
 
 
+# ---------------------------------------------------------------------------
+# Agent Context Rules CRUD
+# ---------------------------------------------------------------------------
+
+def _row_to_rule(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id":            row["id"],
+        "campo":         row["campo"],
+        "valor":         row["valor"],
+        "transacao_sap": row["transacao_sap"] or "",
+        "notas":         row["notas"] or "",
+        "tags":          row["tags"] or "",
+        "created_at":    row["created_at"],
+        "updated_at":    row["updated_at"],
+    }
+
+
+def create_agent_rule(
+    campo: str,
+    valor: str,
+    transacao_sap: str = "",
+    notas: str = "",
+    tags: str = "",
+) -> dict[str, Any]:
+    """Cria uma nova regra de contexto para o Agente SAP."""
+    rule_id = str(uuid.uuid4())
+    now = utc_now()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO agent_context_rules
+                (id, campo, valor, transacao_sap, notas, tags, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (rule_id, campo.strip(), valor.strip(), transacao_sap.strip(),
+             notas.strip(), tags.strip(), now, now),
+        )
+        conn.commit()
+    return get_agent_rule(rule_id)
+
+
+def get_agent_rule(rule_id: str) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM agent_context_rules WHERE id = ?", (rule_id,)
+        ).fetchone()
+    return _row_to_rule(row) if row else None
+
+
+def list_agent_rules() -> list[dict[str, Any]]:
+    """Lista todas as regras de contexto ordenadas por campo e valor."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM agent_context_rules ORDER BY campo, valor"
+        ).fetchall()
+    return [_row_to_rule(r) for r in rows]
+
+
+def update_agent_rule(
+    rule_id: str,
+    campo: str,
+    valor: str,
+    transacao_sap: str = "",
+    notas: str = "",
+    tags: str = "",
+) -> dict[str, Any] | None:
+    """Actualiza uma regra de contexto existente."""
+    now = utc_now()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE agent_context_rules
+            SET campo = ?, valor = ?, transacao_sap = ?, notas = ?, tags = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (campo.strip(), valor.strip(), transacao_sap.strip(),
+             notas.strip(), tags.strip(), now, rule_id),
+        )
+        conn.commit()
+    return get_agent_rule(rule_id)
+
+
+def delete_agent_rule(rule_id: str) -> None:
+    """Elimina uma regra de contexto."""
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM agent_context_rules WHERE id = ?", (rule_id,)
+        )
+        conn.commit()
+
+
+def get_agent_rules_for_ticket(
+    processo: str = "",
+    ticket_type: str = "",
+    stream: str = "",
+) -> list[dict[str, Any]]:
+    """
+    Retorna as regras de contexto que correspondem ao ticket.
+    Faz match em qualquer combinação de campo+valor que coincida
+    com os metadados fornecidos.
+    """
+    all_rules = list_agent_rules()
+    matches: list[dict[str, Any]] = []
+
+    field_map = {
+        "IT SALSA - Categoria SAP": processo,
+        "Tipo de Ticket":           ticket_type,
+        "Stream":                   stream,
+    }
+
+    for rule in all_rules:
+        field_value = field_map.get(rule["campo"], "")
+        if field_value and rule["valor"].strip().lower() == field_value.strip().lower():
+            matches.append(rule)
+
+    return matches
