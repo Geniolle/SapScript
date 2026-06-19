@@ -209,6 +209,42 @@ def _format_teams_message(tickets: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _build_adaptive_card_payload(text: str) -> dict[str, Any]:
+    """Payload compatível com Teams Workflows webhook."""
+    lines = [line.rstrip() for line in text.splitlines()]
+    title = next((line for line in lines if line.strip()), "Alerta SAP Script")
+    body_text = "\n".join(lines[1:]).strip() or text
+
+    return {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": None,
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": title,
+                            "weight": "Bolder",
+                            "size": "Medium",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": body_text,
+                            "wrap": True,
+                        },
+                    ],
+                },
+            }
+        ],
+    }
+
+
 def send_teams_message(text: str) -> bool:
     webhook_url = os.getenv("TEAMS_WEBHOOK_URL", "").strip()
     if not webhook_url:
@@ -223,7 +259,7 @@ def send_teams_message(text: str) -> bool:
         return True
 
     try:
-        response = requests.post(webhook_url, json={"text": text}, timeout=20)
+        response = requests.post(webhook_url, json=_build_adaptive_card_payload(text), timeout=20)
         if response.status_code not in (200, 202):
             print(f"[TEAMS ALERT] Erro Teams HTTP {response.status_code}: {response.text}")
             return False
