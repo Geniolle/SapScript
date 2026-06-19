@@ -274,25 +274,76 @@ def run_once() -> dict[str, int]:
     state = _load_state(state_path)
 
     tickets = fetch_unassigned_team_tickets()
+    notified = state.setdefault("notified", {})
+
+    # Limpeza automática:
+    # mantém no JSON apenas tickets que ainda aparecem na consulta atual do JIRA.
+    # Se o ticket já recebeu responsável, mudou de Team, foi concluído ou deixou
+    # de cumprir o JQL, ele sai da consulta e é removido do ficheiro de estado.
+    active_keys = {ticket.get("key", "") for ticket in tickets if ticket.get("key")}
+    removed_keys = sorted(
+        key for key in list(notified.keys())
+        if key not in active_keys
+    )
+
+    for key in removed_keys:
+        notified.pop(key, None)
+
     pending = _new_or_updated_tickets(tickets, state)
 
     if not pending:
-        print(f"[TEAMS ALERT] Nenhum ticket novo/alterado sem responsável. Total atual encontrado: {len(tickets)}")
+        state["last_run_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        state["last_found_count"] = len(tickets)
+        state["last_notified_count"] = 0
+        state["last_cleanup_count"] = len(removed_keys)
+
+        if removed_keys:
+            _save_state(state_path, state)
+            print(
+                f"[TEAMS ALERT] Nenhum ticket novo/alterado sem responsável. "
+                f"Total atual encontrado: {len(tickets)}. "
+                f"Removidos do estado: {len(removed_keys)} -> {', '.join(removed_keys)}"
+            )
+        else:
+            print(
+                f"[TEAMS ALERT] Nenhum ticket novo/alterado sem responsável. "
+                f"Total atual encontrado: {len(tickets)}"
+            )
+
         return {"found": len(tickets), "notified": 0}
 
     message = _format_teams_message(pending)
     sent = send_teams_message(message)
+
     if sent:
-        notified = state.setdefault("notified", {})
         for ticket in pending:
             notified[ticket["key"]] = _ticket_identity(ticket)
+
         state["last_run_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         state["last_found_count"] = len(tickets)
         state["last_notified_count"] = len(pending)
+        state["last_cleanup_count"] = len(removed_keys)
+
         _save_state(state_path, state)
-        print(f"[TEAMS ALERT] Alerta enviado para {len(pending)} ticket(s).")
+
+        if removed_keys:
+            print(
+                f"[TEAMS ALERT] Alerta enviado para {len(pending)} ticket(s). "
+                f"Removidos do estado: {len(removed_keys)} -> {', '.join(removed_keys)}"
+            )
+        else:
+            print(f"[TEAMS ALERT] Alerta enviado para {len(pending)} ticket(s).")
     else:
-        print("[TEAMS ALERT] Alerta não enviado; estado não foi atualizado.")
+        if removed_keys:
+            state["last_run_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            state["last_cleanup_count"] = len(removed_keys)
+            _save_state(state_path, state)
+            print(
+                f"[TEAMS ALERT] Alerta não enviado; tickets obsoletos removidos do estado: "
+                f"{len(removed_keys)} -> {', '.join(removed_keys)}"
+            )
+        else:
+            print("[TEAMS ALERT] Alerta não enviado; estado não foi atualizado.")
 
     return {"found": len(tickets), "notified": len(pending) if sent else 0}
 
