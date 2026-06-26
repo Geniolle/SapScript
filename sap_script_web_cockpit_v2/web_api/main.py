@@ -1025,12 +1025,37 @@ def api_sap_agent_chat(request: SapAgentChatRequest) -> dict[str, Any]:
             detail="GEMINI_API_KEY não configurada no ficheiro .env. Por favor, adicione a chave e reinicie o cockpit.",
         )
 
-    # 1. Obter detalhes do ticket no JIRA
+    # 1. Obter detalhes do ticket no JIRA (inclui anexos e textos extraídos)
     ticket_info = fetch_ticket_details(request.ticket_key)
     summary = ticket_info.get("summary") or "Sem sumário"
     description = ticket_info.get("description") or "Sem descrição"
     comments_list = ticket_info.get("comments") or []
     comments_text = "\n".join(comments_list) if comments_list else "Sem comentários"
+
+    # Contexto de anexos para o prompt
+    attachments_raw: list[dict] = ticket_info.get("attachments") or []
+    attachment_texts: list[str] = ticket_info.get("attachment_texts") or []
+
+    _ATTACH_TEXT_MAX = 3000  # chars por anexo enviados ao modelo
+
+    def _build_attachments_prompt(
+        raw: list[dict], texts: list[str]
+    ) -> str:
+        if not raw:
+            return "Nenhum anexo encontrado neste ticket."
+        names = [str(a.get("filename") or "") for a in raw if a.get("filename")]
+        lines = [f"Anexos ({len(names)} ficheiro(s)): " + ", ".join(names)]
+        if not texts:
+            lines.append("Sem texto extraído dos anexos.")
+        else:
+            lines.append("Conteúdo extraído dos anexos:")
+            for block in texts:
+                if len(block) > _ATTACH_TEXT_MAX:
+                    block = block[:_ATTACH_TEXT_MAX] + f"\n[... conteúdo truncado a {_ATTACH_TEXT_MAX} caracteres]"
+                lines.append(block)
+        return "\n".join(lines)
+
+    attachments_context = _build_attachments_prompt(attachments_raw, attachment_texts)
 
     # 2. Obter análise do Agente SAP da base de dados
     analysis_job = get_latest_sap_agent_analysis(request.ticket_key)
@@ -1084,6 +1109,8 @@ Abaixo está o contexto do ticket JIRA:
 {description}
 - Comentários:
 {comments_text}
+- Anexos:
+{attachments_context}
 
 Abaixo estão as evidências recolhidas pelo Agente SAP (no worker Windows local):
 - Sinais Identificados:

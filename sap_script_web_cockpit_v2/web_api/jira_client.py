@@ -27,11 +27,13 @@ def download_ticket_attachments_to_dir(
         ticket_key:           Chave do ticket (ex: 'IZ-56680')
         output_dir_container: Caminho base dentro do container (ex: '/data/jira')
         output_dir_windows:   Caminho base no Windows para o worker (ex: r'C:\\Jira')
-        only_xlsx:            Se True, descarrega apenas ficheiros .xlsx
+        only_xlsx:            Se True, descarrega apenas ficheiros .xlsx/.xlsm
         overwrite:            Se True, sobrescreve ficheiros já existentes
 
     Returns:
-        Lista de paths Windows dos ficheiros descarregados (.xlsx mais recente primeiro).
+        Lista de paths Windows dos ficheiros descarregados.
+        Ordenada pelo mais recente segundo os metadados do Jira (created + id),
+        não pelo mtime local do sistema de ficheiros.
     """
     jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
@@ -80,23 +82,29 @@ def download_ticket_attachments_to_dir(
     issue_folder = Path(output_dir_container) / folder_name
     issue_folder.mkdir(parents=True, exist_ok=True)
 
-    downloaded_windows = []
+    # Lista de (win_path, jira_created, jira_id) para ordenação por metadados Jira
+    downloaded: list[tuple[str, str, str]] = []
+
+    xlsx_exts = (".xlsx", ".xlsm")
 
     for att in attachments:
         filename = _safe_filename(att.get("filename", "anexo"))
-        if only_xlsx and not filename.lower().endswith(".xlsx"):
+        if only_xlsx and not filename.lower().endswith(xlsx_exts):
             continue
 
         content_url = att.get("content")
         if not content_url:
             continue
 
+        att_created = str(att.get("created") or "")
+        att_id = str(att.get("id") or "")
+
         target = issue_folder / filename
+        win_path = str(Path(output_dir_windows) / folder_name / filename)
+
         if target.exists() and not overwrite:
             print(f"[DOWNLOAD] {ticket_key_upper}: já existe -> {filename}")
-            # Mesmo que já exista, inclui na lista
-            win_path = str(Path(output_dir_windows) / folder_name / filename)
-            downloaded_windows.append(win_path)
+            downloaded.append((win_path, att_created, att_id))
             continue
 
         try:
@@ -106,30 +114,26 @@ def download_ticket_attachments_to_dir(
                     for chunk in r.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
-            
-            # Clean excel file leading spaces right after download!
-            if filename.lower().endswith(".xlsx"):
+
+            # Clean excel file leading spaces right after download.
+            # Note: this modifies the file in the auto-trigger folder, which is
+            # separate from the attachment_service cache (original/ subdirectory).
+            if filename.lower().endswith(xlsx_exts):
                 try:
                     clean_excel_leading_spaces(str(target))
                 except Exception as exc:
                     print(f"[DOWNLOAD] Erro ao limpar espaços do excel: {exc}")
 
             print(f"[DOWNLOAD] {ticket_key_upper}: descarregado -> {filename}")
-            win_path = str(Path(output_dir_windows) / folder_name / filename)
-            downloaded_windows.append(win_path)
+            downloaded.append((win_path, att_created, att_id))
         except Exception as e:
             print(f"[DOWNLOAD] {ticket_key_upper}: erro ao descarregar {filename}: {e}")
 
-    # Ordena por data de modificação (mais recente primeiro) dentro do container
-    def _mtime(win_path: str) -> float:
-        container_path = issue_folder / Path(win_path).name
-        try:
-            return container_path.stat().st_mtime
-        except Exception:
-            return 0.0
-
-    downloaded_windows.sort(key=_mtime, reverse=True)
-    return downloaded_windows
+    # Ordena por metadados Jira: created DESC, depois id DESC (como tiebreaker).
+    # ISO-8601 ordena corretamente como string, garantindo que o Excel mais
+    # recente segundo o Jira venha primeiro — independente do mtime local.
+    downloaded.sort(key=lambda x: (x[1], x[2]), reverse=True)
+    return [win_path for win_path, _, _ in downloaded]
 
 
 def _parse_issue(issue: dict) -> dict:
@@ -789,17 +793,32 @@ def add_jira_comment(key: str, comment_text: str) -> bool:
 
 def fetch_ticket_details(ticket_key: str) -> dict:
     """
-    Busca os detalhes de um único ticket (Summary, Description, Comments) do JIRA,
-    convertendo campos no formato ADF (Atlassian Document Format) para texto simples.
+    Busca os detalhes de um único ticket do JIRA, incluindo anexos e textos extraídos.
+
+    Campos retornados:
+      summary, description, comments, categoria_sap  (campos originais)
+      attachments          — lista de dicts com metadados Jira de cada anexo
+      attachment_texts     — lista de textos extraídos (um por anexo com conteúdo)
+      attachment_manifest  — manifesto JSON persistido pelo attachment_service
     """
     jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
 
+    _empty: dict = {
+        "summary": "",
+        "description": "",
+        "comments": [],
+        "categoria_sap": "",
+        "attachments": [],
+        "attachment_texts": [],
+        "attachment_manifest": {},
+    }
+
     if not jira_base or not jira_email or not jira_token:
         print(f"[CHAT DETAILS] Credenciais JIRA não configuradas para {ticket_key}.")
-        return {"summary": "", "description": "", "comments": [], "categoria_sap": ""}
+        return _empty
 
     auth = (jira_email, jira_token)
     headers = {"Accept": "application/json"}
@@ -810,18 +829,19 @@ def fetch_ticket_details(ticket_key: str) -> dict:
             url,
             auth=auth,
             headers=headers,
-            params={"fields": "summary,description,comment,customfield_15845"},
+            params={
+                "fields": "summary,description,comment,customfield_15845,attachment"
+            },
             timeout=15,
         )
         res.raise_for_status()
         data = res.json()
         fields = data.get("fields", {})
 
-        # Converter descrição ADF para texto simples
-        desc_raw = fields.get("description")
-        description = _parse_jira_adf(desc_raw)
+        # Descrição ADF → texto simples
+        description = _parse_jira_adf(fields.get("description"))
 
-        # Converter comentários ADF para lista de textos simples
+        # Comentários ADF → lista de textos
         comments_raw = fields.get("comment", {}).get("comments", [])
         comments = []
         for c in comments_raw:
@@ -838,15 +858,69 @@ def fetch_ticket_details(ticket_key: str) -> dict:
         else:
             categoria_sap = ""
 
+        # Anexos — metadados brutos do Jira
+        attachments_raw: list[dict] = fields.get("attachment", []) or []
+
+        # Processar anexos via attachment_service (download + extração de texto)
+        attachment_texts: list[str] = []
+        attachment_manifest: dict = {}
+        try:
+            import sys as _sys
+            import os as _os
+            _project_dir = _os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+            if _project_dir and _project_dir not in _sys.path:
+                _sys.path.insert(0, _project_dir)
+            from sap_agent.attachment_service import (  # noqa: PLC0415
+                process_ticket_attachments,
+                load_manifest,
+                CACHE_BASE_DIR,
+            )
+            from pathlib import Path as _Path  # noqa: PLC0415
+
+            results = process_ticket_attachments(
+                ticket_key=ticket_key.upper().strip(),
+                attachments_meta=attachments_raw,
+                auth=auth,
+            )
+            for r in results:
+                if r.skipped:
+                    continue
+                if r.error:
+                    attachment_texts.append(
+                        f"--- [Erro de Extração: {r.filename}] ---\n{r.error}"
+                    )
+                elif r.text:
+                    header = f"--- [Texto extraído: {r.filename}]"
+                    if r.text_truncated:
+                        header += " [TRUNCADO]"
+                    header += " ---"
+                    attachment_texts.append(f"{header}\n{r.text}")
+
+            attachment_manifest = load_manifest(
+                _Path(CACHE_BASE_DIR) / ticket_key.upper().strip()
+            )
+        except ImportError:
+            print(
+                f"[CHAT DETAILS] attachment_service indisponível — "
+                f"textos de anexos não extraídos para {ticket_key}"
+            )
+        except Exception as att_exc:
+            print(
+                f"[CHAT DETAILS] Erro ao processar anexos de {ticket_key}: {att_exc}"
+            )
+
         return {
             "summary": str(fields.get("summary") or ""),
             "description": description,
             "comments": comments,
             "categoria_sap": categoria_sap,
+            "attachments": attachments_raw,
+            "attachment_texts": attachment_texts,
+            "attachment_manifest": attachment_manifest,
         }
     except Exception as e:
         print(f"[CHAT DETAILS] Erro ao obter detalhes de {ticket_key}: {e}")
-        return {"summary": "", "description": "", "comments": [], "categoria_sap": ""}
+        return _empty
 
 
 def fetch_single_ticket_for_trigger(key: str) -> dict | None:

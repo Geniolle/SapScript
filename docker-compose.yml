@@ -21,3 +21,29 @@ services:
     volumes:
       - ./credentials.json:/app/credentials.json:ro
       - C:/Jira:/data/jira
+
+  teams-unassigned-alert:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: teams-unassigned-alert
+    restart: unless-stopped
+    command: ["python", "teams_unassigned_alert.py"]
+    environment:
+      JIRA_DADOS_COMP_HASH: ${JIRA_DADOS_COMP_HASH}
+      JIRA_DADOS_HASH: ${JIRA_DADOS_HASH:-rest/api/3}
+      JIRA_EMAIL: ${JIRA_EMAIL}
+      JIRA_TOKEN: ${JIRA_TOKEN}
+      TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL}
+      TEAMS_UNASSIGNED_ALERT_ENABLED: ${TEAMS_UNASSIGNED_ALERT_ENABLED:-true}
+      TEAMS_UNASSIGNED_TEAM: ${TEAMS_UNASSIGNED_TEAM:-Core Systems}
+      TEAMS_UNASSIGNED_TEAM_JQL_FIELD: ${TEAMS_UNASSIGNED_TEAM_JQL_FIELD:-cf[15839]}
+      TEAMS_UNASSIGNED_TEAM_FIELD_ID: ${TEAMS_UNASSIGNED_TEAM_FIELD_ID:-customfield_15839}
+      TEAMS_UNASSIGNED_INCLUDE_DONE: ${TEAMS_UNASSIGNED_INCLUDE_DONE:-false}
+      TEAMS_UNASSIGNED_POLL_SECONDS: ${TEAMS_UNASSIGNED_POLL_SECONDS:-300}
+      TEAMS_UNASSIGNED_STATE_PATH: ${TEAMS_UNASSIGNED_STATE_PATH:-/data/jira/teams_unassigned_alert_state.json}
+      TEAMS_UNASSIGNED_DRY_RUN: ${TEAMS_UNASSIGNED_DRY_RUN:-false}
+      TEAMS_UNASSIGNED_RUN_ONCE: ${TEAMS_UNASSIGNED_RUN_ONCE:-false}
+      TEAMS_UNASSIGNED_JQL: ${TEAMS_UNASSIGNED_JQL:-}
+    volumes:
+      - C:/Jira:/data/jira

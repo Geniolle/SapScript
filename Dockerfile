@@ -6,8 +6,8 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN sed -i '/pyrfc/d' requirements.txt && pip install --no-cache-dir -r requirements.txt
 
-COPY main.py workflow_engine.py workflow_documentation.py workflows.json jira_download_anexos.py jira_sheet_daemon.py sap_session.py ./
+COPY main.py workflow_engine.py workflow_documentation.py workflows.json jira_download_anexos.py jira_sheet_daemon.py sap_session.py teams_unassigned_alert.py ./
 
 CMD ["python", "jira_sheet_daemon.py"]
