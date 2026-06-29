@@ -382,13 +382,30 @@ def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
     return status_json, log
 
 
+# Whitelist de subprocessos com suporte a documentação funcional automática.
+# Para adicionar suporte a um novo subprocesso basta adicionar o nome aqui.
+SUPPORTED_FUNCTIONAL_DOC_PROCESSES: frozenset[str] = frozenset({
+    "A. PFCG_CREATE.py",
+})
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
-    from dotenv import load_dotenv
-    _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
-    if _project_dir:
-        load_dotenv(os.path.join(_project_dir, ".env"))
-    else:
-        load_dotenv()
+    _prepare_project_imports()
+    module_name = os.getenv("SAP_COCKPIT_MODULE", "sap_script_web_cockpit_v2.sap_cockpit_web_ready").strip()
+    try:
+        cockpit = importlib.import_module(module_name)
+        if hasattr(cockpit, "reload_project_env"):
+            cockpit.reload_project_env(force_override=True)
+        else:
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
+    except Exception:
+        try:
+            from sap_script_web_cockpit_v2.sap_cockpit_web_ready import reload_project_env
+            reload_project_env(force_override=True)
+        except Exception:
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
 
     task = job["task"]
     params = job.get("params", {}) or {}
@@ -582,37 +599,14 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             streamer = APILogStream(job["id"], orig_stdout, main_thread_id)
             sys.stdout = streamer
 
-            # ── Inicializar documentação de evidências ─────────────────────────────
-            documentation = None
-            doc_row_context: dict[str, str] = {}
-            try:
-                import importlib.util as _ilu
-                from pathlib import Path as _Path
-                _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
-                if _project_dir and _project_dir not in sys.path:
-                    sys.path.insert(0, _project_dir)
-                from workflow_documentation import WorkflowDocumentation  # type: ignore
-                _ticket_key = (
-                    str(params.get("jira_key") or "").strip().upper()
-                    or str(job.get("id", ""))[:8].upper()
-                )
-                _processo = str(params.get("processo") or "").strip()
-                _subprocesso = str(params.get("subprocesso") or "").strip()
-                _workflow_name = " | ".join(p for p in (_processo, _subprocesso) if p) or "sap_cockpit"
-                doc_row_context = {
-                    "ticket_key": _ticket_key,
-                    "categoria_sap": _processo,
-                    "request_number": str(params.get("request_number") or "").strip().upper(),
-                    "xlsx_path": str(params.get("caminho_ficheiro") or "").strip(),
-                    "ambiente": str(params.get("ambiente") or "").strip(),
-                }
-                documentation = WorkflowDocumentation.from_env(
-                    base_dir=_Path(_project_dir) if _project_dir else _Path("."),
-                    row_context=doc_row_context,
-                    workflow_name=_workflow_name,
-                )
-            except Exception as _doc_init_exc:
-                print(f"[DOC] Aviso: não foi possível inicializar documentação: {_doc_init_exc}")
+            # ── Guardar nome_pasta no ambiente para processos que suportam DOC ──────
+            # A documentação funcional é gerida internamente pelo processo (ex.: A. PFCG_CREATE.py).
+            # Aqui apenas verificamos se o subprocesso está na whitelist e, se não estiver,
+            # emitimos um log discreto para informar que a documentação foi ignorada.
+            _nome_pasta = str(params.get("nome_pasta") or "").strip()
+            _subprocesso_solicitado = str(params.get("subprocesso") or "").strip()
+            if _nome_pasta and _subprocesso_solicitado and _subprocesso_solicitado not in SUPPORTED_FUNCTIONAL_DOC_PROCESSES:
+                print(f"[DOC] Documentação funcional ignorada: subprocesso ainda não suportado ({_subprocesso_solicitado})")
             # ──────────────────────────────────────────────────────────────────────
 
             _cockpit_ok = True
@@ -648,29 +642,6 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                 raise
             finally:
                 cancel_event.set()
-                # ── Gerar documento de evidências ──────────────────────────────────────
-                if documentation:
-                    try:
-                        _step_name = (
-                            str(params.get("subprocesso") or params.get("processo") or "Execução SAP")
-                        )
-                        documentation.capture_step(
-                            step_name=_step_name,
-                            row_context=doc_row_context,
-                            note="" if _cockpit_ok else f"Erro: {_cockpit_error}",
-                            allow_live_capture=_cockpit_ok,
-                        )
-                        _doc_path = documentation.finalize(
-                            row_context=doc_row_context,
-                            success=_cockpit_ok,
-                            error=_cockpit_error,
-                        )
-                        if _doc_path:
-                            print(f"[DOC] Documento de evidências gerado: {_doc_path}")
-                            log_lines.append(f"[DOC] Evidências: {_doc_path}")
-                    except Exception as _doc_fin_exc:
-                        print(f"[DOC] Aviso: falha ao gerar documento: {_doc_fin_exc}")
-                # ──────────────────────────────────────────────────────────────────────
                 sys.stdout = orig_stdout
                 streamer.close()
 

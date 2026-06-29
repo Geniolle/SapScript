@@ -1661,6 +1661,27 @@ def api_update_sap_metadata(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class SapLogonDebugRequest(BaseModel):
+    sap_logon_debug: dict[str, Any]
+
+@app.post("/api/jobs/{job_id}/sap-logon-debug")
+def api_update_sap_logon_debug(
+    job_id: str,
+    payload: SapLogonDebugRequest,
+    x_worker_token: str = Header(default=""),
+) -> dict[str, Any]:
+    validate_worker_token(x_worker_token)
+    global last_worker_ping
+    last_worker_ping = time.time()
+    try:
+        new_params = {
+            "sap_logon_debug": payload.sap_logon_debug
+        }
+        return update_job_params(job_id=job_id, new_params=new_params)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 class CreateJobRequest(BaseModel):
     task: str
     params: dict[str, Any] = None

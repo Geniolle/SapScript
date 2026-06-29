@@ -146,12 +146,33 @@ def _parse_env_line(linha_txt: str):
     return chave, valor
 
 
-def _carregar_dotenv_manual():
+def get_project_env_path() -> str:
+    project_dir = os.environ.get("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if project_dir:
+        env_path = os.path.join(project_dir, ".env")
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env_path = os.path.join(base_dir, ".env")
+    return os.path.abspath(env_path)
+
+
+def reload_project_env(force_override: bool = True) -> str | None:
+    from dotenv import load_dotenv
+    env_path = get_project_env_path()
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=force_override)
+        _carregar_dotenv_manual(force_override=force_override)
+        return env_path
+    return None
+
+
+def _carregar_dotenv_manual(force_override: bool = True):
     base_atual = os.getcwd()
     base_script = os.path.dirname(os.path.abspath(__file__))
     base_script_pai = os.path.dirname(base_script)
 
     candidatos = [
+        get_project_env_path(),
         os.path.join(base_atual, ".env"),
         os.path.join(base_script, ".env"),
         os.path.join(base_script_pai, ".env"),
@@ -172,23 +193,59 @@ def _carregar_dotenv_manual():
                 chave, valor = _parse_env_line(linha_txt)
                 if not chave:
                     continue
-                if chave not in os.environ:
+                if force_override or chave not in os.environ:
                     os.environ[chave] = valor
         return caminho_norm
 
     return None
 
 
-def _carregar_dotenv():
-    caminho = _carregar_dotenv_manual()
+def _log_env_status(env_path: str):
+    import datetime
+    try:
+        mtime = os.path.getmtime(env_path)
+        mtime_str = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        mtime_str = "Desconhecido"
+        
+    info(f"[ENV_LOAD] Caminho absoluto: {env_path}")
+    info(f"[ENV_LOAD] Última modificação: {mtime_str}")
+    
+    # Palavras que identificam variáveis sensíveis (nunca imprimir o valor real)
+    _SENSITIVE_KEYWORDS = ("PASSWORD", "PASSWD", "PWD", "SECRET", "TOKEN", "KEY")
+
+    sap_vars = []
+    try:
+        with open(env_path, "r", encoding="utf-8-sig") as f:
+            for line in f:
+                chave, valor = _parse_env_line(line)
+                if not chave:
+                    continue
+                if chave.startswith("SAP_") or chave == "SAPLOGON_PATH":
+                    chave_upper = chave.upper()
+                    if any(kw in chave_upper for kw in _SENSITIVE_KEYWORDS):
+                        masked = mask_password_last_two(valor)
+                        sap_vars.append(f"{chave} = CONFIGURADA | len={len(valor)} | masked={masked}")
+                    else:
+                        sap_vars.append(f"{chave} = {valor}")
+    except Exception as e:
+        warn(f"Erro ao analisar chaves do .env para logs: {e}")
+        
+    info(f"[ENV_LOAD] Variáveis SAP encontradas:")
+    for v in sap_vars:
+        info(f"  - {v}")
+
+
+def _carregar_dotenv(force_override: bool = True):
+    caminho = _carregar_dotenv_manual(force_override=force_override)
     if caminho:
-        info(f"Ficheiro .env carregado: {caminho}")
+        _log_env_status(caminho)
     else:
         warn("Ficheiro .env nao encontrado nos caminhos esperados.")
 
 
 def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tuple[str, str, str, str]:
-    _carregar_dotenv()
+    _carregar_dotenv(force_override=True)
 
     sistema = str(sistema_desejado or "").strip().upper()
     cliente = str(cliente_esperado or "").strip()
@@ -1089,6 +1146,97 @@ def _reportar_metadata_sap(session, interactive: bool = False):
         pass
 
 
+def mask_password_last_two(value: str) -> str:
+    value = str(value or "")
+    if not value:
+        return "VAZIA"
+    if len(value) <= 2:
+        return "XX"
+    return value[:-2] + "XX"
+
+def build_sap_logon_debug(
+    ambiente_cockpit: str,
+    sistema_desejado: str,
+    cliente_esperado: str,
+    nome_logon: str,
+    usuario: str,
+    idioma: str,
+    chave_password: str,
+    senha: str,
+) -> dict:
+    env_path = get_project_env_path()
+    env_mtime = "Desconhecido"
+    if os.path.exists(env_path):
+        try:
+            mtime = os.path.getmtime(env_path)
+            import datetime
+            env_mtime = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+
+    return {
+        "env_path": env_path,
+        "env_mtime": env_mtime,
+        "ambiente": {
+            "param": "params.ambiente",
+            "value": ambiente_cockpit,
+            "raw_present": bool(ambiente_cockpit),
+        },
+        "sistema": {
+            "param": "MAPA_SISTEMA[params.ambiente]",
+            "value": sistema_desejado,
+            "raw_present": bool(sistema_desejado),
+        },
+        "cliente": {
+            "param": "CLIENTES_POR_AMBIENTE[params.ambiente]",
+            "value": cliente_esperado,
+            "raw_present": bool(cliente_esperado),
+        },
+        "sap_logon": {
+            "param": "AMBIENTES[params.ambiente]",
+            "value": nome_logon,
+            "raw_present": bool(nome_logon),
+        },
+        "sap_user": {
+            "param": "SAP_USER",
+            "value": usuario,
+            "raw_present": bool(usuario),
+        },
+        "sap_password": {
+            "param": chave_password or "SAP_PASSWORD_<SISTEMA>CLNT<CLIENTE>",
+            "value": mask_password_last_two(senha),
+            "raw_present": bool(senha),
+        },
+        "sap_language": {
+            "param": "SAP_LANGUAGE",
+            "value": idioma,
+            "raw_present": bool(idioma),
+        },
+        "saplogon_path": {
+            "param": "SAPLOGON_PATH",
+            "value": SAPLOGON_PATH,
+            "raw_present": bool(SAPLOGON_PATH),
+        },
+    }
+
+def _reportar_sap_logon_debug(debug_data: dict):
+    job_id = os.environ.get("SAP_JOB_ID")
+    api_url = os.environ.get("SAP_API_BASE_URL")
+    token = os.environ.get("SAP_WORKER_TOKEN")
+    if not job_id or not api_url or not token:
+        return
+    try:
+        import requests
+        requests.post(
+            f"{api_url}/api/jobs/{job_id}/sap-logon-debug",
+            headers={"X-Worker-Token": token},
+            json={"sap_logon_debug": debug_data},
+            timeout=5
+        )
+    except Exception:
+        pass
+
+
 def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
     sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
     cliente_esperado = CLIENTES_POR_AMBIENTE.get(ambiente_cockpit, "100")
@@ -1128,6 +1276,7 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
     if session is None:
         # Tenta obter credenciais para auto-login
         credenciais_ok = False
+        usuario, senha, idioma, chave_password = "", "", "", ""
         try:
             usuario, senha, idioma, chave_password = _obter_credenciais_env(
                 sistema_desejado=sistema_desejado,
@@ -1136,6 +1285,9 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
             credenciais_ok = True
         except Exception:
             credenciais_ok = False
+            chave_password = f"SAP_PASSWORD_{sistema_desejado}CLNT{cliente_esperado}"
+
+
 
         if credenciais_ok:
             try:

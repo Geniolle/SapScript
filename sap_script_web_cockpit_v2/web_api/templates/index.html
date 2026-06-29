@@ -1001,6 +1001,141 @@
     .terminal-scroll::-webkit-scrollbar-thumb:hover {
       background: rgba(255, 255, 255, 0.3);
     }
+
+    /* Modal Eliminação de Job Customizado */
+    .delete-job-modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(15, 23, 42, 0.58);
+      backdrop-filter: blur(6px);
+    }
+
+    .delete-job-modal-overlay[hidden] {
+      display: none !important;
+    }
+
+    .delete-job-modal-card {
+      width: min(460px, 100%);
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 28px;
+      position: relative;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      animation: deleteJobModalIn 0.2s ease-out;
+    }
+
+    @keyframes deleteJobModalIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .delete-job-modal-close {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      border: none;
+      background: transparent;
+      font-size: 24px;
+      line-height: 1;
+      color: #64748b;
+      cursor: pointer;
+    }
+
+    .delete-job-modal-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 16px;
+      background: #fee2e2;
+      color: #dc2626;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 16px;
+    }
+
+    .delete-job-modal-card h3 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .delete-job-modal-text {
+      margin: 0 0 18px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .delete-job-modal-summary {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 12px;
+      color: #334155;
+      margin-bottom: 16px;
+    }
+
+    .delete-job-modal-error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+
+    .delete-job-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+      color: #fff;
+      border: 1px solid #dc2626;
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+      border-color: #b91c1c;
+    }
+
+    .btn-danger:disabled,
+    .btn-secondary:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    #selected-process-display-input {
+      background-color: #f9fafb !important;
+      color: #374151 !important;
+      cursor: default !important;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #selected-process-display-field[hidden] {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -2255,6 +2390,17 @@
           </select>
         </label>
 
+        <label id="selected-process-display-field" hidden>
+          Processo a executar
+          <input
+            id="selected-process-display-input"
+            type="text"
+            readonly
+            tabindex="-1"
+            autocomplete="off"
+          >
+        </label>
+
         <label>
           Processo / pasta
           <select name="processo" id="processo-select">
@@ -2676,6 +2822,7 @@
       } catch (e) {
         // Em caso de falha, mostrar formulário genérico normal
       }
+      setSelectedProcessDisplay(processo, subprocesso);
       modal.classList.add('active');
     }
 
@@ -2766,6 +2913,36 @@
       if (badge) badge.remove();
     }
 
+    function cleanSubprocessName(value) {
+      return String(value || '')
+        .trim()
+        .replace(/^[A-Z]\.\s*/i, '')
+        .replace(/\.py$/i, '');
+    }
+
+    function setSelectedProcessDisplay(processo, subprocesso) {
+      const field = document.getElementById('selected-process-display-field');
+      const input = document.getElementById('selected-process-display-input');
+
+      if (!field || !input) return;
+
+      const proc = String(processo || '').trim();
+      const sub = cleanSubprocessName(subprocesso);
+
+      const displayValue = sub ? `${proc} / ${sub}` : proc;
+
+      input.value = displayValue;
+      field.hidden = !displayValue;
+    }
+
+    function clearSelectedProcessDisplay() {
+      const field = document.getElementById('selected-process-display-field');
+      const input = document.getElementById('selected-process-display-input');
+
+      if (input) input.value = '';
+      if (field) field.hidden = true;
+    }
+
     function _lockModalMenuFields() {
       ['processo-select', 'subprocesso-select'].forEach(id => {
         const el = document.getElementById(id);
@@ -2802,6 +2979,7 @@
         if (badge) badge.remove();
       });
       _resetWebParams();
+      clearSelectedProcessDisplay();
     }
 
     let currentTab = 'running';
@@ -3493,6 +3671,7 @@
           let roleMetadata = {};
           let sapSbarText = '';
           let errorCount = 0;
+          let docFuncionalPath = '';
 
           // Parse and scan logs for roles, progress, and status
           lines.forEach(line => {
@@ -3621,19 +3800,27 @@
                   }
               }
 
-              // Parse SAP status bar message if present
-              if (tr.includes('[SAP_SBAR]')) {
-                  const sVal = tr.split('[SAP_SBAR]')[1].trim();
-                  if (sVal) {
-                      sapSbarText = sVal;
-                  }
-              } else if (tr.toUpperCase().startsWith('STATUS:')) {
-                  const sVal = tr.substring(7).trim();
-                  if (sVal) {
-                      sapSbarText = sVal;
-                  }
-              }
-          });
+               // Parse SAP status bar message if present
+               if (tr.includes('[SAP_SBAR]')) {
+                   const sVal = tr.split('[SAP_SBAR]')[1].trim();
+                   if (sVal) {
+                       sapSbarText = sVal;
+                   }
+               } else if (tr.toUpperCase().startsWith('STATUS:')) {
+                   const sVal = tr.substring(7).trim();
+                   if (sVal) {
+                       sapSbarText = sVal;
+                   }
+               }
+
+               // Parse functional doc path if generated
+               if (tr.includes('[DOC] Documento funcional gerado:')) {
+                   const parts = tr.split('[DOC] Documento funcional gerado:');
+                   if (parts[1]) {
+                       docFuncionalPath = parts[1].trim();
+                   }
+               }
+           });
           if (totalRoles === 0 && rolesFromLogs.length > 0) {
               totalRoles = rolesFromLogs.length;
           }
@@ -3686,109 +3873,12 @@
 
           let roleHistoryHtml = '';
           let totalActions = 0;
+          const allRolesParam = (p.roles && p.roles.length > 0) ? p.roles : rolesFromLogs;
           if (totalRoles > 0) {
-              let rows = '';
-              const allRolesParam = (p.roles && p.roles.length > 0) ? p.roles : rolesFromLogs;
-              allRolesParam.forEach((r, idx) => {
-                  const isConcluida = completedRolesList.includes(r.name) || (job.state === 'succeeded');
-                  const isActive = (job.state === 'running' && r.name === currentRoleName);
-                  let statusBadge = '';
-                  
-                  if (isCadeiaProcess) {
-                      const meta = roleMetadata[r.name] || {};
-                      if (meta.success === true) {
-                          statusBadge = '<span class="role-table-badge success">✓ ENCONTRADA</span>';
-                      } else if (meta.success === false) {
-                          statusBadge = '<span class="role-table-badge failed">✗ NÃO ENCONTRADA</span>';
-                      } else {
-                          statusBadge = '<span class="role-table-badge pending">PENDENTE</span>';
-                      }
-                  } else {
-                      if (isConcluida) {
-                          statusBadge = '<span class="role-table-badge success">✓ CONCLUÍDA</span>';
-                      } else if (isActive) {
-                          statusBadge = '<span class="role-table-badge active">⚙️ PROCESSANDO</span>';
-                      } else {
-                          statusBadge = '<span class="role-table-badge pending">PENDENTE</span>';
-                      }
-                  }
+              allRolesParam.forEach((r) => {
                   const meta = roleMetadata[r.name] || {};
-                  const actionsCount = meta.actions || 0;
-                  totalActions += actionsCount;
-                  
-                  let completedTimeStr = '---';
-                  const isProcessed = isConcluida || (isCadeiaProcess && meta.success !== undefined);
-                  if (isProcessed) {
-                      let compLineIdx = -1;
-                      for (let i = 0; i < lines.length; i++) {
-                          const tr = lines[i].trim();
-                          if (isCadeiaProcess) {
-                              if (tr.includes(r.name.split(' - ')[0])) {
-                                  compLineIdx = i;
-                                  break;
-                              }
-                          } else {
-                              if ((tr.includes('🟢 SUCESSO') || tr.includes('Role concluida:') || tr.includes('Role concluída:')) && tr.includes(r.name)) {
-                                  compLineIdx = i;
-                                  break;
-                              }
-                          }
-                      }
-                      if (compLineIdx !== -1) {
-                          const ts = getTimestampForLine(job, compLineIdx, lines.length);
-                          const startDay = new Date(job.created_at).toLocaleDateString('pt-PT');
-                          completedTimeStr = `${startDay}, ${ts}`;
-                      } else {
-                          const dateObj = new Date(job.updated_at);
-                          completedTimeStr = `${dateObj.toLocaleDateString('pt-PT')}, ${formatTimeOnly(dateObj)}`;
-                      }
-                  } else if (isActive) {
-                      completedTimeStr = 'A processar...';
-                  }
-                  
-                  if (!isCadeiaProcess) {
-                      rows += `
-                         <tr class="role-history-table-row ${isActive ? 'active-row' : ''}">
-                            <td style="padding: 8px; font-weight: bold; color: var(--text-secondary); width: 60px;">${String(idx+1).padStart(2, '0')}</td>
-                            <td style="padding: 8px; font-weight: 600; color: ${isActive ? 'var(--primary)' : 'var(--text-primary)'};">${escapeHtml(r.name)}</td>
-                            <td style="padding: 8px; font-family: monospace; color: var(--text-secondary);">${actionsCount}</td>
-                            <td style="padding: 8px;">${statusBadge}</td>
-                            <td style="padding: 8px; color: var(--text-secondary); font-size: 11px;">${completedTimeStr}</td>
-                         </tr>
-                      `;
-                  }
+                  totalActions += meta.actions || 0;
               });
-              
-              if (!isCadeiaProcess) {
-                  roleHistoryHtml = `
-                     <div style="flex: 1.2; min-width: 320px;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:12px; align-items: center;">
-                           <span style="font-weight:bold; color:var(--text-primary); font-size:14px;">Histórico de Execução das Roles</span>
-                           <span style="font-size:11px; font-weight:bold; color:var(--success);">${concludedRoles}/${totalRoles} Concluídas</span>
-                        </div>
-                        <div class="role-history-scroll custom-scroll" style="max-height:320px; overflow-y:auto; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(0,0,0,0.01);">
-                           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
-                              <thead>
-                                 <tr style="background: rgba(0,0,0,0.02); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-secondary);">
-                                    <th style="padding: 8px; width: 60px;">Ordem</th>
-                                    <th style="padding: 8px;">Role</th>
-                                    <th style="padding: 8px; width: 60px;">Ações</th>
-                                    <th style="padding: 8px; width: 110px;">Status</th>
-                                    <th style="padding: 8px; width: 140px;">Concluído em</th>
-                                 </tr>
-                              </thead>
-                              <tbody>
-                                 ${rows}
-                              </tbody>
-                           </table>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 11px; color: var(--text-secondary);">
-                           <span>Exibindo ${allRolesParam.length} de ${allRolesParam.length} roles</span>
-                           <a href="#" style="color: var(--primary); text-decoration: none; font-weight: 600;" onclick="event.preventDefault();">Ver todas as roles &rarr;</a>
-                        </div>
-                     </div>
-                  `;
-              }
           }
           let stageLabels = ['Inicialização e Logon SAP', 'Abertura e Verificação de Tela', 'Processamento Principal / Ações GUI', 'Conclusão / Geração de Logs'];
           const subLower = sub.toLowerCase();
@@ -4196,7 +4286,7 @@
           let lineHtml = (taskLogRows) ? `<div style="position: absolute; left: 33px; top: 32px; bottom: 32px; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
           
           let taskLogsHtml = `
-             <div style="flex: 1; min-width: 320px; display: flex; flex-direction: column;">
+             <div style="flex: 1 1 100%; min-width: 100%; display: flex; flex-direction: column;">
                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
                     <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
                        Registro de Atividades (Logs)
@@ -4328,8 +4418,7 @@
              </div>
              
              <!-- Split Bottom Columns -->
-             <div style="display: flex; gap: 24px; margin-top: 24px; flex-wrap: wrap;">
-                ${roleHistoryHtml}
+             <div style="display: flex; gap: 24px; margin-top: 24px;">
                 ${taskLogsHtml}
              </div>
           `;
@@ -4435,6 +4524,12 @@
                    </div>
                 </div>
              </div>
+             
+             ${docFuncionalPath ? `
+             <div style="margin-bottom: 20px; font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 8px; padding: 10px 16px;">
+                 <span>📁 <strong>Documento funcional:</strong></span>
+                 <span style="font-family: monospace; font-size: 11px; background: rgba(255, 255, 255, 0.7); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px 8px; user-select: all; cursor: text;">${escapeHtml(docFuncionalPath)}</span>
+             </div>` : ''}
              
              <!-- Connected Stages Timeline -->
              <div style="margin-bottom: 24px; background: rgba(0,0,0,0.01); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px;">
@@ -4751,28 +4846,156 @@
         }
     }
 
-    async function deleteJob(jobId) {
-        if (!confirm('Tem a certeza que quer eliminar este job permanentemente? Esta ação não pode ser desfeita.')) {
-            return;
+    window.deleteJobState = window.deleteJobState || {
+      pendingJobId: null,
+      deleting: false
+    };
+
+    window.deleteJob = function(jobId) {
+      const modal = document.getElementById('delete-job-modal');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+
+      if (!modal) {
+        console.error('[deleteJob] Modal delete-job-modal não encontrado.');
+        return;
+      }
+
+      window.deleteJobState.pendingJobId = jobId;
+      window.deleteJobState.deleting = false;
+
+      modal.dataset.jobId = jobId || '';
+
+      if (errorBox) {
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+      }
+
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Eliminar definitivamente';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+      }
+
+      modal.hidden = false;
+    };
+
+    window.closeDeleteJobModal = function() {
+      const modal = document.getElementById('delete-job-modal');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+
+      window.deleteJobState.pendingJobId = null;
+      window.deleteJobState.deleting = false;
+
+      if (modal) {
+        delete modal.dataset.jobId;
+        modal.hidden = true;
+      }
+
+      if (errorBox) {
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+      }
+
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Eliminar definitivamente';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+      }
+    };
+
+    window.confirmDeleteJob = async function(event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+
+      if (window.deleteJobState.deleting) {
+        return;
+      }
+
+      const modal = document.getElementById('delete-job-modal');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+
+      const jobId = modal?.dataset?.jobId || window.deleteJobState.pendingJobId;
+
+      console.log('[deleteJob] Confirm clicked:', jobId);
+
+      if (!jobId) {
+        if (errorBox) {
+          errorBox.textContent = 'Nenhum job selecionado para eliminar.';
+          errorBox.hidden = false;
         }
-        try {
-            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
-            if (res.ok) {
-                const card = document.getElementById(`card-job-${jobId}`);
-                if (card) card.remove();
-                if (typeof activeJobId !== 'undefined' && activeJobId === jobId) {
-                    activeJobId = null;
-                }
-                await loadJobs();
-            } else {
-                const data = await res.json().catch(() => ({}));
-                alert('Erro ao eliminar o job: ' + (data.detail || res.status));
-            }
-        } catch(e) {
-            console.error('Erro de rede ao eliminar:', e);
-            alert('Erro de rede ao eliminar o job.');
+        return;
+      }
+
+      window.deleteJobState.deleting = true;
+
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'A eliminar...';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = true;
+      }
+
+      try {
+        const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+          method: 'DELETE'
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || `Erro HTTP ${res.status}`);
         }
-    }
+
+        const card = document.getElementById(`card-job-${jobId}`);
+        if (card) card.remove();
+
+        if (typeof activeJobId !== 'undefined' && activeJobId === jobId) {
+          activeJobId = null;
+        }
+
+        window.closeDeleteJobModal();
+
+        if (typeof loadJobs === 'function') {
+          await loadJobs();
+        }
+        if (typeof loadHistoryJobs === 'function') {
+          await loadHistoryJobs();
+        }
+      } catch (err) {
+        window.deleteJobState.deleting = false;
+
+        if (errorBox) {
+          errorBox.textContent = `Erro ao eliminar o job: ${err.message || err}`;
+          errorBox.hidden = false;
+        }
+
+        if (confirmBtn) {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Eliminar definitivamente';
+        }
+
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+        }
+
+        console.error('[deleteJob] Erro:', err);
+      }
+    };
 
     function copyJobLog(jobId) {
         const job = allJobs.find(j => j.id === jobId);
@@ -5556,24 +5779,7 @@
     }
 
     async function deleteJobFromDb(jobId) {
-        if (!confirm('Deseja eliminar permanentemente este job da base de dados? Esta ação não pode ser desfeita.')) {
-            return;
-        }
-        try {
-            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
-            if (res.ok) {
-                allJobs = allJobs.filter(j => j.id !== jobId);
-                if (activeJobId === jobId) {
-                    activeJobId = null;
-                }
-                await loadHistoryJobs();
-            } else {
-                alert('Erro ao eliminar o job.');
-            }
-        } catch(e) {
-            console.error('Erro de rede ao eliminar:', e);
-            alert('Erro de rede ao eliminar o job.');
-        }
+        deleteJob(jobId);
     }
 
     function switchView(viewName) {
@@ -8601,6 +8807,49 @@
     loadJobs().then(() => {
         startPolling();
     });
+
+    // Exposição de funções do cockpit no objeto global window
+    window.switchView = switchView;
+    window.toggleSapMenu = toggleSapMenu;
+    window.toggleJiraMenu = toggleJiraMenu;
+    window.toggleProcessosMenu = toggleProcessosMenu;
+    window.toggleSubprocessosMenu = toggleSubprocessosMenu;
+    window.abrirSubprocessoModal = abrirSubprocessoModal;
+
+    // Eventos do Modal de Eliminação de Job Customizado
+    document.addEventListener('keydown', function(event) {
+      const modal = document.getElementById('delete-job-modal');
+      if (event.key === 'Escape' && modal && !modal.hidden) {
+        window.closeDeleteJobModal();
+      }
+    });
+
+    function initDeleteJobModalEvents() {
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+
+      if (cancelBtn && !cancelBtn.dataset.bound) {
+        cancelBtn.dataset.bound = 'true';
+        cancelBtn.addEventListener('click', function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          window.closeDeleteJobModal();
+        });
+      }
+
+      if (confirmBtn && !confirmBtn.dataset.bound) {
+        confirmBtn.dataset.bound = 'true';
+        confirmBtn.addEventListener('click', function(event) {
+          window.confirmDeleteJob(event);
+        });
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initDeleteJobModalEvents);
+    } else {
+      initDeleteJobModalEvents();
+    }
   </script>
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">
@@ -8700,6 +8949,31 @@
       <div style="padding:14px 24px 20px; border-top:1px solid #f1f5f9; display:flex; align-items:center; justify-content:flex-end; gap:10px;">
         <button type="button" onclick="defCloseModal()" style="padding:9px 18px; font-size:0.82rem; font-weight:600; color:#64748b; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">Cancelar</button>
         <button type="button" id="def-modal-save-btn" onclick="defSaveRule()" style="padding:9px 22px; font-size:0.82rem; font-weight:700; color:white; background:linear-gradient(135deg,#6366f1,#4f46e5); border:none; border-radius:10px; cursor:pointer; box-shadow:0 4px 12px rgba(99,102,241,0.35); transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">💾 Guardar Regra</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Modal: Confirmar Eliminação de Job ══ -->
+  <div id="delete-job-modal" class="delete-job-modal-overlay" hidden>
+    <div class="delete-job-modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-job-modal-title">
+      <div class="delete-job-modal-icon">⚠️</div>
+
+      <h3 id="delete-job-modal-title">Eliminar job?</h3>
+
+      <p class="delete-job-modal-text">
+        Tem a certeza que quer eliminar este job permanentemente?
+        Esta ação não pode ser desfeita.
+      </p>
+
+      <div id="delete-job-modal-error" class="delete-job-modal-error" hidden></div>
+
+      <div class="delete-job-modal-actions">
+        <button type="button" id="delete-job-modal-cancel" class="btn btn-secondary" onclick="window.closeDeleteJobModal()">
+          Cancelar
+        </button>
+        <button type="button" id="delete-job-modal-confirm" class="btn btn-danger" onclick="window.confirmDeleteJob(event)">
+          Eliminar definitivamente
+        </button>
       </div>
     </div>
   </div>

@@ -20,7 +20,8 @@ def executar(
     caminho_ficheiro=None,
     request_transporte=None,
     modo_nao_interativo=False,
-    pedir_confirmacao=True
+    pedir_confirmacao=True,
+    nome_pasta=None
 ):
     import sys
     import os
@@ -466,6 +467,148 @@ def executar(
             wb.close()
             return
 
+    # Inicializar documentação se nome_pasta estiver preenchido
+    doc_session = None
+    if nome_pasta and str(nome_pasta).strip():
+        try:
+            from sap_script_web_cockpit_v2.documentation.functional_doc import FunctionalDocSession
+            doc_session = FunctionalDocSession(
+                nome_pasta=nome_pasta,
+                processo="PFCG_CREATE",
+                transacao="PFCG"
+            )
+            sap_user = ""
+            sap_client = ""
+            try:
+                sap_user = session.Info.User
+                sap_client = session.Info.Client
+            except:
+                pass
+                
+            metadata = {
+                "ambiente": ambiente_cockpit,
+                "sistema": SISTEMA_ESPERADO,
+                "cliente": sap_client,
+                "utilizador_sap": sap_user,
+                "total_roles": len(roles_agrupadas),
+                "excel_utilizado": caminho_ficheiro,
+            }
+            doc_session.start_execution(metadata)
+            print(f"[DOC] Documentação funcional iniciada na pasta: {doc_session.output_dir}")
+        except Exception as doc_exc:
+            print(f"[DOC_WARN] Não foi possível inicializar documentação funcional: {doc_exc}")
+
+    # ---------------------------------------------------------------------------
+    # Constantes de posicionamento da janela SAP para evidências de documentação
+    # ---------------------------------------------------------------------------
+    DOC_SAP_WINDOW_WIDTH_RATIO   = 0.60   # 60% da largura do monitor
+    DOC_SAP_WINDOW_HEIGHT_RATIO  = 1.00   # 100% da altura útil
+    DOC_SAP_WINDOW_X_RATIO       = 0.00   # Começa no lado esquerdo
+    DOC_SAP_WINDOW_Y_RATIO       = 0.00
+    DOC_SCREENSHOT_DELAY_SECONDS = 0.75   # Aguardar antes do print
+
+    def prepare_sap_window_for_evidence():
+        """
+        Traz a janela SAP GUI para primeiro plano, restaura se minimizada,
+        posiciona-a no lado esquerdo com 60% da largura e 100% da altura útil.
+        Deve ser chamada imediatamente antes de cada captura funcional.
+        Não interrompe o SAP se falhar.
+        """
+        try:
+            import win32gui
+            import win32con
+            import ctypes
+
+            # Obter dimensões do monitor principal (sem barra de tarefas)
+            try:
+                work_area = ctypes.wintypes.RECT()
+                ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(work_area), 0)
+                screen_w = work_area.right  - work_area.left
+                screen_h = work_area.bottom - work_area.top
+                origin_x = work_area.left
+                origin_y = work_area.top
+            except Exception:
+                screen_w = win32gui.GetSystemMetrics(0)
+                screen_h = win32gui.GetSystemMetrics(1)
+                origin_x, origin_y = 0, 0
+
+            win_w = int(screen_w * DOC_SAP_WINDOW_WIDTH_RATIO)
+            win_h = int(screen_h * DOC_SAP_WINDOW_HEIGHT_RATIO)
+            win_x = origin_x + int(screen_w * DOC_SAP_WINDOW_X_RATIO)
+            win_y = origin_y + int(screen_h * DOC_SAP_WINDOW_Y_RATIO)
+
+            # Localizar a janela SAP GUI principal
+            hwnd = None
+            for title_fragment in ("SAP Easy Access", "PFCG", "SAP"):
+                def _enum_cb(h, _):
+                    if win32gui.IsWindowVisible(h) and title_fragment in win32gui.GetWindowText(h):
+                        nonlocal hwnd
+                        if hwnd is None:
+                            hwnd = h
+                win32gui.EnumWindows(_enum_cb, None)
+                if hwnd:
+                    break
+
+            if not hwnd:
+                print("[DOC_WARN] Não foi possível localizar a janela SAP GUI para captura de evidência.")
+                return
+
+            # Restaurar se minimizada
+            placement = win32gui.GetWindowPlacement(hwnd)
+            if placement[1] == win32con.SW_SHOWMINIMIZED:
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                time.sleep(0.2)
+
+            # Remover maximização antes de reposicionar
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOWNORMAL)
+            time.sleep(0.1)
+
+            # Posicionar e redimensionar
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_TOP,
+                win_x, win_y, win_w, win_h,
+                win32con.SWP_SHOWWINDOW,
+            )
+
+            # Trazer para primeiro plano
+            win32gui.SetForegroundWindow(hwnd)
+            time.sleep(DOC_SCREENSHOT_DELAY_SECONDS)
+
+        except Exception as _pos_exc:
+            print(f"[DOC_WARN] Não foi possível posicionar a janela SAP para captura de evidência: {_pos_exc}")
+
+    def capture_screenshot(role_name, momento, idx):
+        if not doc_session or not doc_session.enabled:
+            return None
+        try:
+            safe_role = re.sub(r"[^a-zA-Z0-9_-]", "_", role_name)
+            filename = f"{idx:02d}_{safe_role}_{momento}.png"
+            filepath = doc_session.image_dir / filename
+
+            # Preparar janela SAP: primeiro plano + posicionamento controlado
+            prepare_sap_window_for_evidence()
+
+            wnd = session.findById("wnd[0]")
+            try:
+                wnd.hardCopy(str(filepath), 2)
+            except Exception:
+                try:
+                    wnd.HardCopy(str(filepath), 2)
+                except Exception:
+                    try:
+                        wnd.hardCopy(str(filepath))
+                    except Exception:
+                        wnd.HardCopy(str(filepath))
+            if filepath.exists():
+                return str(filepath)
+            else:
+                print(f"[DOC_WARN] Não foi possível capturar evidência da role {role_name} no momento {momento}")
+                return None
+        except Exception as exc:
+            print(f"[DOC_WARN] Não foi possível capturar evidência: {exc}")
+            return None
+
     ###################################################################################
     # BLOCO 2: SAP GUI helpers
     ###################################################################################
@@ -835,6 +978,9 @@ def executar(
 
             progress.update(task_roles, description=f"A processar role: {nome}")
 
+            if doc_session and doc_session.enabled:
+                doc_session.start_role_section(nome, desc, len(tcodes))
+
             print("\n======================================================================")
             print(f"▶ [{idx}/{len(roles_agrupadas)}] INICIANDO ROLE: {nome} | TCODEs: {len(tcodes)}")
             print("======================================================================")
@@ -855,8 +1001,28 @@ def executar(
                 qtd_ins = pfcg.add_tcodes(tcodes)
                 pfcg.save("  └─ Guardando Transações inseridas...")
 
+                if doc_session and doc_session.enabled:
+                    shot = capture_screenshot(nome, "menu_transacoes_gravadas", idx)
+                    if shot:
+                        doc_session.add_evidence(
+                            nome,
+                            "Evidência 1 — Transações atribuídas e gravadas",
+                            f"Aba Menu da role {nome} após atribuição das transações e confirmação de gravação no SAP.",
+                            shot
+                        )
+
                 print("\n[Etapa 3] Geração do Perfil de Autorizações")
                 pfcg.generate_authorization_profile()
+
+                if doc_session and doc_session.enabled:
+                    shot = capture_screenshot(nome, "perfil_gerado", idx)
+                    if shot:
+                        doc_session.add_evidence(
+                            nome,
+                            "Evidência 2 — Perfil de autorizações gerado",
+                            f"Perfil de autorizações da role {nome} gerado e confirmado no SAP.",
+                            shot
+                        )
 
                 print("\n[Etapa 4] Ordem de Transporte e Encerramento")
                 pfcg.execute_transport_and_exit(request_transporte)
@@ -873,6 +1039,9 @@ def executar(
                 print(f"\n🟢 SUCESSO: Role tratada por completo! ⏱️ (Tempo: {str_tempo})")
                 print("----------------------------------------------------------------------")
 
+                if doc_session and doc_session.enabled:
+                    doc_session.add_role_summary(nome, desc, len(tcodes), "Concluída", str_tempo)
+
             except Exception as e:
                 tempo_decorrido_role = time.time() - tempo_inicio_role
                 str_tempo = formatar_tempo(tempo_decorrido_role)
@@ -885,6 +1054,9 @@ def executar(
 
                 print(f"\n🔴 ERRO: {err} ⏱️ (Tempo: {str_tempo})")
                 print("----------------------------------------------------------------------")
+
+                if doc_session and doc_session.enabled:
+                    doc_session.add_role_summary(nome, desc, len(tcodes), "Não concluída", str_tempo)
 
                 try:
                     session.findById("wnd[0]/tbar[0]/okcd").text = "/N"
@@ -919,6 +1091,15 @@ def executar(
     tempo_decorrido_total = time.time() - tempo_inicio_total
     print(f"\n⏱️ Tempo total da operação: {formatar_tempo(tempo_decorrido_total)}")
 
+    # Finalizar documentação funcional se ativada
+    if doc_session and doc_session.enabled:
+        try:
+            final_path = doc_session.finalize()
+            if final_path:
+                print(f"[DOC] Documento funcional gerado: {final_path}")
+        except Exception as doc_exc:
+            print(f"[DOC_WARN] Falha ao finalizar documento funcional: {doc_exc}")
+
     print("🔁 Fim.")
     return True
 
@@ -931,6 +1112,7 @@ if __name__ == "__main__":
     parser.add_argument("--request", help="Número da Request de Transporte (Opcional)")
     parser.add_argument("--auto", action="store_true")
     parser.add_argument("--no-confirm", action="store_true")
+    parser.add_argument("--nome_pasta", help="Nome da pasta para documentação funcional")
     args = parser.parse_args()
 
     env_cli = args.ambiente or (input("Ambiente (DEV/QAD/PRD): ").strip().upper() or "DEV")
@@ -940,5 +1122,6 @@ if __name__ == "__main__":
         caminho_ficheiro=args.xlsx,
         request_transporte=args.request,
         modo_nao_interativo=bool(args.auto),
-        pedir_confirmacao=(not args.no_confirm)
+        pedir_confirmacao=(not args.no_confirm),
+        nome_pasta=args.nome_pasta
     )
