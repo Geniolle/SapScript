@@ -438,7 +438,8 @@ def executar(
                     include_requests=True,
                     use_new_mode=True,
                     minimize=False,
-                    close_after=True
+                    close_after=True,
+                    session=session
                 )
 
                 if resultados_pesquisa:
@@ -511,7 +512,8 @@ def executar(
         """
         Traz a janela SAP GUI para primeiro plano, restaura se minimizada,
         posiciona-a no lado esquerdo com 60% da largura e 100% da altura útil.
-        Deve ser chamada imediatamente antes de cada captura funcional.
+        Usa o handle real da janela SAP GUI Scripting sempre que disponível
+        para evitar mover qualquer outra janela (browser, Word, VS Code, etc.).
         Não interrompe o SAP se falhar.
         """
         try:
@@ -519,7 +521,45 @@ def executar(
             import win32con
             import ctypes
 
-            # Obter dimensões do monitor principal (sem barra de tarefas)
+            # ------------------------------------------------------------------
+            # 1. Obter o HWND da janela SAP GUI diretamente pela sessão de scripting.
+            #    Isto garante que apenas a janela SAP é movida — nunca o browser.
+            # ------------------------------------------------------------------
+            hwnd = None
+            try:
+                hwnd = int(session.findById("wnd[0]").Handle)
+            except Exception:
+                hwnd = None
+
+            # Fallback: localizar por título com fragmentos específicos do SAP GUI.
+            # "SAP" genérico é excluído intencionalmente para evitar match com o browser.
+            if not hwnd:
+                SAP_TITLE_FRAGMENTS = (
+                    "SAP Easy Access",
+                    "PFCG",
+                    "DESENVOLVIMENTO",
+                    "PRODUÇÃO",
+                    "QUALIDADE",
+                    "S4H",
+                    "SAP Logon",
+                )
+                for title_fragment in SAP_TITLE_FRAGMENTS:
+                    def _enum_cb(h, _):
+                        nonlocal hwnd
+                        if hwnd is None and win32gui.IsWindowVisible(h):
+                            if title_fragment in win32gui.GetWindowText(h):
+                                hwnd = h
+                    win32gui.EnumWindows(_enum_cb, None)
+                    if hwnd:
+                        break
+
+            if not hwnd:
+                print("[DOC_WARN] Não foi possível localizar a janela SAP GUI para captura de evidência.")
+                return
+
+            # ------------------------------------------------------------------
+            # 2. Obter área útil do monitor principal (sem barra de tarefas)
+            # ------------------------------------------------------------------
             try:
                 work_area = ctypes.wintypes.RECT()
                 ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(work_area), 0)
@@ -537,33 +577,18 @@ def executar(
             win_x = origin_x + int(screen_w * DOC_SAP_WINDOW_X_RATIO)
             win_y = origin_y + int(screen_h * DOC_SAP_WINDOW_Y_RATIO)
 
-            # Localizar a janela SAP GUI principal
-            hwnd = None
-            for title_fragment in ("SAP Easy Access", "PFCG", "SAP"):
-                def _enum_cb(h, _):
-                    if win32gui.IsWindowVisible(h) and title_fragment in win32gui.GetWindowText(h):
-                        nonlocal hwnd
-                        if hwnd is None:
-                            hwnd = h
-                win32gui.EnumWindows(_enum_cb, None)
-                if hwnd:
-                    break
-
-            if not hwnd:
-                print("[DOC_WARN] Não foi possível localizar a janela SAP GUI para captura de evidência.")
-                return
-
-            # Restaurar se minimizada
+            # ------------------------------------------------------------------
+            # 3. Restaurar se minimizada, remover maximização, reposicionar
+            # ------------------------------------------------------------------
             placement = win32gui.GetWindowPlacement(hwnd)
             if placement[1] == win32con.SW_SHOWMINIMIZED:
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 time.sleep(0.2)
 
-            # Remover maximização antes de reposicionar
+            # SW_SHOWNORMAL remove maximização antes de chamar SetWindowPos
             win32gui.ShowWindow(hwnd, win32con.SW_SHOWNORMAL)
             time.sleep(0.1)
 
-            # Posicionar e redimensionar
             win32gui.SetWindowPos(
                 hwnd,
                 win32con.HWND_TOP,
@@ -571,12 +596,13 @@ def executar(
                 win32con.SWP_SHOWWINDOW,
             )
 
-            # Trazer para primeiro plano
+            # Trazer para primeiro plano e aguardar antes do print
             win32gui.SetForegroundWindow(hwnd)
             time.sleep(DOC_SCREENSHOT_DELAY_SECONDS)
 
         except Exception as _pos_exc:
             print(f"[DOC_WARN] Não foi possível posicionar a janela SAP para captura de evidência: {_pos_exc}")
+
 
     def capture_screenshot(role_name, momento, idx):
         if not doc_session or not doc_session.enabled:

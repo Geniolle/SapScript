@@ -264,6 +264,12 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
     sistema_desejado = mapa_sistema.get(ambiente, "S4D")
     
+    session = None
+    try:
+        session = get_first_available_session()
+    except Exception:
+        pass
+
     try:
         lista = mod.listar_requests(
             system_name=sistema_desejado,
@@ -272,6 +278,7 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
             use_new_mode=True,
             minimize=True,
             close_after=True,
+            session=session
         )
     except Exception as exc:
         raise SapExecutionError(f"Erro ao pesquisar requests no SAP: {exc}")

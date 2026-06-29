@@ -728,7 +728,8 @@ def perguntar_opcao_request(
                 include_requests=False,
                 use_new_mode=True,
                 minimize=True,
-                close_after=True
+                close_after=True,
+                session=session
             )
         except TypeError:
             lista = mod_pesq.listar_requests(system_name=sistema_desejado, max_rows="5000")

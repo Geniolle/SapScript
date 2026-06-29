@@ -330,7 +330,8 @@ def executar(
                     include_requests=True,
                     use_new_mode=True,
                     minimize=True,
-                    close_after=True
+                    close_after=True,
+                    session=session
                 )
                 if resultados_pesquisa:
                     escolha = input("\n👉 Digite o número (N) da Request que deseja utilizar (ou Enter para cancelar): ").strip()

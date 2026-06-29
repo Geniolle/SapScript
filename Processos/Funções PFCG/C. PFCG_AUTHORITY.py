@@ -432,7 +432,8 @@ def executar(
                     include_requests=True, 
                     use_new_mode=True,     
                     minimize=True,         
-                    close_after=True       
+                    close_after=True,
+                    session=session
                 )
                 
                 if resultados_pesquisa:
