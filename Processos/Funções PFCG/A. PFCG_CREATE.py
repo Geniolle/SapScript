@@ -493,6 +493,7 @@ def executar(
                 "utilizador_sap": sap_user,
                 "total_roles": len(roles_agrupadas),
                 "excel_utilizado": caminho_ficheiro,
+                "request_transporte": request_transporte,
             }
             doc_session.start_execution(metadata)
             print(f"[DOC] Documentação funcional iniciada na pasta: {doc_session.output_dir}")
