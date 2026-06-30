@@ -919,6 +919,34 @@ def _executar_um_script(
     if not os.path.exists(caminho_script):
         raise SapCockpitError(f"Subprocesso nao encontrado: {caminho_script}")
 
+    # DOC_DEBUG_START
+    debug_enabled = os.environ.get("SAP_DOC_DEBUG") == "1"
+    if debug_enabled:
+        try:
+            import hashlib
+            h = hashlib.sha256()
+            with open(caminho_script, "rb") as f:
+                while chunk := f.read(8192):
+                    h.update(chunk)
+            sha_val = h.hexdigest()
+        except Exception as hash_exc:
+            sha_val = f"error: {hash_exc}"
+
+        print(f"[DOC_DEBUG] Subprocesso selecionado: {processo_escolhido}")
+        print(f"[DOC_DEBUG] Caminho absoluto executado: {os.path.abspath(caminho_script)}")
+        print(f"[DOC_DEBUG] Existe: {os.path.exists(caminho_script)}")
+        try:
+            print(f"[DOC_DEBUG] MTime: {os.path.getmtime(caminho_script)}")
+            print(f"[DOC_DEBUG] Tamanho do ficheiro: {os.path.getsize(caminho_script)} bytes")
+        except Exception:
+            pass
+        print(f"[DOC_DEBUG] SHA256: {sha_val}")
+        print(f"[DOC_DEBUG] CWD: {os.getcwd()}")
+        print(f"[DOC_DEBUG] sys.path inicial relevante: {sys.path[:5]}")
+        print(f"[DOC_DEBUG] SAP_SCRIPT_PROJECT_DIR: {os.getenv('SAP_SCRIPT_PROJECT_DIR')}")
+        print(f"[DOC_DEBUG] Payload recebido: {payload}")
+    # DOC_DEBUG_END
+
     modulo = _load_process_module(caminho_script)
 
     if not hasattr(modulo, "executar"):
@@ -934,10 +962,142 @@ def _executar_um_script(
         interactive=interactive,
     )
 
+    # DOC_DEBUG_START
+    if debug_enabled:
+        print(f"[DOC_DEBUG] kwargs montados para executar(): {kwargs}")
+        import win32com.client
+        import subprocess
+        import traceback
+        
+        _original_dispatch_ex = win32com.client.DispatchEx
+        _original_dispatch = win32com.client.Dispatch
+        
+        _original_ensure_dispatch = None
+        try:
+            import win32com.client.gencache
+            if hasattr(win32com.client.gencache, "EnsureDispatch"):
+                _original_ensure_dispatch = win32com.client.gencache.EnsureDispatch
+        except Exception:
+            pass
+
+        _original_run = subprocess.run
+        _original_popen = subprocess.Popen
+
+        def debug_dispatch_ex(prog_id, *args, **kw):
+            if str(prog_id).lower() == "word.application":
+                print("[DOC_DEBUG] Word.Application chamado via DispatchEx")
+                print("".join(traceback.format_stack(limit=30)))
+            return _original_dispatch_ex(prog_id, *args, **kw)
+
+        def debug_dispatch(prog_id, *args, **kw):
+            if str(prog_id).lower() == "word.application":
+                print("[DOC_DEBUG] Word.Application chamado via Dispatch")
+                print("".join(traceback.format_stack(limit=30)))
+            return _original_dispatch(prog_id, *args, **kw)
+
+        def debug_ensure_dispatch(prog_id, *args, **kw):
+            if str(prog_id).lower() == "word.application":
+                print("[DOC_DEBUG] Word.Application chamado via EnsureDispatch")
+                print("".join(traceback.format_stack(limit=30)))
+            return _original_ensure_dispatch(prog_id, *args, **kw)
+
+        def debug_run(*args, **kw):
+            cmd = args[0] if args else kw.get("args")
+            print(f"[DOC_DEBUG] subprocess.run chamado:\ncomando: {cmd}")
+            print("".join(traceback.format_stack(limit=30)))
+            return _original_run(*args, **kw)
+
+        def debug_popen(*args, **kw):
+            cmd = args[0] if args else kw.get("args")
+            print(f"[DOC_DEBUG] subprocess.Popen chamado:\ncomando: {cmd}")
+            print("".join(traceback.format_stack(limit=30)))
+            return _original_popen(*args, **kw)
+
+        win32com.client.DispatchEx = debug_dispatch_ex
+        win32com.client.Dispatch = debug_dispatch
+        if _original_ensure_dispatch is not None:
+            win32com.client.gencache.EnsureDispatch = debug_ensure_dispatch
+        subprocess.run = debug_run
+        subprocess.Popen = debug_popen
+
+    start_time = time.time()
+    # DOC_DEBUG_END
+
     try:
-        exec_fn(ambiente_cockpit, **kwargs)
-    except TypeError:
-        exec_fn(ambiente_cockpit)
+        try:
+            exec_fn(ambiente_cockpit, **kwargs)
+        except TypeError:
+            exec_fn(ambiente_cockpit)
+    finally:
+        # DOC_DEBUG_START
+        if debug_enabled:
+            win32com.client.DispatchEx = _original_dispatch_ex
+            win32com.client.Dispatch = _original_dispatch
+            if _original_ensure_dispatch is not None:
+                win32com.client.gencache.EnsureDispatch = _original_ensure_dispatch
+            subprocess.run = _original_run
+            subprocess.Popen = _original_popen
+
+            search_dirs = set()
+            excel_path = (payload or {}).get("caminho_ficheiro") or kwargs.get("caminho_ficheiro") or ""
+            if excel_path and os.path.exists(excel_path):
+                if os.path.isfile(excel_path):
+                    search_dirs.add(os.path.dirname(os.path.abspath(excel_path)))
+                else:
+                    search_dirs.add(os.path.abspath(excel_path))
+            
+            search_dirs.add(os.path.abspath(caminho_pasta))
+            
+            proj_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR")
+            if proj_dir:
+                search_dirs.add(os.path.abspath(proj_dir))
+            
+            search_dirs.add(os.path.abspath(os.getcwd()))
+            
+            for sub in ["sap_script_uploads", "cache", "documentacao", "output", "outputs"]:
+                search_dirs.add(os.path.abspath(os.path.join(os.getcwd(), sub)))
+                if proj_dir:
+                    search_dirs.add(os.path.abspath(os.path.join(proj_dir, sub)))
+
+            found_files = []
+            for d in search_dirs:
+                if not os.path.exists(d):
+                    continue
+                try:
+                    for root, subdirs, files in os.walk(d):
+                        rel_path = os.path.relpath(root, d)
+                        if rel_path != "." and len(rel_path.split(os.sep)) > 2:
+                            continue
+                        for file in files:
+                            filepath = os.path.join(root, file)
+                            try:
+                                mtime = os.path.getmtime(filepath)
+                                lower_name = file.lower()
+                                is_match = False
+                                if filepath.lower().endswith(".docx") and mtime >= (start_time - 2):
+                                    is_match = True
+                                elif "documentacao_funcional" in lower_name or "pfcg_create" in lower_name:
+                                    is_match = True
+                                
+                                if is_match:
+                                    found_files.append((filepath, os.path.getsize(filepath), mtime))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+            unique_found = {}
+            for filepath, size, mtime in found_files:
+                abs_p = os.path.abspath(filepath)
+                if abs_p not in unique_found:
+                    unique_found[abs_p] = (size, mtime)
+
+            for abs_p, (size, mtime) in unique_found.items():
+                print("[DOC_DEBUG] DOCX ou ficheiro relevante encontrado:")
+                print(f"Path: {abs_p}")
+                print(f"Size: {size} bytes")
+                print(f"Modified: {datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')}")
+        # DOC_DEBUG_END
 
     return read_sbar_status(session)
 
