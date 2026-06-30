@@ -373,6 +373,7 @@ def encontrar_sessao_se16h_reutilizavel(application, system_name=None) -> Option
         trans = s["transaction"]
         title = s["title"].upper()
         
+        # Critério: Estar na transação SE16H ou com E070 já carregada
         if trans == "SE16H" or "SE16H" in title or "E070" in title:
             return sess
             
@@ -553,6 +554,45 @@ def abrir_se16h(session, use_new_mode: bool = True, perf: Optional[PerfTracker] 
 # 7. FILTROS E CONFIGURAÇÃO DA CONSULTA
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _wait_for_table_input_field(session, timeout_s=5, perf: Optional[PerfTracker] = None) -> Optional[str]:
+    candidates = [
+        "wnd[0]/usr/ctxtGD-TAB",
+        "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
+        "wnd[0]/usr/ctxtTABNAME",
+    ]
+    t0 = time.time()
+    while time.time() - t0 <= timeout_s:
+        for cid in candidates:
+            try:
+                element = session.findById(cid)
+                if element is not None:
+                    return cid
+            except Exception:
+                pass
+        time.sleep(0.1)
+    return None
+
+def _find_table_control(session) -> Any:
+    try:
+        root = session.findById("wnd[0]/usr")
+    except Exception:
+        return None
+    stack = [root]
+    while stack:
+        obj = stack.pop()
+        try:
+            if obj.Name == "SAPLSE16NSELFIELDS_TC" or obj.Id.endswith("tblSAPLSE16NSELFIELDS_TC"):
+                return obj
+        except Exception:
+            pass
+        try:
+            cnt = obj.Children.Count
+            for i in range(cnt):
+                stack.append(obj.Children(i))
+        except Exception:
+            pass
+    return None
+
 def _wait_for_table_control(session, timeout_s=8, perf: Optional[PerfTracker] = None) -> Any:
     t0 = time.time()
     while time.time() - t0 <= timeout_s:
@@ -561,6 +601,48 @@ def _wait_for_table_control(session, timeout_s=8, perf: Optional[PerfTracker] = 
             return tbl
         time.sleep(0.1)
     return None
+
+def _set_low_value(session, tbl_id, prefix_path, col_idx, row_idx, value) -> bool:
+    target_id = f"{tbl_id}/{prefix_path}[{col_idx},{row_idx}]"
+    return _try_set_text(session, target_id, value)
+
+def _detect_columns(tbl) -> dict[str, Any]:
+    col_info = {
+        "technical_name_col": 13,
+        "technical_name_prefix": "txtGS_SELFIELDS-FIELDNAME",
+        "low_col": 2,
+        "low_prefix": "ctxtGS_SELFIELDS-LOW",
+        "option_col": 4,
+        "option_prefix": "txtGS_SELFIELDS-OPTION"
+    }
+    try:
+        for i in range(tbl.Children.Count):
+            child = tbl.Children(i)
+            id_str = child.Id
+            if "[" in id_str and "]" in id_str:
+                bracket_part = id_str.rsplit("[", 1)[-1].split("]")[0]
+                parts = bracket_part.split(",")
+                if len(parts) == 2:
+                    col_idx = int(parts[0])
+                    row_idx = int(parts[1])
+                    if row_idx == 0:
+                        prefix_path = id_str.rsplit("[", 1)[0]
+                        prefix = prefix_path.split("/")[-1]
+                        name = child.Name.upper()
+                        
+                        if name.endswith("-LOW") or name == "GS_SELFIELDS-LOW":
+                            col_info["low_col"] = col_idx
+                            col_info["low_prefix"] = prefix
+                        elif name.endswith("-OPTION") or name == "GS_SELFIELDS-OPTION" or name == "OPTION":
+                            col_info["option_col"] = col_idx
+                            col_info["option_prefix"] = prefix
+                        elif "FIELDNAME" in name:
+                            if col_idx > 10:
+                                col_info["technical_name_col"] = col_idx
+                                col_info["technical_name_prefix"] = prefix
+    except Exception:
+        pass
+    return col_info
 
 def configurar_consulta_e070(session, user: str, max_rows: str, perf: Optional[PerfTracker] = None) -> FilterApplyResult:
     # 1. Definir E070
@@ -646,6 +728,51 @@ def configurar_consulta_e070(session, user: str, max_rows: str, perf: Optional[P
         visible_rows=visible_rows
     )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 7.5. COMPATIBILIDADE - MÉTODOS HISTÓRICOS AUXILIARES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _set_table_e070(session) -> bool:
+    cid = _wait_for_table_input_field(session, 5)
+    if cid:
+        if _try_set_text(session, cid, "E070"):
+            try:
+                session.findById("wnd[0]").sendVKey(0)
+            except Exception:
+                pass
+            _wait_not_busy(session, 10)
+            time.sleep(0.2)
+            return True
+    return False
+
+def _set_max_ocorrencias(session, max_rows="5000") -> bool:
+    candidates = [
+        "wnd[0]/usr/txtMAX_SEL",
+        "wnd[0]/usr/txtGD-MAXROWS",
+        "wnd[0]/usr/txtMAX_HITS",
+    ]
+    for cid in candidates:
+        if _try_set_text(session, cid, str(max_rows)):
+            return True
+    return False
+
+def _aplicar_filtros_base(session, user) -> bool:
+    tbl = _wait_for_table_control(session, 8)
+    if not tbl:
+        return False
+    res = configurar_consulta_e070(session, user, "5000")
+    return res.ok
+
+def _press_execute(session) -> bool:
+    return executar_consulta_f8(session)
+
+def _find_best_grid(session) -> Any:
+    return localizar_alv_grid(session)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. LOCALIZAÇÃO E LEITURA DE ALV
+# ─────────────────────────────────────────────────────────────────────────────
+
 def executar_consulta_f8(session, perf: Optional[PerfTracker] = None) -> bool:
     try:
         session.findById("wnd[0]/tbar[1]/btn[8]").press()
@@ -655,10 +782,6 @@ def executar_consulta_f8(session, perf: Optional[PerfTracker] = None) -> bool:
     except Exception as e:
         print(f"❌ Falha ao executar (F8) no SE16H: {e}")
         return False
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 8. LOCALIZAÇÃO E LEITURA DE ALV
-# ─────────────────────────────────────────────────────────────────────────────
 
 def localizar_alv_grid(session, perf: Optional[PerfTracker] = None) -> Any:
     comuns = [

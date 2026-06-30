@@ -143,44 +143,55 @@ class FunctionalDocSession:
             sel.Font.Size = 11
             sel.Font.Bold = False
             
-            # Secção 2: Dados da execução
+            # Secção 1: Dados da execução
             sel.Font.Size = 13
             sel.Font.Bold = True
-            sel.TypeText("2. Dados da execução")
+            sel.TypeText("1. Dados da execução")
             sel.TypeParagraph()
             sel.Font.Size = 11
             sel.Font.Bold = False
             
+            # Obter data no formato YYYY-MM-DD
+            data_exec = "-"
+            data_inicio_raw = self.metadata.get("data_inicio", "")
+            if data_inicio_raw:
+                data_inicio_str = str(data_inicio_raw).strip()
+                if len(data_inicio_str) >= 10 and data_inicio_str[4] == "-" and data_inicio_str[7] == "-":
+                    data_exec = data_inicio_str[:10]
+                else:
+                    data_exec = data_inicio_str
+            else:
+                data_exec = datetime.now().strftime("%Y-%m-%d")
+
             meta_keys = [
-                ("Processo executado", self.processo),
                 ("Transação SAP utilizada", self.transacao),
-                ("Ambiente", self.metadata.get("ambiente", "")),
                 ("Sistema", self.metadata.get("sistema", "")),
                 ("Cliente", self.metadata.get("cliente", "")),
                 ("Utilizador SAP", self.metadata.get("utilizador_sap", "")),
-                ("Data/hora de início", self.metadata.get("data_inicio", "")),
-                ("Data/hora de fim", self.metadata.get("data_fim", "")),
+                ("Data", data_exec),
                 ("Total de roles processadas", str(self.metadata.get("total_roles", "0"))),
-                ("Ficheiro Excel utilizado", self.metadata.get("excel_utilizado", "")),
                 ("Pasta de documentação solicitada", self.nome_pasta)
             ]
             
             table_meta = doc.Tables.Add(Range=sel.Range, NumRows=len(meta_keys), NumColumns=2)
             table_meta.Borders.Enable = True
             for idx, (k, v) in enumerate(meta_keys, start=1):
+                val_str = str(v).strip() if v is not None else ""
+                if not val_str:
+                    val_str = "-"
                 table_meta.Cell(idx, 1).Range.Text = k
                 table_meta.Cell(idx, 1).Range.Font.Bold = True
-                table_meta.Cell(idx, 2).Range.Text = str(v or "")
+                table_meta.Cell(idx, 2).Range.Text = val_str
                 
             # Mover seleção para baixo da tabela
             sel.Start = doc.Content.End
             sel.TypeParagraph()
             sel.TypeParagraph()
             
-            # Secção 3: Objetivo da execução
+            # Secção 2: Objetivo da execução
             sel.Font.Size = 13
             sel.Font.Bold = True
-            sel.TypeText("3. Objetivo da execução")
+            sel.TypeText("2. Objetivo da execução")
             sel.TypeParagraph()
             sel.Font.Size = 11
             sel.Font.Bold = False
@@ -191,10 +202,10 @@ class FunctionalDocSession:
             sel.TypeParagraph()
             sel.TypeParagraph()
             
-            # Secção 4: Resumo das roles processadas
+            # Secção 3: Resumo das roles processadas
             sel.Font.Size = 13
             sel.Font.Bold = True
-            sel.TypeText("4. Resumo das roles processadas")
+            sel.TypeText("3. Resumo das roles processadas")
             sel.TypeParagraph()
             sel.Font.Size = 11
             sel.Font.Bold = False
@@ -221,10 +232,10 @@ class FunctionalDocSession:
             sel.TypeParagraph()
             sel.TypeParagraph()
             
-            # Secção 5: Evidências por role
+            # Secção 4: Evidências por role
             sel.Font.Size = 13
             sel.Font.Bold = True
-            sel.TypeText("5. Evidências por role")
+            sel.TypeText("4. Evidências por role")
             sel.TypeParagraph()
             sel.Font.Size = 11
             sel.Font.Bold = False
@@ -236,7 +247,7 @@ class FunctionalDocSession:
                 if r["resultado"] == "Concluída" and role_name in self.evidences and self.evidences[role_name]:
                     sel.Font.Size = 12
                     sel.Font.Bold = True
-                    sel.TypeText(f"5.{sub_idx} Role {role_name}")
+                    sel.TypeText(f"4.{sub_idx} Role {role_name}")
                     sel.TypeParagraph()
                     sel.Font.Size = 11
                     sel.Font.Bold = False

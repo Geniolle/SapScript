@@ -1050,6 +1050,13 @@ def _dismiss_popup_if_any(session) -> None:
     except Exception:
         return
 
+    for rad_id in ("wnd[1]/usr/radMULTI_LOGON_OPT2", "wnd[1]/usr/radMULTI_LOGON_OPT3"):
+        try:
+            session.findById(rad_id).select()
+            break
+        except Exception:
+            pass
+
     for btn in ("wnd[1]/tbar[0]/btn[0]", "wnd[1]/tbar[0]/btn[11]", "wnd[1]/tbar[0]/btn[12]"):
         try:
             session.findById(btn).press()
