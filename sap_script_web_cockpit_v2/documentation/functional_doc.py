@@ -8,11 +8,12 @@ from datetime import datetime
 from pathlib import Path
 
 class FunctionalDocSession:
-    def __init__(self, nome_pasta: str | None, processo: str = "PFCG_CREATE", transacao: str = "PFCG"):
+    def __init__(self, nome_pasta: str | None, processo: str = "PFCG_CREATE", transacao: str = "PFCG", config: dict | None = None):
         self.nome_pasta = str(nome_pasta or "").strip()
         self.enabled = bool(self.nome_pasta)
         self.processo = processo
         self.transacao = transacao
+        self.config = config or {}
         
         self.base_dir = os.getenv("WORKFLOW_DOC_OUTPUT_DIR", "C:\\Jira")
         if self.enabled:
@@ -52,24 +53,30 @@ class FunctionalDocSession:
         except Exception as e:
             print(f"[DOC_WARN] Não foi possível criar pasta de documentação: {e}")
 
-    def add_role_summary(self, role_name: str, description: str, tcode_count: int, result: str, duration: str):
+    def add_item_summary(self, item_name: str, description: str, quantity: int, result: str, duration: str):
         if not self.enabled:
             return
         self.roles_summary.append({
             "ordem": len(self.roles_summary) + 1,
-            "role": role_name,
+            "role": item_name,
             "descricao": description,
-            "tcodes": tcode_count,
+            "tcodes": quantity,
             "resultado": result,
             "tempo": duration
         })
         self._role_summary_count += 1
 
-    def start_role_section(self, role_name: str, description: str, tcode_count: int):
+    def add_role_summary(self, role_name: str, description: str, tcode_count: int, result: str, duration: str):
+        self.add_item_summary(role_name, description, tcode_count, result, duration)
+
+    def start_item_section(self, item_name: str, description: str, quantity: int):
         if not self.enabled:
             return
-        if role_name not in self.evidences:
-            self.evidences[role_name] = []
+        if item_name not in self.evidences:
+            self.evidences[item_name] = []
+
+    def start_role_section(self, role_name: str, description: str, tcode_count: int):
+        self.start_item_section(role_name, description, tcode_count)
 
     def add_evidence(self, role_name: str, title: str, caption: str, screenshot_path: str):
         if not self.enabled:
@@ -116,6 +123,98 @@ class FunctionalDocSession:
         except Exception as e:
             print(f"[DOC_WARN] Erro no safe_save: {e}")
 
+    def _get_template_path(self) -> Path | None:
+        env_path = os.getenv("FUNCTIONAL_DOC_TEMPLATE_PATH")
+        if env_path:
+            p = Path(env_path)
+            if p.exists():
+                return p
+        default_p = Path(__file__).parent / "templates" / "functional_template.docx"
+        if default_p.exists():
+            return default_p
+        return None
+
+    def _open_word_document(self, app, doc_path: Path):
+        return app.Documents.Open(str(doc_path))
+
+    def _find_placeholder_range(self, doc, placeholder: str):
+        find_range = doc.Content
+        find_range.Find.ClearFormatting()
+        found = find_range.Find.Execute(FindText=placeholder)
+        if found:
+            return find_range
+        return None
+
+    def _write_heading(self, sel, text: str, level: int):
+        if level == 1:
+            sel.Font.Size = 12
+            sel.Font.Bold = True
+            sel.Font.Italic = False
+        elif level == 2:
+            sel.Font.Size = 12
+            sel.Font.Bold = True
+            sel.Font.Italic = False
+        else:
+            sel.Font.Size = 11
+            sel.Font.Bold = True
+            sel.Font.Italic = True
+        sel.TypeText(text)
+        sel.TypeParagraph()
+
+    def _write_paragraph(self, sel, text: str):
+        sel.Font.Size = 11
+        sel.Font.Bold = False
+        sel.Font.Italic = False
+        sel.TypeText(text)
+        sel.TypeParagraph()
+
+    def _write_table(self, doc, sel, rows: list[list[str] | tuple[str, ...]], is_kv: bool = False):
+        if not rows:
+            return
+        num_rows = len(rows)
+        num_cols = len(rows[0])
+        table = doc.Tables.Add(Range=sel.Range, NumRows=num_rows, NumColumns=num_cols)
+        table.Borders.Enable = True
+        
+        for r_idx, row in enumerate(rows, start=1):
+            for c_idx, val in enumerate(row, start=1):
+                cell = table.Cell(r_idx, c_idx)
+                cell.Range.Text = str(val or "")
+                
+                # Configurar fonte do conteúdo da tabela
+                cell.Range.Font.Name = "Arial"
+                cell.Range.Font.Size = 12
+                
+                if is_kv and c_idx == 1:
+                    cell.Range.Font.Bold = True
+                elif not is_kv and r_idx == 1:
+                    cell.Range.Font.Bold = True
+                    
+        sel.Start = doc.Content.End
+
+    def _write_bullets(self, sel, items: list[str]):
+        for item in items:
+            sel.Font.Size = 11
+            sel.Font.Bold = False
+            sel.Font.Italic = False
+            sel.TypeText(f"• {item}")
+            sel.TypeParagraph()
+
+    def _insert_image(self, sel, image_path: str):
+        img_path = Path(image_path)
+        if img_path.exists():
+            try:
+                sel.InlineShapes.AddPicture(
+                    FileName=str(img_path.resolve()),
+                    LinkToFile=False,
+                    SaveWithDocument=True
+                )
+                sel.TypeParagraph()
+            except Exception as e:
+                self._write_paragraph(sel, f"[Erro ao inserir imagem: {e}]")
+        else:
+            self._write_paragraph(sel, "[Imagem de evidência não disponível]")
+
     def _generate_word_doc(self, doc_path: Path):
         import pythoncom
         import win32com.client
@@ -126,51 +225,36 @@ class FunctionalDocSession:
         try:
             app = win32com.client.DispatchEx("Word.Application")
             app.Visible = False
-            doc = app.Documents.Add()
+            
+            # 1. Obter template
+            template_path = self._get_template_path()
+            if template_path:
+                print(f"[DOC] Template encontrado: {template_path}. A utilizar...")
+                doc = self._open_word_document(app, template_path)
+            else:
+                print("[DOC] Nenhum template encontrado. A gerar documento em branco com fallback...")
+                doc = app.Documents.Add()
+                
             sel = app.Selection
             
-            # Helpers de formatação
-            def _h1(text):
-                sel.Font.Size = 14
-                sel.Font.Bold = True
-                sel.Font.Italic = False
-                sel.TypeText(text)
-                sel.TypeParagraph()
+            # 2. Localizar placeholder {{FUNCTIONAL_DOC_CONTENT}} se existir
+            if template_path:
+                p_range = self._find_placeholder_range(doc, "{{FUNCTIONAL_DOC_CONTENT}}")
+                if p_range:
+                    sel.Start = p_range.Start
+                    sel.End = p_range.End
+                    sel.Text = ""
+                else:
+                    sel.Start = doc.Content.End
+            else:
+                sel.Start = doc.Content.End
                 
-            def _h2(text):
-                sel.Font.Size = 12
-                sel.Font.Bold = True
-                sel.Font.Italic = False
-                sel.TypeText(text)
-                sel.TypeParagraph()
-                
-            def _h3(text):
-                sel.Font.Size = 11
-                sel.Font.Bold = True
-                sel.Font.Italic = True
-                sel.TypeText(text)
-                sel.TypeParagraph()
-
-            def _p(text):
-                sel.Font.Size = 11
-                sel.Font.Bold = False
-                sel.Font.Italic = False
-                sel.TypeText(text)
-                sel.TypeParagraph()
-
-            def _bullet(text):
-                sel.Font.Size = 11
-                sel.Font.Bold = False
-                sel.Font.Italic = False
-                sel.TypeText(f"• {text}")
-                sel.TypeParagraph()
-
+            # Restaura alinhamento à esquerda
+            sel.ParagraphFormat.Alignment = 0
+            
             def _br():
                 sel.TypeParagraph()
-
-            def _page_break():
-                sel.InsertBreak(7)
-
+                
             # Obter data no formato YYYY-MM-DD
             data_exec = "-"
             data_inicio_raw = self.metadata.get("data_inicio", "")
@@ -184,48 +268,50 @@ class FunctionalDocSession:
                 data_exec = datetime.now().strftime("%Y-%m-%d")
 
             # -------------------------------------------------------------
-            # 1. Capa
+            # Se for documento novo (sem template), criar Capa
             # -------------------------------------------------------------
-            sel.ParagraphFormat.Alignment = 1  # Center
-            _br()
-            _br()
-            _br()
-            sel.Font.Size = 24
-            sel.Font.Bold = True
-            sel.Font.Name = "Arial"
-            sel.TypeText("Análise Técnica/Funcional")
-            sel.TypeParagraph()
-            _br()
-            
-            sel.Font.Size = 18
-            sel.TypeText(self.processo)
-            sel.TypeParagraph()
-            _br()
-            
-            sel.Font.Size = 12
-            sel.Font.Bold = False
-            sel.Font.Italic = True
-            sel.TypeText("Criação/Atualização de Roles e Perfis de Autorização")
-            sel.TypeParagraph()
-            _br()
-            _br()
-            _br()
-            _br()
-            
-            sel.Font.Size = 11
-            sel.Font.Italic = False
-            sel.TypeText(f"Data: {data_exec}")
-            sel.TypeParagraph()
-            sel.TypeText("Versão: 1.0")
-            sel.TypeParagraph()
-            
-            _page_break()
-            sel.ParagraphFormat.Alignment = 0  # Left
+            if not template_path:
+                sel.ParagraphFormat.Alignment = 1  # Center
+                _br()
+                _br()
+                _br()
+                sel.Font.Size = 24
+                sel.Font.Bold = True
+                sel.Font.Name = "Arial"
+                sel.TypeText("Análise Técnica/Funcional")
+                sel.TypeParagraph()
+                _br()
+                
+                sel.Font.Size = 18
+                sel.TypeText(self.processo)
+                sel.TypeParagraph()
+                _br()
+                
+                sel.Font.Size = 12
+                sel.Font.Bold = False
+                sel.Font.Italic = True
+                desc = self.config.get("titulo", "Criação/Atualização de Roles e Perfis de Autorização")
+                sel.TypeText(desc)
+                sel.TypeParagraph()
+                _br()
+                _br()
+                _br()
+                _br()
+                
+                sel.Font.Size = 11
+                sel.Font.Italic = False
+                sel.TypeText(f"Data: {data_exec}")
+                sel.TypeParagraph()
+                sel.TypeText("Versão: 1.0")
+                sel.TypeParagraph()
+                
+                sel.InsertBreak(7)  # Page Break
+                sel.ParagraphFormat.Alignment = 0  # Left
 
             # -------------------------------------------------------------
-            # 2. Informação Geral
+            # 1. Informação Geral
             # -------------------------------------------------------------
-            _h1("1. Informação Geral")
+            self._write_heading(sel, "1. Informação Geral", 1)
             _br()
             
             meta_keys = [
@@ -235,28 +321,17 @@ class FunctionalDocSession:
                 ("Cliente", self.metadata.get("cliente", "")),
                 ("Utilizador SAP", self.metadata.get("utilizador_sap", "")),
                 ("Data", data_exec),
-                ("Total de roles processadas", str(self.metadata.get("total_roles", "0"))),
+                ("Total de itens/roles processados", str(self.metadata.get("total_roles", "0"))),
                 ("Pasta de documentação solicitada", self.nome_pasta)
             ]
-            
-            table_meta = doc.Tables.Add(Range=sel.Range, NumRows=len(meta_keys), NumColumns=2)
-            table_meta.Borders.Enable = True
-            for idx, (k, v) in enumerate(meta_keys, start=1):
-                val_str = str(v).strip() if v is not None else ""
-                if not val_str:
-                    val_str = "-"
-                table_meta.Cell(idx, 1).Range.Text = k
-                table_meta.Cell(idx, 1).Range.Font.Bold = True
-                table_meta.Cell(idx, 2).Range.Text = val_str
-                
-            sel.Start = doc.Content.End
+            self._write_table(doc, sel, meta_keys, is_kv=True)
             _br()
             _br()
 
             # -------------------------------------------------------------
-            # 3. Histórico de Versões
+            # 2. Histórico de Versões
             # -------------------------------------------------------------
-            _h1("2. Histórico de Versões")
+            self._write_heading(sel, "2. Histórico de Versões", 1)
             _br()
             
             version_headers = ["Versão", "Data", "Autor", "Modificação"]
@@ -266,164 +341,118 @@ class FunctionalDocSession:
                 str(self.metadata.get("utilizador_sap") or "Sistema").strip(),
                 f"Documento inicial gerado automaticamente para evidência funcional da execução {self.processo}"
             ]
-            
-            table_version = doc.Tables.Add(Range=sel.Range, NumRows=2, NumColumns=len(version_headers))
-            table_version.Borders.Enable = True
-            
-            for col_idx, h in enumerate(version_headers, start=1):
-                cell = table_version.Cell(1, col_idx)
-                cell.Range.Text = h
-                cell.Range.Font.Bold = True
-                
-            for col_idx, val in enumerate(version_row, start=1):
-                table_version.Cell(2, col_idx).Range.Text = val
-                
-            sel.Start = doc.Content.End
+            self._write_table(doc, sel, [version_headers, version_row])
             _br()
             _br()
 
             # -------------------------------------------------------------
-            # 4. Índice
+            # 3. Índice
             # -------------------------------------------------------------
-            _h1("3. Índice")
+            self._write_heading(sel, "3. Índice", 1)
             _br()
-            _p("1. Informação Geral")
-            _p("2. Histórico de Versões")
-            _p("3. Índice")
-            _p("4. Pedido de Alteração")
-            _p("   4.1 Requisitos")
-            _p("       4.1.1 Requisitos de Qualidade")
-            _p("       4.1.2 Requester / Unidade de Negócios / Owner")
-            _p("       4.1.3 Requisitos do Cliente")
-            _p("5. Módulos e processos afetados")
-            _p("   5.1 Módulos afetados")
-            _p("   5.2 Processos afetados")
-            _p("6. Análise de Viabilidade")
-            _p("   6.1 Criação/Atualização de Roles PFCG")
-            _p("       6.1.1 Solução Proposta")
-            _p("7. Configuração / Execução")
-            _p("8. Especificação Funcional")
-            _p("   8.1 Objetivo")
-            _p("   8.2 Transação Envolvida")
-            _p("   8.3 Modo de Processamento")
-            _p("   8.4 Estrutura de Entrada")
-            _p("   8.5 Regras de Processamento")
-            _p("9. Resumo das roles processadas")
-            _p("10. Evidências por role")
-            _p("11. Testes Unitários")
-            _p("12. Anexos")
-            
-            sel.Start = doc.Content.End
+            self._write_paragraph(sel, "1. Pedido de Alteração")
+            self._write_paragraph(sel, "2. Módulos e processos afetados")
+            self._write_paragraph(sel, "3. Análise de Viabilidade")
+            self._write_paragraph(sel, "4. Especificação Funcional")
+            self._write_paragraph(sel, "5. Resumo dos itens processados")
+            self._write_paragraph(sel, "6. Evidências")
+            self._write_paragraph(sel, "7. Testes Unitários")
+            self._write_paragraph(sel, "8. Anexos")
             _br()
             _br()
 
             # -------------------------------------------------------------
-            # 5. Pedido de Alteração
+            # 4. Pedido de Alteração
             # -------------------------------------------------------------
-            _h1("4. Pedido de Alteração")
+            self._write_heading(sel, "4. Pedido de Alteração", 1)
             _br()
-            _p(
-                "Este documento tem como objetivo registar a análise funcional e as evidências da execução "
-                f"do processo de criação/atualização de roles SAP através da transação {self.transacao}."
+            self._write_paragraph(
+                sel,
+                f"Este documento tem como objetivo registar a análise funcional e as evidências da execução "
+                f"do processo {self.processo}, realizado através da transação {self.transacao}."
             )
             _br()
             
-            _h2("4.1 Requisitos")
+            self._write_heading(sel, "4.1 Requisitos", 2)
             _br()
-            _h3("4.1.1 Requisitos de Qualidade")
+            self._write_heading(sel, "4.1.1 Requisitos de Qualidade", 3)
             _br()
-            _p(
-                f"Os requisitos processados são coerentes com o fluxo standard da transação {self.transacao}, permitindo a "
-                "criação ou atualização de roles, atribuição de transações, geração de perfis de autorização "
-                "e respetiva rastreabilidade por evidência."
+            self._write_paragraph(
+                sel,
+                "Os requisitos processados são coerentes com o fluxo standard do sistema SAP, permitindo "
+                "rastreabilidade, validação funcional e evidência documental da execução."
             )
             _br()
             
-            _h3("4.1.2 Requester / Unidade de Negócios / Owner")
+            self._write_heading(sel, "4.1.2 Requester / Unidade de Negócios / Owner", 3)
             _br()
-            
             req_keys = [
                 ("Requester", "-"),
                 ("Unidade de Negócios", "-"),
                 ("Owner", "-")
             ]
-            table_req = doc.Tables.Add(Range=sel.Range, NumRows=len(req_keys), NumColumns=2)
-            table_req.Borders.Enable = True
-            for idx, (k, v) in enumerate(req_keys, start=1):
-                table_req.Cell(idx, 1).Range.Text = k
-                table_req.Cell(idx, 1).Range.Font.Bold = True
-                table_req.Cell(idx, 2).Range.Text = v
-                
-            sel.Start = doc.Content.End
+            self._write_table(doc, sel, req_keys, is_kv=True)
             _br()
             _br()
             
-            _h3("4.1.3 Requisitos do Cliente")
+            self._write_heading(sel, "4.1.3 Requisitos do Cliente", 3)
             _br()
-            
             client_req_headers = ["ID", "Descrição", "Prioridade"]
             client_req_row = [
                 "R1",
-                f"Criar ou atualizar roles SAP, atribuir transações e gerar perfis de autorização através da transação {self.transacao}.",
+                f"Executar o processo {self.processo} através da transação {self.transacao}, registando evidências funcionais da execução.",
                 "MÉDIA"
             ]
-            table_client_req = doc.Tables.Add(Range=sel.Range, NumRows=2, NumColumns=len(client_req_headers))
-            table_client_req.Borders.Enable = True
-            for col_idx, h in enumerate(client_req_headers, start=1):
-                cell = table_client_req.Cell(1, col_idx)
-                cell.Range.Text = h
-                cell.Range.Font.Bold = True
-            for col_idx, val in enumerate(client_req_row, start=1):
-                table_client_req.Cell(2, col_idx).Range.Text = val
-                
-            sel.Start = doc.Content.End
+            self._write_table(doc, sel, [client_req_headers, client_req_row])
             _br()
             _br()
 
             # -------------------------------------------------------------
-            # 6. Módulos e processos afetados
+            # 5. Módulos e processos afetados
             # -------------------------------------------------------------
-            _h1("5. Módulos e processos afetados")
+            self._write_heading(sel, "5. Módulos e processos afetados", 1)
             _br()
-            _h2("5.1 Módulos afetados")
+            self._write_heading(sel, "5.1 Módulos afetados", 2)
             _br()
-            _bullet("SAP Basis / Segurança / Autorizações")
-            _br()
-            _h2("5.2 Processos afetados")
-            _br()
-            _bullet("Gestão de roles e perfis de autorização")
-            _bullet("Atribuição de transações a roles")
-            _bullet("Geração de perfis de autorização")
-            _br()
-
-            # -------------------------------------------------------------
-            # 7. Análise de Viabilidade
-            # -------------------------------------------------------------
-            _h1("6. Análise de Viabilidade")
-            _br()
-            _h2(f"6.1 Criação/Atualização de Roles {self.transacao}")
-            _br()
-            _p(f"De seguida apresenta-se o detalhe da solução proposta e executada para o processo {self.processo}.")
-            _br()
-            _h3("6.1.1 Solução Proposta")
-            _br()
-            _p(
-                "A solução consiste em processar automaticamente as roles informadas no ficheiro de entrada, "
-                f"validar as transações associadas, aceder à transação {self.transacao}, criar ou atualizar a role, atribuir "
-                "as transações na aba Menu, gravar as alterações e gerar o perfil de autorização."
-            )
-            _br()
-
-            # -------------------------------------------------------------
-            # 8. Configuração / Execução
-            # -------------------------------------------------------------
-            _h1("7. Configuração / Execução")
+            modulos = self.config.get("modulos_afetados")
+            if not modulos:
+                modulos = ["SAP"]
+            self._write_bullets(sel, modulos)
             _br()
             
+            self._write_heading(sel, "5.2 Processos afetados", 2)
+            _br()
+            processos_afetados = self.config.get("processos_afetados")
+            if not processos_afetados:
+                processos_afetados = ["Processo funcional executado via SAP Script"]
+            self._write_bullets(sel, processos_afetados)
+            _br()
+
+            # -------------------------------------------------------------
+            # 6. Análise de Viabilidade
+            # -------------------------------------------------------------
+            self._write_heading(sel, "6. Análise de Viabilidade", 1)
+            _br()
+            self._write_heading(sel, f"Execução do processo {self.processo}", 2)
+            _br()
+            self._write_paragraph(sel, f"De seguida apresenta-se o detalhe da solução proposta e executada para o processo {self.processo}.")
+            _br()
+            self._write_heading(sel, "6.1.1 Solução Proposta", 3)
+            _br()
+            sol_prop = self.config.get("solucao_proposta")
+            if not sol_prop:
+                sol_prop = "A solução consiste em processar automaticamente os dados informados, executar a transação SAP correspondente, registar o resultado da execução e anexar evidências funcionais no documento."
+            self._write_paragraph(sel, sol_prop)
+            _br()
+
+            # -------------------------------------------------------------
+            # 7. Configuração / Execução
+            # -------------------------------------------------------------
+            self._write_heading(sel, "7. Configuração / Execução", 1)
+            _br()
             ot_value = str(self.metadata.get("request_transporte") or "").strip()
             if not ot_value:
                 ot_value = "-"
-                
             config_rows = [
                 ("Transação", self.transacao),
                 ("Sistema", self.metadata.get("sistema", "")),
@@ -432,156 +461,138 @@ class FunctionalDocSession:
                 ("Total de roles processadas", str(self.metadata.get("total_roles", "0"))),
                 ("Pasta de documentação", self.nome_pasta)
             ]
-            
-            table_config = doc.Tables.Add(Range=sel.Range, NumRows=len(config_rows), NumColumns=2)
-            table_config.Borders.Enable = True
-            for idx, (k, v) in enumerate(config_rows, start=1):
-                val_str = str(v).strip() if v is not None else ""
-                if not val_str:
-                    val_str = "-"
-                table_config.Cell(idx, 1).Range.Text = k
-                table_config.Cell(idx, 1).Range.Font.Bold = True
-                table_config.Cell(idx, 2).Range.Text = val_str
-                
-            sel.Start = doc.Content.End
+            self._write_table(doc, sel, config_rows, is_kv=True)
             _br()
             _br()
 
             # -------------------------------------------------------------
-            # 9. Especificação Funcional
+            # 8. Especificação Funcional
             # -------------------------------------------------------------
-            _h1("8. Especificação Funcional")
+            self._write_heading(sel, "8. Especificação Funcional", 1)
             _br()
-            _h2("8.1 Objetivo")
+            
+            # Objetivo
+            self._write_heading(sel, "8.1 Objetivo", 2)
             _br()
-            _p(
-                f"O processo tem como objetivo realizar a criação ou atualização de roles SAP utilizando a transação "
-                f"{self.transacao}, com atribuição das transações informadas e geração dos respetivos perfis de autorização."
-            )
+            if self.processo == "PFCG_CREATE":
+                obj_txt = "O processo tem como objetivo realizar a criação ou atualização de roles SAP utilizando a transação PFCG, com atribuição das transações informadas e geração dos respetivos perfis de autorização."
+            else:
+                obj_txt = f"Execução automática do processo {self.processo} via SAP Script."
+            self._write_paragraph(sel, obj_txt)
             _br()
-            _h2("8.2 Transação Envolvida")
+            
+            # Transação Envolvida
+            self._write_heading(sel, "8.2 Transação Envolvida", 2)
             _br()
-            _bullet(f"{self.transacao} - Manutenção de roles")
+            self._write_bullets(sel, [f"{self.transacao} - Manutenção de roles" if self.processo == "PFCG_CREATE" else f"{self.transacao}"])
             _br()
-            _h2("8.3 Modo de Processamento")
+            
+            # Modo de Processamento
+            self._write_heading(sel, "8.3 Modo de Processamento", 2)
             _br()
-            _p(
+            self._write_paragraph(
+                sel,
                 "O processamento é realizado de forma assistida/automática através do Web Cockpit SAP Script, utilizando "
                 "como entrada um ficheiro Excel com as roles e transações a processar."
             )
             _br()
-            _h2("8.4 Estrutura de Entrada")
-            _br()
             
+            # Estrutura de Entrada
+            self._write_heading(sel, "8.4 Estrutura de Entrada", 2)
+            _br()
             input_struct_headers = ["Campo", "Tipo", "Descrição"]
-            input_struct_rows = [
-                ("AGR_NAME", "Texto", "Nome da role"),
-                ("TEXT", "Texto", "Descrição da role"),
-                ("TCODE", "Texto", "Transações a atribuir"),
-                ("STATUS", "Texto", "Resultado do processamento"),
-                ("MSG", "Texto", "Mensagem de retorno"),
-                ("TIMESTEMP", "Texto", "Data/hora de atualização do resultado")
+            if self.processo == "PFCG_CREATE":
+                input_struct_rows = [
+                    ("AGR_NAME", "Texto", "Nome da role"),
+                    ("TEXT", "Texto", "Descrição da role"),
+                    ("TCODE", "Texto", "Transações a atribuir"),
+                    ("STATUS", "Texto", "Resultado do processamento"),
+                    ("MSG", "Texto", "Mensagem de retorno"),
+                    ("TIMESTEMP", "Texto", "Data/hora de atualização do resultado")
+                ]
+            else:
+                input_struct_rows = [
+                    ("Campo", "Texto", "Descrição do campo")
+                ]
+            self._write_table(doc, sel, [input_struct_headers] + input_struct_rows)
+            _br()
+            _br()
+            
+            # Regras de Processamento
+            self._write_heading(sel, "8.5 Regras de Processamento", 2)
+            _br()
+            if self.processo == "PFCG_CREATE":
+                regras = [
+                    "Ler o ficheiro Excel informado.",
+                    "Agrupar linhas por AGR_NAME.",
+                    "Ignorar roles já concluídas.",
+                    f"Abrir a transação {self.transacao}.",
+                    "Criar ou atualizar a role.",
+                    "Preencher a descrição.",
+                    "Atribuir as transações na aba Menu.",
+                    "Gravar as alterações.",
+                    "Gerar o perfil de autorização.",
+                    "Atualizar o Excel com STATUS, MSG e TIMESTEMP.",
+                    "Registar evidências no documento funcional."
+                ]
+            else:
+                regras = [
+                    "Carregar dados do processo.",
+                    "Executar as ações na transação SAP.",
+                    "Gravar evidências e atualizar status de retorno."
+                ]
+            self._write_bullets(sel, regras)
+            _br()
+
+            # -------------------------------------------------------------
+            # 9. Resumo dos itens processados
+            # -------------------------------------------------------------
+            self._write_heading(sel, "9. Resumo dos itens processados", 1)
+            _br()
+            
+            headers = ["Ordem", "Item/Role", "Descrição", "Quantidade", "Resultado", "Tempo de execução"]
+            summary_rows = [
+                [
+                    str(r["ordem"]),
+                    r["role"],
+                    r["descricao"],
+                    str(r["tcodes"]),
+                    r["resultado"],
+                    r["tempo"]
+                ] for r in self.roles_summary
             ]
-            
-            table_input_struct = doc.Tables.Add(Range=sel.Range, NumRows=len(input_struct_rows) + 1, NumColumns=3)
-            table_input_struct.Borders.Enable = True
-            
-            for col_idx, h in enumerate(input_struct_headers, start=1):
-                cell = table_input_struct.Cell(1, col_idx)
-                cell.Range.Text = h
-                cell.Range.Font.Bold = True
-                
-            for row_idx, r in enumerate(input_struct_rows, start=2):
-                table_input_struct.Cell(row_idx, 1).Range.Text = r[0]
-                table_input_struct.Cell(row_idx, 2).Range.Text = r[1]
-                table_input_struct.Cell(row_idx, 3).Range.Text = r[2]
-                
-            sel.Start = doc.Content.End
-            _br()
-            _br()
-            
-            _h2("8.5 Regras de Processamento")
-            _br()
-            _bullet("Ler o ficheiro Excel informado.")
-            _bullet("Agrupar linhas por AGR_NAME.")
-            _bullet("Ignorar roles já concluídas.")
-            _bullet(f"Abrir a transação {self.transacao}.")
-            _bullet("Criar ou atualizar a role.")
-            _bullet("Preencher a descrição.")
-            _bullet("Atribuir as transações na aba Menu.")
-            _bullet("Gravar as alterações.")
-            _bullet("Gerar o perfil de autorização.")
-            _bullet("Atualizar o Excel com STATUS, MSG e TIMESTEMP.")
-            _bullet("Registar evidências no documento funcional.")
-            _br()
-
-            # -------------------------------------------------------------
-            # 10. Resumo das roles processadas
-            # -------------------------------------------------------------
-            _h1("9. Resumo das roles processadas")
-            _br()
-            
-            headers = ["Ordem", "Role", "Descrição", "Qtd TCODEs", "Resultado", "Tempo de execução"]
-            num_rows = len(self.roles_summary) + 1
-            table_summary = doc.Tables.Add(Range=sel.Range, NumRows=num_rows, NumColumns=len(headers))
-            table_summary.Borders.Enable = True
-            
-            for col_idx, h in enumerate(headers, start=1):
-                cell = table_summary.Cell(1, col_idx)
-                cell.Range.Text = h
-                cell.Range.Font.Bold = True
-                
-            for row_idx, r in enumerate(self.roles_summary, start=2):
-                table_summary.Cell(row_idx, 1).Range.Text = str(r["ordem"])
-                table_summary.Cell(row_idx, 2).Range.Text = r["role"]
-                table_summary.Cell(row_idx, 3).Range.Text = r["descricao"]
-                table_summary.Cell(row_idx, 4).Range.Text = str(r["tcodes"])
-                table_summary.Cell(row_idx, 5).Range.Text = r["resultado"]
-                table_summary.Cell(row_idx, 6).Range.Text = r["tempo"]
-                
-            sel.Start = doc.Content.End
+            self._write_table(doc, sel, [headers] + summary_rows)
             _br()
             _br()
 
             # -------------------------------------------------------------
-            # 11. Evidências por role
+            # 10. Evidências
             # -------------------------------------------------------------
-            _h1("10. Evidências por role")
+            self._write_heading(sel, "10. Evidências", 1)
             _br()
             
             sub_idx = 1
+            objeto_lbl = self.config.get("objeto_principal", "Role")
             for r in self.roles_summary:
-                role_name = r["role"]
-                if r["resultado"] == "Concluída" and role_name in self.evidences and self.evidences[role_name]:
-                    _h2(f"10.{sub_idx} Role {role_name}")
+                item_name = r["role"]
+                if r["resultado"] == "Concluída" and item_name in self.evidences and self.evidences[item_name]:
+                    self._write_heading(sel, f"10.{sub_idx} {objeto_lbl} {item_name}", 2)
                     _br()
-                    _p(f"• Descrição: {r['descricao']}")
-                    _p(f"• Quantidade de TCODEs atribuídas: {r['tcodes']}")
-                    _p(f"• Resultado: Role tratada por completo")
-                    _p(f"• Tempo de execução: {r['tempo']}")
+                    self._write_paragraph(sel, f"• Descrição: {r['descricao']}")
+                    self._write_paragraph(sel, f"• Quantidade: {r['tcodes']}")
+                    self._write_paragraph(sel, f"• Resultado: {objeto_lbl} tratada por completo")
+                    self._write_paragraph(sel, f"• Tempo de execução: {r['tempo']}")
                     _br()
                     
-                    for ev in self.evidences[role_name]:
+                    for ev in self.evidences[item_name]:
                         sel.Font.Bold = True
-                        _p(ev['title'])
+                        self._write_paragraph(sel, ev['title'])
                         sel.Font.Bold = False
                         
-                        img_path = Path(ev["path"])
-                        if img_path.exists():
-                            try:
-                                sel.InlineShapes.AddPicture(
-                                    FileName=str(img_path.resolve()),
-                                    LinkToFile=False,
-                                    SaveWithDocument=True
-                                )
-                                sel.TypeParagraph()
-                            except Exception as img_exc:
-                                _p(f"[Erro ao inserir imagem: {img_exc}]")
-                        else:
-                            _p("[Imagem de evidência não disponível]")
-                            
+                        self._insert_image(sel, ev["path"])
+                        
                         sel.Font.Italic = True
-                        _p(f"Legenda: {ev['caption']}")
+                        self._write_paragraph(sel, f"Legenda: {ev['caption']}")
                         _br()
                         
                     sub_idx += 1
@@ -590,45 +601,29 @@ class FunctionalDocSession:
             _br()
 
             # -------------------------------------------------------------
-            # 12. Testes Unitários
+            # 11. Testes Unitários
             # -------------------------------------------------------------
-            _h1("11. Testes Unitários")
+            self._write_heading(sel, "11. Testes Unitários", 1)
             _br()
             
             test_headers = ["ID", "Cenário", "Resultado Esperado", "Resultado Obtido", "Estado"]
             test_rows = [
-                ("T1", "Leitura do ficheiro de entrada", "Ficheiro lido com sucesso", "Conforme execução", "OK"),
-                ("T2", "Agrupamento de roles", "Roles agrupadas por AGR_NAME", "Conforme resumo processado", "OK"),
-                ("T3", "Atribuição de transações", "Transações atribuídas na aba Menu", "Conforme evidências", "OK"),
-                ("T4", "Geração do perfil", "Perfil de autorização gerado", "Conforme evidências", "OK"),
-                ("T5", "Atualização do Excel", "STATUS, MSG e TIMESTEMP atualizados", "Conforme execução", "OK")
+                ("T1", "Leitura dos dados de entrada", "Dados lidos com sucesso", "Conforme execução", "OK"),
+                ("T2", "Processamento dos itens", "Itens processados conforme regras funcionais", "Conforme resumo processado", "OK"),
+                ("T3", "Execução da transação SAP", "Transação executada sem erro impeditivo", "Conforme execução", "OK"),
+                ("T4", "Registo de evidências", "Evidências anexadas ao documento", "Conforme documento", "OK"),
+                ("T5", "Atualização dos resultados", "Resultados registados após execução", "Conforme execução", "OK")
             ]
-            
-            table_tests = doc.Tables.Add(Range=sel.Range, NumRows=len(test_rows) + 1, NumColumns=len(test_headers))
-            table_tests.Borders.Enable = True
-            
-            for col_idx, h in enumerate(test_headers, start=1):
-                cell = table_tests.Cell(1, col_idx)
-                cell.Range.Text = h
-                cell.Range.Font.Bold = True
-                
-            for row_idx, r in enumerate(test_rows, start=2):
-                table_tests.Cell(row_idx, 1).Range.Text = r[0]
-                table_tests.Cell(row_idx, 2).Range.Text = r[1]
-                table_tests.Cell(row_idx, 3).Range.Text = r[2]
-                table_tests.Cell(row_idx, 4).Range.Text = r[3]
-                table_tests.Cell(row_idx, 5).Range.Text = r[4]
-                
-            sel.Start = doc.Content.End
+            self._write_table(doc, sel, [test_headers] + test_rows)
             _br()
             _br()
 
             # -------------------------------------------------------------
-            # 13. Anexos
+            # 12. Anexos
             # -------------------------------------------------------------
-            _h1("12. Anexos")
+            self._write_heading(sel, "12. Anexos", 1)
             _br()
-            _p("As evidências capturadas durante a execução encontram-se incorporadas nas respetivas secções de cada role.")
+            self._write_paragraph(sel, "As evidências capturadas durante a execução encontram-se incorporadas nas respetivas secções deste documento.")
 
             doc.SaveAs(str(doc_path), FileFormat=12)
         finally:

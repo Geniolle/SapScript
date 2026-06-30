@@ -473,10 +473,26 @@ def executar(
     if nome_pasta and str(nome_pasta).strip():
         try:
             from sap_script_web_cockpit_v2.documentation.functional_doc import FunctionalDocSession
+            
+            PROCESS_DOC_CONFIG = {
+                "processo": "PFCG_CREATE",
+                "transacao": "PFCG",
+                "titulo": "Criação/Atualização de Roles e Perfis de Autorização",
+                "modulos_afetados": ["SAP Basis", "Segurança", "Autorizações"],
+                "processos_afetados": [
+                    "Gestão de roles e perfis de autorização",
+                    "Atribuição de transações a roles",
+                    "Geração de perfis de autorização"
+                ],
+                "objeto_principal": "Role",
+                "solucao_proposta": "A solução consiste em processar automaticamente as roles informadas no ficheiro de entrada, validar as transações associadas, aceder à transação PFCG, criar ou atualizar a role, atribuir as transações na aba Menu, gravar as alterações e gerar o perfil de autorização."
+            }
+
             doc_session = FunctionalDocSession(
                 nome_pasta=nome_pasta,
-                processo="PFCG_CREATE",
-                transacao="PFCG"
+                processo=PROCESS_DOC_CONFIG["processo"],
+                transacao=PROCESS_DOC_CONFIG["transacao"],
+                config=PROCESS_DOC_CONFIG
             )
             sap_user = ""
             sap_client = ""
