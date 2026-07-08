@@ -518,6 +518,38 @@ def executar(
     ###################################################################################
     # SAP GUI helpers
     ###################################################################################
+    def is_fatal_error(msg_type, msg_text):
+        if not msg_text:
+            return False
+        
+        msg_text_norm = norm_txt(msg_text)
+        
+        non_fatal_patterns = [
+            "JA ESTA SELECIONADA",
+            "JA SELECIONADA",
+            "NAO FORAM MODIFICADOS DADOS",
+            "SEM ALTERACOES",
+            "JA EXISTE"
+        ]
+        for pat in non_fatal_patterns:
+            if pat in msg_text_norm:
+                return False
+                
+        fatal_patterns = [
+            "NAO EXISTE",
+            "NAO FOI POSSIVEL",
+            "NAO AUTORIZADO",
+            "ERRO"
+        ]
+        for pat in fatal_patterns:
+            if pat in msg_text_norm:
+                return True
+                
+        if msg_type in ("E", "A"):
+            return True
+            
+        return False
+
     def get_statusbar():
         try:
             sbar = session.findById("wnd[0]/sbar")
@@ -677,12 +709,93 @@ def executar(
                 raise Exception("Não consegui abrir a aba Funções (TAB8).")
             tratar_popup_modal()
 
-        def add_roles(self, roles_list):
-            if not roles_list:
-                return 0
+        def read_existing_roles(self):
+            table_id, table_obj = _resolver_id(
+                "roles_table",
+                [
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0600/tblSAPLPRGN_TREECTRL_AGRLIST2",
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0610/tblSAPLPRGN_TREECTRL_AGRLIST2",
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0620/tblSAPLPRGN_TREECTRL_AGRLIST2",
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0330/tblSAPLPRGN_TREECTRL_AGRLIST2",
+                ]
+            )
+            if not table_obj:
+                raise Exception("Não encontrei a tabela de funções componentes.")
 
-            print(f"  ├─ A preparar inserção de {len(roles_list)} função(ões) componente(s)...")
+            existing_roles = set()
+            visible_rows = 10
+            try:
+                visible_rows = int(table_obj.VisibleRowCount)
+            except:
+                pass
+                
+            total_rows = int(table_obj.RowCount)
             
+            # 1. Ler todas as rows existentes fazendo scroll
+            try:
+                scroll_pos = 0
+                while scroll_pos < total_rows:
+                    table_obj.VerticalScrollbar.Position = scroll_pos
+                    _esperar_sap_livre()
+                    
+                    for row_in_page in range(visible_rows):
+                        r_idx = scroll_pos + row_in_page
+                        if r_idx >= total_rows:
+                            break
+                        
+                        cell_id = f"{table_id}/ctxtI_ACTGROUPS-AGR_NAME[0,{row_in_page}]"
+                        cell_obj = _safe_find(cell_id)
+                        if cell_obj:
+                            val = str(cell_obj.Text).strip().upper()
+                            if val:
+                                existing_roles.add(val)
+                    scroll_pos += visible_rows
+                    if visible_rows <= 0:
+                        break
+            except Exception as read_exc:
+                print(f"  ⚠️ Erro ao ler componentes existentes: {read_exc}")
+
+            try:
+                table_obj.VerticalScrollbar.Position = 0
+                _esperar_sap_livre()
+            except:
+                pass
+
+            # 2. Encontrar o índice da primeira linha vazia no table control
+            first_empty_row = 0
+            try:
+                scroll_pos = 0
+                found = False
+                while scroll_pos < total_rows and not found:
+                    table_obj.VerticalScrollbar.Position = scroll_pos
+                    _esperar_sap_livre()
+                    for row_in_page in range(visible_rows):
+                        r_idx = scroll_pos + row_in_page
+                        if r_idx >= total_rows:
+                            break
+                        cell_id = f"{table_id}/ctxtI_ACTGROUPS-AGR_NAME[0,{row_in_page}]"
+                        cell_obj = _safe_find(cell_id)
+                        if cell_obj and not str(cell_obj.Text).strip():
+                            first_empty_row = r_idx
+                            found = True
+                            break
+                    if found:
+                        break
+                    scroll_pos += visible_rows
+                if not found:
+                    first_empty_row = total_rows
+            except:
+                first_empty_row = len(existing_roles)
+
+            try:
+                table_obj.VerticalScrollbar.Position = 0
+                _esperar_sap_livre()
+            except:
+                pass
+
+            return existing_roles, first_empty_row
+
+        def add_only_missing_roles(self, roles_to_insert, first_empty_row):
             table_id, table_obj = _resolver_id(
                 "roles_table",
                 [
@@ -701,20 +814,15 @@ def executar(
             except:
                 pass
 
-            inserted = 0
-            for idx, role in enumerate(roles_list):
-                row_in_page = idx % visible_rows
+            for idx, role in enumerate(roles_to_insert):
+                write_row = first_empty_row + idx
+                row_in_page = write_row % visible_rows
                 
-                if idx > 0 and row_in_page == 0:
-                    try:
-                        table_obj.VerticalScrollbar.Position = idx
-                        _esperar_sap_livre()
-                    except:
-                        try:
-                            self.sess.findById("wnd[0]").sendVKey(0)
-                            _esperar_sap_livre()
-                        except:
-                            pass
+                try:
+                    table_obj.VerticalScrollbar.Position = (write_row // visible_rows) * visible_rows
+                    _esperar_sap_livre()
+                except:
+                    pass
                 
                 cell_id = f"{table_id}/ctxtI_ACTGROUPS-AGR_NAME[0,{row_in_page}]"
                 cell = _esperar_objeto(cell_id, timeout=2.0)
@@ -723,10 +831,9 @@ def executar(
                 
                 if cell:
                     cell.text = role
-                    inserted += 1
-                    print(f"     ├─ Inserindo {role} na linha {idx}")
+                    print(f"     ├─ Inserindo {role} na linha {write_row}")
                 else:
-                    print(f"     ⚠️ Não consegui encontrar o campo para a linha {idx} (ID: {cell_id})")
+                    print(f"     ⚠️ Não consegui encontrar o campo para a linha {write_row} (ID: {cell_id})")
 
             _esperar_sap_livre()
             # Press enter to validate
@@ -736,7 +843,10 @@ def executar(
                 pass
             _esperar_sap_livre()
             tratar_popup_modal()
-            return inserted
+
+            mt, sb = get_statusbar()
+            if is_fatal_error(mt, sb):
+                raise Exception(f"Erro na validação de componentes: {sb}")
 
         def execute_transport_and_exit(self, req_num):
             if req_num:
@@ -811,15 +921,36 @@ def executar(
                 if not pfcg.set_role_name(nome):
                     raise Exception("Falha ao escrever AGR_NAME.")
                 modo = pfcg.open_for_edit()
+                if modo == "CHANGE":
+                    print("├─ Role já existe; abrindo em alteração...")
+                else:
+                    print("├─ Role não existe; abrindo em criação...")
                 pfcg.set_description(desc)
                 pfcg.save("  └─ Guardando alterações iniciais...")
 
-                print("\n[Etapa 2] Atribuir Roles")
+                print("\n[Etapa 2] Validar Componentes Existentes")
                 pfcg.goto_roles_tab()
-                qtd_ins = pfcg.add_roles(roles_filhas)
-                pfcg.save("  └─ Guardando Funções inseridas...")
+                
+                existing_roles, first_empty_row = pfcg.read_existing_roles()
+                
+                componentes_excel = [r.upper() for r in roles_filhas]
+                componentes_existentes = [r for r in componentes_excel if r in existing_roles]
+                componentes_para_inserir = [r for r in componentes_excel if r not in existing_roles]
+                
+                print(f"├─ Componentes no Excel: {len(roles_filhas)}")
+                print(f"├─ Já atribuídos no SAP: {len(componentes_existentes)}")
+                print(f"└─ Novos a inserir: {len(componentes_para_inserir)}")
 
-                print("\n[Etapa 3] Ordem de Transporte")
+                print("\n[Etapa 3] Atribuir Componentes")
+                if componentes_para_inserir:
+                    pfcg.add_only_missing_roles(componentes_para_inserir, first_empty_row)
+                    pfcg.save("  └─ Guardando Funções inseridas...")
+                    msg_final = f"Componentes inseridos: {len(componentes_para_inserir)}/{len(roles_filhas)} | Já existentes: {len(componentes_existentes)}/{len(roles_filhas)}"
+                else:
+                    print("└─ Nada a inserir; todos os componentes já existem.")
+                    msg_final = "Todos os componentes já estavam atribuídos; sem alterações necessárias."
+
+                print("\n[Etapa 4] Ordem de Transporte")
                 pfcg.execute_transport_and_exit(request_transporte)
 
                 tempo_decorrido_role = time.time() - tempo_inicio_role
@@ -828,10 +959,10 @@ def executar(
                 msg_transporte = f" | Add Req {request_transporte}" if request_transporte else ""
                 resultados[nome] = {
                     "STATUS": "CONCLUIDO",
-                    "MSG": f"Sucesso ({modo}) | {qtd_ins}/{len(roles_filhas)} Componentes{msg_transporte}.",
+                    "MSG": f"{msg_final}{msg_transporte}.",
                     "TIMESTEMP": now_ts()
                 }
-                print(f"\n🟢 SUCESSO: Role Composta tratada por completo! ⏱️ (Tempo: {str_tempo})")
+                print(f"\n🟢 SUCESSO: Role composta tratada por completo! Existentes: {len(componentes_existentes)} | Inseridos: {len(componentes_para_inserir)} ⏱️ (Tempo: {str_tempo})")
                 print("----------------------------------------------------------------------")
 
             except Exception as e:
@@ -847,35 +978,49 @@ def executar(
                 print(f"\n🔴 ERRO: {err} ⏱️ (Tempo: {str_tempo})")
                 print("----------------------------------------------------------------------")
 
+                # Limpeza segura do SAP para evitar ecrãs sujos
                 try:
+                    for _ in range(3):
+                        if session.ActiveWindow.Type == "GuiModalWindow":
+                            session.ActiveWindow.close()
+                            tratar_popup_modal()
                     session.findById("wnd[0]/tbar[0]/okcd").text = "/N"
                     _send_vkey(0)
                 except:
                     pass
 
+            # Gravação segura de checkpoint no Excel a cada iteração
+            try:
+                col_st, col_ms, col_tm = header_map.get("STATUS"), header_map.get("MSG"), header_map.get("TIMESTEMP")
+                for rec in records:
+                    chave_busca = str(rec["AGR_NAME"]).strip()
+                    res = resultados.get(chave_busca)
+                    if res:
+                        if col_st:
+                            ws.cell(row=rec["_row"], column=col_st).value = res["STATUS"]
+                        if col_ms:
+                            ws.cell(row=rec["_row"], column=col_ms).value = res["MSG"]
+                        if col_tm:
+                            ws.cell(row=rec["_row"], column=col_tm).value = res["TIMESTEMP"]
+                wb.save(caminho_ficheiro)
+            except Exception as checkpoint_exc:
+                print(f"  ⚠️ Erro ao salvar checkpoint do Excel: {checkpoint_exc}")
+
             progress.advance(task_roles)
 
     ###################################################################################
-    # BLOCO 5: GRAVAR EXCEL E TEMPO TOTAL
+    # BLOCO 5: GRAVAR EXCEL FINAL E TEMPO TOTAL
     ###################################################################################
     try:
-        col_st, col_ms, col_tm = header_map.get("STATUS"), header_map.get("MSG"), header_map.get("TIMESTEMP")
-        for rec in records:
-            chave_busca = str(rec["AGR_NAME"]).strip()
-            res = resultados.get(chave_busca)
-            if res:
-                if col_st:
-                    ws.cell(row=rec["_row"], column=col_st).value = res["STATUS"]
-                if col_ms:
-                    ws.cell(row=rec["_row"], column=col_ms).value = res["MSG"]
-                if col_tm:
-                    ws.cell(row=rec["_row"], column=col_tm).value = res["TIMESTEMP"]
-
         wb.save(caminho_ficheiro)
         wb.close()
         print("\n💾 Resultados gravados com sucesso no Excel!")
     except Exception as e:
-        print(f"\n❌ Erro a gravar Excel: {e}")
+        print(f"\n❌ Erro a gravar Excel final: {e}")
+        try:
+            wb.close()
+        except:
+            pass
 
     tempo_decorrido_total = time.time() - tempo_inicio_total
     print(f"\n⏱️ Tempo total da operação: {formatar_tempo(tempo_decorrido_total)}")

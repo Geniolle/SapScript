@@ -693,6 +693,493 @@ def executar(
     ###################################################################################
     # BLOCO 2: SAP GUI helpers
     ###################################################################################
+    def encontrar_grids_alv(root):
+        """
+        Percorre recursivamente Children de root e retorna objetos que parecem ALV/Grid.
+        Deve ignorar Toolbar.
+        Deve logar Id, Type, SubType e Name dos candidatos encontrados.
+        """
+        grids = []
+        try:
+            stack = [root]
+            while stack:
+                obj = stack.pop()
+                try:
+                    obj_id = obj.Id
+                    obj_type = obj.Type
+                    obj_subtype = getattr(obj, "SubType", "")
+                    obj_name = obj.Name
+                except:
+                    continue
+                    
+                is_toolbar = "toolbar" in str(obj_type).lower() or "toolbar" in str(obj_subtype).lower() or "toolbar" in str(obj_name).lower()
+                
+                has_row_count = False
+                try:
+                    rc = int(obj.RowCount)
+                    if rc >= 0:
+                        has_row_count = True
+                except:
+                    pass
+                    
+                if has_row_count and not is_toolbar:
+                    print(f"├─ Candidato ALV/Grid encontrado: Id={obj_id} | Type={obj_type} | SubType={obj_subtype} | Name={obj_name}")
+                    grids.append(obj)
+                    
+                try:
+                    for idx in range(obj.Children.Count):
+                        stack.append(obj.Children(idx))
+                except:
+                    pass
+        except Exception as e_find:
+            print(f"  ⚠️ Erro ao procurar ALV: {e_find}")
+        return grids
+
+    def consultar_tcodes_agr_tcodes(sess_principal, agr_name):
+        import time
+        res = {
+            "ok": False,
+            "fonte": "AGR_TCODES",
+            "tcodes": set(),
+            "qtd": 0,
+            "mensagem": "Inicializado",
+            "erro_tecnico": False,
+            "debug": {}
+        }
+        new_session = None
+        try:
+            print(f"├─ Consultando AGR_TCODES para a role {agr_name}...")
+            # 1. Obter a conexão e a lista de IDs de sessão antes
+            connection = sess_principal.Parent
+            before_ids = set()
+            for i in range(connection.Children.Count):
+                before_ids.add(connection.Children(i).Id)
+                
+            # 2. Iniciar nova sessão via comando /ose16h na sessão principal
+            sess_principal.findById("wnd[0]/tbar[0]/okcd").text = "/ose16h"
+            sess_principal.findById("wnd[0]").sendVKey(0)
+            
+            # 3. Aguardar a criação da nova sessão
+            t0 = time.time()
+            while time.time() - t0 <= 10:
+                for i in range(connection.Children.Count):
+                    c = connection.Children(i)
+                    if c.Id not in before_ids:
+                        new_session = c
+                        break
+                if new_session:
+                    break
+                time.sleep(0.2)
+                
+            if not new_session:
+                res["mensagem"] = "Não foi possível abrir uma nova sessão SAP (SE16H)."
+                res["erro_tecnico"] = True
+                print("  ⚠️ Não foi possível abrir uma nova sessão SAP para consultar a AGR_TCODES.")
+                return res
+
+            print("├─ SE16H aberta em novo modo.")
+            res["debug"]["session_id"] = new_session.Id
+
+            # Aguardar que a nova sessão carregue e não esteja Busy
+            t_wait = time.time()
+            while time.time() - t_wait <= 8:
+                if not getattr(new_session, "Busy", False):
+                    break
+                time.sleep(0.1)
+                
+            # 4. Configurar a tabela AGR_TCODES na nova sessão
+            tab_field_candidates = [
+                "wnd[0]/usr/ctxtGD-TAB",
+                "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
+                "wnd[0]/usr/ctxtTABNAME",
+            ]
+            tab_field_id = None
+            for cid in tab_field_candidates:
+                try:
+                    if new_session.findById(cid):
+                        tab_field_id = cid
+                        break
+                except:
+                    pass
+                    
+            if not tab_field_id:
+                res["mensagem"] = "Não encontrou o campo de nome da tabela na SE16H."
+                res["erro_tecnico"] = True
+                print("  ⚠️ Não encontrou o campo de nome da tabela na SE16H.")
+                return res
+                
+            # Escrever AGR_TCODES e dar Enter
+            new_session.findById(tab_field_id).text = "AGR_TCODES"
+            new_session.findById("wnd[0]").sendVKey(0)
+            print("├─ Tabela informada: AGR_TCODES")
+            
+            # Aguardar carregar campos
+            t_wait = time.time()
+            tbl_control = None
+            while time.time() - t_wait <= 5:
+                try:
+                    root = new_session.findById("wnd[0]/usr")
+                    stack = [root]
+                    while stack:
+                        obj = stack.pop()
+                        if obj.Name == "SAPLSE16NSELFIELDS_TC" or obj.Id.endswith("tblSAPLSE16NSELFIELDS_TC"):
+                            tbl_control = obj
+                            break
+                        for idx in range(obj.Children.Count):
+                            stack.append(obj.Children(idx))
+                    if tbl_control:
+                        break
+                except:
+                    pass
+                time.sleep(0.1)
+                
+            if not tbl_control:
+                res["mensagem"] = "Tabela de critérios da SE16H não carregou."
+                res["erro_tecnico"] = True
+                print("  ⚠️ Tabela de critérios da SE16H não carregou.")
+                return res
+                
+            # Definir Max Ocorrências
+            max_cids = ["wnd[0]/usr/txtMAX_SEL", "wnd[0]/usr/txtGD-MAXROWS", "wnd[0]/usr/txtMAX_HITS"]
+            for mcid in max_cids:
+                try:
+                    new_session.findById(mcid).text = "9999"
+                    break
+                except:
+                    pass
+                    
+            # Procurar o campo AGR_NAME nos critérios
+            row_count = int(tbl_control.RowCount)
+            visible_rows = int(tbl_control.VisibleRowCount)
+            
+            col_fieldname_orig = 13
+            col_fieldname_prefix = "txtGS_SELFIELDS-FIELDNAME"
+            col_low = 2
+            col_low_prefix = "ctxtGS_SELFIELDS-LOW"
+            
+            try:
+                for idx in range(tbl_control.Children.Count):
+                    child = tbl_control.Children(idx)
+                    id_str = child.Id
+                    if "[" in id_str and "]" in id_str:
+                        bracket_part = id_str.rsplit("[", 1)[-1].split("]")[0]
+                        parts = bracket_part.split(",")
+                        if len(parts) == 2 and int(parts[1]) == 0:
+                            col_idx = int(parts[0])
+                            prefix_path = id_str.rsplit("[", 1)[0]
+                            prefix = prefix_path.split("/")[-1]
+                            name = child.Name.upper()
+                            if name.endswith("-LOW") or name == "GS_SELFIELDS-LOW":
+                                col_low = col_idx
+                                col_low_prefix = prefix
+                            elif "FIELDNAME" in name:
+                                if col_idx > 10:
+                                    col_fieldname_orig = col_idx
+                                    col_fieldname_prefix = prefix
+            except:
+                pass
+
+            # Buscar a linha correspondente a AGR_NAME
+            row_agr_name = None
+            for r in range(min(row_count, visible_rows)):
+                try:
+                    fname_id = f"{tbl_control.Id}/{col_fieldname_prefix}[{col_fieldname_orig},{r}]"
+                    fieldname = new_session.findById(fname_id).text.strip().upper()
+                    if fieldname == "AGR_NAME":
+                        row_agr_name = r
+                        break
+                except:
+                    continue
+                    
+            if row_agr_name is None:
+                res["mensagem"] = "Não encontrou o critério 'AGR_NAME' na tabela SE16H."
+                res["erro_tecnico"] = True
+                print("  ⚠️ Não encontrou o critério 'AGR_NAME' na tabela SE16H.")
+                return res
+                
+            # Inserir o nome da role no filtro
+            low_id = f"{tbl_control.Id}/{col_low_prefix}[{col_low},{row_agr_name}]"
+            new_session.findById(low_id).text = agr_name
+            print(f"├─ Filtro aplicado: AGR_NAME = {agr_name}")
+            
+            # 5. Executar a consulta (F8)
+            new_session.findById("wnd[0]/tbar[1]/btn[8]").press()
+            
+            # Aguardar execução
+            t_wait = time.time()
+            while time.time() - t_wait <= 10:
+                if not getattr(new_session, "Busy", False):
+                    break
+                time.sleep(0.15)
+                
+            # Capturar e logar statusbar se existir mensagem
+            try:
+                sbar = new_session.findById("wnd[0]/sbar")
+                sbar_text = str(sbar.Text).strip()
+                sbar_type = str(sbar.MessageType).strip().upper()
+                if sbar_text:
+                    print(f"├─ [SE16H_SBAR] Tipo: {sbar_type} | Texto: {sbar_text}")
+                    res["debug"]["sbar"] = {"type": sbar_type, "text": sbar_text}
+                    # Se for erro real na consulta
+                    if sbar_type in ("E", "A"):
+                        res["mensagem"] = f"Erro no statusbar da SE16H: {sbar_text}"
+                        return res
+            except:
+                pass
+
+            print("├─ Consulta executada.")
+
+            # 6. Localizar o ALV Grid na tela de resultados usando a nova função encontrar_grids_alv
+            grid = None
+            try:
+                root_wnd = new_session.findById("wnd[0]")
+                grids_found = encontrar_grids_alv(root_wnd)
+                if grids_found:
+                    grid = grids_found[0]
+            except Exception as e_grid:
+                print(f"  ⚠️ Exceção ao varrer tela por ALV/Grid: {e_grid}")
+                
+            if not grid:
+                # Se não encontrou ALV, mas o statusbar disse que "Nenhum dado selecionado",
+                # então a consulta funcionou, mas não há linhas!
+                try:
+                    sbar = new_session.findById("wnd[0]/sbar")
+                    sbar_text = str(sbar.Text).strip().upper()
+                    if "NENHUM" in sbar_text or "NO DATA" in sbar_text or "ZERO" in sbar_text:
+                        res["ok"] = True
+                        res["qtd"] = 0
+                        res["mensagem"] = "Consulta com sucesso, 0 registos encontrados."
+                        print("├─ Linhas retornadas: 0 (Nenhum dado selecionado)")
+                        return res
+                except:
+                    pass
+                
+                res["mensagem"] = "Não consegui localizar o ALV/Grid de resultados da SE16H."
+                res["erro_tecnico"] = True
+                print("  ⚠️ Não consegui localizar o ALV/Grid de resultados da SE16H.")
+                return res
+
+            print(f"├─ ALV/Grid encontrado: {grid.Id}")
+            res["debug"]["grid_id"] = grid.Id
+
+            # 7. Ler as transações
+            r_count = int(grid.RowCount)
+            print(f"├─ Linhas retornadas: {r_count}")
+            res["debug"]["row_count"] = r_count
+
+            # Descobrir a coluna de TCODE
+            tcode_col = None
+            colunas_candidatas = ["TCODE", "AGR_TCODES-TCODE", "S_TCODE"]
+            
+            # Tentar obter lista de colunas do grid
+            alv_cols = []
+            try:
+                for col in grid.ColumnOrder:
+                    alv_cols.append(str(col))
+            except:
+                pass
+                
+            print(f"├─ Colunas encontradas: {', '.join(alv_cols) if alv_cols else 'não listadas'}")
+            res["debug"]["colunas"] = alv_cols
+            
+            # 1. Procurar nas colunas encontradas se alguma bate com as candidatas
+            for c_cand in colunas_candidatas:
+                if c_cand in alv_cols or c_cand.upper() in [c.upper() for c in alv_cols]:
+                    tcode_col = c_cand
+                    break
+                    
+            # 2. Se não encontrou, testar se GetCellValue funciona diretamente com alguma das candidatas no primeiro registo
+            if not tcode_col and r_count > 0:
+                for c_cand in colunas_candidatas:
+                    try:
+                        val = grid.GetCellValue(0, c_cand)
+                        if val is not None:
+                            tcode_col = c_cand
+                            break
+                    except:
+                        pass
+                        
+            # 3. Se ainda não encontrou, testar todas as colunas lidas do ALV no primeiro registo
+            if not tcode_col and r_count > 0 and alv_cols:
+                for col in alv_cols:
+                    try:
+                        val = str(grid.GetCellValue(0, col)).strip()
+                        # Uma TCODE válida tem formato alfanumérico não muito longo e não vazio
+                        if val and len(val) <= 20 and re.match(r"^[A-Z0-9_/]+$", val, re.IGNORECASE):
+                            tcode_col = col
+                            break
+                    except:
+                        pass
+
+            if r_count > 0 and not tcode_col:
+                res["mensagem"] = "Não foi possível identificar a coluna TCODE no ALV/Grid."
+                res["erro_tecnico"] = True
+                print("  ⚠️ Não foi possível identificar a coluna TCODE no ALV/Grid.")
+                return res
+
+            if tcode_col:
+                print(f"├─ Coluna TCODE identificada: {tcode_col}")
+
+            tcodes_set = set()
+            for r in range(r_count):
+                try:
+                    tc = str(grid.GetCellValue(r, tcode_col)).strip().upper()
+                    if tc:
+                        # Normalizar TCODE
+                        tc_norm = normalizar_tcode(tc)
+                        if tc_norm:
+                            tcodes_set.add(tc_norm)
+                except:
+                    pass
+
+            res["tcodes"] = tcodes_set
+            res["qtd"] = len(tcodes_set)
+            res["ok"] = True
+            res["mensagem"] = f"Consulta concluída com sucesso. {len(tcodes_set)} tcodes lidas."
+
+            # Logar primeiras TCODEs, máx 10
+            tcodes_log = sorted(list(tcodes_set))
+            print("├─ TCODEs encontradas na AGR_TCODES:")
+            if tcodes_log:
+                for tc_item in tcodes_log[:10]:
+                    print(f"│  └─ {tc_item}")
+                if len(tcodes_log) > 10:
+                    print(f"│  └─ ... (+ {len(tcodes_log) - 10} adicionais)")
+            else:
+                print("│  └─ nenhuma")
+
+        except Exception as e_tcode:
+            res["mensagem"] = f"Exceção técnica: {e_tcode}"
+            res["erro_tecnico"] = True
+            print(f"  ⚠️ Erro técnico ao consultar a tabela AGR_TCODES: {e_tcode}")
+            
+        finally:
+            # 8. Fechar a sessão temporária
+            if new_session:
+                try:
+                    new_session.findById("wnd[0]").close()
+                    time.sleep(0.3)
+                    try:
+                        if new_session.ActiveWindow.Type == "GuiModalWindow":
+                            candidatos_btn = [
+                                "wnd[1]/usr/btnSPOP-OPTION1",
+                                "wnd[1]/usr/btnBUTTON_1",
+                                "wnd[1]/tbar[0]/btn[0]",
+                            ]
+                            for c_btn in candidatos_btn:
+                                try:
+                                    new_session.findById(c_btn).press()
+                                    break
+                                except:
+                                    pass
+                    except:
+                        pass
+                except:
+                    pass
+                    
+        return res
+
+    def ler_tcodes_existentes_menu_pfcg(sess):
+        res = {
+            "ok": False,
+            "fonte": "PFCG_MENU",
+            "tcodes": set(),
+            "qtd": 0,
+            "mensagem": "Inicializado"
+        }
+        try:
+            print("├─ Validando aba Menu da PFCG...")
+            pfcg.goto_menu_tab()
+            
+            menu_shell_id, menu_shell_obj = _resolver_id(
+                "menu_shell",
+                [
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB9/ssubSUB1:SAPLPRGN_TREE:0321/cntlTOOL_CONTROL/shellcont/shell",
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB9/ssubSUB1:SAPLPRGN_TREE:0320/cntlTOOL_CONTROL/shellcont/shell"
+                ]
+            )
+            if not menu_shell_obj:
+                res["mensagem"] = "Não localizou o controlo do Menu na aba TAB9."
+                print("  ⚠️ Controlo do Menu não encontrado na aba TAB9.")
+                return res
+                
+            obj_type = getattr(menu_shell_obj, "Type", "desconhecido")
+            obj_subtype = getattr(menu_shell_obj, "SubType", "desconhecido")
+            obj_id = getattr(menu_shell_obj, "Id", "desconhecido")
+            obj_name = getattr(menu_shell_obj, "Name", "desconhecido")
+            print(f"├─ Controlo do Menu: Id={obj_id} | Type={obj_type} | SubType={obj_subtype} | Name={obj_name}")
+            
+            keys = None
+            metodo_usado = None
+            
+            tentativas_metodos = [
+                ("GetAllNodeKeys", lambda o: o.GetAllNodeKeys()),
+                ("GetNodeKeys", lambda o: o.GetNodeKeys()),
+                ("nodeKeys", lambda o: o.nodeKeys),
+            ]
+            
+            for name_met, getter in tentativas_metodos:
+                try:
+                    keys = getter(menu_shell_obj)
+                    if keys is not None:
+                        metodo_usado = name_met
+                        break
+                except:
+                    pass
+                    
+            if keys is None:
+                res["mensagem"] = f"Nenhum método compatível para ler TreeView encontrado no controlo (Type={obj_type})."
+                print("  ⚠️ Nenhum método compatível (GetAllNodeKeys/GetNodeKeys) funcionou no TreeView.")
+                return res
+                
+            tcodes_tree = set()
+            try:
+                for k in keys:
+                    text = str(menu_shell_obj.GetNodeTextByKey(k)).strip().upper()
+                    match = re.search(r"\(([^)]+)\)", text)
+                    if match:
+                        tcodes_tree.add(match.group(1).strip())
+                    else:
+                        parts = text.split()
+                        for p in parts:
+                            p_clean = re.sub(r"[^A-Z0-9_]", "", p)
+                            if p_clean:
+                                tcodes_tree.add(p_clean)
+            except Exception as e_node:
+                res["mensagem"] = f"Erro ao ler nós da árvore usando método {metodo_usado}: {e_node}"
+                print(f"  ⚠️ Erro técnico ao ler nós da árvore: {e_node}")
+                return res
+
+            normalized_tcodes = {normalizar_tcode(tc) for tc in tcodes_tree if tc}
+            res["tcodes"] = normalized_tcodes
+            res["qtd"] = len(normalized_tcodes)
+            res["ok"] = True
+            res["mensagem"] = f"TreeView lido com sucesso usando {metodo_usado}."
+            
+            tcodes_log = sorted(list(normalized_tcodes))
+            print("├─ TCODEs encontradas na aba Menu:")
+            if tcodes_log:
+                for tc_item in tcodes_log[:10]:
+                    print(f"│  └─ {tc_item}")
+                if len(tcodes_log) > 10:
+                    print(f"│  └─ ... (+ {len(tcodes_log) - 10} adicionais)")
+            else:
+                print("│  └─ nenhuma")
+                
+        except Exception as e_menu:
+            res["mensagem"] = f"Exceção técnica no Menu: {e_menu}"
+            print(f"  ⚠️ Erro ao ler aba Menu: {e_menu}")
+            
+        return res
+
+    def normalizar_tcode(tc):
+        if not tc:
+            return ""
+        tc = str(tc).strip().upper().replace(" ", "")
+        if tc.startswith("/N") or tc.startswith("/O"):
+            tc = tc[2:]
+        return tc
+
     def get_statusbar():
         try:
             sbar = session.findById("wnd[0]/sbar")
@@ -1139,93 +1626,209 @@ def executar(
                 t_guardar_inicial = time.time() - t0
                 t_etapa1 = time.time() - t_inicio_etapa1
 
-                # [Etapa 2] Atribuição de Transações (Aba Menu)
                 t_inicio_etapa2 = time.time()
-                print("\n[Etapa 2] Atribuição de Transações (Aba Menu)")
-                
-                t0 = time.time()
-                pfcg.goto_menu_tab()
-                t_aba_menu = time.time() - t0
-                
-                t0 = time.time()
-                qtd_ins = pfcg.add_tcodes(tcodes)
-                t_tcodes = time.time() - t0
-                
-                t0 = time.time()
-                pfcg.save("  └─ Guardando Transações inseridas...")
-                t_guardar_tcodes = time.time() - t0
-
-                t0 = time.time()
-                if doc_session and doc_session.enabled:
-                    shot = capture_screenshot(nome, "menu_transacoes_gravadas", idx)
-                    if shot:
-                        doc_session.add_evidence(
-                            nome,
-                            "Evidência 1 — Transações atribuídas e gravadas",
-                            f"Aba Menu da role {nome} após atribuição das transações e confirmação de gravação no SAP.",
-                            shot
-                        )
-                t_evidencia_menu = time.time() - t0
-                t_etapa2 = time.time() - t_inicio_etapa2
-
-                # [Etapa 3] Geração do Perfil de Autorizações
                 t_inicio_etapa3 = time.time()
-                print("\n[Etapa 3] Geração do Perfil de Autorizações")
-                success_auth, t_stats_auth = pfcg.generate_authorization_profile()
-                if not success_auth:
-                    raise Exception("Falha na geração do perfil de autorizações.")
-                
-                t_aba_autorizacoes = t_stats_auth.get("aba_autorizacoes", 0.0)
-                t_sugerir_nome_perfil = t_stats_auth.get("sugerir_nome_perfil", 0.0)
-                t_guardar_alteracoes_auth = t_stats_auth.get("guardar_alteracoes", 0.0)
-                t_gerar_perfil = t_stats_auth.get("gerar_perfil", 0.0)
-                t_fechar_popups = t_stats_auth.get("fechar_popups", 0.0)
-
-                t0 = time.time()
-                if doc_session and doc_session.enabled:
-                    shot = capture_screenshot(nome, "perfil_gerado", idx)
-                    if shot:
-                        doc_session.add_evidence(
-                            nome,
-                            "Evidência 2 — Perfil de autorizações gerado",
-                            f"Perfil de autorizações da role {nome} gerado e confirmado no SAP.",
-                            shot
-                        )
-                t_evidencia_auth = time.time() - t0
-                t_etapa3 = time.time() - t_inicio_etapa3
-
-                # [Etapa 4] Ordem de Transporte e Encerramento
                 t_inicio_etapa4 = time.time()
-                print("\n[Etapa 4] Ordem de Transporte e Encerramento")
                 
-                t0 = time.time()
-                pfcg.execute_transport_and_exit(request_transporte)
-                t_transporte = time.time() - t0
-                t_etapa4 = time.time() - t_inicio_etapa4
+                skip_rest = False
+                tcodes_para_inserir = tcodes
+                tcodes_existentes = set()
+                fonte_final = None
+                qtd_ins = 0
 
-                tempo_decorrido_role = time.time() - tempo_inicio_role
-                str_tempo = formatar_tempo(tempo_decorrido_role)
+                if modo == "CHANGE":
+                    print("\n[Etapa 2] Validação de Transações")
+                    
+                    tcodes_input = {normalizar_tcode(tc) for tc in tcodes if str(tc).strip()}
+                    tcodes_sap = set()
+                    
+                    # 1. Consultar AGR_TCODES
+                    res_agr = consultar_tcodes_agr_tcodes(session, nome)
+                    
+                    if res_agr["ok"]:
+                        tcodes_sap = res_agr["tcodes"]
+                        fonte_final = "AGR_TCODES"
+                    else:
+                        print(f"├─ ERRO técnico na consulta AGR_TCODES: {res_agr['mensagem']}")
+                        raise Exception("Validação inconclusiva: não foi possível ler AGR_TCODES. Inserção bloqueada para evitar duplicação.")
+                        
+                    # 3. Calcular conjuntos delta
+                    tcodes_ja_existentes = tcodes_input.intersection(tcodes_sap)
+                    tcodes_para_inserir_set = tcodes_input.difference(tcodes_sap)
+                    tcodes_extra_sap = tcodes_sap.difference(tcodes_input)
+                    
+                    tcodes_existentes = list(tcodes_sap)
+                    
+                    # 4. Logs detalhados das transações analisadas (Parte 5)
+                    print(f"├─ TCODEs encontradas na {fonte_final}:")
+                    if tcodes_sap:
+                        for tc_item in sorted(list(tcodes_sap))[:10]:
+                            print(f"│  └─ {tc_item}")
+                        if len(tcodes_sap) > 10:
+                            print(f"│  └─ ... (+ {len(tcodes_sap)-10} adicionais)")
+                    else:
+                        print("│  └─ nenhuma")
+                        
+                    print("├─ TCODEs no ficheiro:")
+                    for tc_item in sorted(list(tcodes_input))[:10]:
+                        print(f"│  └─ {tc_item}")
+                    if len(tcodes_input) > 10:
+                        print(f"│  └─ ... (+ {len(tcodes_input)-10} adicionais)")
+                        
+                    print("├─ Já existentes:")
+                    if tcodes_ja_existentes:
+                        for tc_item in sorted(list(tcodes_ja_existentes))[:10]:
+                            print(f"│  └─ {tc_item}")
+                        if len(tcodes_ja_existentes) > 10:
+                            print(f"│  └─ ... (+ {len(tcodes_ja_existentes)-10} adicionais)")
+                    else:
+                        print("│  └─ nenhuma")
+                        
+                    print("├─ Novas a inserir:")
+                    if tcodes_para_inserir_set:
+                        for tc_item in sorted(list(tcodes_para_inserir_set))[:10]:
+                            print(f"│  └─ {tc_item}")
+                        if len(tcodes_para_inserir_set) > 10:
+                            print(f"│  └─ ... (+ {len(tcodes_para_inserir_set)-10} adicionais)")
+                    else:
+                        print("│  └─ nenhuma")
+                        
+                    print(f"└─ Fonte final da validação: {fonte_final}")
+                    
+                    t_etapa2_validacao = time.time() - t_inicio_etapa2
+                    
+                    if not tcodes_para_inserir_set:
+                        print(f"\n🟢 SUCESSO: Sem alterações necessárias. Todas as transações já estavam atribuídas na AGR_TCODES.")
+                        resultados[nome] = {
+                            "STATUS": "CONCLUIDO",
+                            "MSG": "Sem alterações: todas as transações já estavam atribuídas na AGR_TCODES.",
+                            "TIMESTEMP": now_ts()
+                        }
+                        skip_rest = True
+                        if doc_session and doc_session.enabled:
+                            doc_session.add_role_summary(nome, desc, len(tcodes), "Concluída (Sem alterações)", "00m 00s")
+                        
+                        print("  └─ Regressando ao ecrã principal SAP Easy Access (F3)...")
+                        for _ in range(2):
+                            try_actions([{"path": "wnd[0]/tbar[0]/btn[3]", "op": "press"}])
+                            tratar_popup_modal()
+                        
+                        t_etapa2 = t_etapa2_validacao
+                        t_etapa3 = 0.0
+                        t_etapa4 = 0.0
+                    else:
+                        tcodes_para_inserir = list(tcodes_para_inserir_set)
 
-                msg_transporte = f" | Add Req {request_transporte}" if request_transporte else ""
-                resultados[nome] = {
-                    "STATUS": "CONCLUIDO",
-                    "MSG": f"Sucesso ({modo}) | {qtd_ins}/{len(tcodes)} TCODEs | Perfil Gerado{msg_transporte}.",
-                    "TIMESTEMP": now_ts()
-                }
-                print(f"\n🟢 SUCESSO: Role tratada por completo! ⏱️ (Tempo: {str_tempo})")
-                print("----------------------------------------------------------------------")
+                if not skip_rest:
+                    # [Etapa 2] Atribuição de Transações (Aba Menu)
+                    print("\n[Etapa 2] Atribuição de Transações (Aba Menu)")
+                    if modo == "CHANGE":
+                        print("├─ Inserindo apenas TCODEs novas...")
+                    
+                    t_inicio_etapa2_insercao = time.time()
+                    
+                    t0 = time.time()
+                    pfcg.goto_menu_tab()
+                    t_aba_menu = time.time() - t0
+                    
+                    t0 = time.time()
+                    qtd_ins = pfcg.add_tcodes(tcodes_para_inserir)
+                    t_tcodes = time.time() - t0
+                    
+                    t0 = time.time()
+                    pfcg.save("  └─ Guardando Transações inseridas...")
+                    t_guardar_tcodes = time.time() - t0
 
-                if doc_session and doc_session.enabled:
-                    doc_session.add_role_summary(nome, desc, len(tcodes), "Concluída", str_tempo)
+                    t0 = time.time()
+                    if doc_session and doc_session.enabled:
+                        shot = capture_screenshot(nome, "menu_transacoes_gravadas", idx)
+                        if shot:
+                            doc_session.add_evidence(
+                                nome,
+                                "Evidência 1 — Transações atribuídas e gravadas",
+                                f"Aba Menu da role {nome} após atribuição das transações e confirmação de gravação no SAP.",
+                                shot
+                            )
+                    t_evidencia_menu = time.time() - t0
+                    
+                    # Consolidar tempo de etapa2
+                    if modo == "CHANGE":
+                        t_etapa2 = t_etapa2_validacao + (time.time() - t_inicio_etapa2_insercao)
+                    else:
+                        t_etapa2 = time.time() - t_inicio_etapa2
+
+                    # [Etapa 3] Geração do Perfil de Autorizações
+                    print("\n[Etapa 3] Geração do Perfil de Autorizações")
+                    success_auth, t_stats_auth = pfcg.generate_authorization_profile()
+                    if not success_auth:
+                        raise Exception("Falha na geração do perfil de autorizações.")
+                    
+                    t_aba_autorizacoes = t_stats_auth.get("aba_autorizacoes", 0.0)
+                    t_sugerir_nome_perfil = t_stats_auth.get("sugerir_nome_perfil", 0.0)
+                    t_guardar_alteracoes_auth = t_stats_auth.get("guardar_alteracoes", 0.0)
+                    t_gerar_perfil = t_stats_auth.get("gerar_perfil", 0.0)
+                    t_fechar_popups = t_stats_auth.get("fechar_popups", 0.0)
+
+                    t0 = time.time()
+                    if doc_session and doc_session.enabled:
+                        shot = capture_screenshot(nome, "perfil_gerado", idx)
+                        if shot:
+                            doc_session.add_evidence(
+                                nome,
+                                "Evidência 2 — Perfil de autorizações gerado",
+                                f"Perfil de autorizações da role {nome} gerado e confirmado no SAP.",
+                                shot
+                            )
+                    t_evidencia_auth = time.time() - t0
+                    t_etapa3 = time.time() - t_inicio_etapa3
+
+                    # [Etapa 4] Ordem de Transporte e Encerramento
+                    print("\n[Etapa 4] Ordem de Transporte e Encerramento")
+                    
+                    t0 = time.time()
+                    pfcg.execute_transport_and_exit(request_transporte)
+                    t_transporte = time.time() - t0
+                    t_etapa4 = time.time() - t_inicio_etapa4
+
+                    tempo_decorrido_role = time.time() - tempo_inicio_role
+                    str_tempo = formatar_tempo(tempo_decorrido_role)
+
+                    msg_transporte = f" | Add Req {request_transporte}" if request_transporte else ""
+                    if modo == "CHANGE":
+                        msg_status = f"Sucesso (CHANGE) | Inseridas {len(tcodes_para_inserir)}/{len(tcodes)} TCODEs | Já existentes {len(tcodes_ja_existentes)}/{len(tcodes)} | Fonte validação: {fonte_final}{msg_transporte}."
+                    else:
+                        msg_status = f"Sucesso (CREATE) | {qtd_ins}/{len(tcodes)} TCODEs | Perfil Gerado{msg_transporte}."
+
+                    resultados[nome] = {
+                        "STATUS": "CONCLUIDO",
+                        "MSG": msg_status,
+                        "TIMESTEMP": now_ts()
+                    }
+                    print(f"\n🟢 SUCESSO: Role tratada por completo! Inseridas: {len(tcodes_para_inserir)} | Já existentes: {len(tcodes_ja_existentes)} ⏱️ (Tempo: {str_tempo})")
+                    print("----------------------------------------------------------------------")
+
+                    if doc_session and doc_session.enabled:
+                        doc_session.add_role_summary(nome, desc, len(tcodes), "Concluída", str_tempo)
+                else:
+                    print("  └─ Regressando ao ecrã principal SAP Easy Access (F3)...")
+                    for _ in range(2):
+                        try_actions([{"path": "wnd[0]/tbar[0]/btn[3]", "op": "press"}])
+                        tratar_popup_modal()
+                    t_etapa2 = 0.0
+                    t_etapa3 = 0.0
+                    t_etapa4 = 0.0
 
             except Exception as e:
                 tempo_decorrido_role = time.time() - tempo_inicio_role
                 str_tempo = formatar_tempo(tempo_decorrido_role)
 
                 err = str(e)
-                mt, sb = get_statusbar()
-                if mt in ("E", "A"):
-                    err = sb
+                if "Validação inconclusiva" in err:
+                    err = "Validação inconclusiva: não foi possível confirmar TCODEs existentes. Inserção bloqueada para evitar duplicação."
+                else:
+                    mt, sb = get_statusbar()
+                    if mt in ("E", "A"):
+                        err = sb
                 resultados[nome] = {"STATUS": "ERRO", "MSG": err, "TIMESTEMP": now_ts()}
 
                 print(f"\n🔴 ERRO: {err} ⏱️ (Tempo: {str_tempo})")
@@ -1257,6 +1860,24 @@ def executar(
                 
                 print(f"[METRIC] Role {nome} | total={t_total_role_s}s | etapa1={int(t_etapa1)}s | etapa2={int(t_etapa2)}s | etapa3={int(t_etapa3)}s | etapa4={int(t_etapa4)}s | doc_warn={doc_warn_count} | poller_timeout={poller_timeout_count}")
                 print(f"[METRIC_DETAIL] Subactions: abrir_pfcg={t_abrir_pfcg:.2f}s, nome_role={t_nome_role:.2f}s, modo_edicao={t_modo_edicao:.2f}s, descricao={t_descricao:.2f}s, guardar_inicial={t_guardar_inicial:.2f}s, aba_menu={t_aba_menu:.2f}s, tcodes={t_tcodes:.2f}s, guardar_tcodes={t_guardar_tcodes:.2f}s, evidencia_menu={t_evidencia_menu:.2f}s, aba_autorizacoes={t_aba_autorizacoes:.2f}s, sugerir_nome_perfil={t_sugerir_nome_perfil:.2f}s, guardar_alteracoes_auth={t_guardar_alteracoes_auth:.2f}s, gerar_perfil={t_gerar_perfil:.2f}s, fechar_popups={t_fechar_popups:.2f}s, evidencia_auth={t_evidencia_auth:.2f}s, transporte={t_transporte:.2f}s")
+                
+                # Checkpoint Excel save
+                try:
+                    col_st, col_ms, col_tm = header_map.get("STATUS"), header_map.get("MSG"), header_map.get("TIMESTEMP")
+                    for rec in records:
+                        chave_busca = str(rec["AGR_NAME"]).strip()
+                        res = resultados.get(chave_busca)
+                        if res:
+                            if col_st:
+                                ws.cell(row=rec["_row"], column=col_st).value = res["STATUS"]
+                            if col_ms:
+                                ws.cell(row=rec["_row"], column=col_ms).value = res["MSG"]
+                            if col_tm:
+                                ws.cell(row=rec["_row"], column=col_tm).value = res["TIMESTEMP"]
+                    wb.save(caminho_ficheiro)
+                except Exception as cp_exc:
+                    print(f"  ⚠️ Erro ao salvar checkpoint do Excel: {cp_exc}")
+
                 progress.advance(task_roles)
 
     ###################################################################################

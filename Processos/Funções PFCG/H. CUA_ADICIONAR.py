@@ -53,6 +53,12 @@ MAPA_SISTEMA = {
 # BLOCO 3: UTILITÁRIOS
 ###################################################################################
 
+def formatar_tempo(segundos):
+    m = int(segundos // 60)
+    s = int(segundos % 60)
+    return f"{m:02d}m {s:02d}s"
+
+
 def agora_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -594,69 +600,65 @@ def marcar_resultado(df_ref, idx, status, msg):
     df_ref.at[idx, "TIMESTEMP"] = agora_str()
 
 
-def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado):
+def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confirmacao=True, modo_nao_interativo=False):
     """
-    Atribui AGR_NAME ao UTILIZADOR via SU10.
-    STATUS final definido pelo histórico do wnd[0]/sbar.
+    Atribui AGR_NAME ao UTILIZADOR via SU10 de forma agrupada por utilizador/sistema.
     """
     if df_filtrado is None or df_filtrado.empty:
         return df_filtrado
 
-    total = len(df_filtrado)
+    # 1. Agrupar em memória por UTILIZADOR e SISTEMA
+    grupos = df_filtrado.groupby(["UTILIZADOR", "SISTEMA"], sort=False)
+    total_grupos = len(grupos)
+    
+    total_linhas_pendentes = len(df_filtrado)
+    total_roles_distintas = df_filtrado["AGR_NAME"].nunique()
+    
+    print(f"\n📋 Utilizadores a processar agrupados: {total_grupos}")
+    print(f"📋 Linhas pendentes: {total_linhas_pendentes}")
+    print(f"📋 Roles distintas: {total_roles_distintas}")
+
+    if not modo_nao_interativo and pedir_confirmacao:
+        resposta = input("Deseja lançar essas funções no SAP? [S/N]: ").strip().upper()
+        if resposta != "S":
+            print("❌ Lançamento cancelado pelo utilizador.")
+            return df_filtrado
+
     tempo_total_inicio = time.time()
 
-    resposta = input("Deseja lançar essas funções no SAP? [S/N]: ").strip().upper()
-    if resposta != "S":
-        print("❌ Lançamento cancelado pelo utilizador.")
-        return df_filtrado
-
-    for i, (idx, row) in enumerate(df_filtrado.iterrows(), 1):
+    for idx_grupo, ((utilizador, sistema), df_grupo) in enumerate(grupos, 1):
         inicio = time.time()
         eventos_status = []
+        
+        # Obter a lista de roles únicas a adicionar para este utilizador e sistema
+        roles_list = list(dict.fromkeys([str(r).strip() for r in df_grupo["AGR_NAME"] if str(r).strip()]))
+        
+        print("\n======================================================================")
+        print(f"▶ [{idx_grupo}/{total_grupos}] INICIANDO UTILIZADOR: {utilizador} | Sistema: {sistema} | Roles: {len(roles_list)}")
+        print("======================================================================")
 
-        utilizador = texto_limpo(row["UTILIZADOR"])
-        sistema = texto_limpo(row["SISTEMA"])
-        agr_name = texto_limpo(row["AGR_NAME"])
-
-        print(f"\n🔧 {i}/{total} - Utilizador: {utilizador} | Sistema: {sistema} | AGR_NAME: {agr_name}")
-
-        if valor_vazio(row["ID"]):
-            msg = "ID vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
-            continue
-
-        if not utilizador:
-            msg = "UTILIZADOR vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
-            continue
-
-        if not sistema:
-            msg = "SISTEMA vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
-            continue
-
-        if not agr_name:
-            msg = "AGR_NAME vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
+        # Verificar dados vazios
+        if not utilizador or not sistema or not roles_list:
+            msg = "Dados obrigatórios (UTILIZADOR/SISTEMA/ROLES) vazios."
+            for idx_row in df_grupo.index:
+                marcar_resultado(df_filtrado, idx_row, "ERRO", msg)
+            duracao_str = formatar_tempo(time.time() - inicio)
+            print(f"🔴 ERRO: {msg} ⏱️ (Tempo: {duracao_str})")
             continue
 
         try:
             sistema_conectado = texto_limpo(session.Info.SystemName).upper()
             if sistema_conectado != sistema_desejado:
-                msg = (
-                    f"Sistema SAP incorreto: esperado {sistema_desejado}, "
-                    f"conectado a {sistema_conectado}"
-                )
-                marcar_resultado(df_filtrado, idx, "ERRO", msg)
-                print(f"❌ {msg}")
+                msg = f"Sistema SAP incorreto: esperado {sistema_desejado}, conectado a {sistema_conectado}"
+                for idx_row in df_grupo.index:
+                    marcar_resultado(df_filtrado, idx_row, "ERRO", msg)
+                duracao_str = formatar_tempo(time.time() - inicio)
+                print(f"🔴 ERRO: {msg} ⏱️ (Tempo: {duracao_str})")
                 continue
 
             # 1) Abre SU10
-            print("\n[Etapa 2] Pesquisa de Utilizadores")
+            print("\n[Etapa 1] Pesquisa de Utilizador")
+            print("├─ Abrindo SU10...")
             ir_para_transacao(session, "SU10")
             capturar_status_bar(session, eventos_status, origem="ABERTURA_SU10", tentativas=5, espera=0.20)
 
@@ -672,16 +674,20 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado):
 
             if not esperar_elemento(session, campo_utilizador, tentativas=20, espera=0.5):
                 msg = "Falha ao abrir SU10."
-                marcar_resultado(df_filtrado, idx, "ERRO", msg)
-                print(f"❌ {msg}")
+                for idx_row in df_grupo.index:
+                    marcar_resultado(df_filtrado, idx_row, "ERRO", msg)
+                duracao_str = formatar_tempo(time.time() - inicio)
+                print(f"🔴 ERRO: {msg} ⏱️ (Tempo: {duracao_str})")
                 continue
 
             # 2) Preenche utilizador e seleciona
+            print(f"├─ Inserindo utilizador: {utilizador}")
             campo = session.findById(campo_utilizador)
             campo.text = ""
             campo.text = utilizador
             campo.caretPosition = len(utilizador)
 
+            print("└─ Selecionando utilizador...")
             session.findById(btn_selecionar).press()
             time.sleep(0.60)
             tipo_sel, _, msg_sel = capturar_status_bar(
@@ -693,12 +699,16 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado):
             )
 
             if normalizar_valor(tipo_sel) in ("E", "A", "X"):
-                marcar_resultado(df_filtrado, idx, "ERRO", montar_msg_final(eventos_status) or msg_sel)
-                print(f"❌ {montar_msg_final(eventos_status)}")
+                msg_final = montar_msg_final(eventos_status) or msg_sel
+                for idx_row in df_grupo.index:
+                    marcar_resultado(df_filtrado, idx_row, "ERRO", msg_final)
+                duracao_str = formatar_tempo(time.time() - inicio)
+                print(f"🔴 ERRO: {msg_final} ⏱️ (Tempo: {duracao_str})")
                 continue
 
             # 3) Vai para tab de funções
-            print("\n[Etapa 3] Atribuição no SAP CUA")
+            print("\n[Etapa 2] Atribuição de Funções no SAP CUA")
+            print("├─ Acedendo à aba de funções...")
             session.findById(tab_funcoes).select()
             time.sleep(0.40)
             capturar_status_bar(session, eventos_status, origem="ABERTURA_TAB_FUNCOES", tentativas=4, espera=0.20)
@@ -706,73 +716,145 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado):
             shell = esperar_elemento(session, shell_funcoes, tentativas=20, espera=0.5)
             if not shell:
                 msg = "Não foi possível abrir a aba de funções no SU10."
-                marcar_resultado(df_filtrado, idx, "ERRO", msg)
-                print(f"❌ {msg}")
+                for idx_row in df_grupo.index:
+                    marcar_resultado(df_filtrado, idx_row, "ERRO", msg)
+                duracao_str = formatar_tempo(time.time() - inicio)
+                print(f"🔴 ERRO: {msg} ⏱️ (Tempo: {duracao_str})")
                 continue
 
-            # 4) Preenche subsystem e AGR_NAME
-            shell.modifyCell(0, "SUBSYSTEM", sistema)
-            shell.modifyCell(0, "AGR_NAME", agr_name)
-            shell.currentCellColumn = "AGR_NAME"
-            shell.pressEnter()
-            time.sleep(0.70)
+            # 4) Preenche subsystem e AGR_NAME para cada uma das roles
+            print(f"├─ Preparando inserção de {len(roles_list)} role(s)...")
+            role_errors = {}
+            row_idx = 0
 
-            tipo_pre, _, _ = capturar_status_bar(
-                session,
-                eventos_status,
-                origem="VALIDACAO_AGR_NAME",
-                tentativas=8,
-                espera=0.20,
-            )
+            for r_idx, role_name in enumerate(roles_list):
+                print(f"├─ Inserindo role {r_idx+1}/{len(roles_list)}: {role_name}")
+                
+                # Procurar a primeira linha vazia a partir de row_idx
+                while row_idx < shell.rowCount:
+                    subsys = str(shell.getCellValue(row_idx, "SUBSYSTEM")).strip()
+                    agr = str(shell.getCellValue(row_idx, "AGR_NAME")).strip()
+                    if not subsys and not agr:
+                        break
+                    row_idx += 1
+                
+                try:
+                    if row_idx >= 5:
+                        shell.firstVisibleRow = row_idx - 4
+                        
+                    shell.modifyCell(row_idx, "SUBSYSTEM", sistema)
+                    shell.modifyCell(row_idx, "AGR_NAME", role_name)
+                    shell.currentCellColumn = "AGR_NAME"
+                    shell.pressEnter()
+                    time.sleep(0.5)
+                    
+                    local_events = []
+                    tipo_pre, _, msg_pre = capturar_status_bar(
+                        session,
+                        local_events,
+                        origem=f"VAL_ROLE_{role_name}",
+                        tentativas=5,
+                        espera=0.15,
+                    )
+                    
+                    if normalizar_valor(tipo_pre) in ("E", "A", "X"):
+                        err_msg = montar_msg_final(local_events) or msg_pre
+                        role_errors[role_name] = err_msg
+                        print(f"│  ⚠️ Falha na validação da role '{role_name}': {err_msg}")
+                        
+                        # Limpar a linha problemática
+                        shell.modifyCell(row_idx, "SUBSYSTEM", "")
+                        shell.modifyCell(row_idx, "AGR_NAME", "")
+                        shell.pressEnter()
+                        time.sleep(0.3)
+                    else:
+                        role_errors[role_name] = None
+                        row_idx += 1
+                        
+                except Exception as cell_exc:
+                    err_msg = str(cell_exc)
+                    role_errors[role_name] = err_msg
+                    print(f"│  ⚠️ Erro técnico ao inserir role '{role_name}': {err_msg}")
 
-            if normalizar_valor(tipo_pre) in ("E", "A", "X"):
-                msg_final = montar_msg_final(eventos_status)
-                marcar_resultado(df_filtrado, idx, "ERRO", msg_final)
-                print(f"❌ {msg_final}")
-                continue
+            # 5) Save - se pelo menos uma role correu bem
+            salvou_com_sucesso = False
+            save_msg = "Nenhuma role com sucesso para gravar."
+            sucesso_roles = [r for r, err in role_errors.items() if err is None]
 
-            # 5) Save - captura imediata antes de qualquer navegação
-            session.findById("wnd[0]/tbar[0]/btn[11]").press()
-            time.sleep(0.40)
+            if sucesso_roles:
+                print("└─ Guardando alterações...")
+                session.findById("wnd[0]/tbar[0]/btn[11]").press()
+                time.sleep(0.40)
+                
+                save_events = []
+                capturar_status_bar(
+                    session,
+                    save_events,
+                    origem="SAVE_IMEDIATO",
+                    tentativas=8,
+                    espera=0.20,
+                )
+                
+                tratar_popups_pos_save(session, save_events, max_popups=5)
+                
+                capturar_status_bar(
+                    session,
+                    save_events,
+                    origem="SAVE_FINAL",
+                    tentativas=10,
+                    espera=0.25,
+                )
+                
+                status_final = decidir_status_pelo_historico(save_events)
+                save_msg = montar_msg_final(save_events)
+                
+                if status_final == "CONCLUÍDO" or normalizar_valor(status_final) == "CONCLUIDO":
+                    salvou_com_sucesso = True
+                else:
+                    for r in sucesso_roles:
+                        role_errors[r] = f"Falha na gravação final: {save_msg}"
+            else:
+                print("└─ Gravação ignorada (todas as roles falharam).")
 
-            capturar_status_bar(
-                session,
-                eventos_status,
-                origem="SAVE_IMEDIATO",
-                tentativas=8,
-                espera=0.20,
-            )
+            # 6) Atribuir resultados linha a linha no df original
+            total_ok = 0
+            for idx_row in df_grupo.index:
+                row_role = str(df_filtrado.at[idx_row, "AGR_NAME"]).strip()
+                err = role_errors.get(row_role)
+                
+                if err:
+                    marcar_resultado(df_filtrado, idx_row, "ERRO", err)
+                else:
+                    if salvou_com_sucesso:
+                        msg_sucesso = f"{save_msg or 'Atribuído com sucesso'} | Role atribuída no processamento agrupado"
+                        marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg_sucesso)
+                        total_ok += 1
+                    else:
+                        marcar_resultado(df_filtrado, idx_row, "ERRO", f"Não gravado: {save_msg}")
 
-            # 6) Trata popups e volta a capturar sbar
-            tratar_popups_pos_save(session, eventos_status, max_popups=5)
-
-            capturar_status_bar(
-                session,
-                eventos_status,
-                origem="SAVE_FINAL",
-                tentativas=10,
-                espera=0.25,
-            )
-
-            # 7) Decide resultado final
-            status_final = decidir_status_pelo_historico(eventos_status)
-            msg_final = montar_msg_final(eventos_status)
-
-            marcar_resultado(df_filtrado, idx, status_final, msg_final)
-
+            # 7) Log de resultado do utilizador
+            print("\n[Etapa 3] Resultado do Utilizador")
             duracao = time.time() - inicio
-            print(f"{'✅' if status_final == 'CONCLUÍDO' else '❌'} {msg_final} | Tempo: {duracao:.1f}s")
+            duracao_str = formatar_tempo(duracao)
+            
+            roles_ok = sum(1 for err in role_errors.values() if err is None)
+            if salvou_com_sucesso and roles_ok == len(roles_list):
+                print(f"🟢 SUCESSO: Utilizador tratado por completo! Roles: {roles_ok}/{len(roles_list)} ⏱️ (Tempo: {duracao_str})")
+            else:
+                print(f"🔴 ERRO: Atribuição parcial ou falha na gravação. Roles: {total_ok}/{len(roles_list)} com sucesso. ⏱️ (Tempo: {duracao_str})")
 
         except Exception as e:
             msg = str(e)
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ Erro ao atribuir '{agr_name}' a '{utilizador}': {msg}")
+            for idx_row in df_grupo.index:
+                marcar_resultado(df_filtrado, idx_row, "ERRO", msg)
+            duracao_str = formatar_tempo(time.time() - inicio)
+            print(f"🔴 ERRO: {msg} ⏱️ (Tempo: {duracao_str})")
 
         finally:
             voltar_para_inicio(session)
 
     tempo_total = time.time() - tempo_total_inicio
-    print(f"\n⏱️ Tempo total: {tempo_total:.1f}s")
+    print(f"\n⏱️ Tempo total: {formatar_tempo(tempo_total)}")
 
     status_norm = df_filtrado["STATUS"].apply(normalizar_valor)
     total_ok = (status_norm == "CONCLUIDO").sum()
@@ -880,23 +962,39 @@ def gravar_preservando_formatacao(caminho_ficheiro, nome_sheet, df_atualizado):
 # BLOCO 10: API PARA O COCKPIT
 ###################################################################################
 
-def executar(ambiente, caminho_ficheiro=None):
+def executar(
+    ambiente_cockpit,
+    pfcg_object=None,
+    caminho_ficheiro=None,
+    request_transporte=None,
+    modo_nao_interativo=False,
+    pedir_confirmacao=True,
+    **kwargs
+):
+    tempo_inicio_total = time.time()
     print(f"✅ Processo selecionado: {NOME_SCRIPT}")
-    print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
 
-    if not caminho_ficheiro:
-        caminho_ficheiro = selecionar_ficheiro_excel()
+    sheet_alvo = pfcg_object if pfcg_object else NOME_SHEET
+    print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{sheet_alvo}'")
+
+    if modo_nao_interativo:
+        if not caminho_ficheiro:
+            raise ValueError("Faltou o parâmetro caminho_ficheiro em modo web/não-interativo.")
+    else:
+        if not caminho_ficheiro:
+            caminho_ficheiro = selecionar_ficheiro_excel()
+
     if not caminho_ficheiro:
         return False
 
     print("\n[Etapa 1] Leitura do Excel")
-    df = ler_ficheiro(caminho_ficheiro, NOME_SHEET)
+    df = ler_ficheiro(caminho_ficheiro, sheet_alvo)
     if df is None:
         return False
 
-    sistema_desejado = MAPA_SISTEMA.get(ambiente)
+    sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
     if not sistema_desejado:
-        print(f"❌ Ambiente inválido: {ambiente}. Use: {', '.join(MAPA_SISTEMA.keys())}")
+        print(f"❌ Ambiente inválido: {ambiente_cockpit}. Use: {', '.join(MAPA_SISTEMA.keys())}")
         return False
 
     session = conectar_sap(sistema_desejado)
@@ -905,12 +1003,27 @@ def executar(ambiente, caminho_ficheiro=None):
 
     df_pend = filtrar_pendentes(df)
     if df_pend.empty:
+        tempo_decorrido_total = time.time() - tempo_inicio_total
+        print(f"\n⏱️ Tempo total da operação: {formatar_tempo(tempo_decorrido_total)}")
+        print("🔁 Fim.")
         return True
 
-    df_proc = atribuir_funcao_usuario(df_pend.copy(), session, sistema_desejado)
+    df_proc = atribuir_funcao_usuario(
+        df_pend.copy(),
+        session,
+        sistema_desejado,
+        pedir_confirmacao=pedir_confirmacao,
+        modo_nao_interativo=modo_nao_interativo
+    )
 
     print("\n[Etapa 4] Gravação de Resultados")
-    ok_save = gravar_preservando_formatacao(caminho_ficheiro, NOME_SHEET, df_proc)
+    ok_save = gravar_preservando_formatacao(caminho_ficheiro, sheet_alvo, df_proc)
+    if ok_save:
+        print("💾 Resultados gravados com sucesso no Excel!")
+
+    tempo_decorrido_total = time.time() - tempo_inicio_total
+    print(f"\n⏱️ Tempo total da operação: {formatar_tempo(tempo_decorrido_total)}")
+    print("🔁 Fim.")
     return ok_save
 
 
@@ -923,7 +1036,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD", "CUA"])
     parser.add_argument("--xlsx")
+    parser.add_argument("--auto", action="store_true")
+    parser.add_argument("--no-confirm", action="store_true")
     args = parser.parse_args()
 
     env_cli = args.ambiente or "CUA"
-    executar(env_cli, caminho_ficheiro=args.xlsx)
+    executar(
+        ambiente_cockpit=env_cli,
+        caminho_ficheiro=args.xlsx,
+        modo_nao_interativo=bool(args.auto),
+        pedir_confirmacao=(not args.no_confirm)
+    )
