@@ -707,15 +707,16 @@ def salvar_resultado(df, caminho_ficheiro, nome_sheet):
 # BLOCO 8: EXECUTAR PROCESSO
 ###################################################################################
 
-def executar(ambiente):
+def executar(ambiente, caminho_ficheiro=None):
     print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
 
-    caminho = selecionar_ficheiro_excel()
-    if not caminho:
+    if not caminho_ficheiro:
+        caminho_ficheiro = selecionar_ficheiro_excel()
+    if not caminho_ficheiro:
         return
 
     print("\n[Etapa 1] Leitura do Excel")
-    df = ler_ficheiro_excel(caminho, NOME_SHEET)
+    df = ler_ficheiro_excel(caminho_ficheiro, NOME_SHEET)
     if df is None:
         return
 
@@ -730,9 +731,14 @@ def executar(ambiente):
 
     df_final = remover_funcao_usuario(df, session)
     print("\n[Etapa 4] Gravação de Resultados")
-    salvar_resultado(df_final, caminho, NOME_SHEET)
+    salvar_resultado(df_final, caminho_ficheiro, NOME_SHEET)
 
-###################################################################################
-# EXEMPLO DE CHAMADA:
-# executar("CUA")
-###################################################################################
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD", "CUA"])
+    parser.add_argument("--xlsx")
+    args = parser.parse_args()
+
+    env_cli = args.ambiente or "CUA"
+    executar(env_cli, caminho_ficheiro=args.xlsx)

@@ -180,19 +180,92 @@ def ler_ficheiro(caminho_ficheiro, nome_sheet):
         ext = os.path.splitext(caminho_ficheiro)[1].lower()
         keep_vba = ext == ".xlsm"
 
+        # 1. Carregar em openpyxl para verificar e criar cabeçalhos em falta
         wb = load_workbook(
             caminho_ficheiro,
-            read_only=True,
+            read_only=False,
             data_only=False,
             keep_vba=keep_vba,
         )
         sheets = wb.sheetnames
-        wb.close()
-
         if nome_sheet not in sheets:
             print(f"❌ Sheet '{nome_sheet}' não encontrada. Disponíveis: {', '.join(sheets)}")
+            wb.close()
             return None
 
+        ws = wb[nome_sheet]
+        
+        # Obter os cabeçalhos reais da linha 1
+        headers_linha_1 = [c.value for c in ws[1]]
+        headers_norm = [normalizar_coluna(h) if h is not None else "" for h in headers_linha_1]
+
+        renames = {
+            "USER": "UTILIZADOR",
+            "USERNAME": "UTILIZADOR",
+            "SYSTEM": "SISTEMA",
+            "FUNCAO": "AGR_NAME",
+            "FUNÇÃO": "AGR_NAME",
+            "ROLE": "AGR_NAME",
+            "NOME FUNCAO": "AGR_NAME",
+            "NOME FUNÇAO": "AGR_NAME",
+            "NOME FUNÇÂO": "AGR_NAME",
+            "AGRNAME": "AGR_NAME",
+            "TIMESTAMP": "TIMESTEMP",
+        }
+
+        resolved_headers = []
+        for h in headers_norm:
+            resolved_headers.append(renames.get(h, h))
+
+        # Colunas de entrada obrigatórias
+        colunas_entrada = {"ID", "UTILIZADOR", "SISTEMA", "AGR_NAME"}
+        # Colunas de saída que podem ser criadas
+        colunas_saida = {"STATUS": "STATUS", "MSG": "MSG", "TIMESTEMP": "TIMESTEMP"}
+
+        # Verificar se as colunas de entrada existem
+        falta_entrada = [c for c in colunas_entrada if c not in resolved_headers]
+        if falta_entrada:
+            print(f"❌ Colunas obrigatórias de entrada em falta: {', '.join(falta_entrada)}")
+            wb.close()
+            return None
+
+        # Se as colunas de entrada existem, podemos prosseguir e criar as colunas de saída em falta
+        modificou = False
+        last_col = len(headers_norm)
+        for col_key, col_name in colunas_saida.items():
+            if col_key not in resolved_headers:
+                last_col += 1
+                ws.cell(row=1, column=last_col, value=col_name)
+                print(f"➕ Coluna '{col_name}' criada automaticamente na coluna {last_col}.")
+                modificou = True
+
+        # Validar e remover espaços do nome da Role (AGR_NAME) diretamente no Excel
+        col_idx_agr = resolved_headers.index("AGR_NAME") + 1
+        modificou_roles = False
+        for r in range(2, ws.max_row + 1):
+            cell_val = ws.cell(row=r, column=col_idx_agr).value
+            if cell_val is not None:
+                agr = str(cell_val).strip()
+                if " " in agr:
+                    orig = agr
+                    agr = agr.replace(" ", "")
+                    ws.cell(row=r, column=col_idx_agr, value=agr)
+                    print(f"⚠️ Espaços detetados e removidos da Role: '{orig}' -> '{agr}' (atualizado no Excel)")
+                    modificou_roles = True
+
+        if modificou or modificou_roles:
+            try:
+                wb.save(caminho_ficheiro)
+                print("💾 Ficheiro Excel guardado com as correções de cabeçalhos/roles.")
+            except Exception as e:
+                wb.close()
+                print(f"❌ Erro ao guardar o ficheiro Excel com as novas colunas/roles: {e}")
+                print("💡 Certifique-se de que o ficheiro Excel não está aberto no Excel e tente novamente.")
+                return None
+
+        wb.close()
+
+        # 2. Carregar o DataFrame em pandas para uso no script
         df = pd.read_excel(caminho_ficheiro, sheet_name=nome_sheet, dtype=object)
         df.columns = [normalizar_coluna(c) for c in df.columns]
 
@@ -807,16 +880,17 @@ def gravar_preservando_formatacao(caminho_ficheiro, nome_sheet, df_atualizado):
 # BLOCO 10: API PARA O COCKPIT
 ###################################################################################
 
-def executar(ambiente):
+def executar(ambiente, caminho_ficheiro=None):
     print(f"✅ Processo selecionado: {NOME_SCRIPT}")
     print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
 
-    caminho = selecionar_ficheiro_excel()
-    if not caminho:
+    if not caminho_ficheiro:
+        caminho_ficheiro = selecionar_ficheiro_excel()
+    if not caminho_ficheiro:
         return False
 
     print("\n[Etapa 1] Leitura do Excel")
-    df = ler_ficheiro(caminho, NOME_SHEET)
+    df = ler_ficheiro(caminho_ficheiro, NOME_SHEET)
     if df is None:
         return False
 
@@ -836,7 +910,7 @@ def executar(ambiente):
     df_proc = atribuir_funcao_usuario(df_pend.copy(), session, sistema_desejado)
 
     print("\n[Etapa 4] Gravação de Resultados")
-    ok_save = gravar_preservando_formatacao(caminho, NOME_SHEET, df_proc)
+    ok_save = gravar_preservando_formatacao(caminho_ficheiro, NOME_SHEET, df_proc)
     return ok_save
 
 
@@ -845,4 +919,11 @@ def executar(ambiente):
 ###################################################################################
 
 if __name__ == "__main__":
-    executar("CUA")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD", "CUA"])
+    parser.add_argument("--xlsx")
+    args = parser.parse_args()
+
+    env_cli = args.ambiente or "CUA"
+    executar(env_cli, caminho_ficheiro=args.xlsx)

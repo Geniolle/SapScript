@@ -515,6 +515,11 @@ input, select {
   border-color: rgba(239, 68, 68, 0.3);
   background: rgba(239, 68, 68, 0.04);
 }
+.badge-outline.succeeded_with_warnings {
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.3);
+  background: rgba(217, 119, 6, 0.04);
+}
 
 /* Connected Wizard Steps */
 .wizard-steps {

@@ -42,15 +42,30 @@ def complete_job(job_id: str, state: str, status: str, log: str) -> None:
 
 
 def process_job(job: dict[str, Any]) -> None:
+    status = "Execução falhou"
+    log = ""
+    state = "failed"
     try:
         status, log = run_sap_task(job)
-        complete_job(job["id"], "succeeded", status, log)
+        has_warnings = "[DOC_WARN]" in log or "[TECHNICAL WARN]" in log or "warning" in status.lower()
+        if has_warnings:
+            state = "succeeded_with_warnings"
+        else:
+            state = "succeeded"
     except JobCancelledException:
         print(f"❌ Job {job['id']} interrompido e cancelado com sucesso no SAP.")
+        status = "Cancelado pelo utilizador"
+        log = "O pedido foi cancelado manualmente via interface web."
+        state = "failed"
     except BaseException as exc:
         status = str(exc) or "Erro sem mensagem (ou sys.exit)"
         log = traceback.format_exc()
-        complete_job(job["id"], "failed", status, log)
+        state = "failed"
+    finally:
+        try:
+            complete_job(job["id"], state, status, log)
+        except Exception as e:
+            print(f"Erro ao completar job {job['id']}: {e}")
 
 
 def main() -> None:

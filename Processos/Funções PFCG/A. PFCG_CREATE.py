@@ -144,23 +144,43 @@ def executar(
 
     header_row = None
     header_map = {}
-    melhor_linha = 0
-    max_matches = 0
+    
+    COLUNAS_ENTRADA = {"AGR_NAME", "TEXT", "TCODE"}
+    COLUNAS_SAIDA = {"STATUS": "STATUS", "MSG": "MSG", "TIMESTEMP": "TIMESTEMP"}
 
     for r in range(1, SEARCH_HEADER_IN_FIRST_ROWS + 1):
         row_vals = [norm_col(c.value) for c in ws[r]]
-        colunas_encontradas = set(row_vals).intersection(COLUNAS_OBRIGATORIAS)
-        qtd_encontradas = len(colunas_encontradas)
+        colunas_entrada_encontradas = set(row_vals).intersection(COLUNAS_ENTRADA)
 
-        if qtd_encontradas > max_matches:
-            max_matches = qtd_encontradas
-            melhor_linha = r
-
-        if qtd_encontradas == len(COLUNAS_OBRIGATORIAS):
+        if len(colunas_entrada_encontradas) == len(COLUNAS_ENTRADA):
             header_row = r
             for idx, name in enumerate(row_vals, start=1):
                 if name:
                     header_map[name] = idx
+            
+            modificou = False
+            last_col = 0
+            for idx, val in enumerate(row_vals, start=1):
+                if val:
+                    last_col = idx
+
+            for col_key, col_name in COLUNAS_SAIDA.items():
+                if col_key not in header_map:
+                    last_col += 1
+                    ws.cell(row=r, column=last_col, value=col_name)
+                    header_map[col_key] = last_col
+                    print(f"➕ Coluna '{col_name}' criada automaticamente na coluna {last_col}.")
+                    modificou = True
+            
+            if modificou:
+                try:
+                    wb.save(caminho_ficheiro)
+                    print("💾 Ficheiro Excel guardado com as novas colunas.")
+                except Exception as e:
+                    wb.close()
+                    print(f"❌ Erro ao guardar o ficheiro Excel com as novas colunas: {e}")
+                    print("💡 Certifique-se de que o ficheiro Excel não está aberto no Excel e tente novamente.")
+                    return
             break
 
     if not header_row:
@@ -182,6 +202,17 @@ def executar(
         agr = "" if agr_val is None else str(agr_val).strip()
         if not agr:
             continue
+
+        # Validar e remover espaços do nome da Role
+        if " " in agr:
+            orig = agr
+            agr = agr.replace(" ", "")
+            ws.cell(row=r, column=col_agr, value=agr)
+            print(f"⚠️ Espaços detetados e removidos da Role: '{orig}' -> '{agr}' (atualizado no Excel)")
+            try:
+                wb.save(caminho_ficheiro)
+            except Exception:
+                pass
 
         text_val = ws.cell(row=r, column=col_text).value if col_text else None
         tcode_val = ws.cell(row=r, column=col_tcode).value if col_tcode else None
@@ -533,6 +564,7 @@ def executar(
         para evitar mover qualquer outra janela (browser, Word, VS Code, etc.).
         Não interrompe o SAP se falhar.
         """
+        t_start = time.time()
         try:
             import win32gui
             import win32con
@@ -595,16 +627,12 @@ def executar(
             win_y = origin_y + int(screen_h * DOC_SAP_WINDOW_Y_RATIO)
 
             # ------------------------------------------------------------------
-            # 3. Restaurar se minimizada, remover maximização, reposicionar
+            # 3. Forçar minimização e depois restauro garante que a janela ganha foco/primeiro plano no Windows
             # ------------------------------------------------------------------
-            placement = win32gui.GetWindowPlacement(hwnd)
-            if placement[1] == win32con.SW_SHOWMINIMIZED:
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                time.sleep(0.2)
-
-            # SW_SHOWNORMAL remove maximização antes de chamar SetWindowPos
-            win32gui.ShowWindow(hwnd, win32con.SW_SHOWNORMAL)
-            time.sleep(0.1)
+            win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+            time.sleep(0.15)
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            time.sleep(0.2)
 
             win32gui.SetWindowPos(
                 hwnd,
@@ -613,17 +641,23 @@ def executar(
                 win32con.SWP_SHOWWINDOW,
             )
 
-            # Trazer para primeiro plano e aguardar antes do print
-            win32gui.SetForegroundWindow(hwnd)
+            # Trazer para primeiro plano (com tratamento de erro silencioso se o Windows bloquear)
+            try:
+                win32gui.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
             time.sleep(DOC_SCREENSHOT_DELAY_SECONDS)
 
         except Exception as _pos_exc:
-            print(f"[DOC_WARN] Não foi possível posicionar a janela SAP para captura de evidência: {_pos_exc}")
+            t_spent = time.time() - t_start
+            os.environ["CURRENT_ROLE_DOC_WARN"] = str(int(os.environ.get("CURRENT_ROLE_DOC_WARN", 0)) + 1)
+            print(f"[DOC_WARN] Não foi possível posicionar a janela SAP para captura de evidência: {_pos_exc} | Tempo gasto antes do aviso: {t_spent:.2f}s")
 
 
     def capture_screenshot(role_name, momento, idx):
         if not doc_session or not doc_session.enabled:
             return None
+        t_start = time.time()
         try:
             safe_role = re.sub(r"[^a-zA-Z0-9_-]", "_", role_name)
             filename = f"{idx:02d}_{safe_role}_{momento}.png"
@@ -646,10 +680,14 @@ def executar(
             if filepath.exists():
                 return str(filepath)
             else:
-                print(f"[DOC_WARN] Não foi possível capturar evidência da role {role_name} no momento {momento}")
+                t_spent = time.time() - t_start
+                os.environ["CURRENT_ROLE_DOC_WARN"] = str(int(os.environ.get("CURRENT_ROLE_DOC_WARN", 0)) + 1)
+                print(f"[DOC_WARN] Não foi possível capturar evidência da role {role_name} no momento {momento} | Tempo gasto antes do aviso: {t_spent:.2f}s")
                 return None
         except Exception as exc:
-            print(f"[DOC_WARN] Não foi possível capturar evidência: {exc}")
+            t_spent = time.time() - t_start
+            os.environ["CURRENT_ROLE_DOC_WARN"] = str(int(os.environ.get("CURRENT_ROLE_DOC_WARN", 0)) + 1)
+            print(f"[DOC_WARN] Não foi possível capturar evidência: {exc} | Tempo gasto antes do aviso: {t_spent:.2f}s")
             return None
 
     ###################################################################################
@@ -914,29 +952,40 @@ def executar(
             return inserted_total
 
         def generate_authorization_profile(self):
+            stats = {}
+            
+            t0 = time.time()
             if not self.goto_auth_tab():
-                return False
+                return False, stats
             tratar_popup_modal()
-
+            stats["aba_autorizacoes"] = time.time() - t0
+ 
+            t0 = time.time()
             print("  ├─ Clicando em 'Sugerir nome de perfil'...")
             try_actions([{
                 "path": "wnd[0]/usr/tabsTABSTRIP1/tabpTAB5/ssubSUB1:SAPLPRGN_TREE:0350/btnPROFIL1",
                 "op": "press"
             }])
-
+ 
             if _safe_find("wnd[1]"):
                 print("  ├─ Confirmando a sugestão de nome de perfil no popup...")
                 try_actions([{"path": "wnd[1]/tbar[0]/btn[11]", "op": "press"}])
-
+            stats["sugerir_nome_perfil"] = time.time() - t0
+ 
+            t0 = time.time()
             self.save("  ├─ Guardando a Role antes de gerar as autorizações...")
-
+            stats["guardar_alteracoes"] = time.time() - t0
+ 
+            t0 = time.time()
             print("  ├─ Acionando a Geração de Perfil... a aguardar...")
             try_actions([{"path": "wnd[0]/tbar[1]/btn[17]", "op": "press"}])
-
+ 
             if _safe_find("wnd[1]"):
                 print("  ├─ Confirmando a geração de perfil na janela intermédia...")
                 try_actions([{"path": "wnd[1]/usr/btnBUTTON_1", "op": "press"}])
-
+            stats["gerar_perfil"] = time.time() - t0
+ 
+            t0 = time.time()
             if _safe_find("wnd[1]"):
                 print("  └─ Fechando popup de logs de autorização...")
                 try:
@@ -944,20 +993,21 @@ def executar(
                 except:
                     pass
                 _esperar_sap_livre()
-
+            stats["fechar_popups"] = time.time() - t0
+ 
             try:
                 self.sess.findById("wnd[0]").sendVKey(0)
             except:
                 pass
             _esperar_sap_livre()
             tratar_popup_modal()
-
+ 
             mt, sb = get_statusbar()
             if sb and mt not in ("E", "A"):
                 print(f"     ✔️ SAP: {sb}")
             else:
                 print("     ✔️ SAP: Perfil gerado e confirmado.")
-            return True
+            return True, stats
 
         def execute_transport_and_exit(self, req_num):
             if req_num:
@@ -1002,6 +1052,7 @@ def executar(
     ###################################################################################
     pfcg = PFCGPage(session)
     resultados = {}
+    role_metrics = {}
 
     total_roles = len(roles_agrupadas)
 
@@ -1021,6 +1072,10 @@ def executar(
 
             progress.update(task_roles, description=f"A processar role: {nome}")
 
+            # Reset counts in environment variables for the current role
+            os.environ["CURRENT_ROLE_DOC_WARN"] = "0"
+            os.environ["CURRENT_ROLE_POLLER_TIMEOUT"] = "0"
+
             if doc_session and doc_session.enabled:
                 doc_session.start_role_section(nome, desc, len(tcodes))
 
@@ -1030,20 +1085,77 @@ def executar(
 
             tempo_inicio_role = time.time()
 
+            # Subaction timing variables
+            t_abrir_pfcg = 0.0
+            t_nome_role = 0.0
+            t_modo_edicao = 0.0
+            t_descricao = 0.0
+            t_guardar_inicial = 0.0
+            
+            t_aba_menu = 0.0
+            t_tcodes = 0.0
+            t_guardar_tcodes = 0.0
+            t_evidencia_menu = 0.0
+            
+            t_aba_autorizacoes = 0.0
+            t_sugerir_nome_perfil = 0.0
+            t_guardar_alteracoes_auth = 0.0
+            t_gerar_perfil = 0.0
+            t_fechar_popups = 0.0
+            t_evidencia_auth = 0.0
+            
+            t_transporte = 0.0
+
+            t_etapa1 = 0.0
+            t_etapa2 = 0.0
+            t_etapa3 = 0.0
+            t_etapa4 = 0.0
+
             try:
+                # [Etapa 1] Preparação e Dados Básicos
+                t_inicio_etapa1 = time.time()
                 print("\n[Etapa 1] Preparação e Dados Básicos")
+                
+                t0 = time.time()
                 pfcg.open()
-                if not pfcg.set_role_name(nome):
+                t_abrir_pfcg = time.time() - t0
+                
+                t0 = time.time()
+                set_role_ok = pfcg.set_role_name(nome)
+                t_nome_role = time.time() - t0
+                if not set_role_ok:
                     raise Exception("Falha ao escrever AGR_NAME.")
+                
+                t0 = time.time()
                 modo = pfcg.open_for_edit()
+                t_modo_edicao = time.time() - t0
+                
+                t0 = time.time()
                 pfcg.set_description(desc)
+                t_descricao = time.time() - t0
+                
+                t0 = time.time()
                 pfcg.save("  └─ Guardando alterações iniciais...")
+                t_guardar_inicial = time.time() - t0
+                t_etapa1 = time.time() - t_inicio_etapa1
 
+                # [Etapa 2] Atribuição de Transações (Aba Menu)
+                t_inicio_etapa2 = time.time()
                 print("\n[Etapa 2] Atribuição de Transações (Aba Menu)")
+                
+                t0 = time.time()
                 pfcg.goto_menu_tab()
+                t_aba_menu = time.time() - t0
+                
+                t0 = time.time()
                 qtd_ins = pfcg.add_tcodes(tcodes)
+                t_tcodes = time.time() - t0
+                
+                t0 = time.time()
                 pfcg.save("  └─ Guardando Transações inseridas...")
+                t_guardar_tcodes = time.time() - t0
 
+                t0 = time.time()
                 if doc_session and doc_session.enabled:
                     shot = capture_screenshot(nome, "menu_transacoes_gravadas", idx)
                     if shot:
@@ -1053,10 +1165,23 @@ def executar(
                             f"Aba Menu da role {nome} após atribuição das transações e confirmação de gravação no SAP.",
                             shot
                         )
+                t_evidencia_menu = time.time() - t0
+                t_etapa2 = time.time() - t_inicio_etapa2
 
+                # [Etapa 3] Geração do Perfil de Autorizações
+                t_inicio_etapa3 = time.time()
                 print("\n[Etapa 3] Geração do Perfil de Autorizações")
-                pfcg.generate_authorization_profile()
+                success_auth, t_stats_auth = pfcg.generate_authorization_profile()
+                if not success_auth:
+                    raise Exception("Falha na geração do perfil de autorizações.")
+                
+                t_aba_autorizacoes = t_stats_auth.get("aba_autorizacoes", 0.0)
+                t_sugerir_nome_perfil = t_stats_auth.get("sugerir_nome_perfil", 0.0)
+                t_guardar_alteracoes_auth = t_stats_auth.get("guardar_alteracoes", 0.0)
+                t_gerar_perfil = t_stats_auth.get("gerar_perfil", 0.0)
+                t_fechar_popups = t_stats_auth.get("fechar_popups", 0.0)
 
+                t0 = time.time()
                 if doc_session and doc_session.enabled:
                     shot = capture_screenshot(nome, "perfil_gerado", idx)
                     if shot:
@@ -1066,9 +1191,17 @@ def executar(
                             f"Perfil de autorizações da role {nome} gerado e confirmado no SAP.",
                             shot
                         )
+                t_evidencia_auth = time.time() - t0
+                t_etapa3 = time.time() - t_inicio_etapa3
 
+                # [Etapa 4] Ordem de Transporte e Encerramento
+                t_inicio_etapa4 = time.time()
                 print("\n[Etapa 4] Ordem de Transporte e Encerramento")
+                
+                t0 = time.time()
                 pfcg.execute_transport_and_exit(request_transporte)
+                t_transporte = time.time() - t0
+                t_etapa4 = time.time() - t_inicio_etapa4
 
                 tempo_decorrido_role = time.time() - tempo_inicio_role
                 str_tempo = formatar_tempo(tempo_decorrido_role)
@@ -1107,7 +1240,24 @@ def executar(
                 except:
                     pass
 
-            progress.advance(task_roles)
+            finally:
+                t_total_role_s = int(time.time() - tempo_inicio_role)
+                doc_warn_count = int(os.environ.get("CURRENT_ROLE_DOC_WARN", 0))
+                poller_timeout_count = int(os.environ.get("CURRENT_ROLE_POLLER_TIMEOUT", 0))
+                
+                role_metrics[nome] = {
+                    "total": t_total_role_s,
+                    "etapa1": int(t_etapa1),
+                    "etapa2": int(t_etapa2),
+                    "etapa3": int(t_etapa3),
+                    "etapa4": int(t_etapa4),
+                    "doc_warn": doc_warn_count,
+                    "poller_timeout": poller_timeout_count
+                }
+                
+                print(f"[METRIC] Role {nome} | total={t_total_role_s}s | etapa1={int(t_etapa1)}s | etapa2={int(t_etapa2)}s | etapa3={int(t_etapa3)}s | etapa4={int(t_etapa4)}s | doc_warn={doc_warn_count} | poller_timeout={poller_timeout_count}")
+                print(f"[METRIC_DETAIL] Subactions: abrir_pfcg={t_abrir_pfcg:.2f}s, nome_role={t_nome_role:.2f}s, modo_edicao={t_modo_edicao:.2f}s, descricao={t_descricao:.2f}s, guardar_inicial={t_guardar_inicial:.2f}s, aba_menu={t_aba_menu:.2f}s, tcodes={t_tcodes:.2f}s, guardar_tcodes={t_guardar_tcodes:.2f}s, evidencia_menu={t_evidencia_menu:.2f}s, aba_autorizacoes={t_aba_autorizacoes:.2f}s, sugerir_nome_perfil={t_sugerir_nome_perfil:.2f}s, guardar_alteracoes_auth={t_guardar_alteracoes_auth:.2f}s, gerar_perfil={t_gerar_perfil:.2f}s, fechar_popups={t_fechar_popups:.2f}s, evidencia_auth={t_evidencia_auth:.2f}s, transporte={t_transporte:.2f}s")
+                progress.advance(task_roles)
 
     ###################################################################################
     # BLOCO 5: GRAVAR EXCEL E TEMPO TOTAL
@@ -1130,6 +1280,36 @@ def executar(
         print("\n💾 Resultados gravados com sucesso no Excel!")
     except Exception as e:
         print(f"\n❌ Erro a gravar Excel: {e}")
+
+    # Imprimir Resumo Comparativo das Roles
+    if role_metrics:
+        try:
+            fastest_role = min(role_metrics.keys(), key=lambda k: role_metrics[k]["total"])
+            slowest_role = max(role_metrics.keys(), key=lambda k: role_metrics[k]["total"])
+            
+            print("\n=======================================================")
+            print("📊 RESUMO COMPARATIVO DE PERFORMANCE DAS ROLES")
+            print("=======================================================")
+            print(f" - Role mais rápida: {fastest_role} ({role_metrics[fastest_role]['total']}s)")
+            print(f" - Role mais lenta: {slowest_role} ({role_metrics[slowest_role]['total']}s)")
+            
+            print("\n⏱️ Etapa mais lenta por Role:")
+            for r_name, m in role_metrics.items():
+                stages = {
+                    "Etapa 1": m["etapa1"],
+                    "Etapa 2": m["etapa2"],
+                    "Etapa 3": m["etapa3"],
+                    "Etapa 4": m["etapa4"]
+                }
+                slowest_stage = max(stages.keys(), key=lambda k: stages[k])
+                print(f"   • {r_name}: {slowest_stage} ({stages[slowest_stage]}s)")
+                
+            print("\n⚠️ Alertas técnicos acumulados por Role:")
+            for r_name, m in role_metrics.items():
+                print(f"   • {r_name}: DOC_WARN={m['doc_warn']} | timeouts={m['poller_timeout']}")
+            print("=======================================================\n")
+        except Exception as summary_exc:
+            print(f"\n[DEBUG] Falha ao gerar resumo comparativo: {summary_exc}")
 
     tempo_decorrido_total = time.time() - tempo_inicio_total
     print(f"\n⏱️ Tempo total da operação: {formatar_tempo(tempo_decorrido_total)}")

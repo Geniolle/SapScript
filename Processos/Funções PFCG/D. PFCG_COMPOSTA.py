@@ -145,31 +145,50 @@ def executar(
     header_row = None
     header_map = {}
 
+    COLUNAS_SAIDA = {"STATUS": "STATUS", "MSG": "MSG", "TIMESTEMP": "TIMESTEMP"}
+
     for r in range(1, SEARCH_HEADER_IN_FIRST_ROWS + 1):
         row_vals = [norm_col(c.value) for c in ws[r]]
         row_set = set(row_vals)
         
-        # Check if the minimal columns are present
-        if not COLUNAS_OBRIGATORIAS_MINIMAS.issubset(row_set):
+        # O cabeçalho deve pelo menos ter TEXT e AGR_NAME
+        if "TEXT" not in row_set or "AGR_NAME" not in row_set:
             continue
             
-        # Format 1: AGR_NAME_COMPOSTA and AGR_NAME are both present
-        if "AGR_NAME_COMPOSTA" in row_set and "AGR_NAME" in row_set:
+        is_format_1 = "AGR_NAME_COMPOSTA" in row_set
+        is_format_2 = len(OPCOES_ROLES.intersection(row_set)) >= 1
+        
+        if is_format_1 or is_format_2:
             header_row = r
             for idx, name in enumerate(row_vals, start=1):
                 if name:
                     header_map[name] = idx
-            break
             
-        # Format 2: AGR_NAME is present, and we have one of the role list columns
-        if "AGR_NAME" in row_set:
-            has_role_col = len(OPCOES_ROLES.intersection(row_set)) >= 1
-            if has_role_col:
-                header_row = r
-                for idx, name in enumerate(row_vals, start=1):
-                    if name:
-                        header_map[name] = idx
-                break
+            # Verificar se faltam colunas de saída e criá-las
+            modificou = False
+            last_col = 0
+            for idx, val in enumerate(row_vals, start=1):
+                if val:
+                    last_col = idx
+
+            for col_key, col_name in COLUNAS_SAIDA.items():
+                if col_key not in header_map:
+                    last_col += 1
+                    ws.cell(row=r, column=last_col, value=col_name)
+                    header_map[col_key] = last_col
+                    print(f"➕ Coluna '{col_name}' criada automaticamente na coluna {last_col}.")
+                    modificou = True
+
+            if modificou:
+                try:
+                    wb.save(caminho_ficheiro)
+                    print("💾 Ficheiro Excel guardado com as novas colunas.")
+                except Exception as e:
+                    wb.close()
+                    print(f"❌ Erro ao guardar o ficheiro Excel com as novas colunas: {e}")
+                    print("💡 Certifique-se de que o ficheiro Excel não está aberto no Excel e tente novamente.")
+                    return
+            break
 
     if not header_row:
         wb.close()
@@ -199,6 +218,17 @@ def executar(
         agr = "" if agr_val is None else str(agr_val).strip()
         if not agr:
             continue
+
+        # Validar e remover espaços do nome da Role
+        if " " in agr:
+            orig = agr
+            agr = agr.replace(" ", "")
+            ws.cell(row=r, column=col_agr, value=agr)
+            print(f"⚠️ Espaços detetados e removidos da Role: '{orig}' -> '{agr}' (atualizado no Excel)")
+            try:
+                wb.save(caminho_ficheiro)
+            except Exception:
+                pass
 
         text_val = ws.cell(row=r, column=col_text).value if col_text else None
         roles_val = ws.cell(row=r, column=col_roles).value if col_roles else None

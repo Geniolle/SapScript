@@ -304,7 +304,7 @@ def claim_next_job(worker_name: str) -> dict[str, Any] | None:
 
 
 def complete_job(job_id: str, state: str, status: str, log: str) -> dict[str, Any]:
-    if state not in {"succeeded", "failed"}:
+    if state not in {"succeeded", "failed", "succeeded_with_warnings"}:
         raise ValueError("Estado final inválido.")
 
     now = utc_now()

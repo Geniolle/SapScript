@@ -400,6 +400,88 @@
     .activity-log-scroll {
       scroll-behavior: smooth;
     }
+
+    /* Role Group Accordion */
+    .role-group {
+      border: 1px solid #e1e4e8;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: box-shadow 0.2s ease;
+    }
+    .role-group:last-child { margin-bottom: 0; }
+    .role-group.role-running {
+      border-color: rgba(59, 130, 246, 0.35);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.06);
+    }
+    .role-group.role-error {
+      border-color: rgba(239, 68, 68, 0.35);
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.06);
+    }
+    .role-group.role-warning {
+      border-color: rgba(245, 158, 11, 0.35);
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.06);
+    }
+    .role-group.role-succeeded {
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+    .role-group-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: #f6f8fa;
+      border-bottom: 1px solid #e1e4e8;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+    .role-group-header:hover { background: #edf0f3; }
+    .role-group.role-running .role-group-header { background: rgba(59, 130, 246, 0.04); }
+    .role-group.role-error .role-group-header { background: rgba(239, 68, 68, 0.04); }
+    .role-group.role-warning .role-group-header { background: rgba(245, 158, 11, 0.04); }
+    .role-group.role-succeeded .role-group-header { background: rgba(16, 185, 129, 0.03); }
+    .role-group-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+      border: 2px solid #ffffff; box-shadow: 0 0 0 1px rgba(27,31,35,0.15);
+    }
+    .role-group-title {
+      font-size: 13px; font-weight: 700; color: var(--text-primary); flex: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .role-group-meta {
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    }
+    .role-group-badge {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 2px 7px; border-radius: 20px; border: 1px solid currentColor; opacity: 0.85;
+    }
+    .role-group-badge.badge-running  { color: #3b82f6; }
+    .role-group-badge.badge-succeeded { color: #10b981; }
+    .role-group-badge.badge-error    { color: #ef4444; }
+    .role-group-badge.badge-warning  { color: #f59e0b; }
+    .role-group-badge.badge-pending  { color: #8c959f; }
+    .role-group-chevron {
+      color: #8c959f; flex-shrink: 0; transition: transform 0.25s ease;
+      font-size: 12px; line-height: 1;
+    }
+    .role-group-body {
+      padding: 16px 14px 8px 14px;
+    }
+    .role-group-init {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      margin-bottom: 4px;
+    }
+    .role-group-init .role-group-header {
+      background: transparent;
+      border-bottom: 1px dashed #e1e4e8;
+      padding-left: 0;
+    }
+    .role-group-init .role-group-title { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .role-group-diag .role-group-header { background: rgba(245, 158, 11, 0.04); border-color: rgba(245, 158, 11, 0.25); }
+    .role-group-diag { border-color: rgba(245, 158, 11, 0.25); }
     .task-log-row {
       display: flex;
       align-items: flex-start;
@@ -3399,7 +3481,7 @@
         }
         if (job.state === 'pending') pending++;
         
-        if (isToday && job.state === 'succeeded') successToday++;
+        if (isToday && (job.state === 'succeeded' || job.state === 'succeeded_with_warnings')) successToday++;
         if (isToday && job.state === 'failed') errorToday++;
         
         // General stats for all-time rates
@@ -3476,14 +3558,14 @@
               }
           }
       } else {
-          filtered = allJobs.filter(j => j.state === 'succeeded' || j.state === 'failed');
+          filtered = allJobs.filter(j => j.state === 'succeeded' || j.state === 'succeeded_with_warnings' || j.state === 'failed');
       }
 
       if (!filtered.length) {
          qContainer.innerHTML = '<div class="empty-state" style="padding: 20px;">Lista vazia</div>';
          if (!activeJobId && allJobs.length > 0 && currentTab === 'running') {
              // Try to select first history job if nothing running
-             activeJobId = allJobs.find(j => j.state === 'succeeded' || j.state === 'failed')?.id || null;
+             activeJobId = allJobs.find(j => j.state === 'succeeded' || j.state === 'succeeded_with_warnings' || j.state === 'failed')?.id || null;
          }
       }
 
@@ -3497,6 +3579,7 @@
           if (job.state === 'running') { badgeClass = 'badge-running'; badgeText = 'running'; }
           else if (job.state === 'pending') { badgeClass = 'badge-pending'; badgeText = 'pending'; }
           else if (job.state === 'succeeded') { badgeClass = 'badge-success'; badgeText = 'sucesso'; }
+          else if (job.state === 'succeeded_with_warnings') { badgeClass = 'badge-pending'; badgeText = 'alertas'; }
           else if (job.state === 'failed') { badgeClass = 'badge-error'; badgeText = 'erro'; }
           
           let proc = job.params ? (job.params.subprocesso || job.params.processo || job.task) : job.task;
@@ -3976,7 +4059,7 @@
                       stepClasses[0] = 'active';
                   }
               }
-          } else if (job.state === 'succeeded') {
+          } else if (job.state === 'succeeded' || job.state === 'succeeded_with_warnings') {
               for (let s = 0; s < numStages; s++) stepClasses[s] = 'completed';
           } else if (job.state === 'failed') {
               let activeSubstep = 0;
@@ -4001,7 +4084,6 @@
               }
           }
           // Group lines into steps
-          let taskLogCount = 0;
           let steps = [];
           let currentStep = null;
           
@@ -4050,6 +4132,42 @@
                cleanLine = cleanLine.replace(/\(-?\d+,\s*'([^']*)'.*?\)/g, '$1');
                cleanLine = cleanLine.replace(/\('([^']*)',\)/g, '$1');
                
+               // Intercept technical poller logs - aggregate separately without affecting step colors
+               if (cleanLine.includes('[DEBUG POLLER]') || cleanLine.includes('[TECHNICAL WARN]')) {
+                   let diagStep = steps.find(s => s.title === 'Diagnóstico Técnico (Poller)');
+                   if (!diagStep) {
+                       diagStep = {
+                           title: 'Diagnóstico Técnico (Poller)',
+                           dotColor: 'var(--warning)',
+                           inContent: 'Alertas técnicos de rede do poller do cockpit',
+                           outLines: [],
+                           lineIndex: idx,
+                           timestamp: getTimestampForLine(job, idx, lines.length)
+                       };
+                       steps.push(diagStep);
+                   }
+                   diagStep.outLines.push(cleanLine);
+                   return;
+               }
+
+               // Intercept [METRIC_DETAIL] lines - skip display
+               if (cleanLine.includes('[METRIC_DETAIL]')) {
+                   return;
+               }
+               // Intercept [METRIC] lines - store durations for each role step
+               const metricMatch = cleanLine.match(/\[METRIC\]\s*Role\s*([A-Za-z0-9_\-]+)\s*\|\s*total=(\d+)s\s*\|\s*etapa1=(\d+)s\s*\|\s*etapa2=(\d+)s\s*\|\s*etapa3=(\d+)s\s*\|\s*etapa4=(\d+)s/);
+               if (metricMatch) {
+                   window._metricsCache = window._metricsCache || {};
+                   window._metricsCache[metricMatch[1].trim()] = {
+                       total: parseInt(metricMatch[2]),
+                       etapa1: parseInt(metricMatch[3]),
+                       etapa2: parseInt(metricMatch[4]),
+                       etapa3: parseInt(metricMatch[5]),
+                       etapa4: parseInt(metricMatch[6])
+                   };
+                   return;
+               }
+               
                let isNewStep = false;
                let newStepTitle = '';
                let newStepColor = 'var(--primary)';
@@ -4087,7 +4205,7 @@
                    isNewStep = true;
                    newStepTitle = cleanLine.trim();
                    newStepColor = 'var(--primary)';
-               } else if (cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌ SAP Erro:') || cleanLine.includes('❌ Erro') || cleanLine.includes('❌ Falha') || cleanLine.startsWith('Traceback') || cleanLine.startsWith('ERRO:')) {
+               } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌ SAP Erro:') || cleanLine.includes('❌ Erro') || cleanLine.includes('❌ Falha') || cleanLine.startsWith('Traceback') || cleanLine.startsWith('ERRO:')) && !cleanLine.includes('[DEBUG POLLER]') && !cleanLine.includes('[TECHNICAL WARN]')) {
                    if (currentStep) {
                        currentStep.dotColor = 'var(--danger)';
                    }
@@ -4110,9 +4228,9 @@
                        const lowerLine = cleanLine.toLowerCase();
                        if (cleanLine.includes('🟢 SUCESSO') || cleanLine.includes('✅') || lowerLine.includes('sucesso') || lowerLine.includes('concluída') || lowerLine.includes('concluido')) {
                            currentStep.dotColor = 'var(--success)';
-                       } else if (cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌') || lowerLine.includes('falha') || lowerLine.includes('erro') || lowerLine.includes('exception') || lowerLine.includes('traceback') || cleanLine.startsWith('ERRO:')) {
+                       } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌') || lowerLine.includes('falha') || lowerLine.includes('erro') || lowerLine.includes('exception') || lowerLine.includes('traceback') || cleanLine.startsWith('ERRO:')) && !cleanLine.includes('[DEBUG POLLER]') && !cleanLine.includes('[TECHNICAL WARN]')) {
                            currentStep.dotColor = 'var(--danger)';
-                       } else if (cleanLine.includes('⚠️') || lowerLine.includes('warning') || lowerLine.includes('aviso') || cleanLine.startsWith('[WARN]')) {
+                       } else if (cleanLine.includes('⚠️') || lowerLine.includes('warning') || lowerLine.includes('aviso') || cleanLine.startsWith('[WARN]') || cleanLine.startsWith('[DOC_WARN]')) {
                            if (currentStep.dotColor !== 'var(--danger)' && currentStep.dotColor !== 'var(--success)') {
                                currentStep.dotColor = 'var(--warning)';
                            }
@@ -4121,31 +4239,126 @@
                }
            });
           
-          let taskLogRows = '';
-          steps.forEach((step, idx) => {
-              // Determine level
+          // ─────────────────────────────────────────────────────────────────
+          // BLOCO 2: Agrupar steps por Role → roleGroups[]
+          // ─────────────────────────────────────────────────────────────────
+          const SPECIAL_INIT = 'Inicializar Subprocesso';
+          const SPECIAL_DIAG = 'Diagnóstico Técnico (Poller)';
+
+          // Helper: derive role status from its steps
+          function getRoleStatus(rSteps, jobState, isCurrentRole) {
+              if (!rSteps || rSteps.length === 0) return 'pending';
+              const hasError = rSteps.some(s => s.dotColor === 'var(--danger)' || s.dotColor === '#ef4444');
+              const hasWarn  = rSteps.some(s => s.dotColor === 'var(--warning)' || s.dotColor === '#f59e0b');
+              // Check if role conclusion is present in outLines
+              const lastStep = rSteps[rSteps.length - 1];
+              const allOut   = rSteps.flatMap(s => s.outLines).join('\n');
+              const hasSuccess = allOut.includes('🟢 SUCESSO') || allOut.includes('Role tratada por completo') ||
+                                 allOut.includes('Role concluida') || allOut.includes('Role concluída');
+              if (hasError) return 'error';
+              if (hasSuccess) return hasWarn ? 'warning' : 'succeeded';
+              if (isCurrentRole && jobState === 'running') return 'running';
+              if (jobState === 'succeeded' || jobState === 'succeeded_with_warnings') return hasWarn ? 'warning' : 'succeeded';
+              if (jobState === 'failed') return hasError ? 'error' : 'succeeded';
+              return 'pending';
+          }
+
+          // Group steps into roleGroups
+          let roleGroups = [];
+          let currentRoleGroup = null;
+          let diagGroup = null;
+          let initGroup = null;
+
+          steps.forEach(step => {
+              // Diagnostic group (always last, pre-created during step parsing)
+              if (step.title === SPECIAL_DIAG) {
+                  diagGroup = diagGroup || step;
+                  if (diagGroup !== step) {
+                      // merge outLines into existing diagGroup
+                      diagGroup.outLines = diagGroup.outLines.concat(step.outLines);
+                  }
+                  return;
+              }
+
+              // Init step
+              if (step.title === SPECIAL_INIT) {
+                  initGroup = step;
+                  return;
+              }
+
+              // Detect new Role start: ▶ [X/Y] ROLE: NAME or similar
+              const isRoleStart = /▶\s*\[\d+\/\d+\]\s*(?:ROLE|CADEIA):/i.test(step.title) ||
+                                  /^Validar Cadeia:/i.test(step.title);
+
+              if (isRoleStart) {
+                  // Parse role index from title  ▶ [2/5] ROLE: Z_PURCHASE...
+                  const idxMatch  = step.title.match(/▶\s*\[(\d+)\/(\d+)\]/);
+                  const nameMatch = step.title.match(/(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\\-]+)/i);
+                  const cadeiaMatch = /^Validar Cadeia:\s*(.+)/.exec(step.title);
+
+                  const grpName  = nameMatch ? nameMatch[1] :
+                                   cadeiaMatch ? cadeiaMatch[1] : step.title;
+                  const grpIdx   = idxMatch ? parseInt(idxMatch[1]) : (roleGroups.length + 1);
+                  const grpTotal = idxMatch ? parseInt(idxMatch[2]) : (totalRoles || 0);
+
+                  // Retrieve pre-parsed metadata (TCODEs, description)
+                  const meta = roleMetadata[grpName] || {};
+
+                  currentRoleGroup = {
+                      roleId:       `role-${job.id}-${grpIdx}`,
+                      roleName:     grpName,
+                      roleTitle:    step.title,
+                      roleIdx:      grpIdx,
+                      roleTotal:    grpTotal,
+                      tcodes:       meta.tcodes || null,
+                      duration:     meta.duration || '',
+                      steps:        [step],
+                      isCurrentRole: false   // will be resolved below
+                  };
+                  roleGroups.push(currentRoleGroup);
+              } else {
+                  // Append step to current role group (or create a catch-all)
+                  if (!currentRoleGroup) {
+                      // Steps before any ROLE marker → treat as init overflow
+                      if (!initGroup) initGroup = { title: SPECIAL_INIT, dotColor: 'var(--primary)', inContent: '', outLines: [], lineIndex: 0 };
+                      initGroup.outLines.push(...step.outLines);
+                  } else {
+                      currentRoleGroup.steps.push(step);
+                  }
+              }
+          });
+
+          // Detect which role is currently active (for auto-open)
+          const lastRoleGroup = roleGroups.length > 0 ? roleGroups[roleGroups.length - 1] : null;
+          if (lastRoleGroup && (job.state === 'running' || job.state === 'pending')) {
+              lastRoleGroup.isCurrentRole = true;
+          }
+
+          // ─────────────────────────────────────────────────────────────────
+          // Helper: render a single step as timeline-item HTML
+          // ─────────────────────────────────────────────────────────────────
+          function renderStepHtml(step, idx, job) {
               let level = 'INFO';
               if (step.dotColor === 'var(--danger)' || step.dotColor === 'red' || step.dotColor === '#ef4444') {
                   level = 'ERROR';
               } else if (step.dotColor === 'var(--warning)' || step.dotColor === 'orange' || step.dotColor === '#f59e0b') {
                   level = 'WARN';
               }
-              
+
               let outContent = step.outLines.join('\n').trim();
-              
-              // Show terminal box for subprocess initialization OR if traceback is detected
-              const isCommandStep = step.title === 'Inicializar Subprocesso';
-              const hasTraceback = outContent.includes('Traceback') || outContent.includes('Exception') || outContent.toLowerCase().includes('erro:');
+
+              const isCommandStep = step.title === SPECIAL_INIT;
+              const hasTraceback  = outContent.includes('Traceback') || outContent.includes('Exception') || outContent.toLowerCase().includes('erro:');
               const showCard = isCommandStep || hasTraceback;
-              
+
               let stepCardHtml = '';
-              let subTextHtml = '';
-              
+              let subTextHtml  = '';
+
               if (showCard) {
-                  let outSectionHtml = outContent 
+                  let outSectionHtml = outContent
                       ? `<div style="display: flex; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-color, #e5e7eb);"><span style="color: var(--text-secondary); font-weight: bold; flex-shrink: 0; width: 32px; user-select: none; font-size: 11px;">OUT</span><span style="color: var(--text-primary); white-space: pre-wrap; word-break: break-all; font-family: Consolas, Monaco, monospace; font-size: 11px;">${escapeHtml(outContent)}</span></div>`
                       : '';
-                      
+
                   stepCardHtml = `
                       <div class="timeline-detail-card" style="margin-top: 8px; margin-bottom: 8px; background: #f6f8fa; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; padding: 10px 14px; font-family: Consolas, Monaco, 'Courier New', monospace; font-size: 11px; line-height: 1.4; color: var(--text-primary); box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);">
                           <div style="display: flex; gap: 8px;"><span style="color: var(--text-secondary); font-weight: bold; flex-shrink: 0; width: 32px; user-select: none; font-size: 11px;">IN</span><span style="white-space: pre-wrap; word-break: break-all; color: #032f62; font-size: 11px;">${escapeHtml(step.inContent)}</span></div>
@@ -4171,7 +4384,7 @@
                           });
                           return prefix + cleanedParts.join(' -> ');
                       };
-                      
+
                       linesToRender.forEach(l => {
                           const trimmed = l.trim();
                           const isGroupable = trimmed.startsWith('|-') || trimmed.startsWith('├─') || trimmed.startsWith('| -');
@@ -4185,9 +4398,7 @@
                               groupedLines.push(l);
                           }
                       });
-                      if (currentGroup.length > 0) {
-                          groupedLines.push(processStepGroup(currentGroup));
-                      }
+                      if (currentGroup.length > 0) groupedLines.push(processStepGroup(currentGroup));
                       linesToRender = groupedLines;
 
                       subTextHtml = `
@@ -4195,8 +4406,8 @@
                               ${linesToRender.map(l => {
                                   const isThought = l.toLowerCase().includes('thought') || l.toLowerCase().startsWith('vou ') || l.toLowerCase().includes('analisando') || l.toLowerCase().includes('validar existencia');
                                   const textColor = isThought ? 'var(--text-secondary)' : 'var(--text-primary)';
-                                  const fontSize = isThought ? '11px' : '12px';
-                                  const icon = isThought ? '💡' : '·';
+                                  const fontSize  = isThought ? '11px' : '12px';
+                                  const icon      = isThought ? '💡' : '·';
                                   return `<div style="font-size: ${fontSize}; color: ${textColor}; display: flex; gap: 6px; align-items: flex-start; line-height: 1.4;">
                                       <span style="opacity: 0.6; flex-shrink: 0;">${icon}</span>
                                       <span>${escapeHtml(l)}</span>
@@ -4206,21 +4417,21 @@
                       `;
                   }
               }
-              
+
               const startDate = getRawDateForLine(job, step.lineIndex, lines.length);
               let endDate;
-              if (idx < steps.length - 1) {
-                  endDate = getRawDateForLine(job, steps[idx + 1].lineIndex, lines.length);
+              const stepIdxInAll = steps.indexOf(step);
+              if (stepIdxInAll >= 0 && stepIdxInAll < steps.length - 1) {
+                  endDate = getRawDateForLine(job, steps[stepIdxInAll + 1].lineIndex, lines.length);
               } else {
-                  endDate = (job.state === 'running' || job.state === 'pending') 
-                      ? new Date() 
+                  endDate = (job.state === 'running' || job.state === 'pending')
+                      ? new Date()
                       : new Date(job.updated_at);
               }
-              
+
               const startTimeStr = step.timestamp;
-              const endTimeStr = formatTimeOnly(endDate);
-              
-              const diffMs = Math.max(0, endDate - startDate);
+              const endTimeStr   = formatTimeOnly(endDate);
+              const diffMs  = Math.max(0, endDate - startDate);
               const diffSecs = Math.round(diffMs / 1000);
               let durationStr = '';
               if (diffSecs < 60) {
@@ -4230,22 +4441,17 @@
                   const secs = diffSecs % 60;
                   durationStr = `${mins}m ${secs}s`;
               }
-              
               const timeRangeStr = `${startTimeStr} · ${durationStr} ago`;
-              
-              let dotColor = '#2da44e'; // green
-              if (level === 'ERROR') {
-                  dotColor = '#cf222e'; // red
-              } else if (level === 'WARN') {
-                  dotColor = '#9a6700'; // orange
-              } else if (step.title.toLowerCase().includes('thought') || step.title.toLowerCase().includes('info')) {
-                  dotColor = '#8c959f'; // gray
-              }
-              
+
+              let dotColor = '#2da44e';
+              if (level === 'ERROR')      dotColor = '#cf222e';
+              else if (level === 'WARN')  dotColor = '#9a6700';
+              else if (step.title.toLowerCase().includes('thought') || step.title.toLowerCase().includes('info')) dotColor = '#8c959f';
+
               const hasDetails = (subTextHtml.trim() !== '' || stepCardHtml.trim() !== '');
               let titleWithToggleHtml = '';
-              let detailsWrapperHtml = '';
-              
+              let detailsWrapperHtml  = '';
+
               if (hasDetails) {
                   titleWithToggleHtml = `
                       <div style="display: flex; align-items: center; gap: 4px;">
@@ -4265,12 +4471,11 @@
                   `;
               }
 
-              taskLogRows += `
+              return `
                   <div class="timeline-item" data-level="${level}" style="position: relative; padding-left: 36px; margin-bottom: 16px; display: flex; flex-direction: column;">
                       <div class="timeline-dot-wrapper" style="position: absolute; left: 6px; top: 4px; z-index: 2; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">
                           <span style="width: 10px; height: 10px; border-radius: 50%; background: ${dotColor}; display: inline-block; border: 2px solid #ffffff; box-shadow: 0 0 0 1px rgba(27,31,35,0.15);"></span>
                       </div>
-                      
                       <div class="timeline-content" style="display: flex; flex-direction: column;">
                           <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between; width: 100%;">
                               ${titleWithToggleHtml}
@@ -4280,11 +4485,164 @@
                       </div>
                   </div>
               `;
-              taskLogCount++;
-          });
-          
-          let lineHtml = (taskLogRows) ? `<div style="position: absolute; left: 33px; top: 32px; bottom: 32px; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
-          
+          }
+
+          // ─────────────────────────────────────────────────────────────────
+          // BLOCO 3: Render roleGroups → taskLogRows HTML
+          // ─────────────────────────────────────────────────────────────────
+          let taskLogRows = '';
+          let taskLogCount = 0;
+
+          // Helper: render the init step group (no Role header)
+          function renderInitGroup(initSt, job) {
+              if (!initSt) return '';
+              const stepHtml = renderStepHtml(initSt, 'init', job);
+              return `
+                  <div class="role-group role-group-init">
+                      <div class="role-group-header" onclick="toggleRoleGroup('init-${job.id}')">
+                          <span class="role-group-dot" style="background:#8c959f;"></span>
+                          <span class="role-group-title">⚙ Inicialização do Processo</span>
+                          <span id="role-chevron-init-${job.id}" class="role-group-chevron" style="transform: rotate(180deg);">▾</span>
+                      </div>
+                      <div id="role-body-init-${job.id}" class="role-group-body">
+                          <div style="position: relative;">
+                              <div style="position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: #e1e4e8; z-index: 1;"></div>
+                              <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
+                                  ${stepHtml}
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              `;
+          }
+
+          // If no role groups were parsed, render flat (backward-compatible)
+          if (roleGroups.length === 0) {
+              // Flat rendering — same as before
+              let flatRows = '';
+              const allFlatSteps = [];
+              if (initGroup) allFlatSteps.push(initGroup);
+              steps.forEach(s => {
+                  if (s.title !== SPECIAL_DIAG && s.title !== SPECIAL_INIT) allFlatSteps.push(s);
+              });
+              if (diagGroup) allFlatSteps.push(diagGroup);
+
+              allFlatSteps.forEach((step, idx) => {
+                  flatRows += renderStepHtml(step, idx, job);
+                  taskLogCount++;
+              });
+
+              const lineHtmlFlat = flatRows ? `<div style="position: absolute; left: 33px; top: 32px; bottom: 32px; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
+              taskLogRows = `
+                  <div style="border: 1px solid var(--border-color); border-radius: 8px; background: #ffffff; display: flex; flex-direction: column; position: relative; padding: 24px 20px;">
+                      ${lineHtmlFlat}
+                      <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px;">
+                          ${flatRows || '<div style="text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 20px;">Nenhuma atividade registrada...</div>'}
+                      </div>
+                  </div>
+              `;
+          } else {
+              // Role-grouped accordion rendering
+              let groupedHtml = '';
+
+              // Init group (before first Role)
+              groupedHtml += renderInitGroup(initGroup, job);
+
+              // Each Role group
+              roleGroups.forEach((rg, rgIdx) => {
+                  const status = getRoleStatus(rg.steps, job.state, rg.isCurrentRole);
+
+                  // Accordion open/close logic:
+                  // - running → open
+                  // - error   → open
+                  // - warning → open (but can be closed)
+                  // - succeeded → closed (except last if job still running)
+                  const isOpen = (status === 'running') ||
+                                 (status === 'error') ||
+                                 (status === 'warning' && rg.isCurrentRole) ||
+                                 (status === 'pending' && rg.isCurrentRole);
+
+                  let dotColorRG = '#2da44e';
+                  let badgeClass = 'badge-succeeded';
+                  let badgeText  = 'CONCLUÍDO';
+                  let rgCssClass = 'role-succeeded';
+
+                  if (status === 'running')   { dotColorRG = '#3b82f6'; badgeClass = 'badge-running';   badgeText = 'EM EXECUÇÃO'; rgCssClass = 'role-running'; }
+                  else if (status === 'error')    { dotColorRG = '#ef4444'; badgeClass = 'badge-error';     badgeText = 'ERRO';         rgCssClass = 'role-error'; }
+                  else if (status === 'warning')  { dotColorRG = '#f59e0b'; badgeClass = 'badge-warning';   badgeText = 'ALERTAS';      rgCssClass = 'role-warning'; }
+                  else if (status === 'pending')  { dotColorRG = '#8c959f'; badgeClass = 'badge-pending';   badgeText = 'PENDENTE';     rgCssClass = ''; }
+                  else if (status === 'succeeded'){ dotColorRG = '#2da44e'; badgeClass = 'badge-succeeded'; badgeText = 'CONCLUÍDO';    rgCssClass = 'role-succeeded'; }
+
+                  const meta = roleMetadata[rg.roleName] || {};
+                  const tcodesStr = (rg.tcodes || meta.tcodes) ? `• ${rg.tcodes || meta.tcodes} TCODE${(rg.tcodes || meta.tcodes) > 1 ? 's' : ''}` : '';
+                  const durStr    = (rg.duration || meta.duration) ? `• ${rg.duration || meta.duration}` : '';
+                  const roleCounter = rg.roleTotal > 0 ? `Role ${rg.roleIdx}/${rg.roleTotal}` : `Role ${rg.roleIdx}`;
+
+                  // Render steps inside this role
+                  let stepsInGroupHtml = '';
+                  rg.steps.forEach((step, stepIdx) => {
+                      stepsInGroupHtml += renderStepHtml(step, `rg${rgIdx}-${stepIdx}`, job);
+                      taskLogCount++;
+                  });
+
+                  const lineHtmlRg = stepsInGroupHtml ? `<div style="position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
+
+                  groupedHtml += `
+                      <div class="role-group ${rgCssClass}">
+                          <div class="role-group-header" onclick="toggleRoleGroup('${rg.roleId}')">
+                              <span class="role-group-dot" style="background: ${dotColorRG};"></span>
+                              <div style="flex: 1; min-width: 0;">
+                                  <div class="role-group-title">
+                                      <span style="font-size: 10px; opacity: 0.6; font-weight: 600; margin-right: 6px;">${escapeHtml(roleCounter)} —</span>${escapeHtml(rg.roleName)}
+                                  </div>
+                                  <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                      ${escapeHtml(tcodesStr)} ${escapeHtml(durStr)}
+                                  </div>
+                              </div>
+                              <div class="role-group-meta">
+                                  <span class="role-group-badge ${badgeClass}">${badgeText}</span>
+                              </div>
+                              <span id="role-chevron-${rg.roleId}" class="role-group-chevron" style="transform: ${isOpen ? 'rotate(180deg)' : ''};">▾</span>
+                          </div>
+                          <div id="role-body-${rg.roleId}" class="role-group-body" style="display: ${isOpen ? 'block' : 'none'};">
+                              <div style="position: relative;">
+                                  ${lineHtmlRg}
+                                  <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 12px;">
+                                      ${stepsInGroupHtml || '<div style="color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 8px 0;">Sem etapas registradas...</div>'}
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  `;
+              });
+
+              // Diagnostic group at the end (if any)
+              if (diagGroup && diagGroup.outLines.length > 0) {
+                  const diagOpen = (job.state === 'running' || job.state === 'pending');
+                  const diagStepsHtml = renderStepHtml(diagGroup, 'diag', job);
+                  taskLogCount++;
+                  groupedHtml += `
+                      <div class="role-group role-group-diag">
+                          <div class="role-group-header" onclick="toggleRoleGroup('diag-${job.id}')">
+                              <span class="role-group-dot" style="background: #f59e0b;"></span>
+                              <span class="role-group-title">🔧 Diagnóstico Técnico (Poller)</span>
+                              <span class="role-group-badge badge-warning">TÉCNICO</span>
+                              <span id="role-chevron-diag-${job.id}" class="role-group-chevron" style="transform: ${diagOpen ? 'rotate(180deg)' : ''};">▾</span>
+                          </div>
+                          <div id="role-body-diag-${job.id}" class="role-group-body" style="display: ${diagOpen ? 'block' : 'none'};">
+                              <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
+                                  ${diagStepsHtml}
+                              </div>
+                          </div>
+                      </div>
+                  `;
+              }
+
+              taskLogRows = groupedHtml || '<div style="text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 20px;">Nenhuma atividade registrada...</div>';
+          }
+
+          let lineHtml = '';  // kept for backward-compat (flat mode uses own lineHtml)
+
           let taskLogsHtml = `
              <div style="flex: 1 1 100%; min-width: 100%; display: flex; flex-direction: column;">
                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
@@ -4304,10 +4662,9 @@
                        </button>
                     </div>
                  </div>
-                 <div class="activity-log-scroll terminal-scroll" id="activity-log-scroll-${job.id}" style="height: 380px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: #ffffff; display: flex; flex-direction: column; position: relative; padding: 24px 20px;">
-                    ${lineHtml}
-                    <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px;">
-                        ${taskLogRows || '<div style="text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 20px;">Nenhuma atividade registrada...</div>'}
+                 <div class="activity-log-scroll terminal-scroll" id="activity-log-scroll-${job.id}" style="border: 1px solid var(--border-color); border-radius: 8px; background: #ffffff; display: flex; flex-direction: column; position: relative; padding: 16px 16px;">
+                    <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
+                        ${taskLogRows}
                     </div>
                  </div>
              </div>
@@ -4515,7 +4872,7 @@
                 
                 <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
                    ${focusIndicator}
-                   <span class="badge-outline ${job.state}">${job.state.toUpperCase()}</span>
+                   <span class="badge-outline ${job.state === 'succeeded_with_warnings' ? 'succeeded_with_warnings' : job.state}">${job.state === 'succeeded_with_warnings' ? 'ALERTAS' : job.state.toUpperCase()}</span>
                    <div style="position: relative; display: inline-block;">
                       <button type="button" class="btn-icon" style="padding: 4px; color: var(--text-secondary);" onclick="event.stopPropagation(); toggleJobOptionsDropdown(event, '${job.id}')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg></button>
                       <div id="job-options-menu-${job.id}" class="job-options-menu" style="display: none; position: absolute; right: 0; top: 30px; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; min-width: 180px; padding: 6px 0;">
@@ -4762,6 +5119,28 @@
         }
     }
 
+    function toggleStepDetails(btn, detailsId) {
+        const detailsDiv = document.getElementById(detailsId);
+        if (!detailsDiv) return;
+        if (detailsDiv.style.display === 'none') {
+            detailsDiv.style.display = 'block';
+            btn.textContent = '(-)';
+        } else {
+            detailsDiv.style.display = 'none';
+            btn.textContent = '(+)';
+        }
+    }
+
+    // Toggle a Role group accordion in the Logs panel
+    function toggleRoleGroup(roleId) {
+        const body    = document.getElementById('role-body-' + roleId);
+        const chevron = document.getElementById('role-chevron-' + roleId);
+        if (!body) return;
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : 'block';
+        if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+    }
+
     function handleLogExport(el, jobId) {
         const val = el.value;
         if (!val) return;
@@ -4793,17 +5172,6 @@
         }
     }
 
-    function toggleStepDetails(btn, detailsId) {
-        const detailsDiv = document.getElementById(detailsId);
-        if (!detailsDiv) return;
-        if (detailsDiv.style.display === 'none') {
-            detailsDiv.style.display = 'block';
-            btn.textContent = '(-)';
-        } else {
-            detailsDiv.style.display = 'none';
-            btn.textContent = '(+)';
-        }
-    }
 
     function focusJob(jobId) {
         activeJobId = jobId;

@@ -98,10 +98,13 @@ def executar(
     col_timestamp = None
     dynamic_fields = {} # name -> col_idx
 
+    COLUNAS_ENTRADA = {"AGR_NAME"}
+    COLUNAS_SAIDA = {"STATUS": "STATUS", "MSG": "MSG", "TIMESTEMP": "TIMESTEMP"}
+
     for r in range(1, SEARCH_HEADER_IN_FIRST_ROWS + 1):
         row_vals = [norm_col(c.value) for c in ws[r]]
-        colunas_encontradas = set(row_vals).intersection(COLUNAS_MINIMAS)
-        if len(colunas_encontradas) >= len(COLUNAS_MINIMAS):
+        colunas_entrada_encontradas = set(row_vals).intersection(COLUNAS_ENTRADA)
+        if len(colunas_entrada_encontradas) == len(COLUNAS_ENTRADA):
             header_row = r
             
             seen_agr_name = False
@@ -128,6 +131,44 @@ def executar(
                     col_timestamp = idx
                 elif val not in ("ID",):
                     dynamic_fields[val] = idx
+
+            # Verificar se faltam colunas de saída e criá-las
+            modificou = False
+            last_col = 0
+            for idx, val in enumerate(row_vals, start=1):
+                if val:
+                    last_col = idx
+
+            if not col_status:
+                last_col += 1
+                ws.cell(row=r, column=last_col, value="STATUS")
+                col_status = last_col
+                print(f"➕ Coluna 'STATUS' criada automaticamente na coluna {last_col}.")
+                modificou = True
+
+            if not col_msg:
+                last_col += 1
+                ws.cell(row=r, column=last_col, value="MSG")
+                col_msg = last_col
+                print(f"➕ Coluna 'MSG' criada automaticamente na coluna {last_col}.")
+                modificou = True
+
+            if not col_timestamp:
+                last_col += 1
+                ws.cell(row=r, column=last_col, value="TIMESTEMP")
+                col_timestamp = last_col
+                print(f"➕ Coluna 'TIMESTEMP' criada automaticamente na coluna {last_col}.")
+                modificou = True
+
+            if modificou:
+                try:
+                    wb.save(caminho_ficheiro)
+                    print("💾 Ficheiro Excel guardado com as novas colunas.")
+                except Exception as e:
+                    wb.close()
+                    print(f"❌ Erro ao guardar o ficheiro Excel com as novas colunas: {e}")
+                    print("💡 Certifique-se de que o ficheiro Excel não está aberto no Excel e tente novamente.")
+                    return
             break
 
     if not header_row:
@@ -141,12 +182,33 @@ def executar(
         agr = "" if agr_val is None else str(agr_val).strip()
         if not agr: continue
         
+        # Validar e remover espaços do nome da Role simples
+        if " " in agr:
+            orig = agr
+            agr = agr.replace(" ", "")
+            ws.cell(row=r, column=col_agr_simples, value=agr)
+            print(f"⚠️ Espaços detetados e removidos da Role Simples: '{orig}' -> '{agr}' (atualizado no Excel)")
+            try:
+                wb.save(caminho_ficheiro)
+            except Exception:
+                pass
+
         rec = {"_row": r}
         rec["AGR_NAME"] = agr
         
         if col_agr_composta:
             val = ws.cell(row=r, column=col_agr_composta).value
-            rec["AGR_NAME_COMPOSTA"] = "" if val is None else str(val).strip()
+            agr_comp = "" if val is None else str(val).strip()
+            if " " in agr_comp:
+                orig_comp = agr_comp
+                agr_comp = agr_comp.replace(" ", "")
+                ws.cell(row=r, column=col_agr_composta, value=agr_comp)
+                print(f"⚠️ Espaços detetados e removidos da Role Composta: '{orig_comp}' -> '{agr_comp}' (atualizado no Excel)")
+                try:
+                    wb.save(caminho_ficheiro)
+                except Exception:
+                    pass
+            rec["AGR_NAME_COMPOSTA"] = agr_comp
         else:
             rec["AGR_NAME_COMPOSTA"] = ""
             

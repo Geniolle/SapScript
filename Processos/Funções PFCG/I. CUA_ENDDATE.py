@@ -846,18 +846,19 @@ def gravar_retorno_preservando_formatacao(caminho_ficheiro, nome_sheet, df_atual
 # BLOCO 12: API PARA O COCKPIT (executar)
 ###################################################################################
 
-def executar(ambiente):
+def executar(ambiente, caminho_ficheiro=None):
     print(f"✅ Processo selecionado: {NOME_SCRIPT}")
     print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
     print("▶️ Ação: Atualizar UPDATE_TO_DAT da função via SU01")
     print("ℹ️ STATUS será preenchido com o retorno do wnd[0]/sbar.")
 
-    caminho = selecionar_ficheiro_excel()
-    if not caminho:
+    if not caminho_ficheiro:
+        caminho_ficheiro = selecionar_ficheiro_excel()
+    if not caminho_ficheiro:
         return False
 
     print("\n[Etapa 1] Leitura do Excel")
-    df = ler_sheet(caminho, NOME_SHEET)
+    df = ler_sheet(caminho_ficheiro, NOME_SHEET)
     if df is None:
         return False
 
@@ -877,7 +878,7 @@ def executar(ambiente):
     df_proc = remover_funcao_usuario(df_pend, session, sistema_desejado)
 
     print("\n[Etapa 4] Gravação de Resultados")
-    gravar_retorno_preservando_formatacao(caminho, NOME_SHEET, df_proc)
+    gravar_retorno_preservando_formatacao(caminho_ficheiro, NOME_SHEET, df_proc)
 
     return True
 
@@ -886,4 +887,11 @@ def executar(ambiente):
 ###################################################################################
 
 if __name__ == "__main__":
-    executar("CUA")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD", "CUA"])
+    parser.add_argument("--xlsx")
+    args = parser.parse_args()
+
+    env_cli = args.ambiente or "CUA"
+    executar(env_cli, caminho_ficheiro=args.xlsx)

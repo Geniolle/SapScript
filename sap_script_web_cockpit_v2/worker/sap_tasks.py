@@ -569,7 +569,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                         r = requests.get(
                             f"{api_url}/api/jobs/{job['id']}",
                             headers={"X-Worker-Token": token},
-                            timeout=5
+                            timeout=15
                         )
                         if r.status_code == 200:
                             job_data = r.json()
@@ -590,14 +590,18 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                                     if session:
                                         conn = session.Parent
                                         conn.CloseSession(session.Id)
+                                    # Fechar a própria conexão da sessão para fechar a janela SAP correspondente
                                 except Exception:
                                     pass
                                 _force_terminate_worker()
                                 break
                     except Exception as pe:
-                        print(f"\n[DEBUG POLLER] Erro ao consultar estado do job: {pe}")
+                        # Increment poller timeout counters
+                        os.environ["CURRENT_ROLE_POLLER_TIMEOUT"] = str(int(os.environ.get("CURRENT_ROLE_POLLER_TIMEOUT", 0)) + 1)
+                        os.environ["TOTAL_POLLER_TIMEOUT"] = str(int(os.environ.get("TOTAL_POLLER_TIMEOUT", 0)) + 1)
+                        print(f"\n[TECHNICAL WARN] [DEBUG POLLER] Erro ao consultar estado do job: {pe}")
                         sys.stdout.flush()
-                    cancel_event.wait(2.0)
+                    cancel_event.wait(5.0)
 
             poller_thread = threading.Thread(target=poll_status, daemon=True)
             poller_thread.start()
