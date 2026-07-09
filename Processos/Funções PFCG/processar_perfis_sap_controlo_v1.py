@@ -1026,7 +1026,7 @@ def processar_ficheiro(input_path: Path) -> Path:
 
     print("7/8 A atualizar CUA_ADICIONAR (reconstrução total)...")
     usuarios_alvo = stats_ativa["usuarios_processados_ids"]
-    cua_rows_novas = gerar_cua_adicionar(ws_ativa, usuarios_alvo=None, definicoes=definicoes)
+    cua_rows_novas = gerar_cua_adicionar(ws_ativa, usuarios_alvo=usuarios_alvo, definicoes=definicoes)
     cua_rows = atualizar_cua_adicionar_rebuild_total(wb, cua_rows_novas)
 
     print("8/8 A atualizar Controlo...")
