@@ -178,8 +178,9 @@ def _obter_credenciais_env(
     """
     Lê as credenciais do .env usando:
       SAP_USER
-      SAP_LANGUAGE (opcional, default PT)
-      SAP_PASSWORD_{SISTEMA}CLNT{CLIENTE}
+      SAP_LANGUAGE para DEV, QAD e PRD (opcional, default PT)
+      SAP_CUA_LANGUAGE para CUA (opcional, default PT)
+      SAP_PASSWORD_{SISTEMA}CLNT{CLIENTE} para a password
 
     Exemplo:
       SAP_PASSWORD_S4QCLNT100
@@ -189,7 +190,14 @@ def _obter_credenciais_env(
     sistema = str(sistema_desejado or "").strip().upper()
     cliente = str(cliente_esperado or "").strip()
     usuario = os.getenv("SAP_USER", "").strip()
-    idioma = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
+
+    # Idioma diferenciado para CUA (SPA 001) vs outros ambientes
+    chave_idioma = (
+        "SAP_CUA_LANGUAGE"
+        if sistema == "SPA" and cliente == "001"
+        else "SAP_LANGUAGE"
+    )
+    idioma = os.getenv(chave_idioma, "PT").strip() or "PT"
 
     chave_password = f"SAP_PASSWORD_{sistema}CLNT{cliente}"
     senha = os.getenv(chave_password, "").strip()

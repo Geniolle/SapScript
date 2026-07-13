@@ -245,12 +245,29 @@ def _carregar_dotenv(force_override: bool = True):
 
 
 def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tuple[str, str, str, str]:
+    """
+    Lê as credenciais do .env usando:
+      SAP_USER
+      SAP_LANGUAGE para DEV, QAD e PRD (opcional, default PT)
+      SAP_CUA_LANGUAGE para CUA (opcional, default PT)
+      SAP_PASSWORD_{SISTEMA}CLNT{CLIENTE} para a password
+
+    Exemplo:
+      SAP_PASSWORD_S4QCLNT100
+    """
     _carregar_dotenv(force_override=True)
 
     sistema = str(sistema_desejado or "").strip().upper()
     cliente = str(cliente_esperado or "").strip()
     usuario = os.getenv("SAP_USER", "").strip()
-    idioma = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
+
+    # Idioma diferenciado para CUA (SPA 001) vs outros ambientes
+    chave_idioma = (
+        "SAP_CUA_LANGUAGE"
+        if sistema == "SPA" and cliente == "001"
+        else "SAP_LANGUAGE"
+    )
+    idioma = os.getenv(chave_idioma, "PT").strip() or "PT"
 
     chave_password = f"SAP_PASSWORD_{sistema}CLNT{cliente}"
     senha = os.getenv(chave_password, "").strip()
@@ -1376,7 +1393,7 @@ def build_sap_logon_debug(
             "raw_present": bool(senha),
         },
         "sap_language": {
-            "param": "SAP_LANGUAGE",
+            "param": "SAP_CUA_LANGUAGE" if sistema_desejado == "SPA" and cliente_esperado == "001" else "SAP_LANGUAGE",
             "value": idioma,
             "raw_present": bool(idioma),
         },
