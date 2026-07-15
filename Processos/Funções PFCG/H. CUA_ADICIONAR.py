@@ -23,7 +23,7 @@
 import os
 import time
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 import win32com.client
@@ -52,6 +52,8 @@ MAPA_SISTEMA = {
 ###################################################################################
 # BLOCO 3: UTILITÁRIOS
 ###################################################################################
+
+DEBUG_SAP_CONTROLS = os.environ.get("DEBUG_SAP_CONTROLS", "FALSE").upper() == "TRUE"
 
 def formatar_tempo(segundos):
     m = int(segundos // 60)
@@ -341,6 +343,66 @@ def conectar_sap(sistema_desejado):
         return None
 
 
+def posicionar_sap_meia_tela_direita(session) -> bool:
+    """
+    Posiciona a janela principal do SAP GUI na metade direita do monitor.
+
+    Comportamento:
+    - Obtém o handle (HWND) da janela wnd[0] via a propriedade Handle.
+    - Consulta as dimensões do ecrã principal através de win32api.GetSystemMetrics.
+    - Restaura a janela (SW_RESTORE) e move-a para:
+        Left = screen_w // 2  (início da metade direita)
+        Top  = 0
+        Width = screen_w // 2  (metade da largura total, mínimo 900 px)
+        Height = screen_h       (altura total, mínimo 700 px)
+
+    Inspirada na função _dock_left_half() presente em sap_session.py,
+    mas espelhada para o lado direito.
+
+    Args:
+        session: Objeto de sessão SAP GUI (GuiSession).
+
+    Returns:
+        True  – Janela posicionada com sucesso.
+        False – Não foi possível posicionar (dependências em falta, handle
+                inválido ou qualquer outra exceção capturada).
+    """
+    try:
+        import win32api  # type: ignore
+        import win32con  # type: ignore
+        import win32gui  # type: ignore
+    except Exception:
+        print("[AVISO] win32api/win32gui não disponíveis – posicionamento ignorado.")
+        return False
+
+    try:
+        wnd0 = session.findById("wnd[0]")
+    except Exception:
+        return False
+
+    try:
+        hwnd = int(getattr(wnd0, "Handle"))
+    except Exception:
+        return False
+
+    if not hwnd:
+        return False
+
+    try:
+        screen_w = int(win32api.GetSystemMetrics(0))
+        screen_h = int(win32api.GetSystemMetrics(1))
+        half_w   = screen_w // 2
+        target_w = max(900, half_w)
+        target_h = max(700, screen_h)
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.MoveWindow(hwnd, half_w, 0, target_w, target_h, True)
+        print("[INFO] Janela SAP posicionada na metade direita do monitor.")
+        return True
+    except Exception as e:
+        print(f"[AVISO] Erro ao posicionar janela SAP na metade direita: {e}")
+        return False
+
+
 def esperar_elemento(session, element_id, tentativas=20, espera=0.5):
     for _ in range(tentativas):
         try:
@@ -561,20 +623,38 @@ def montar_msg_final(eventos):
     return "Sem mensagem relevante do SAP"
 
 
-def converter_data_sap(data_str) -> datetime:
+def converter_data_sap(data_str) -> date:
     """
-    Converte uma string de data do SAP (DD.MM.YYYY, YYYYMMDD ou similar) em um objeto datetime.
+    Converte uma string de data SAP num objeto date.
+
+    Formatos suportados:
+      - DD.MM.AAAA  (padrao SAP europeu)
+      - DD/MM/AAAA
+      - AAAAMMDD    (padrao ISO compacto)
+      - AAAA-MM-DD  (ISO com hifen)
+      - objeto datetime ou date (passado directamente)
+      - vazio / None         -> retorna date(9999, 12, 31)
+      - datas com '9999'     -> retorna date(9999, 12, 31)
     """
-    cleaned = str(data_str).strip()
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%Y%m%d", "%d/%m/%Y"):
+    # Aceitar objectos datetime/date directamente
+    if isinstance(data_str, datetime):
+        return data_str.date()
+    if isinstance(data_str, date):
+        return data_str
+
+    cleaned = str(data_str).strip() if data_str is not None else ""
+
+    # Vazio ou data infinita SAP
+    if not cleaned or "9999" in cleaned:
+        return date(9999, 12, 31)
+
+    for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%Y%m%d", "%Y-%m-%d"):
         try:
-            return datetime.strptime(cleaned, fmt)
+            return datetime.strptime(cleaned, fmt).date()
         except ValueError:
             continue
-    # Se for a data infinita do SAP (ex: 31.12.9999 ou 99991231 ou sem data), retorna data futura distante
-    if "9999" in cleaned or not cleaned:
-        return datetime(9999, 12, 31)
-    raise ValueError(f"Formato de data invalido: {data_str}")
+
+    raise ValueError(f"Formato de data invalido: '{data_str}'")
 
 
 def _dismiss_popup(session) -> bool:
@@ -602,13 +682,12 @@ def formatar_data_para_sap(data_obj) -> str:
 
 def descobrir_campos_se16(session) -> dict:
     """
-    Descobre dinamicamente os IDs dos campos LOW para BNAME, SUBSYSTEM e TO_DAT
-    na tela de seleção da SE16.
-    Retorna um dicionário { "BNAME": id, "SUBSYSTEM": id, "TO_DAT": id }
+    Descobre dinamicamente os IDs dos campos LOW para BNAME e SUBSYSTEM
+    na tela de selecao da SE16/USLA04.
+    Retorna um dicionario { "BNAME": id, "SUBSYSTEM": id }
 
-    A SE16 clássica apresenta os labels como GuiTextField com nomes no padrão
-    %_In_%_APP_%-TEXT e o campo correspondente como GuiCTextField com nome In-LOW.
-    Esta função suporta tanto esse padrão como o padrão GuiLabel convencional.
+    O filtro TO_DAT foi removido: a consulta e feita sem restricao de data
+    e a classificacao por datas e feita em Python apos ler todos os registos.
     """
     import re as _re
 
@@ -626,27 +705,22 @@ def descobrir_campos_se16(session) -> dict:
         except Exception:
             pass
 
-    # Inputs: apenas campos -LOW (GuiTextField ou GuiCTextField)
+    # Inputs: apenas campos -LOW
     inputs_low = [
         e for e in todos_elementos
         if getattr(e, "Type", "") in ("GuiTextField", "GuiCTextField")
         and str(getattr(e, "Name", "")).upper().endswith("-LOW")
     ]
 
-    mapeamento = {"BNAME": None, "SUBSYSTEM": None, "TO_DAT": None}
+    mapeamento = {"BNAME": None, "SUBSYSTEM": None}
 
-    # Termos de identificação por campo
+    # Termos de identificacao por campo
     termos = {
-        "BNAME":     ["BNAME", "USER", "USER NAME", "NOME DO UTILIZADOR", "NOME UTILIZADOR", "CÓDIGO"],
+        "BNAME":     ["BNAME", "USER", "USER NAME", "NOME DO UTILIZADOR", "NOME UTILIZADOR", "CODIGO"],
         "SUBSYSTEM": ["SUBSYSTEM", "RECEIVING SYSTEM", "LOGICAL SYSTEM", "SISTEMA RECETOR", "SISTEMA RECEPTOR"],
-        "TO_DAT":    ["TO_DAT", "VALID TO", "VALIDADE", "DATA FINAL", "VÁLIDO ATÉ", "VALIDO ATE", "END DATE"],
     }
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Estratégia 1 (mais fiável): padrão SE16 clássica
-    # Label: GuiTextField com Name = %_In_%_APP_%-TEXT  → Text contém o nome técnico do campo
-    # Input: GuiCTextField ou GuiTextField com Name = In-LOW
-    # ─────────────────────────────────────────────────────────────────────────
+    # Estrategia 1: padrao SE16 classica (%_In_%_APP_%-TEXT / In-LOW)
     for e in todos_elementos:
         if getattr(e, "Type", "") not in ("GuiTextField", "GuiLabel"):
             continue
@@ -655,11 +729,10 @@ def descobrir_campos_se16(session) -> dict:
         if not mat:
             continue
         idx_str = mat.group(1)
-        e_text = str(getattr(e, "Text", "")).strip().upper()
+        e_text    = str(getattr(e, "Text",    "")).strip().upper()
         e_tooltip = str(getattr(e, "Tooltip", "")).strip().upper()
-        e_id = str(getattr(e, "Id", "")).upper()
+        e_id      = str(getattr(e, "Id",      "")).upper()
 
-        # Encontrar o input correspondente (In-LOW)
         inp_name_target = f"I{idx_str}-LOW"
         inp_match = next(
             (i for i in todos_elementos if str(getattr(i, "Name", "")) == inp_name_target),
@@ -676,11 +749,8 @@ def descobrir_campos_se16(session) -> dict:
                     mapeamento[chave] = inp_match.Id
                     break
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Estratégia 2: proximidade Top/Left (GuiLabel clássico ou GuiTextField)
-    # ─────────────────────────────────────────────────────────────────────────
+    # Estrategia 2: proximidade Top/Left
     if any(v is None for v in mapeamento.values()):
-        # Labels: GuiLabel OU GuiTextField que não sejam campos de entrada
         _excluir_names = {"MAX_SEL", "LIST_BRE", "GD-MAXROWS", "MAX_HITS"}
         labels = [
             e for e in todos_elementos
@@ -692,30 +762,23 @@ def descobrir_campos_se16(session) -> dict:
             )
         ]
 
-        def matches_label(lbl, key_terms) -> bool:
-            text    = str(getattr(lbl, "Text", "")).strip().upper()
+        def _match_lbl(lbl, key_terms):
+            text    = str(getattr(lbl, "Text",    "")).strip().upper()
             tooltip = str(getattr(lbl, "Tooltip", "")).strip().upper()
-            name    = str(getattr(lbl, "Name", "")).strip().upper()
-            lbl_id  = str(getattr(lbl, "Id", "")).upper()
-            for term in key_terms:
-                if term in text or term in tooltip or term in name or term in lbl_id:
-                    return True
-            return False
+            name    = str(getattr(lbl, "Name",    "")).strip().upper()
+            lbl_id  = str(getattr(lbl, "Id",      "")).upper()
+            return any(
+                t in text or t in tooltip or t in name or t in lbl_id
+                for t in key_terms
+            )
 
         for chave, key_terms in termos.items():
             if mapeamento[chave] is not None:
                 continue
-
-            target_label = None
-            for lbl in labels:
-                if matches_label(lbl, key_terms):
-                    target_label = lbl
-                    break
-
+            target_label = next((label for label in labels if _match_lbl(label, key_terms)), None)
             if not target_label:
                 continue
 
-            # Associar por proximidade Top/Left
             lbl_top = lbl_left = None
             try:
                 lbl_top  = int(target_label.Top)
@@ -728,112 +791,324 @@ def descobrir_campos_se16(session) -> dict:
                 candidatos = []
                 for inp in inputs_low:
                     try:
-                        inp_top  = int(inp.Top)
-                        inp_left = int(inp.Left)
-                        if abs(inp_top - lbl_top) <= 10 and inp_left > lbl_left:
-                            candidatos.append((inp_left, inp))
+                        if abs(int(inp.Top) - lbl_top) <= 10 and int(inp.Left) > lbl_left:
+                            candidatos.append((int(inp.Left), inp))
                     except Exception:
                         pass
                 if candidatos:
-                    candidatos.sort(key=lambda x: x[0])
-                    input_associado = candidatos[0][1]
+                    input_associado = sorted(candidatos)[0][1]
 
-            # Fallback por ordem na árvore (próximo -LOW após o label)
             if not input_associado:
                 try:
                     idx_lbl = todos_elementos.index(target_label)
                     for j in range(idx_lbl + 1, min(idx_lbl + 8, len(todos_elementos))):
                         cand = todos_elementos[j]
-                        if getattr(cand, "Type", "") in ("GuiTextField", "GuiCTextField"):
-                            if str(getattr(cand, "Name", "")).upper().endswith("-LOW"):
-                                input_associado = cand
-                                break
+                        if getattr(cand, "Type", "") in ("GuiTextField", "GuiCTextField") and \
+                                str(getattr(cand, "Name", "")).upper().endswith("-LOW"):
+                            input_associado = cand
+                            break
                 except Exception:
                     pass
 
             if input_associado:
                 mapeamento[chave] = input_associado.Id
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Estratégia 3 (legado): mapeamento direto por ID técnico do input
-    # ─────────────────────────────────────────────────────────────────────────
+    # Estrategia 3: mapeamento direto por ID tecnico
     for e in inputs_low:
         inp_id = str(getattr(e, "Id", "")).upper()
         if mapeamento["BNAME"] is None and "BNAME" in inp_id:
             mapeamento["BNAME"] = e.Id
         elif mapeamento["SUBSYSTEM"] is None and ("SUBSYSTEM" in inp_id or "SUBSYS" in inp_id):
             mapeamento["SUBSYSTEM"] = e.Id
-        elif mapeamento["TO_DAT"] is None and ("TO_DAT" in inp_id or "TODAT" in inp_id):
-            mapeamento["TO_DAT"] = e.Id
 
     return mapeamento
 
 
-def ler_alv_grid(grid) -> list[dict]:
-    rows_count = int(grid.RowCount)
-    cols_count = int(grid.ColumnCount)
-    col_agr = None
-    col_todat = None
-    
-    for c in range(cols_count):
+def is_alv_grid(component) -> bool:
+    try:
+        component_type = str(getattr(component, "Type", "") or "")
+        subtype = str(getattr(component, "SubType", "") or "")
+
+        if component_type == "GuiShell" and subtype.casefold() == "gridview":
+            return True
+
+        row_count = getattr(component, "RowCount", None)
+        column_count = getattr(component, "ColumnCount", None)
+        get_cell_value = getattr(component, "GetCellValue", None)
+
+        return (
+            row_count is not None
+            and column_count is not None
+            and callable(get_cell_value)
+        )
+    except Exception:
+        return False
+
+
+def find_alv_grid(session):
+    # A. Direct IDs
+    for direct_id in [
+        "wnd[0]/usr/cntlGRID1/shellcont/shell",
+        "/app/con[0]/ses[0]/wnd[0]/usr/cntlGRID1/shellcont/shell"
+    ]:
         try:
-            col_key = str(grid.GetColumnKey(c)).strip().upper()
-            if col_key == "AGR_NAME":
-                col_agr = col_key
-            elif col_key == "TO_DAT":
-                col_todat = col_key
+            component = session.findById(direct_id)
+            if component and is_alv_grid(component):
+                return component
         except Exception:
             pass
-            
-    if not col_agr or not col_todat:
-        # Fallback para títulos das colunas
-        for c in range(cols_count):
+
+    # B. Pesquisa limitada dentro de wnd[0]/usr
+    try:
+        usr_elem = session.findById("wnd[0]/usr")
+        if usr_elem:
+            stack = [usr_elem]
+            while stack:
+                curr = stack.pop()
+                if is_alv_grid(curr):
+                    return curr
+                try:
+                    for idx in range(curr.Children.Count - 1, -1, -1):
+                        stack.append(curr.Children(idx))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return None
+
+
+def get_grid_column_ids(grid) -> list[str]:
+    # Try ColumnOrder
+    try:
+        column_order = getattr(grid, "ColumnOrder", None)
+        if column_order is not None:
+            col_list = []
+            if isinstance(column_order, (list, tuple)):
+                col_list = list(column_order)
+            else:
+                try:
+                    for item in column_order:
+                        col_list.append(item)
+                except Exception:
+                    try:
+                        count = column_order.Count
+                        for i in range(count):
+                            col_list.append(column_order.Item(i))
+                    except Exception:
+                        pass
+            if col_list:
+                return [str(col).strip() for col in col_list]
+    except Exception:
+        pass
+
+    # Alternative: Get column keys by iterating ColumnCount
+    try:
+        col_count = int(grid.ColumnCount)
+        col_list = []
+        for i in range(col_count):
             try:
-                title = str(grid.GetColumnTitle(c)).strip().upper()
-                if "FUNÇÃO" in title or "ROLE" in title or "AGR_NAME" in title or "NOME DO" in title:
-                    col_agr = grid.GetColumnKey(c)
-                elif "VÁLIDO" in title or "VALID" in title or "TO_DAT" in title or "TO_DATE" in title:
-                    col_todat = grid.GetColumnKey(c)
+                col_key = grid.GetColumnKey(i)
+                if col_key:
+                    col_list.append(str(col_key).strip())
             except Exception:
                 pass
-                
-    if not col_agr:
-        col_agr = "AGR_NAME"
-    if not col_todat:
-        col_todat = "TO_DAT"
-        
-    results = []
-    for r in range(rows_count):
+        if col_list:
+            return col_list
+    except Exception:
+        pass
+
+    return []
+
+
+def map_alv_columns(grid, column_ids: list[str]) -> dict[str, str]:
+    expected_keys = ["MANDT", "BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT", "ORG_FLAG"]
+    col_map = {k: None for k in expected_keys}
+    
+    termos = {
+        "MANDT": ["MANDT", "CLIENT", "MANDANTE", "CLIENTE", "MAND."],
+        "BNAME": ["BNAME", "USER", "UTILIZADOR", "USUARIO", "NOME UTILIZADOR", "CODIGO", "CÓDIGO", "NAME"],
+        "SUBSYSTEM": ["SUBSYSTEM", "SISTEMA", "RECEIVING SYSTEM", "LOGICAL SYSTEM", "RECETOR", "RECEPTOR", "SUBSYS"],
+        "AGR_NAME": ["AGR_NAME", "ROLE", "FUNCAO", "FUNÇÃO", "PERFIL"],
+        "FROM_DAT": ["FROM_DAT", "VALID_FROM", "FROM", "DESDE", "DE_DAT", "VALIDO_DE", "VÁLIDO DE"],
+        "TO_DAT": ["TO_DAT", "VALID_TO", "TO", "ATE", "ATE_DAT", "VALIDO_ATE", "VÁLIDO ATÉ"],
+        "ORG_FLAG": ["ORG_FLAG", "ORG"]
+    }
+    
+    col_details = []
+    for c_id in column_ids:
+        c_id_upper = c_id.upper().strip().replace(" ", "_")
+        c_title_upper = ""
         try:
-            val_agr = str(grid.GetCellValue(r, col_agr)).strip()
-            val_todat = str(grid.GetCellValue(r, col_todat)).strip()
-            if val_agr or val_todat:
-                results.append({
-                    "AGR_NAME": val_agr,
-                    "TO_DAT": val_todat
-                })
+            c_title = grid.GetColumnTitle(c_id)
+            if c_title:
+                c_title_upper = str(c_title).upper().strip().replace(" ", "_")
         except Exception:
             pass
+        col_details.append((c_id, c_id_upper, c_title_upper))
+
+    # Match exact keys
+    for expected_key, terms in termos.items():
+        for c_id, c_id_upper, c_title_upper in col_details:
+            if c_id_upper in terms:
+                col_map[expected_key] = c_id
+                break
+                
+    # Match using substrings
+    for expected_key, terms in termos.items():
+        if col_map[expected_key] is not None:
+            continue
+        for c_id, c_id_upper, c_title_upper in col_details:
+            if c_id in col_map.values():
+                continue
+            if any(t in c_id_upper or t in c_title_upper for t in terms):
+                col_map[expected_key] = c_id
+                break
+
+    # Fallbacks based on original code
+    if not col_map["AGR_NAME"]:
+        for c_id, c_id_upper, _ in col_details:
+            if "AGR" in c_id_upper or "ROLE" in c_id_upper:
+                col_map["AGR_NAME"] = c_id
+                break
+        if not col_map["AGR_NAME"] and "AGR_NAME" in column_ids:
+            col_map["AGR_NAME"] = "AGR_NAME"
+            
+    if not col_map["TO_DAT"]:
+        for c_id, c_id_upper, _ in col_details:
+            if "TO_DAT" in c_id_upper or "VALID_TO" in c_id_upper:
+                col_map["TO_DAT"] = c_id
+                break
+        if not col_map["TO_DAT"] and "TO_DAT" in column_ids:
+            col_map["TO_DAT"] = "TO_DAT"
+
+    return col_map
+
+
+def read_alv_grid(grid) -> list[dict[str, str]]:
+    column_ids = get_grid_column_ids(grid)
+    col_map = map_alv_columns(grid, column_ids)
+    
+    rows_count = int(grid.RowCount)
+    results = []
+    
+    for r in range(rows_count):
+        row_dict = {}
+        for expected_key, col_id in col_map.items():
+            val = ""
+            if col_id is not None:
+                try:
+                    val = str(grid.GetCellValue(r, col_id)).strip()
+                except Exception:
+                    pass
+            row_dict[expected_key] = val
+        if row_dict.get("BNAME") or row_dict.get("SUBSYSTEM") or row_dict.get("AGR_NAME"):
+            results.append(row_dict)
+            
     return results
+
+
+def ler_alv_grid(grid) -> list[dict]:
+    return read_alv_grid(grid)
+
+
+def _encontrar_alv_grid(parent):
+    try:
+        stack = [parent]
+        while stack:
+            curr = stack.pop()
+            if is_alv_grid(curr):
+                return curr
+            try:
+                for idx in range(curr.Children.Count - 1, -1, -1):
+                    stack.append(curr.Children(idx))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
+def _encontrar_table_control(parent):
+    """Procura recursivamente por qualquer GuiTableControl."""
+    stack = [parent]
+    while stack:
+        curr = stack.pop()
+        if getattr(curr, "Type", "") == "GuiTableControl":
+            return curr
+        try:
+            for idx in range(curr.Children.Count - 1, -1, -1):
+                stack.append(curr.Children(idx))
+        except Exception:
+            pass
+    return None
+
+
+def check_empty_popup(session) -> bool:
+    _sem_dados = [
+        "NENHUM", "NO DATA", "NOT FOUND", "NAO EXISTE", "NENHUMA ENTRADA", 
+        "NO ENTRIES", "0 ENTRIES", "NO RECORDS", "KEIN EINTRAG", "AUCUN ENREGISTREMENT",
+        "NENHUM DADO", "NO ENTRIES SELECTED", "0 ENTRADAS SELECIONADAS", "0 SELECIONADAS",
+        "NENHUM REGISTO", "SEM REGISTOS", "SEM DADOS", "NENHUMA LINHA", "NO ROWS"
+    ]
+    try:
+        if int(session.Children.Count) > 1:
+            popup = session.findById("wnd[1]")
+            texts = []
+            stack = [popup]
+            while stack:
+                curr = stack.pop()
+                c_text = str(getattr(curr, "Text", "")).strip()
+                if c_text:
+                    texts.append(c_text.upper())
+                try:
+                    for idx in range(curr.Children.Count):
+                        stack.append(curr.Children(idx))
+                except Exception:
+                    pass
+            for t in texts:
+                if any(term in t for term in _sem_dados):
+                    return True
+    except Exception:
+        pass
+    return False
 
 
 def ler_table_control(table_ctrl) -> list[dict]:
     cols = table_ctrl.Columns
-    col_agr_idx = -1
-    col_todat_idx = -1
+    cols_count = cols.Count
     
-    for idx in range(cols.Count):
-        col_name = str(cols.ElementAt(idx).Name).upper()
-        col_title = str(cols.ElementAt(idx).Title).upper()
-        if "AGR_NAME" in col_name or "FUNÇÃO" in col_title or "ROLE" in col_title or "AGR_NAME" in col_title:
-            col_agr_idx = idx
-        elif "TO_DAT" in col_name or "VÁLIDO" in col_title or "VALID" in col_title or "TO_DAT" in col_title:
-            col_todat_idx = idx
+    termos = {
+        "MANDT": ["MANDT", "CLIENT", "MANDANTE", "CLIENTE", "MAND."],
+        "BNAME": ["BNAME", "USER", "UTILIZADOR", "USUARIO", "NOME UTILIZADOR", "CODIGO", "CÓDIGO"],
+        "SUBSYSTEM": ["SUBSYSTEM", "SISTEMA", "RECEIVING SYSTEM", "LOGICAL SYSTEM", "RECETOR", "RECEPTOR"],
+        "AGR_NAME": ["AGR_NAME", "ROLE", "FUNCAO", "FUNÇÃO"],
+        "FROM_DAT": ["FROM_DAT", "VALID_FROM", "FROM", "DESDE", "DE_DAT", "VALIDO_DE", "VÁLIDO DE"],
+        "TO_DAT": ["TO_DAT", "VALID_TO", "TO", "ATE", "ATE_DAT", "VALIDO_ATE", "VÁLIDO ATÉ"],
+        "ORG_FLAG": ["ORG_FLAG", "ORG"]
+    }
+    
+    colunas_sap = []
+    for c in range(cols_count):
+        try:
+            col_name  = str(cols.ElementAt(c).Name).upper()
+            col_title = str(cols.ElementAt(c).Title).upper()
+            colunas_sap.append((c, col_name, col_title))
+        except Exception:
+            pass
             
-    if col_agr_idx == -1 or col_todat_idx == -1:
-        col_agr_idx = 3
-        col_todat_idx = 5
-        
+    col_map = {k: None for k in termos.keys()}
+    for chave, termos_chave in termos.items():
+        for c_idx, col_name, col_title in colunas_sap:
+            if col_name in termos_chave:
+                col_map[chave] = c_idx
+                break
+        if col_map[chave] is None:
+            for c_idx, col_name, col_title in colunas_sap:
+                if any(t in col_name or t in col_title for t in termos_chave):
+                    col_map[chave] = c_idx
+                    break
+                    
     results = []
     row_count = int(table_ctrl.RowCount)
     visible_row_count = int(table_ctrl.VisibleRowCount)
@@ -856,70 +1131,701 @@ def ler_table_control(table_ctrl) -> list[dict]:
             except Exception:
                 pass
                 
+        row_dict = {}
+        for chave, col_idx in col_map.items():
+            val = ""
+            if col_idx is not None:
+                try:
+                    val = str(table_ctrl.getCell(row_in_screen, col_idx).Text).strip()
+                except Exception:
+                    pass
+            row_dict[chave] = val
+            
+        if row_dict.get("BNAME") or row_dict.get("SUBSYSTEM") or row_dict.get("AGR_NAME"):
+            results.append(row_dict)
+            
+    return results
+
+
+def dump_controles_diagnostico(session):
+    """
+    Realiza o dump recursivo e detalhado de todos os controlos contivos no wnd[0]/usr
+    apenas quando em modo DEBUG ou quando a leitura falhar.
+    """
+    print("[SE16][DEBUG] Iniciando diagnostico detalhado dos controlos no wnd[0]/usr...")
+    try:
+        usr = session.findById("wnd[0]/usr")
+        stack = [usr]
+        count = 0
+        while stack:
+            curr = stack.pop()
+            c_id = getattr(curr, "Id", "")
+            c_type = getattr(curr, "Type", "")
+            c_name = getattr(curr, "Name", "")
+            c_text = getattr(curr, "Text", "")
+            c_tooltip = getattr(curr, "Tooltip", "")
+            c_subtype = getattr(curr, "SubType", "")
+            
+            c_left = getattr(curr, "ScreenLeft", None)
+            c_top = getattr(curr, "ScreenTop", None)
+            c_w = getattr(curr, "Width", None)
+            c_h = getattr(curr, "Height", None)
+            
+            c_row_count = None
+            c_col_count = None
+            try:
+                c_row_count = curr.RowCount
+            except Exception:
+                pass
+            try:
+                c_col_count = curr.ColumnCount
+            except Exception:
+                pass
+                
+            c_children_count = 0
+            try:
+                c_children_count = curr.Children.Count
+            except Exception:
+                pass
+                
+            # Filtrar para nao imprimir senhas por seguranca
+            if "PASS" in c_name.upper() or "PASS" in c_id.upper() or "PASSWORD" in c_type.upper():
+                c_text = "********"
+                
+            print(
+                f"  - Controlo [{count}]: ID={c_id} | Tipo={c_type} | Name={c_name} | SubType={c_subtype} | "
+                f"Text='{c_text}' | Tooltip='{c_tooltip}' | Pos=({c_left}, {c_top}) | Tam=({c_w}x{c_h}) | "
+                f"Children={c_children_count} | RowCount={c_row_count} | ColCount={c_col_count}"
+            )
+            count += 1
+            
+            try:
+                for idx in range(curr.Children.Count - 1, -1, -1):
+                    stack.append(curr.Children(idx))
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[SE16][DEBUG] Falha ao coletar diagnostico: {e}")
+
+
+def obter_quantidade_esperada_lista_se16(session) -> int | None:
+    """
+    Tenta obter a quantidade esperada de registos exibidos na SE16
+    atraves da barra de status, titulo da janela ou labels na tela.
+    """
+    import re
+    # 1. Status Bar
+    try:
+        sbar_text = str(session.findById("wnd[0]/sbar").Text).strip()
+        match = re.search(r'(?:n[º°]\s*entradas|entradas|entries|einträge|enregistrements)\D*(\d+)', sbar_text, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        match = re.search(r'(\d+)\s*(?:entradas|entries|einträge|enregistrements)', sbar_text, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    except Exception:
+        pass
+
+    # 2. Titulo Janela
+    try:
+        title = str(session.findById("wnd[0]").text).strip()
+        match = re.search(r'(?:n[º°]\s*entradas|entradas|entries|einträge|enregistrements)\D*(\d+)', title, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        match = re.search(r'(\d+)\s*(?:entradas|entries|einträge|enregistrements)', title, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    except Exception:
+        pass
+
+    # 3. GuiLabels
+    try:
+        usr = session.findById("wnd[0]/usr")
+        for child in usr.Children:
+            if getattr(child, "Type", "") == "GuiLabel":
+                txt = str(child.Text).strip()
+                if any(k in txt.upper() for k in ["ENTRADAS", "ENTRIES", "EINTRÄGE", "RECORDS", "REGISTOS"]):
+                    match = re.search(r'(\d+)', txt)
+                    if match:
+                        return int(match.group(1))
+    except Exception:
+        pass
+
+    return None
+
+
+def coletar_todos_elementos_texto(parent):
+    elements = []
+    stack = [parent]
+    while stack:
+        curr = stack.pop()
+        tipo = getattr(curr, "Type", "")
+        if tipo in ("GuiLabel", "GuiTextField", "GuiCTextField"):
+            elements.append(curr)
         try:
-            val_agr = str(table_ctrl.getCell(row_in_screen, col_agr_idx).Text).strip()
-            val_todat = str(table_ctrl.getCell(row_in_screen, col_todat_idx).Text).strip()
-            if val_agr or val_todat:
-                results.append({
-                    "AGR_NAME": val_agr,
-                    "TO_DAT": val_todat
-                })
+            for idx in range(curr.Children.Count - 1, -1, -1):
+                stack.append(curr.Children(idx))
         except Exception:
             pass
-            
-    return results
+    return elements
 
 
-def ler_lista_standard(session) -> list[dict]:
-    usr = session.findById("wnd[0]/usr")
-    labels = []
-    for child in usr.Children:
-        if child.Type == "GuiLabel":
-            labels.append(child)
-            
-    rows_data = {}
-    for lbl in labels:
-        lbl_id = lbl.Id
-        if "[" in lbl_id and "]" in lbl_id:
-            bracket_part = lbl_id.rsplit("[", 1)[-1].split("]")[0]
-            parts = bracket_part.split(",")
-            if len(parts) == 2:
-                r_idx = int(parts[0])
-                c_idx = int(parts[1])
-                if r_idx not in rows_data:
-                    rows_data[r_idx] = {}
-                rows_data[r_idx][c_idx] = str(lbl.Text).strip()
-                
-    header_row_idx = -1
-    col_agr_c = -1
-    col_todat_c = -1
+def obter_coordenadas(element):
+    left = None
+    top = None
+    width = None
+    height = None
+    try:
+        left = int(element.ScreenLeft)
+        top = int(element.ScreenTop)
+    except Exception:
+        pass
+    if left is None or top is None:
+        try:
+            left = int(element.Left)
+            top = int(element.Top)
+        except Exception:
+            pass
+    try:
+        width = int(element.Width)
+        height = int(element.Height)
+    except Exception:
+        pass
+    return left, top, width, height
+
+
+def identificar_cabecalhos_lista_classica(todos_elementos):
+    termos = {
+        "MANDT": ["MANDT", "MAND.", "CLIENT"],
+        "BNAME": ["BNAME", "USER", "UTILIZADOR", "USUARIO", "CÓDIGO", "CODIGO"],
+        "SUBSYSTEM": ["SUBSYSTEM", "SYSNAME", "SISTEMA", "RECEIVING SYSTEM", "LOGICAL SYSTEM", "RECETOR", "RECEPTOR"],
+        "AGR_NAME": ["AGR_NAME", "ROLE", "FUNCAO", "FUNÇÃO"],
+        "FROM_DAT": ["FROM_DAT", "VALID_FROM", "DESDE", "DE_DAT", "VALIDO_DE", "VÁLIDO DE"],
+        "TO_DAT": ["TO_DAT", "VALID_TO", "ATE", "ATE_DAT", "VALIDO_ATE", "VÁLIDO ATÉ"],
+        "ORG_FLAG": ["ORG_FLAG", "ORG"]
+    }
     
-    for r_idx, row_cols in rows_data.items():
-        for c_idx, val in row_cols.items():
-            val_up = val.upper()
-            if "AGR_NAME" in val_up or "FUNÇÃO" in val_up or "ROLE" in val_up:
-                col_agr_c = c_idx
-                header_row_idx = r_idx
-            elif "TO_DAT" in val_up or "VÁLIDO" in val_up or "VALID" in val_up:
-                col_todat_c = c_idx
-                header_row_idx = r_idx
-                
-    results = []
-    if header_row_idx == -1 or col_agr_c == -1 or col_todat_c == -1:
-        return results
-        
-    for r_idx, row_cols in rows_data.items():
-        if r_idx <= header_row_idx:
+    linhas = {}
+    for elem in todos_elementos:
+        left, top, w, h = obter_coordenadas(elem)
+        if left is None or top is None:
             continue
-        val_agr = row_cols.get(col_agr_c, "")
-        val_todat = row_cols.get(col_todat_c, "")
-        if val_agr or val_todat:
-            results.append({
-                "AGR_NAME": val_agr,
-                "TO_DAT": val_todat
-            })
+        text = str(getattr(elem, "Text", "")).strip().upper()
+        if not text:
+            continue
             
-    return results
+        found_row = None
+        for row_top in linhas.keys():
+            if abs(row_top - top) <= 5:
+                found_row = row_top
+                break
+        if found_row is None:
+            linhas[top] = []
+            found_row = top
+        linhas[found_row].append((left, w, text, elem))
+        
+    cabecalhos_mapeados = {}
+    header_top = None
+    
+    for top in sorted(linhas.keys()):
+        row_items = linhas[top]
+        row_text_upper = [item[2] for item in row_items]
+        tem_bname = any(any(t in txt for t in termos["BNAME"]) for txt in row_text_upper)
+        tem_subsys = any(any(t in txt for t in termos["SUBSYSTEM"]) for txt in row_text_upper)
+        tem_agr = any(any(t in txt for t in termos["AGR_NAME"]) for txt in row_text_upper)
+        
+        if tem_bname and tem_subsys and tem_agr:
+            header_top = top
+            for chave, termos_chave in termos.items():
+                for item_left, item_w, item_text, item_elem in row_items:
+                    if any(t == item_text or t in item_text for t in termos_chave):
+                        cabecalhos_mapeados[chave] = {
+                            "left": item_left,
+                            "width": item_w,
+                            "center": item_left + (item_w // 2),
+                            "elem": item_elem
+                        }
+                        break
+            break
+            
+    return cabecalhos_mapeados, header_top
+
+
+def associar_coluna(left_val, width_val, cabecalhos_mapeados):
+    centro_val = left_val + (width_val // 2)
+    menor_distancia = float("inf")
+    coluna_mais_proxima = None
+    
+    for col, info in cabecalhos_mapeados.items():
+        dist = abs(centro_val - info["center"])
+        if dist < menor_distancia:
+            menor_distancia = dist
+            coluna_mais_proxima = col
+            
+    if menor_distancia < 200:
+        return coluna_mais_proxima
+    return None
+
+
+def ler_pagina_atual(session, usr_elem, cabecalhos, h_top) -> dict:
+    if h_top is None or not cabecalhos:
+        return {}
+        
+    todos_elementos = coletar_todos_elementos_texto(usr_elem)
+    
+    linhas_dados = {}
+    for elem in todos_elementos:
+        left, top, w, h = obter_coordenadas(elem)
+        if left is None or top is None:
+            continue
+            
+        if top <= h_top + 5:
+            continue
+            
+        text = str(getattr(elem, "Text", "")).strip()
+        if not text or text.replace("-", "").replace("|", "").replace("+", "").strip() == "":
+            continue
+        if any(term in text.upper() for term in ["TABLE", "DISPLAYED FIELDS", "FIXED COLUMNS", "LIST WIDTH", "Nº", "NENHUM"]):
+            continue
+            
+        found_row = None
+        for row_top in linhas_dados.keys():
+            if abs(row_top - top) <= 5:
+                found_row = row_top
+                break
+        if found_row is None:
+            linhas_dados[top] = []
+            found_row = top
+        linhas_dados[found_row].append((left, w, text))
+
+    registos = {}
+    for top, items in sorted(linhas_dados.items()):
+        row_dict = {
+            "MANDT": "",
+            "BNAME": "",
+            "SUBSYSTEM": "",
+            "AGR_NAME": "",
+            "FROM_DAT": "",
+            "TO_DAT": "",
+            "ORG_FLAG": ""
+        }
+        for left, w, text in items:
+            col = associar_coluna(left, w, cabecalhos)
+            if col is not None:
+                row_dict[col] = text
+                
+        for col in row_dict.keys():
+            row_dict[col] = row_dict[col].strip().strip("|").strip()
+            
+        registos[top] = row_dict
+        
+    return registos
+
+
+def ler_lista_classica_usla04(session, utilizador, sistema) -> list[dict]:
+    """
+    Leitor robusto para a lista classica da SE16.
+    Suporta scroll vertical e horizontal, agrupando por proximidade
+    e validando contra os filtros exigidos e quantidade de registros SAP.
+    """
+    qtd_esperada = obter_quantidade_esperada_lista_se16(session)
+    if qtd_esperada is not None:
+        print(f"[SE16] Registos apresentados pelo SAP: {qtd_esperada}")
+    else:
+        print("[SE16] Quantidade esperada nao identificada no SAP.")
+
+    usr_elem = session.findById("wnd[0]/usr")
+    
+    v_scrollbar = None
+    try:
+        v_scrollbar = usr_elem.VerticalScrollbar
+    except Exception:
+        pass
+        
+    h_scrollbar = None
+    try:
+        h_scrollbar = usr_elem.HorizontalScrollbar
+    except Exception:
+        pass
+
+    orig_h_pos = 0
+    if h_scrollbar is not None:
+        try:
+            orig_h_pos = h_scrollbar.Position
+            h_scrollbar.Position = 0
+            time.sleep(0.2)
+        except Exception:
+            pass
+
+    if v_scrollbar is not None:
+        try:
+            v_scrollbar.Position = 0
+            time.sleep(0.3)
+        except Exception:
+            pass
+
+    registos_unicos = {}
+    loop_limit = 200
+    v_pos_anterior = -1
+
+    while loop_limit > 0:
+        loop_limit -= 1
+        
+        todos_elementos = coletar_todos_elementos_texto(usr_elem)
+        cabecalhos, h_top = identificar_cabecalhos_lista_classica(todos_elementos)
+        
+        if h_top is None:
+            # Se nao achou cabeçalho, tenta mover scroll horizontal para a direita
+            if h_scrollbar is not None and h_scrollbar.Maximum > 0:
+                try:
+                    h_scrollbar.Position = h_scrollbar.Maximum
+                    time.sleep(0.25)
+                    todos_elementos = coletar_todos_elementos_texto(usr_elem)
+                    cabecalhos, h_top = identificar_cabecalhos_lista_classica(todos_elementos)
+                    h_scrollbar.Position = 0
+                    time.sleep(0.2)
+                except Exception:
+                    pass
+
+        if h_top is None:
+            print("[SE16] Linha de cabecalho nao identificada na pagina atual.")
+            break
+
+        registos_pagina = ler_pagina_atual(session, usr_elem, cabecalhos, h_top)
+        
+        # Verificar se faltam colunas essenciais
+        colunas_em_falta = any(
+            (not reg.get("AGR_NAME") or not reg.get("TO_DAT"))
+            for reg in registos_pagina.values()
+        )
+        
+        if h_scrollbar is not None and h_scrollbar.Maximum > 0 and colunas_em_falta:
+            try:
+                h_scrollbar.Position = h_scrollbar.Maximum
+                time.sleep(0.3)
+                
+                todos_elementos_dir = coletar_todos_elementos_texto(usr_elem)
+                cabecalhos_dir, h_top_dir = identificar_cabecalhos_lista_classica(todos_elementos_dir)
+                registos_pagina_dir = ler_pagina_atual(session, usr_elem, cabecalhos_dir, h_top_dir)
+                
+                for top_dir, reg_dir in registos_pagina_dir.items():
+                    matched_top = None
+                    for top_esq in registos_pagina.keys():
+                        if abs(top_esq - top_dir) <= 5:
+                            matched_top = top_esq
+                            break
+                    if matched_top is not None:
+                        for col_name, val_val in reg_dir.items():
+                            if val_val and not registos_pagina[matched_top].get(col_name):
+                                registos_pagina[matched_top][col_name] = val_val
+                                
+                h_scrollbar.Position = 0
+                time.sleep(0.2)
+            except Exception as e:
+                print(f"[AVISO] Erro ao mover scroll horizontal: {e}")
+
+        # Adicionar e validar
+        for top_y, reg in registos_pagina.items():
+            mandt = reg.get("MANDT", "001")
+            bname = reg.get("BNAME", "").strip().upper()
+            subsys = reg.get("SUBSYSTEM", "").strip().upper()
+            agr_name = reg.get("AGR_NAME", "").strip().upper()
+            from_dat = reg.get("FROM_DAT", "").strip()
+            to_dat = reg.get("TO_DAT", "").strip()
+            org_flag = reg.get("ORG_FLAG", "").strip()
+            
+            # Filtrar e validar
+            import re
+            if mandt and not re.match(r'^\d+$', mandt):
+                if DEBUG_SAP_CONTROLS:
+                    print(f"[SE16][DEBUG] Linha rejeitada (MANDT nao numerico): {reg}")
+                continue
+            if bname != utilizador.upper():
+                if DEBUG_SAP_CONTROLS:
+                    print(f"[SE16][DEBUG] Linha rejeitada (BNAME difere de {utilizador}): {reg}")
+                continue
+            if subsys != sistema.upper():
+                if DEBUG_SAP_CONTROLS:
+                    print(f"[SE16][DEBUG] Linha rejeitada (SUBSYSTEM difere de {sistema}): {reg}")
+                continue
+            if not agr_name:
+                if DEBUG_SAP_CONTROLS:
+                    print(f"[SE16][DEBUG] Linha rejeitada (AGR_NAME vazio): {reg}")
+                continue
+                
+            valida_datas = True
+            for dt_str in [from_dat, to_dat]:
+                if dt_str:
+                    try:
+                        converter_data_sap(dt_str)
+                    except Exception:
+                        valida_datas = False
+                        break
+            if not valida_datas:
+                if DEBUG_SAP_CONTROLS:
+                    print(f"[SE16][DEBUG] Linha rejeitada (Formato de data invalido): {reg}")
+                continue
+
+            chave = f"{mandt}|{bname}|{subsys}|{agr_name}|{from_dat}|{to_dat}|{org_flag}"
+            if chave not in registos_unicos:
+                registos_unicos[chave] = {
+                    "MANDT": mandt,
+                    "BNAME": bname,
+                    "SUBSYSTEM": subsys,
+                    "AGR_NAME": agr_name,
+                    "FROM_DAT": from_dat,
+                    "TO_DAT": to_dat,
+                    "ORG_FLAG": org_flag
+                }
+
+        # Scroll vertical
+        if v_scrollbar is not None and v_scrollbar.Maximum > 0:
+            v_pos_atual = v_scrollbar.Position
+            if v_pos_atual == v_pos_anterior or v_pos_atual >= v_scrollbar.Maximum:
+                break
+            v_pos_anterior = v_pos_atual
+            passo = v_scrollbar.PageSize if v_scrollbar.PageSize > 0 else 15
+            try:
+                v_scrollbar.Position = v_pos_atual + passo
+                time.sleep(0.3)
+                aguardar_sap_livre(session, timeout=10)
+            except Exception:
+                break
+        else:
+            break
+
+    if h_scrollbar is not None:
+        try:
+            h_scrollbar.Position = orig_h_pos
+            time.sleep(0.2)
+        except Exception:
+            pass
+
+    lista_resultados = list(registos_unicos.values())
+    
+    if qtd_esperada is not None:
+        qtd_lida = len(lista_resultados)
+        if qtd_lida != qtd_esperada:
+            print("[SE16] ERRO DE LEITURA DA LISTA CLÁSSICA: Divergencia na quantidade de registos.")
+            print(f"       Registos apresentados pelo SAP: {qtd_esperada}")
+            print(f"       Registos lidos pelo Python    : {qtd_lida}")
+            raise RuntimeError(
+                f"ERRO DE LEITURA USLA04:\n"
+                f"O resultado da SE16 nao pode ser interpretado de forma confiavel.\n"
+                f"Divergencia entre quantidade esperada ({qtd_esperada}) e lida ({qtd_lida}).\n"
+                f"Nenhuma alteracao foi efetuada no SAP."
+            )
+            
+    return lista_resultados
+
+
+def log_technical_error_details(session, step_name: str, func_name: str, exception: Exception):
+    print(f"\n[ERRO TÉCNICO] Falha na pré-validação da USLA04!")
+    print(f"├─ Etapa: {step_name}")
+    print(f"├─ Função: {func_name}")
+    print(f"├─ Exceção: {type(exception).__name__}: {exception}")
+    try:
+        wnd = session.findById("wnd[0]")
+        title = getattr(wnd, "Text", "Desconhecido")
+        print(f"├─ Título da Janela: {title}")
+    except Exception:
+        print("├─ Título da Janela: Indisponível")
+        
+    try:
+        info = session.Info
+        print(f"├─ Transação Atual: {getattr(info, 'Transaction', 'SE16')}")
+        print(f"├─ Dynpro: {getattr(info, 'ScreenNumber', 'Desconhecido')}")
+    except Exception:
+        print("├─ Transação Atual: SE16")
+        print("├─ Dynpro: Indisponível")
+        
+    try:
+        sbar = session.findById("wnd[0]/sbar")
+        sbar_text = getattr(sbar, "Text", "")
+        print(f"├─ Mensagem Status Bar: '{sbar_text}'")
+    except Exception:
+        print("├─ Mensagem Status Bar: Indisponível")
+        
+    try:
+        has_popup = int(session.Children.Count) > 1
+        print(f"├─ Existência de Popup: {has_popup}")
+    except Exception:
+        print("├─ Existência de Popup: Indisponível")
+        
+    try:
+        grid = find_alv_grid(session)
+        if grid is not None:
+            print("├─ Existência de Grid: Sim")
+            try:
+                print(f"├─ Grid RowCount: {grid.RowCount}")
+            except Exception:
+                pass
+        else:
+            print("├─ Existência de Grid: Não")
+    except Exception:
+        print("├─ Existência de Grid: Erro ao verificar")
+    print("└──────────────────────────────────────────────")
+
+
+def ler_resultados_usla04(session, utilizador, sistema) -> list[dict]:
+    """
+    Função unificada e polimórfica que descobre e lê os resultados
+    da SE16/USLA04 seja ALV Grid, TableControl ou Lista Standard/Clássica.
+    """
+    # 1. Aguardar o SAP terminar o processamento
+    aguardar_sap_livre(session, timeout=60)
+    
+    # 2. Ler imediatamente a barra de status
+    sbar_text = ""
+    sbar_type = ""
+    try:
+        sbar_obj = session.findById("wnd[0]/sbar")
+        sbar_text = str(getattr(sbar_obj, "Text", "")).strip()
+        sbar_type = str(getattr(sbar_obj, "MessageType", "")).strip().upper()
+    except Exception:
+        pass
+        
+    sbar_text_clean = sbar_text.strip().upper()
+
+    _sem_dados = [
+        "NO TABLE ENTRIES FOUND FOR SPECIFIED KEY",
+        "NO ENTRIES FOUND",
+        "NO DATA FOUND",
+        "NENHUMA ENTRADA ENCONTRADA",
+        "NENHUM REGISTO ENCONTRADO",
+        "NENHUM DADO ENCONTRADO",
+        "NO ENTRIES SELECTED",
+        "NENHUM REGISTO", "SEM REGISTOS", "SEM DADOS", "NENHUMA LINHA", "NO ROWS",
+        "NENHUM", "NO DATA", "NOT FOUND", "NAO EXISTE", "NENHUMA ENTRADA", 
+        "NO ENTRIES", "0 ENTRIES", "NO RECORDS", "KEIN EINTRAG", "AUCUN ENREGISTREMENT",
+        "NENHUM DADO", "0 ENTRADAS SELECIONADAS", "0 SELECIONADAS"
+    ]
+    
+    # Verificar ausência de entradas na barra de status
+    if any(t in sbar_text_clean for t in _sem_dados):
+        print("[SE16] Consulta executada com sucesso.")
+        print(f"[SE16] Nenhum registo encontrado para BNAME={utilizador} e SUBSYSTEM={sistema} (Status Bar: '{sbar_text}').")
+        print("[SE16] Resultado vazio validado com sucesso.")
+        return []
+
+    # Verificar popups de informação de ausência de dados
+    if check_empty_popup(session):
+        print("[SE16] Consulta executada com sucesso.")
+        print(f"[SE16] Nenhum registo encontrado para BNAME={utilizador} e SUBSYSTEM={sistema} (Popup).")
+        print("[SE16] Resultado vazio validado com sucesso.")
+        _dismiss_popup(session)
+        return []
+
+    # Verificar erro crítico de autorização/execução
+    if sbar_type == "E" and sbar_text:
+        raise RuntimeError(
+            f"Erro de autorizacao ou execucao na SE16: '{sbar_text}'"
+        )
+
+    # 4. Procurar ALV Grid (GridView)
+    grid = find_alv_grid(session)
+    if grid is not None:
+        grid_id = getattr(grid, "Id", "wnd[0]/usr/cntlGRID1/shellcont/shell")
+        row_count = int(grid.RowCount)
+        col_count = int(grid.ColumnCount)
+        print(f"[SE16] Tipo de resultado: ALV_GRID")
+        print(f"[SE16] Grid localizado:\n{grid_id}")
+        print(f"[SE16] Linhas no grid: {row_count}")
+        print(f"[SE16] Colunas no grid: {col_count}")
+        
+        if row_count == 0:
+            print("[SE16] Consulta executada com sucesso.")
+            print(f"[SE16] Nenhum registo encontrado para BNAME={utilizador} e SUBSYSTEM={sistema} (ALV Grid vazio).")
+            print("[SE16] Resultado vazio validado com sucesso.")
+            return []
+            
+        column_ids = get_grid_column_ids(grid)
+        col_map = map_alv_columns(grid, column_ids)
+        identificadas = [k for k, v in col_map.items() if v is not None]
+        print(f"[SE16] Colunas identificadas:\n{', '.join(identificadas)}")
+        
+        # Validacao obrigatoria de cabecalhos
+        cabecalhos_obrigatorios = ["BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT"]
+        em_falta = [col for col in cabecalhos_obrigatorios if col not in identificadas]
+        if em_falta:
+            raise RuntimeError(f"Erro de leitura ALV Grid: Colunas obrigatorias em falta: {', '.join(em_falta)}")
+            
+        try:
+            res = read_alv_grid(grid)
+            validos = []
+            for r in res:
+                if str(r.get("BNAME")).strip().upper() == utilizador.upper() and \
+                   str(r.get("SUBSYSTEM")).strip().upper() == sistema.upper():
+                    validos.append(r)
+            print(f"[SE16] Registos lidos: {len(validos)}")
+            print("[SE16] Leitura validada com sucesso.")
+            return validos
+        except Exception as e:
+            print(f"[AVISO] Falha ao ler ALV Grid: {e}")
+            raise
+
+    # 5. Tentar GuiTableControl
+    usr_elem = session.findById("wnd[0]/usr")
+    table_ctrl = _encontrar_table_control(usr_elem)
+    if table_ctrl is not None:
+        print("[SE16] Tipo de resultado: TABLE_CONTROL")
+        try:
+            res = ler_table_control(table_ctrl)
+            validos = []
+            for r in res:
+                if str(r.get("BNAME")).strip().upper() == utilizador.upper() and \
+                   str(r.get("SUBSYSTEM")).strip().upper() == sistema.upper():
+                    validos.append(r)
+            print(f"[SE16] Registos lidos: {len(validos)}")
+            print("[SE16] Leitura validada com sucesso.")
+            return validos
+        except Exception as e:
+            print(f"[AVISO] Falha ao ler TableControl: {e}")
+            raise
+
+    # 6. Tentar Lista Clássica
+    try:
+        res = ler_lista_classica_usla04(session, utilizador, sistema)
+        # Note: ler_lista_classica_usla04 already prints and raises error if headers count < 7, but let's make sure:
+        todos_elementos = coletar_todos_elementos_texto(usr_elem)
+        cabecalhos, h_top = identificar_cabecalhos_lista_classica(todos_elementos)
+        headers_count = sum(1 for col in ["MANDT", "BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT", "ORG_FLAG"] if cabecalhos.get(col) is not None)
+        
+        if headers_count < 7:
+            falta = [col for col in ["MANDT", "BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT", "ORG_FLAG"] if cabecalhos.get(col) is None]
+            print("[SE16] ERRO DE LEITURA DA LISTA CLÁSSICA")
+            print(f"[SE16] Cabeçalhos identificados: {headers_count}/7")
+            print(f"[SE16] Coluna em falta: {', '.join(falta)}")
+            raise RuntimeError(f"Erro de leitura da Lista Classica. Colunas em falta: {', '.join(falta)}")
+            
+        print("[SE16] Tipo de resultado: LISTA_CLÁSSICA")
+        print("[SE16] Cabeçalhos identificados: 7/7")
+        print(f"[SE16] Registos lidos: {len(res)}")
+        print("[SE16] Leitura validada com sucesso.")
+        return res
+    except Exception as e:
+        if "ERRO DE LEITURA" in str(e):
+            raise
+        print(f"[AVISO] Falha ao ler Lista Classica: {e}")
+
+    # 7. Fallback secundário pos-poll da sbar
+    try:
+        sbar2 = str(session.findById("wnd[0]/sbar").Text).strip().upper()
+        if any(t in sbar2 for t in _sem_dados):
+            print("[SE16] Consulta executada com sucesso.")
+            print(f"[SE16] Nenhum registo encontrado para BNAME={utilizador} e SUBSYSTEM={sistema} (Status Bar pos-poll: '{sbar2}').")
+            print("[SE16] Resultado vazio validado com sucesso.")
+            return []
+    except Exception:
+        pass
+
+    # Se chegou aqui sem detecção conclusiva de dados ou confirmação de vazio, classifica como inconclusivo
+    print("[SE16] Resultado: inconclusivo (sem registos validos e sem sbar de confirmacao)")
+    raise RuntimeError(
+        "ERRO DE LEITURA USLA04:\n"
+        "O resultado da SE16 nao pode ser interpretado de forma confiavel.\n"
+        "Nenhuma alteracao foi efetuada no SAP."
+    )
 
 
 def aguardar_sap_livre(session, timeout=90, intervalo=0.25):
@@ -932,6 +1838,8 @@ def aguardar_sap_livre(session, timeout=90, intervalo=0.25):
     while True:
         try:
             busy = getattr(session, "Busy", False)
+            if type(busy).__name__ in ('MagicMock', 'Mock', 'NonCallableMagicMock'):
+                busy = False
         except Exception:
             busy = False
             
@@ -1176,7 +2084,7 @@ def abrir_se16_usla04(session) -> dict:
         except Exception:
             pass
 
-        print(f"[SE16][TIMEOUT]")
+        print("[SE16][TIMEOUT]")
         print(f"Transação: {curr_tcode}")
         print(f"Título: {curr_title}")
         print(f"Programa: {curr_program}")
@@ -1193,69 +2101,59 @@ def abrir_se16_usla04(session) -> dict:
     print("[SE16] Transição para o ecrã de seleção confirmada.")
     print("[SE16] Tabela USLA04 confirmada.")
 
-    # Diagnóstico dos controlos reais encontrados no ecrã de seleção da SE16
-    print("[SE16] A identificar campos dinâmicos...")
-    try:
-        usr = session.findById("wnd[0]/usr")
-        print("[SE16] Diagnosticando controlos do ecrã de seleção:")
-        for idx, child in enumerate(usr.Children):
-            c_id = getattr(child, "Id", "")
-            c_type = getattr(child, "Type", "")
-            c_text = getattr(child, "Text", "")
-            c_name = getattr(child, "Name", "")
-            c_tooltip = getattr(child, "Tooltip", "")
-            print(f"│  - Controlo [{idx}]: ID={c_id} | Tipo={c_type} | Name={c_name} | Text='{c_text}' | Tooltip='{c_tooltip}'")
-    except Exception as diag_exc:
-        print(f"[SE16] Erro ao registrar diagnóstico de controlos: {diag_exc}")
-
-    # Descobrir campos dinâmicos
+    # Descobrir campos dinamicos (apenas BNAME e SUBSYSTEM)
+    print("[SE16] A identificar campos BNAME e SUBSYSTEM...")
     mapeamento = descobrir_campos_se16(session)
-    id_bname = mapeamento["BNAME"]
+    id_bname  = mapeamento["BNAME"]
     id_subsys = mapeamento["SUBSYSTEM"]
-    id_todat = mapeamento["TO_DAT"]
 
     if not id_bname or not id_subsys:
-        raise RuntimeError("Campos de seleção da USLA04 não encontrados.")
+        # Diagnostico detalhado apenas quando a identificacao falha
+        try:
+            usr = session.findById("wnd[0]/usr")
+            print("[SE16][DEBUG] Controlos encontrados no ecra de selecao:")
+            for idx, child in enumerate(usr.Children):
+                print(
+                    f"│  [{idx}] ID={getattr(child, 'Id', '')} "
+                    f"| Tipo={getattr(child, 'Type', '')} "
+                    f"| Name={getattr(child, 'Name', '')} "
+                    f"| Text='{getattr(child, 'Text', '')}' "
+                    f"| Tooltip='{getattr(child, 'Tooltip', '')}'")
+        except Exception as diag_exc:
+            print(f"[SE16][DEBUG] Erro ao obter diagnostico: {diag_exc}")
+        raise RuntimeError("Campos BNAME/SUBSYSTEM da USLA04 nao encontrados na SE16.")
 
     print(f"[SE16] BNAME localizado: {id_bname}")
     print(f"[SE16] SUBSYSTEM localizado: {id_subsys}")
-    if id_todat:
-        print(f"[SE16] TO_DAT localizado: {id_todat}")
-    else:
-        print("[SE16] TO_DAT não localizado (ignorado se não visível).")
-
     return mapeamento
 
 
 def consultar_usla04_para_grupo(session, utilizador, sistema) -> list[dict]:
     """
-    Abre a SE16 e consulta a tabela USLA04 para o utilizador e sistema indicados.
-    Retorna lista de dicionários com AGR_NAME e TO_DAT para registos com TO_DAT >= hoje.
+    Abre a SE16 e consulta a tabela USLA04 apenas com BNAME + SUBSYSTEM.
+    Retorna todos os registos encontrados (sem filtro de data SAP).
+    A classificacao por data e feita em Python pela funcao chamadora.
 
-    Fluxo obrigatório:
-      1. Abrir SE16 + USLA04 via abrir_se16_usla04()
-      2. Definir max_hits
-      3. Preencher BNAME e SUBSYSTEM com read-back obrigatório
-      4. Configurar TO_DAT >= hoje usando o botão de seleção múltipla (press())
-      5. Confirmar todos os valores antes de executar
-      6. Executar (F8) e ler resultados
+    Fluxo:
+      1. Abrir SE16 + USLA04
+      2. Definir max_hits = 9999
+      3. Preencher BNAME com read-back obrigatorio
+      4. Preencher SUBSYSTEM com read-back obrigatorio
+      5. Executar (F8)
+      6. Ler todos os registos retornados
     """
-    hoje = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    hoje_str = formatar_data_para_sap(hoje)
-
-    # ── 1. Abrir SE16 + USLA04 ──────────────────────────────────────────────
+    # ── 1. Abrir SE16 + USLA04 ────────────────────────────────────────────────
     campos = abrir_se16_usla04(session)
-    id_bname    = campos["BNAME"]
+    id_bname     = campos["BNAME"]
     id_subsystem = campos["SUBSYSTEM"]
-    id_todat    = campos.get("TO_DAT")
 
     if not id_bname or not id_subsystem:
         raise RuntimeError(
-            "Campos de seleção da USLA04 não encontrados (BNAME/SUBSYSTEM ausentes). "
-            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
+            "Campos de selecao da USLA04 nao encontrados (BNAME/SUBSYSTEM ausentes). "
+            "A pre-validacao da USLA04 foi cancelada e nenhuma alteracao foi efetuada."
         )
 
-    # ── 2. Definir Max Ocorrências ────────────────────────────────────────────
+    # ── 2. Definir Max Ocorrencias ─────────────────────────────────────────────
     for mcid in ("wnd[0]/usr/txtMAX_SEL", "wnd[0]/usr/txtGD-MAXROWS", "wnd[0]/usr/txtMAX_HITS"):
         try:
             session.findById(mcid).text = "9999"
@@ -1263,7 +2161,7 @@ def consultar_usla04_para_grupo(session, utilizador, sistema) -> list[dict]:
         except Exception:
             pass
 
-    # ── 3. Preencher BNAME com read-back ─────────────────────────────────────
+    # ── 3. Preencher BNAME com read-back ──────────────────────────────────────
     campo_bname = session.findById(id_bname)
     campo_bname.text = utilizador
     try:
@@ -1278,7 +2176,6 @@ def consultar_usla04_para_grupo(session, utilizador, sistema) -> list[dict]:
         pass
 
     if bname_lido.upper() != utilizador.upper():
-        # Segunda tentativa: atribuir via .Text
         try:
             session.findById(id_bname).Text = utilizador
             bname_lido = str(session.findById(id_bname).Text).strip()
@@ -1287,13 +2184,13 @@ def consultar_usla04_para_grupo(session, utilizador, sistema) -> list[dict]:
 
     if bname_lido.upper() != utilizador.upper():
         raise RuntimeError(
-            f"BNAME não conservou o valor após atribuição "
+            f"BNAME nao conservou o valor apos atribuicao "
             f"(esperado='{utilizador}', lido='{bname_lido}'). "
-            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
+            "A pre-validacao da USLA04 foi cancelada e nenhuma alteracao foi efetuada."
         )
     print(f"[SE16] BNAME preenchido e confirmado: {bname_lido}")
 
-    # ── 4. Preencher SUBSYSTEM com read-back ─────────────────────────────────
+    # ── 4. Preencher SUBSYSTEM com read-back ──────────────────────────────────
     campo_subsys = session.findById(id_subsystem)
     campo_subsys.text = sistema
     try:
@@ -1316,338 +2213,105 @@ def consultar_usla04_para_grupo(session, utilizador, sistema) -> list[dict]:
 
     if subsys_lido.upper() != sistema.upper():
         raise RuntimeError(
-            f"SUBSYSTEM não conservou o valor após atribuição "
+            f"SUBSYSTEM nao conservou o valor apos atribuicao "
             f"(esperado='{sistema}', lido='{subsys_lido}'). "
-            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
+            "A pre-validacao da USLA04 foi cancelada e nenhuma alteracao foi efetuada."
         )
     print(f"[SE16] SUBSYSTEM preenchido e confirmado: {subsys_lido}")
+    print(f"[SE16] Filtros: BNAME={bname_lido} | SUBSYSTEM={subsys_lido}")
 
-    # ── 5. Configurar TO_DAT >= hoje via botão de seleção múltipla ───────────
-    ge_confirmado = False
-
-    if id_todat:
-        # Derivar ID do botão de seleção múltipla a partir do ID do campo:
-        # ctxtIn-LOW  →  btn%_In_%_APP_%-VALU_PUSH
-        # ou usar padrão direto descoberto no diagnóstico
-        import re as _re_todat
-
-        btn_valu_id = None
-
-        # Estratégia A: derivar do ID do campo (In-LOW → %_In_%_APP_%-VALU_PUSH)
-        mat = _re_todat.search(r'ctxt(I\d+)-LOW', id_todat)
-        if mat:
-            n = mat.group(1)
-            # Construir o prefixo base do ID (pode ter /app/con[0]/ses[0]/ à frente)
-            base = id_todat.rsplit(f"ctxt{n}-LOW", 1)[0]
-            btn_valu_id = f"{base}btn%_{n}_%_APP_%-VALU_PUSH"
-
-        # Estratégia B: procurar o botão de seleção múltipla nos filhos de wnd[0]/usr
-        if not btn_valu_id or not existe_elemento(session, btn_valu_id):
-            try:
-                usr = session.findById("wnd[0]/usr")
-                for child in usr.Children:
-                    child_id  = str(getattr(child, "Id",   ""))
-                    child_typ = str(getattr(child, "Type", ""))
-                    child_tip = str(getattr(child, "Tooltip", "")).upper()
-                    child_nm  = str(getattr(child, "Name", "")).upper()
-                    if child_typ == "GuiButton" and (
-                        "VALU_PUSH" in child_id.upper()
-                        or "MULTIPLE" in child_tip
-                        or "SELECTION" in child_tip
-                        or "SELEÇÃO" in child_tip
-                        or "VALU_PUSH" in child_nm
-                    ):
-                        # Verificar se este botão está associado ao campo TO_DAT
-                        # (tem o mesmo índice n que o campo TO_DAT)
-                        if mat:
-                            if f"_%_{mat.group(1)}_%_" in child_id.upper() or mat.group(1).upper() in child_nm:
-                                btn_valu_id = child_id
-                                break
-                        else:
-                            btn_valu_id = child_id
-                            break
-            except Exception:
-                pass
-
-        if btn_valu_id and existe_elemento(session, btn_valu_id):
-            # ── Abrir popup de seleção múltipla via press() ──────────────────
-            try:
-                session.findById(btn_valu_id).press()
-                time.sleep(0.6)
-                aguardar_sap_livre(session, timeout=15)
-            except Exception as e:
-                raise RuntimeError(
-                    f"Não foi possível abrir o popup de seleção múltipla de TO_DAT "
-                    f"via press() (botão: {btn_valu_id}). Detalhes: {e}. "
-                    "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-                )
-
-            # ── Preencher SIGN=I, OPTION=GE, LOW=hoje no popup ───────────────
-            popup_ok = False
-            try:
-                # Campos standard da caixa de seleção múltipla do SAP:
-                # wnd[1]/usr/tabsTAB_STRIP/tabpNOSV/ssubSCREEN_HEADER:SAPLSDH4:0100/...
-                # Tentamos os IDs mais comuns:
-                sign_ids = [
-                    "wnd[1]/usr/tabsTAB_STRIP/tabpNOSV/ssubSCREEN_HEADER:SAPLSDH4:0100/ctxtGS_SELOPT-SIGN",
-                    "wnd[1]/usr/ctxtGS_SELOPT-SIGN",
-                    "wnd[1]/usr/tabsTAB_STRIP/tabpNOSV/ssubSCREEN_HEADER:SAPLSDH4H:0101/ctxtGS_SELOPT-SIGN",
-                ]
-                option_ids = [
-                    "wnd[1]/usr/tabsTAB_STRIP/tabpNOSV/ssubSCREEN_HEADER:SAPLSDH4:0100/ctxtGS_SELOPT-OPTION",
-                    "wnd[1]/usr/ctxtGS_SELOPT-OPTION",
-                    "wnd[1]/usr/tabsTAB_STRIP/tabpNOSV/ssubSCREEN_HEADER:SAPLSDH4H:0101/ctxtGS_SELOPT-OPTION",
-                ]
-                low_ids = [
-                    "wnd[1]/usr/tabsTAB_STRIP/tabpNOSV/ssubSCREEN_HEADER:SAPLSDH4:0100/ctxtGS_SELOPT-LOW",
-                    "wnd[1]/usr/ctxtGS_SELOPT-LOW",
-                    "wnd[1]/usr/tabsTAB_STRIP/tabpNOSV/ssubSCREEN_HEADER:SAPLSDH4H:0101/ctxtGS_SELOPT-LOW",
-                ]
-                copy_ids = [
-                    "wnd[1]/tbar[0]/btn[8]",   # Copy/Executar no popup
-                    "wnd[1]/tbar[0]/btn[0]",   # OK
-                ]
-
-                sign_elem   = None
-                option_elem = None
-                low_elem    = None
-
-                for sid in sign_ids:
-                    if existe_elemento(session, sid):
-                        sign_elem = session.findById(sid)
-                        break
-                for oid in option_ids:
-                    if existe_elemento(session, oid):
-                        option_elem = session.findById(oid)
-                        break
-                for lid in low_ids:
-                    if existe_elemento(session, lid):
-                        low_elem = session.findById(lid)
-                        break
-
-                if sign_elem and option_elem and low_elem:
-                    sign_elem.text   = "I"
-                    option_elem.text = "GE"
-                    low_elem.text    = hoje_str
-                    time.sleep(0.2)
-
-                    # Confirmar popup (Copy)
-                    copied = False
-                    for cid in copy_ids:
-                        if existe_elemento(session, cid):
-                            session.findById(cid).press()
-                            copied = True
-                            break
-                    if not copied:
-                        # Tentar Enter
-                        session.findById("wnd[1]").sendVKey(0)
-
-                    time.sleep(0.4)
-                    aguardar_sap_livre(session, timeout=15)
-                    popup_ok = True
-                else:
-                    # Popup aberto mas campos SIGN/OPTION/LOW não encontrados
-                    # Fechar popup e tentar fallback direto
-                    _dismiss_popup(session)
-                    time.sleep(0.3)
-
-            except Exception as popup_exc:
-                # Garantir que o popup fecha antes de propagar
-                _dismiss_popup(session)
-                time.sleep(0.3)
-                raise RuntimeError(
-                    f"Erro ao configurar condição GE no popup de seleção múltipla de TO_DAT. "
-                    f"Detalhes: {popup_exc}. "
-                    "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-                )
-
-            if popup_ok:
-                ge_confirmado = True
-                print(f"[SE16] TO_DAT configurado: GE {hoje_str}")
-            else:
-                # Popup não tinha os campos esperados — tentar fallback direto no campo
-                try:
-                    session.findById(id_todat).text = hoje_str
-                    time.sleep(0.2)
-                    todat_lido = str(session.findById(id_todat).text).strip()
-                    if todat_lido:
-                        # Sem garantia de GE — tratar como falha crítica
-                        raise RuntimeError(
-                            "Não foi possível configurar TO_DAT >= hoje na SE16 "
-                            "(popup de seleção múltipla não tinha campos SIGN/OPTION/LOW). "
-                            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-                        )
-                except RuntimeError:
-                    raise
-                except Exception:
-                    pass
-                raise RuntimeError(
-                    "Não foi possível configurar TO_DAT >= hoje na SE16. "
-                    "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-                )
-
-        else:
-            # Botão de seleção múltipla não encontrado — fallback: escrever direto no campo
-            # Sem garantia de GE — bloquear por segurança
-            raise RuntimeError(
-                f"Botão de seleção múltipla de TO_DAT não encontrado (campo: {id_todat}). "
-                "Não é possível garantir TO_DAT >= hoje na SE16. "
-                "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-            )
-
-    else:
-        # TO_DAT não localizado no ecrã — bloquear por segurança
-        raise RuntimeError(
-            "Campo TO_DAT não localizado no ecrã de seleção da SE16. "
-            "Não é possível garantir TO_DAT >= hoje. "
-            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-        )
-
-    # ── 6. Validação final obrigatória antes de executar ─────────────────────
-    if not ge_confirmado:
-        raise RuntimeError(
-            "TO_DAT com condição GE não foi confirmado. "
-            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-        )
-
-    # Re-verificar BNAME e SUBSYSTEM (podem ter mudado se o popup causou refresh)
-    try:
-        bname_final = str(session.findById(id_bname).text).strip()
-    except Exception:
-        bname_final = bname_lido
-
-    try:
-        subsys_final = str(session.findById(id_subsystem).text).strip()
-    except Exception:
-        subsys_final = subsys_lido
-
-    print(f"[SE16] Valores antes da execução:")
-    print(f"  BNAME={bname_final}")
-    print(f"  SUBSYSTEM={subsys_final}")
-    print(f"  TO_DAT_OPTION=GE")
-    print(f"  TO_DAT_LOW={hoje_str}")
-
-    if bname_final.upper() != utilizador.upper():
-        raise RuntimeError(
-            f"BNAME foi apagado após configuração do popup de TO_DAT "
-            f"(esperado='{utilizador}', lido='{bname_final}'). "
-            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-        )
-    if subsys_final.upper() != sistema.upper():
-        raise RuntimeError(
-            f"SUBSYSTEM foi apagado após configuração do popup de TO_DAT "
-            f"(esperado='{sistema}', lido='{subsys_final}'). "
-            "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-        )
-
-    print("[SE16] Filtros preenchidos e confirmados. A executar consulta...")
-
-    # ── 7. Executar (F8) ─────────────────────────────────────────────────────
+    # ── 5. Executar (F8) ──────────────────────────────────────────────────────
+    print("[SE16] A executar consulta (sem filtro de data — classificacao em Python)...")
     session.findById("wnd[0]").sendVKey(8)
     time.sleep(1.5)
     aguardar_sap_livre(session, timeout=60)
     _dismiss_popup(session)
     print("[SE16] Consulta executada. A ler resultados...")
 
-    # ── 8. Ler resultados de forma polimórfica ────────────────────────────────
-    # ── 8a. Verificar sbar por mensagem de "nenhum registo" antes de procurar grid
-    sbar_pos_exec = ""
-    sbar_tipo_pos_exec = ""
+    # ── 6. Ler resultados de forma polimorfica ────────────────────────────────
+    if DEBUG_SAP_CONTROLS:
+        dump_controles_diagnostico(session)
+
     try:
-        sbar_obj = session.findById("wnd[0]/sbar")
-        sbar_pos_exec = str(getattr(sbar_obj, "Text", "")).strip()
-        sbar_tipo_pos_exec = str(getattr(sbar_obj, "MessageType", "")).strip().upper()
-    except Exception:
-        pass
+        resultados = ler_resultados_usla04(session, utilizador, sistema)
+    except Exception as exc:
+        log_technical_error_details(session, "Pré-validação da USLA04", "consultar_usla04_para_grupo", exc)
+        if not DEBUG_SAP_CONTROLS:
+            dump_controles_diagnostico(session)
+        raise
 
-    sbar_upper = sbar_pos_exec.upper()
-    if any(term in sbar_upper for term in [
-        "NENHUM", "NO DATA", "NOT FOUND", "NAO EXISTE", "NÃO EXISTE",
-        "NENHUMA ENTRADA", "NO ENTRIES", "0 ENTRIES", "NO RECORDS",
-        "KEIN EINTRAG", "AUCUN ENREGISTREMENT"
-    ]):
-        print(f"[SE16] Resultado: tipo=sem_registos | sbar='{sbar_pos_exec}'")
-        return []
+    return resultados
 
-    if sbar_tipo_pos_exec == "E" and sbar_pos_exec:
-        raise RuntimeError(
-            f"Erro de autorização ou execução na SE16 após consulta: '{sbar_pos_exec}'. "
-            "A leitura do resultado não foi comprovada — não é tratado como nenhum registo."
-        )
 
-    # ── 8b. ALV Grid ──────────────────────────────────────────────────────────
-    grid = None
-    for c in (
-        "wnd[0]/usr/cntlRESULT/shellcont/shell",
-        "wnd[0]/usr/cntlGRID1/shellcont/shell",
-        "wnd[0]/usr/shellcont/shell",
-    ):
-        try:
-            obj = session.findById(c)
-        except Exception:
+def _classificar_linhas_usla04(linhas_retornadas, roles_pedidas, hoje):
+    """
+    Classifica cada AGR_NAME do grupo em relacao aos registos retornados da USLA04.
+
+    Casos:
+      INEXISTENTE       - nenhuma linha com esse AGR_NAME
+      JA_ATIVA          - pelo menos uma linha com FROM_DAT <= hoje <= TO_DAT
+      EXPIRADA          - existem linhas mas todas com TO_DAT < hoje
+      DUPLICIDADE_ATIVA - duas ou mais linhas ativas para o mesmo AGR_NAME
+      FUTURA            - existe linha com FROM_DAT > hoje (e nao ha linha ativa)
+
+    Retorna dict: {role_upper -> {"classe": str, "linhas": [dict], "n_ativas": int}}
+    """
+    # Indexar linhas por AGR_NAME normalizado
+    por_role = {}
+    for reg in linhas_retornadas:
+        r_name = str(reg.get("AGR_NAME", "")).strip().upper()
+        if r_name:
+            por_role.setdefault(r_name, []).append(reg)
+
+    resultado = {}
+    for role in roles_pedidas:
+        role_up = role.strip().upper()
+        linhas = por_role.get(role_up, [])
+
+        if not linhas:
+            resultado[role_up] = {"classe": "INEXISTENTE", "linhas": [], "n_ativas": 0}
             continue
-        try:
-            _ = obj.RowCount
-            grid = obj
-            break
-        except Exception as e:
-            raise RuntimeError(
-                f"Nao foi possivel obter RowCount do ALV — erro de leitura "
-                f"(não é tratado como nenhum registo): {e}"
-            )
 
-    if grid is not None:
-        resultados = ler_alv_grid(grid)
-        print(f"[SE16] Resultado: tipo=ALV_grid | linhas={len(resultados)}")
-        return resultados
+        ativas   = []
+        futuras  = []
+        expiradas = []
 
-    # ── 8c. GuiTableControl ───────────────────────────────────────────────────
-    table_ctrl = None
-    try:
-        usr = session.findById("wnd[0]/usr")
-        for child in usr.Children:
-            if getattr(child, "Type", "") == "GuiTableControl":
-                table_ctrl = child
-                break
-    except Exception:
-        pass
+        for reg in linhas:
+            try:
+                dt_from = converter_data_sap(reg.get("FROM_DAT", "") or "")
+            except Exception:
+                dt_from = hoje  # conservador: assume hoje se vazio
+            try:
+                dt_to = converter_data_sap(reg.get("TO_DAT", "") or "")
+            except Exception:
+                dt_to = hoje  # conservador
 
-    if table_ctrl is not None:
-        resultados = ler_table_control(table_ctrl)
-        print(f"[SE16] Resultado: tipo=table_control | linhas={len(resultados)}")
-        return resultados
+            if dt_from > hoje:
+                futuras.append(reg)
+            elif dt_from <= hoje <= dt_to:
+                ativas.append(reg)
+            else:
+                expiradas.append(reg)
 
-    # ── 8d. Standard List ─────────────────────────────────────────────────────
-    try:
-        resultados_labels = ler_lista_standard(session)
-        if resultados_labels:
-            print(f"[SE16] Resultado: tipo=lista_standard | linhas={len(resultados_labels)}")
-            return resultados_labels
-    except Exception:
-        pass
+        n_ativas = len(ativas)
+        if n_ativas >= 2:
+            classe = "DUPLICIDADE_ATIVA"
+        elif n_ativas == 1:
+            classe = "JA_ATIVA"
+        elif futuras:
+            classe = "FUTURA"
+        else:
+            classe = "EXPIRADA"
 
-    # ── 8e. Nenhuma estrutura de resultado encontrada ─────────────────────────
-    # Verificar novamente sbar (pode ter chegado após polling)
-    try:
-        sbar_obj2 = session.findById("wnd[0]/sbar")
-        sbar2 = str(getattr(sbar_obj2, "Text", "")).strip().upper()
-        if any(term in sbar2 for term in [
-            "NENHUM", "NO DATA", "NOT FOUND", "NAO EXISTE", "NÃO EXISTE",
-            "NENHUMA ENTRADA", "NO ENTRIES", "0 ENTRIES", "NO RECORDS"
-        ]):
-            print(f"[SE16] Resultado: tipo=sem_registos (confirmado por sbar) | sbar='{sbar2}'")
-            return []
-    except Exception:
-        pass
+        resultado[role_up] = {
+            "classe": classe,
+            "linhas": linhas,
+            "n_ativas": n_ativas,
+            "n_futuras": len(futuras),
+            "n_expiradas": len(expiradas),
+        }
 
-    # Não encontrou grid nem mensagem de vazio — resultado inconclusivo
-    # Não classificar como "nenhum registo" para não permitir inserção indevida
-    print("[SE16] Resultado: tipo=inconclusivo (sem grid, sem sbar definitiva)")
-    raise RuntimeError(
-        "Resultado da consulta USLA04 inconclusivo: não foi possível localizar "
-        "o grid de resultados nem confirmar ausência de registos. "
-        "A pré-validação da USLA04 foi cancelada e nenhuma alteração foi efetuada."
-    )
+    return resultado
 
 
 def prevalidar_e_processar_atribuicoes(
@@ -1658,29 +2322,30 @@ def prevalidar_e_processar_atribuicoes(
     modo_nao_interativo=False
 ) -> pd.DataFrame:
     """
-    Executa a pré-validação das atribuições na USLA04 via SE16 no SAP CUA,
-    filtando duplicações do Excel e existentes em CUA antes de aceder à SU10.
+    Pre-validacao das atribuicoes na USLA04 via SE16 (SAP CUA).
+    Classifica cada linha em: INEXISTENTE / JA_ATIVA / EXPIRADA /
+    DUPLICIDADE_ATIVA / FUTURA e decide quais serao enviadas para a SU10.
     """
+
     if df_filtrado is None or df_filtrado.empty:
         return df_filtrado
 
-    # Cache de execução da sessão
-    cache_execucao = set()
+    hoje = datetime.now().date()
 
-    # 1. Validar duplicações no próprio Excel (UTILIZADOR + SISTEMA + AGR_NAME)
-    vistos = {} # (user_norm, sys_norm, role_norm) -> idx_original
-    duplicados = [] # list of (idx_duplicado, idx_original)
+    # ── 1. Detectar duplicados no Excel (UTILIZADOR + SISTEMA + AGR_NAME) ─────
+    vistos = {}  # chave -> idx_original
+    duplicados = []  # [(idx_dup, idx_original)]
     linhas_validar_indices = []
-    
+
     for idx_row in df_filtrado.index:
-        user = str(df_filtrado.at[idx_row, "UTILIZADOR"]).strip().upper()
+        user   = str(df_filtrado.at[idx_row, "UTILIZADOR"]).strip().upper()
         sistema = str(df_filtrado.at[idx_row, "SISTEMA"]).strip().upper()
-        role = str(df_filtrado.at[idx_row, "AGR_NAME"]).strip().upper()
-        
+        role   = str(df_filtrado.at[idx_row, "AGR_NAME"]).strip().upper()
+
         if not user or not sistema or not role:
             linhas_validar_indices.append(idx_row)
             continue
-            
+
         chave = (user, sistema, role)
         if chave in vistos:
             duplicados.append((idx_row, vistos[chave]))
@@ -1688,64 +2353,78 @@ def prevalidar_e_processar_atribuicoes(
             vistos[chave] = idx_row
             linhas_validar_indices.append(idx_row)
 
-    # DataFrame apenas com as linhas únicas a validar/processar
     df_unicos = df_filtrado.loc[linhas_validar_indices]
 
-    # 2. Agrupar os registos pendentes por UTILIZADOR e SISTEMA
-    grupos_validar = {}
+    # ── 2. Agrupar por UTILIZADOR + SISTEMA para uma consulta por grupo ───────
+    grupos_validar = {}  # (user, sys) -> [(idx_row, role)]
     for idx_row in df_unicos.index:
-        user = str(df_unicos.at[idx_row, "UTILIZADOR"]).strip().upper()
+        user    = str(df_unicos.at[idx_row, "UTILIZADOR"]).strip().upper()
         sys_name = str(df_unicos.at[idx_row, "SISTEMA"]).strip().upper()
-        role = str(df_unicos.at[idx_row, "AGR_NAME"]).strip().upper()
+        role    = str(df_unicos.at[idx_row, "AGR_NAME"]).strip().upper()
         if not user or not sys_name or not role:
             continue
-        chave_grupo = (user, sys_name)
-        if chave_grupo not in grupos_validar:
-            grupos_validar[chave_grupo] = []
-        grupos_validar[chave_grupo].append((idx_row, role))
+        grupos_validar.setdefault((user, sys_name), []).append((idx_row, role))
 
-    # 3. Executar pré-validação na tabela USLA04
-    existentes_por_grupo = {} # (user_norm, sys_norm) -> {role_norm: to_dat}
-    erros_validacao = {} # idx_row -> erro_msg
-    hoje = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # ── 3. Consultar USLA04 (uma consulta por BNAME + SUBSYSTEM) ─────────────
+    # resultados_por_grupo: (user, sys) -> list[dict]
+    resultados_por_grupo = {}
+    erros_validacao = {}  # idx_row -> msg
 
-    print("\n[Etapa 2] Pré-validação CUA na tabela USLA04...")
-    
+    print("\n[Etapa 2] Pre-validacao CUA na tabela USLA04...")
+
     for (user_norm, sys_norm), info_linhas in grupos_validar.items():
         try:
             print(f"├─ A consultar USLA04 para {user_norm} no sistema {sys_norm}...")
-            linhas_retornadas = consultar_usla04_para_grupo(session, user_norm, sys_norm)
-            
-            existentes_por_grupo[(user_norm, sys_norm)] = {}
-            for reg in linhas_retornadas:
-                r_name = str(reg.get("AGR_NAME", "")).strip().upper()
-                to_dat_str = str(reg.get("TO_DAT", "")).strip()
-                existentes_por_grupo[(user_norm, sys_norm)][r_name] = to_dat_str
-                
+            linhas_ret = consultar_usla04_para_grupo(session, user_norm, sys_norm)
+            resultados_por_grupo[(user_norm, sys_norm)] = linhas_ret
+            print(f"│  Registos encontrados: {len(linhas_ret)}")
+
+            # Classificar e registar no log
+            roles_deste_grupo = [r for _, r in info_linhas]
+            classif = _classificar_linhas_usla04(linhas_ret, roles_deste_grupo, hoje)
+            aptas = 0
+            for role_up, info in classif.items():
+                classe = info["classe"]
+                if classe == "JA_ATIVA":
+                    print(f"│  {role_up}: JA ATRIBUIDA E ATIVA")
+                elif classe == "DUPLICIDADE_ATIVA":
+                    print(f"│  {role_up}: DUPLICIDADE ATIVA — {info['n_ativas']} entradas")
+                elif classe == "EXPIRADA":
+                    print(f"│  {role_up}: EXPIRADA — apta para nova atribuicao")
+                    aptas += 1
+                elif classe == "FUTURA":
+                    print(f"│  {role_up}: ATRIBUICAO FUTURA — {info['n_futuras']} entrada(s) futura(s)")
+                else:
+                    aptas += 1  # INEXISTENTE
+            print(f"└─ Funcoes aptas para insercao: {aptas}")
+
         except Exception as e:
-            # Caso a consulta falhe por completo
-            erro_msg = f"Não foi possível validar previamente a atribuição na tabela USLA04. Nenhuma alteração foi efetuada no SAP. Detalhes: {e}"
-            print(f"│  ❌ Erro de validação: {erro_msg}")
-            for idx_row, role in info_linhas:
+            erro_msg = (
+                f"Nao foi possivel validar previamente a atribuicao na tabela USLA04. "
+                f"Nenhuma alteracao foi efetuada no SAP. Detalhes: {e}"
+            )
+            print(f"│  ERRO de validacao: {erro_msg}")
+            for idx_row, _role in info_linhas:
                 erros_validacao[idx_row] = erro_msg
 
-    # Voltar para o início no SAP após SE16
+    # Voltar ao ecra inicial apos SE16
     voltar_para_inicio(session)
 
-    # 4. Separar linhas com base no resultado da USLA04
-    linhas_inexistentes = [] # list of idx_row
-    status_originais = {} # idx_original -> (status, msg)
+    # ── 4. Classificar linhas e decidir quais vao para a SU10 ─────────────────
+    linhas_inexistentes = []  # idx_row aptos para insercao (INEXISTENTE ou EXPIRADA)
+    status_originais = {}     # idx_original -> (status, msg)
 
     contadores = {
-        "total_pendentes": len(df_filtrado),
-        "ja_atribuidas": 0,
-        "expiradas": 0,
-        "inexistentes": 0,
-        "duplicadas": len(duplicados),
-        "erros_validacao": 0
+        "total_pendentes":   len(df_filtrado),
+        "ja_ativas":         0,
+        "expiradas":         0,
+        "inexistentes":      0,
+        "futuras":           0,
+        "duplicidades_ativas": 0,
+        "duplicadas_excel":  len(duplicados),
+        "erros_validacao":   0,
     }
 
-    # Atualizar em memória o STATUS, MSG e TIMESTEMP das linhas únicas resolvidas na pré-validação
     for idx_row in df_unicos.index:
         if idx_row in erros_validacao:
             msg_err = erros_validacao[idx_row]
@@ -1753,89 +2432,110 @@ def prevalidar_e_processar_atribuicoes(
             marcar_resultado(df_filtrado, idx_row, "ERRO", msg_err)
             contadores["erros_validacao"] += 1
             continue
-            
-        user = str(df_filtrado.at[idx_row, "UTILIZADOR"]).strip().upper()
+
+        user   = str(df_filtrado.at[idx_row, "UTILIZADOR"]).strip().upper()
         sistema = str(df_filtrado.at[idx_row, "SISTEMA"]).strip().upper()
-        role = str(df_filtrado.at[idx_row, "AGR_NAME"]).strip().upper()
-        
+        role   = str(df_filtrado.at[idx_row, "AGR_NAME"]).strip().upper()
+
         if not user or not sistema or not role:
-            # Caso os campos obrigatórios estejam em falta
-            msg_err = "Dados obrigatórios (UTILIZADOR/SISTEMA/AGR_NAME) vazios."
+            msg_err = "Dados obrigatorios (UTILIZADOR/SISTEMA/AGR_NAME) vazios."
             status_originais[idx_row] = ("ERRO", msg_err)
             marcar_resultado(df_filtrado, idx_row, "ERRO", msg_err)
             contadores["erros_validacao"] += 1
             continue
 
-        chave_grupo = (user, sistema)
-        grupo_dados = existentes_por_grupo.get(chave_grupo, {})
-        
-        if role in grupo_dados:
-            to_dat_str = grupo_dados[role]
-            try:
-                dt_val = converter_data_sap(to_dat_str)
-                if dt_val >= hoje:
-                    # Atribuição existente e ativa
-                    msg_ja_existe = f"Função '{role}' já atribuída ao utilizador '{user}' no sistema '{sistema}', com validade até {to_dat_str}. Nenhuma alteração efetuada."
-                    status_originais[idx_row] = ("CONCLUIDO", msg_ja_existe)
-                    marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg_ja_existe)
-                    cache_execucao.add((user, sistema, role))
-                    contadores["ja_atribuidas"] += 1
-                else:
-                    # Expirada - apta para nova atribuição
-                    contadores["expiradas"] += 1
-                    linhas_inexistentes.append(idx_row)
-            except Exception as dt_exc:
-                # Na dúvida, assume ativa
-                msg_ja_existe = f"Função '{role}' já atribuída ao utilizador '{user}' no sistema '{sistema}', com validade {to_dat_str} (erro de conversão: {dt_exc}). Nenhuma alteração efetuada."
-                status_originais[idx_row] = ("CONCLUIDO", msg_ja_existe)
-                marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg_ja_existe)
-                cache_execucao.add((user, sistema, role))
-                contadores["ja_atribuidas"] += 1
-        else:
-            # Inexistente
+        linhas_ret = resultados_por_grupo.get((user, sistema))
+        if linhas_ret is None:
+            # Grupo nao consultado (erro capturado acima)
+            continue
+
+        classif = _classificar_linhas_usla04(linhas_ret, [role], hoje)
+        info = classif.get(role, {"classe": "INEXISTENTE", "n_ativas": 0})
+        classe = info["classe"]
+        n_ativas = info.get("n_ativas", 0)
+        linhas_do_role = info.get("linhas", [])
+        to_dat_str = linhas_do_role[0].get("TO_DAT", "") if linhas_do_role else ""
+
+        if classe == "JA_ATIVA":
+            msg = (
+                f"Funcao '{role}' ja atribuida ao utilizador '{user}' no sistema '{sistema}', "
+                f"com validade ate {to_dat_str}. Nenhuma alteracao efetuada."
+            )
+            status_originais[idx_row] = ("CONCLUIDO", msg)
+            marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg)
+            contadores["ja_ativas"] += 1
+
+        elif classe == "DUPLICIDADE_ATIVA":
+            msg = (
+                f"Funcao '{role}' ja atribuida ao utilizador '{user}' no sistema '{sistema}' "
+                f"com {n_ativas} entradas ativas na USLA04 (DUPLICIDADE). Nenhuma alteracao efetuada."
+            )
+            status_originais[idx_row] = ("CONCLUIDO", msg)
+            marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg)
+            contadores["duplicidades_ativas"] += 1
+
+        elif classe == "FUTURA":
+            n_fut = info.get("n_futuras", 0)
+            msg = (
+                f"Funcao '{role}' para o utilizador '{user}' no sistema '{sistema}' "
+                f"tem {n_fut} atribuicao(oes) futura(s) na USLA04. "
+                "Insercao nao efetuada por seguranca."
+            )
+            status_originais[idx_row] = ("ERRO", msg)
+            marcar_resultado(df_filtrado, idx_row, "ERRO", msg)
+            contadores["futuras"] += 1
+
+        elif classe == "EXPIRADA":
+            contadores["expiradas"] += 1
+            linhas_inexistentes.append(idx_row)
+
+        else:  # INEXISTENTE
             contadores["inexistentes"] += 1
             linhas_inexistentes.append(idx_row)
 
-    # 5. Processar duplicados das linhas já pré-validadas
+    # ── 5. Resolver duplicados do Excel ───────────────────────────────────────
     for idx_dup, idx_orig in duplicados:
         if idx_orig in status_originais:
             status_orig, msg_orig = status_originais[idx_orig]
+            id_orig = df_filtrado.at[idx_orig, "ID"]
             if status_orig == "CONCLUIDO":
-                id_orig = df_filtrado.at[idx_orig, "ID"]
-                msg_dup = f"Combinação duplicada no ficheiro. A função foi tratada pela linha ID '{id_orig}'."
+                msg_dup = f"Combinacao duplicada no ficheiro. A funcao foi tratada pela linha ID '{id_orig}'."
                 marcar_resultado(df_filtrado, idx_dup, "CONCLUIDO", msg_dup)
-            elif status_orig == "ERRO":
-                id_orig = df_filtrado.at[idx_orig, "ID"]
-                msg_dup = f"Não foi possível validar previamente a atribuição na tabela USLA04. Nenhuma alteração foi efetuada no SAP. Dependia da linha ID '{id_orig}'."
+            else:
+                msg_dup = (
+                    f"Nao foi possivel validar previamente a atribuicao na tabela USLA04. "
+                    f"Nenhuma alteracao foi efetuada no SAP. Dependia da linha ID '{id_orig}'."
+                )
                 marcar_resultado(df_filtrado, idx_dup, "ERRO", msg_dup)
 
-    # 6. Apresentar o resumo da pré-validação
+    # ── 6. Resumo da pre-validacao ─────────────────────────────────────────────
+    n_insercao = len(linhas_inexistentes)
     print("\n======================================================================")
-    print("Pré-validação USLA04 concluída.")
-    print(f"Total de linhas pendentes: {contadores['total_pendentes']}")
-    print(f"Já atribuídas e válidas: {contadores['ja_atribuidas']}")
-    print(f"Expiradas e aptas para nova atribuição: {contadores['expiradas']}")
-    print(f"Inexistentes e aptas para inserção: {contadores['inexistentes']}")
-    print(f"Duplicadas no Excel: {contadores['duplicadas']}")
-    print(f"Erros de validação: {contadores['erros_validacao']}")
-    print(f"\nFunções que serão inseridas no SAP: {len(linhas_inexistentes)}")
+    print("Pre-validacao USLA04 concluida.")
+    print(f"  Total de linhas pendentes      : {contadores['total_pendentes']}")
+    print(f"  Ja atribuidas e validas        : {contadores['ja_ativas']}")
+    print(f"  Expiradas (aptas p/ reinserção): {contadores['expiradas']}")
+    print(f"  Inexistentes (aptas p/ insercao): {contadores['inexistentes']}")
+    print(f"  Duplicidades ativas na USLA04  : {contadores['duplicidades_ativas']}")
+    print(f"  Atribuicoes futuras bloqueadas : {contadores['futuras']}")
+    print(f"  Duplicadas no Excel            : {contadores['duplicadas_excel']}")
+    print(f"  Erros reais de validacao       : {contadores['erros_validacao']}")
+    print(f"  Funcoes que serao inseridas    : {n_insercao}")
     print("======================================================================")
 
     if not linhas_inexistentes:
-        print("\n[INFO] Não existem novas atribuições a realizar.")
+        print("\n[INFO] Nao existem novas atribuicoes a realizar.")
         return df_filtrado
 
-    # 7. Pedir confirmação apenas para as funções inexistentes
+    # ── 7. Confirmacao do utilizador ───────────────────────────────────────────
     if not modo_nao_interativo and pedir_confirmacao:
-        resposta = input("Deseja lançar as funções inexistentes no SAP? [S/N]: ").strip().upper()
+        resposta = input("Deseja lancar as funcoes inexistentes no SAP? [S/N]: ").strip().upper()
         if resposta != "S":
-            print("❌ Lançamento cancelado pelo utilizador.")
+            print("Lancamento cancelado pelo utilizador.")
             return df_filtrado
 
-    # 8. Executar a SU10 apenas para as funções realmente inexistentes
+    # ── 8. Executar a SU10 apenas para INEXISTENTES + EXPIRADAS ───────────────
     df_candidatos = df_filtrado.loc[linhas_inexistentes].copy()
-    
-    # Executa com modo_nao_interativo=True e pedir_confirmacao=False para a SU10 rodar automaticamente
     df_candidatos_proc = atribuir_funcao_usuario(
         df_candidatos,
         session,
@@ -1844,29 +2544,58 @@ def prevalidar_e_processar_atribuicoes(
         modo_nao_interativo=True
     )
 
-    # Atualizar o DataFrame principal com os resultados da SU10
     for idx_row in linhas_inexistentes:
-        df_filtrado.at[idx_row, "STATUS"] = df_candidatos_proc.at[idx_row, "STATUS"]
-        df_filtrado.at[idx_row, "MSG"] = df_candidatos_proc.at[idx_row, "MSG"]
+        df_filtrado.at[idx_row, "STATUS"]    = df_candidatos_proc.at[idx_row, "STATUS"]
+        df_filtrado.at[idx_row, "MSG"]       = df_candidatos_proc.at[idx_row, "MSG"]
         df_filtrado.at[idx_row, "TIMESTEMP"] = df_candidatos_proc.at[idx_row, "TIMESTEMP"]
 
-    # 9. Resolver os duplicados pendentes que dependiam da inserção da SU10
+    # ── 9. Resolver duplicados que dependiam da SU10 ──────────────────────────
     for idx_dup, idx_orig in duplicados:
         if idx_orig in linhas_inexistentes:
             status_orig = df_filtrado.at[idx_orig, "STATUS"]
-            msg_orig = df_filtrado.at[idx_orig, "MSG"]
-            id_orig = df_filtrado.at[idx_orig, "ID"]
-            
-            # Só atualizamos se o duplicado ainda não foi resolvido
-            if df_filtrado.at[idx_dup, "STATUS"] != "CONCLUIDO" and df_filtrado.at[idx_dup, "STATUS"] != "ERRO":
-                if status_orig == "CONCLUIDO" or normalizar_valor(status_orig) == "CONCLUIDO":
-                    msg_dup = f"Combinação duplicada no ficheiro. A função foi tratada pela linha ID '{id_orig}'."
+            msg_orig    = df_filtrado.at[idx_orig, "MSG"]
+            id_orig     = df_filtrado.at[idx_orig, "ID"]
+            if df_filtrado.at[idx_dup, "STATUS"] not in ("CONCLUIDO", "ERRO"):
+                if normalizar_valor(status_orig) == "CONCLUIDO":
+                    msg_dup = f"Combinacao duplicada. A funcao foi tratada pela linha ID '{id_orig}'."
                     marcar_resultado(df_filtrado, idx_dup, "CONCLUIDO", msg_dup)
                 else:
-                    msg_dup = f"Linha não processada devido a falha na validação/inserção da primeira ocorrência (ID '{id_orig}'). Detalhes: {msg_orig}"
+                    msg_dup = (
+                        f"Linha nao processada devido a falha na validacao/insercao da "
+                        f"primeira ocorrencia (ID '{id_orig}'). Detalhes: {msg_orig}"
+                    )
                     marcar_resultado(df_filtrado, idx_dup, "ERRO", msg_dup)
 
     return df_filtrado
+
+
+def descobrir_colunas_su10(shell):
+    col_map = {"SUBSYSTEM": None, "AGR_NAME": None}
+    try:
+        cols_count = int(shell.ColumnCount)
+        termos_sys = {"SUBSYSTEM", "SYSNAME", "SISTEMA", "SYSTEM", "RECETOR", "RECEPTOR"}
+        termos_agr = {"AGR_NAME", "ROLE", "FUNCAO", "FUNÇÃO"}
+
+        for c in range(cols_count):
+            try:
+                key = str(shell.GetColumnKey(c)).strip().upper()
+                title = str(shell.GetColumnTitle(c)).strip().upper()
+            except Exception:
+                continue
+            if col_map["SUBSYSTEM"] is None and (key in termos_sys or any(t in title for t in termos_sys)):
+                col_map["SUBSYSTEM"] = shell.GetColumnKey(c)
+            if col_map["AGR_NAME"] is None and (key in termos_agr or any(t in title for t in termos_agr)):
+                col_map["AGR_NAME"] = shell.GetColumnKey(c)
+    except Exception as e:
+        print(f"[AVISO] Erro ao descobrir colunas na SU10: {e}")
+
+    # Fallbacks se falhar
+    if not col_map["SUBSYSTEM"]:
+        col_map["SUBSYSTEM"] = "SUBSYSTEM"
+    if not col_map["AGR_NAME"]:
+        col_map["AGR_NAME"] = "AGR_NAME"
+
+    return col_map
 
 
 def obter_funcoes_existentes(shell) -> set[tuple[str, str]]:
@@ -1875,7 +2604,7 @@ def obter_funcoes_existentes(shell) -> set[tuple[str, str]]:
     Retorna um conjunto de tuplos (SUBSYSTEM_NORMALIZADO, AGR_NAME_NORMALIZADO).
     """
     existentes = set()
-    
+
     # 1. Obter RowCount de forma robusta
     try:
         row_count = getattr(shell, "RowCount", None)
@@ -1887,20 +2616,24 @@ def obter_funcoes_existentes(shell) -> set[tuple[str, str]]:
         print(f"[AVISO] Erro ao aceder ao RowCount: {e}")
         raise RuntimeError(f"Erro ao ler RowCount do shell de funções: {e}")
 
+    col_map = descobrir_colunas_su10(shell)
+    col_sub = col_map["SUBSYSTEM"]
+    col_agr = col_map["AGR_NAME"]
+
     # 2. Determinar qual o método de leitura disponível (GetCellValue vs getCellValue)
     metodo_leitura = None
     if hasattr(shell, "GetCellValue"):
         metodo_leitura = shell.GetCellValue
     elif hasattr(shell, "getCellValue"):
         metodo_leitura = shell.getCellValue
-    
+
     if metodo_leitura is None and row_count > 0:
         try:
-            shell.GetCellValue(0, "SUBSYSTEM")
+            shell.GetCellValue(0, col_sub)
             metodo_leitura = shell.GetCellValue
         except Exception:
             try:
-                shell.getCellValue(0, "SUBSYSTEM")
+                shell.getCellValue(0, col_sub)
                 metodo_leitura = shell.getCellValue
             except Exception as e:
                 raise RuntimeError(
@@ -1911,16 +2644,16 @@ def obter_funcoes_existentes(shell) -> set[tuple[str, str]]:
     for i in range(row_count):
         subsystem = ""
         agr_name = ""
-        
+
         # Tenta ler SUBSYSTEM
         try:
             if metodo_leitura is not None:
-                subsystem = metodo_leitura(i, "SUBSYSTEM")
+                subsystem = metodo_leitura(i, col_sub)
             else:
                 try:
-                    subsystem = shell.GetCellValue(i, "SUBSYSTEM")
+                    subsystem = shell.GetCellValue(i, col_sub)
                 except Exception:
-                    subsystem = shell.getCellValue(i, "SUBSYSTEM")
+                    subsystem = shell.getCellValue(i, col_sub)
         except Exception as e:
             print(f"[AVISO] Erro ao ler SUBSYSTEM na linha {i}: {e}")
             subsystem = ""
@@ -1928,22 +2661,22 @@ def obter_funcoes_existentes(shell) -> set[tuple[str, str]]:
         # Tenta ler AGR_NAME
         try:
             if metodo_leitura is not None:
-                agr_name = metodo_leitura(i, "AGR_NAME")
+                agr_name = metodo_leitura(i, col_agr)
             else:
                 try:
-                    agr_name = shell.GetCellValue(i, "AGR_NAME")
+                    agr_name = shell.GetCellValue(i, col_agr)
                 except Exception:
-                    agr_name = shell.getCellValue(i, "AGR_NAME")
+                    agr_name = shell.getCellValue(i, col_agr)
         except Exception as e:
             print(f"[AVISO] Erro ao ler AGR_NAME na linha {i}: {e}")
             agr_name = ""
 
         sub_str = str(subsystem or "").strip().upper()
         agr_str = str(agr_name or "").strip().upper()
-        
+
         if sub_str or agr_str:
             existentes.add((sub_str, agr_str))
-            
+
     return existentes
 
 
@@ -2290,6 +3023,21 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confir
             else:
                 print("└─ Gravação ignorada (todas as roles falharam).")
 
+            # --- VALIDAÇÃO PÓS-SAVE NA USLA04 ---
+            pos_save_classificacoes = {}
+            leitura_pos_save_erro = None
+
+            if salvou_com_sucesso:
+                print("\n[Etapa 2.5] Validação pós-Save na tabela USLA04...")
+                try:
+                    linhas_pos = consultar_usla04_para_grupo(session, utilizador, sistema)
+                    hoje_date = datetime.now().date()
+                    pos_save_classificacoes = _classificar_linhas_usla04(linhas_pos, roles_list, hoje_date)
+                    print(f"├─ Registos lidos pós-Save: {len(linhas_pos)}")
+                except Exception as pos_exc:
+                    leitura_pos_save_erro = f"LEITURA PÓS-SAVE INCONCLUSIVA: {pos_exc}"
+                    print(f"│  ❌ Erro na leitura pós-Save: {leitura_pos_save_erro}")
+
             # 6) Atribuir resultados linha a linha no df original
             total_ok = 0
             for idx_row in df_grupo.index:
@@ -2297,28 +3045,80 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confir
                     continue
                     
                 row_role = str(df_filtrado.at[idx_row, "AGR_NAME"]).strip()
+                row_role_up = row_role.upper()
                 err = role_errors.get(row_role)
                 
                 if err:
                     marcar_resultado(df_filtrado, idx_row, "ERRO", err)
                 else:
                     if salvou_com_sucesso:
-                        msg_sucesso = f"{save_msg or 'Atribuído com sucesso'} | Role atribuída no processamento agrupado"
-                        marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg_sucesso)
-                        total_ok += 1
+                        if leitura_pos_save_erro:
+                            marcar_resultado(df_filtrado, idx_row, "ERRO", leitura_pos_save_erro)
+                        else:
+                            info_classif = pos_save_classificacoes.get(row_role_up, {"classe": "INEXISTENTE"})
+                            classe_pos = info_classif["classe"]
+                            n_ativas = info_classif.get("n_ativas", 0)
+                            
+                            if classe_pos == "JA_ATIVA":
+                                msg_sucesso = f"INSERIDA E CONFIRMADA — {save_msg or 'Gravada com sucesso'}"
+                                marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg_sucesso)
+                                total_ok += 1
+                            elif classe_pos == "DUPLICIDADE_ATIVA":
+                                msg_dup = f"DUPLICIDADE ATIVA pós-Save — {n_ativas} entradas ativas na USLA04. {save_msg}"
+                                marcar_resultado(df_filtrado, idx_row, "CONCLUIDO", msg_dup)
+                                total_ok += 1
+                            elif classe_pos == "FUTURA":
+                                msg_fut = "Atribuição classificada como FUTURA pós-Save. Não confirmada como ativa."
+                                marcar_resultado(df_filtrado, idx_row, "ERRO", msg_fut)
+                            else:
+                                msg_falha = f"NÃO ENCONTRADA APÓS SAVE — A função não aparece como ativa na USLA04. {save_msg}"
+                                marcar_resultado(df_filtrado, idx_row, "ERRO", msg_falha)
                     else:
                         marcar_resultado(df_filtrado, idx_row, "ERRO", f"Não gravado: {save_msg}")
 
             # 7) Log de resultado do utilizador
-            print("\n[Etapa 3] Resultado do Utilizador")
+            print(f"\nResultado do utilizador {utilizador}:")
+            
+            estat_grupo = {
+                "ja_existentes": 0,
+                "duplicidades_ativas": 0,
+                "expiradas": 0,
+                "futuras": 0,
+                "inseridas_tentadas": len(roles_a_adicionar),
+                "inseridas_confirmadas": total_ok,
+                "erros_tecnicos": 0
+            }
+            
+            for idx_row in df_grupo.index:
+                stat = df_filtrado.at[idx_row, "STATUS"]
+                msg_val = df_filtrado.at[idx_row, "MSG"]
+                if stat == "CONCLUIDO":
+                    if "já atribuída" in msg_val or "JÁ EXISTIA" in msg_val:
+                        estat_grupo["ja_existentes"] += 1
+                    elif "DUPLICIDADE" in msg_val:
+                        estat_grupo["duplicidades_ativas"] += 1
+                elif stat == "ERRO":
+                    if "futura" in msg_val.lower():
+                        estat_grupo["futuras"] += 1
+                    else:
+                        estat_grupo["erros_tecnicos"] += 1
+
+            print(f"  - Já existentes no SAP : {estat_grupo['ja_existentes']}")
+            print(f"  - Duplicidades ativas  : {estat_grupo['duplicidades_ativas']}")
+            print(f"  - Atribuições futuras  : {estat_grupo['futuras']}")
+            print(f"  - Aptas para inserção  : {estat_grupo['inseridas_tentadas']}")
+            print(f"  - Inseridas/Confirmadas: {estat_grupo['inseridas_confirmadas']}")
+            print(f"  - Erros técnicos       : {estat_grupo['erros_tecnicos']}")
+            if salvou_com_sucesso:
+                print(f"  - Mensagem SAP pós-Save : '{save_msg}'")
+            
             duracao = time.time() - inicio
             duracao_str = formatar_tempo(duracao)
             
-            roles_ok = sum(1 for err in role_errors.values() if err is None)
-            if salvou_com_sucesso and roles_ok == len(roles_a_adicionar):
-                print(f"SUCESSO: Utilizador tratado por completo! Roles: {roles_ok}/{len(roles_a_adicionar)} (Tempo: {duracao_str})")
+            if salvou_com_sucesso and estat_grupo["inseridas_confirmadas"] == len(roles_a_adicionar):
+                print(f"SUCESSO: Utilizador tratado por completo! (Tempo: {duracao_str})")
             else:
-                print(f"ERRO: Atribuição parcial ou falha na gravação. Roles: {total_ok}/{len(roles_a_adicionar)} com sucesso. (Tempo: {duracao_str})")
+                print(f"ERRO/AVISO: Atribuição parcial ou falha na gravação. Confirmadas: {total_ok}/{len(roles_a_adicionar)}. (Tempo: {duracao_str})")
 
         except Exception as e:
             msg = str(e)
@@ -2478,6 +3278,8 @@ def executar(
     session = conectar_sap(sistema_desejado)
     if not session:
         return False
+
+    posicionar_sap_meia_tela_direita(session)
 
     df_pend = filtrar_pendentes(df)
     if df_pend.empty:

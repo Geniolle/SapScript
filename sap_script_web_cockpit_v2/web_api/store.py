@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 import unicodedata
+from contextlib import contextmanager
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,15 +22,23 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+@contextmanager
 def get_connection() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
-    return conn
+    conn.execute("PRAGMA busy_timeout = 10000")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
     with get_connection() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS jobs (
@@ -226,6 +235,12 @@ def get_job(job_id: str) -> dict[str, Any] | None:
     return row_to_job(row) if row else None
 
 
+def get_job_state(job_id: str) -> str | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT state FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    return row["state"] if row else None
+
+
 def list_jobs(
     limit: int = 50, include_internal: bool = False, include_archived: bool = False
 ) -> list[dict[str, Any]]:
@@ -381,7 +396,7 @@ def cancel_job(job_id: str) -> dict[str, Any]:
     return job
 
 
-def append_job_log(job_id: str, log_line: str) -> dict[str, Any]:
+def append_job_log(job_id: str, log_line: str) -> None:
     now = utc_now()
     with get_connection() as conn:
         conn.execute(
@@ -392,12 +407,6 @@ def append_job_log(job_id: str, log_line: str) -> dict[str, Any]:
             """,
             (log_line, now, job_id),
         )
-        conn.commit()
-
-    job = get_job(job_id)
-    if not job:
-        raise RuntimeError("Job não encontrado para append log.")
-    return job
 
 
 def archive_job(job_id: str) -> dict[str, Any]:

@@ -3612,6 +3612,22 @@
       renderActiveJob();
     }
 
+    window.logAccordionStates = window.logAccordionStates || {};
+
+    function getLogAccordionState(jobId) {
+        if (!window.logAccordionStates[jobId]) {
+            window.logAccordionStates[jobId] = {
+                jobId: jobId,
+                activeStageKey: null,
+                previousActiveStageKey: null,
+                terminalCollapseApplied: false,
+                manuallyExpanded: new Set(),
+                manuallyCollapsed: new Set(),
+            };
+        }
+        return window.logAccordionStates[jobId];
+    }
+
     function renderActiveJob() {
         const container = document.getElementById('active-jobs-container');
         const logContainer = document.getElementById('realtime-log-container');
@@ -4334,6 +4350,145 @@
               lastRoleGroup.isCurrentRole = true;
           }
 
+          // Build flat steps array for key lookups and flat rendering
+          const allFlatSteps = [];
+          if (initGroup) allFlatSteps.push(initGroup);
+          steps.forEach(s => {
+              if (s.title !== SPECIAL_DIAG && s.title !== SPECIAL_INIT) allFlatSteps.push(s);
+          });
+          if (diagGroup) allFlatSteps.push(diagGroup);
+
+          // Gerenciar estado de acordeões
+          const stateAccordion = getLogAccordionState(job.id);
+          
+          let activeStageKey = null;
+          if (job.state === 'running' || job.state === 'pending') {
+              // 1. Identificar etapa ativa prioritariamente pelo estado estruturado
+              let activeStageTitle = null;
+              if (job.stages && Array.isArray(job.stages)) {
+                  const activeStage = job.stages.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                  if (activeStage) activeStageTitle = activeStage.name || activeStage.title;
+              }
+              if (!activeStageTitle && job.steps && Array.isArray(job.steps)) {
+                  const activeStep = job.steps.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                  if (activeStep) activeStageTitle = activeStep.name || activeStep.title;
+              }
+              if (!activeStageTitle && job.params) {
+                  if (job.params.stages && Array.isArray(job.params.stages)) {
+                      const activeStage = job.params.stages.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                      if (activeStage) activeStageTitle = activeStage.name || activeStage.title;
+                  }
+                  if (!activeStageTitle && job.params.steps && Array.isArray(job.params.steps)) {
+                      const activeStep = job.params.steps.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                      if (activeStep) activeStageTitle = activeStep.name || activeStep.title;
+                  }
+              }
+
+              if (activeStageTitle) {
+                  const matchedRole = roleGroups.find(rg => rg.roleName === activeStageTitle || rg.roleTitle === activeStageTitle);
+                  if (matchedRole) {
+                      activeStageKey = matchedRole.roleId;
+                  } else {
+                      const matchedStepIdx = allFlatSteps.findIndex(s => s.title === activeStageTitle || s.title.includes(activeStageTitle));
+                      if (matchedStepIdx !== -1) {
+                          activeStageKey = `step-${job.id}-${matchedStepIdx}`;
+                      }
+                  }
+              }
+
+              // 2. Campo explícito como current_stage, active_step, etc.
+              if (!activeStageKey) {
+                  const explicitField = job.current_stage || job.active_stage || job.active_step || job.current_step ||
+                                        (job.params && (job.params.current_stage || job.params.active_stage || job.params.active_step || job.params.current_step));
+                  if (explicitField) {
+                      const matchedRole = roleGroups.find(rg => String(rg.roleIdx) === String(explicitField) || rg.roleName === explicitField || rg.roleTitle === explicitField);
+                      if (matchedRole) {
+                          activeStageKey = matchedRole.roleId;
+                      } else {
+                          const matchedStepIdx = allFlatSteps.findIndex(s => s.title === explicitField || s.title.includes(explicitField) || String(s.lineIndex) === String(explicitField));
+                          if (matchedStepIdx !== -1) {
+                              activeStageKey = `step-${job.id}-${matchedStepIdx}`;
+                          }
+                      }
+                  }
+              }
+
+              // 3. Fallback: última etapa iniciada e ainda não concluída ou último grupo de logs
+              if (!activeStageKey) {
+                  if (roleGroups.length > 0) {
+                      activeStageKey = roleGroups[roleGroups.length - 1].roleId;
+                  } else if (allFlatSteps.length > 0) {
+                      // No modo flat, encontrar a última etapa não concluída/falhada
+                      for (let i = allFlatSteps.length - 1; i >= 0; i--) {
+                          const step = allFlatSteps[i];
+                          const isCompleted = step.dotColor === 'var(--success)' || step.dotColor === '#2da44e' ||
+                                              step.dotColor === 'var(--danger)' || step.dotColor === '#cf222e';
+                          if (!isCompleted) {
+                              activeStageKey = `step-${job.id}-${i}`;
+                              break;
+                          }
+                      }
+                      // Fallback final: o último passo registrado
+                      if (!activeStageKey) {
+                          activeStageKey = `step-${job.id}-${allFlatSteps.length - 1}`;
+                      }
+                  } else if (initGroup) {
+                      activeStageKey = `init-${job.id}`;
+                  }
+              }
+          }
+          
+          // Tratar transição de etapa ativa
+          if (activeStageKey !== stateAccordion.activeStageKey) {
+              const prevActive = stateAccordion.activeStageKey;
+              stateAccordion.activeStageKey = activeStageKey;
+              if (prevActive) {
+                  // Fechar automaticamente a etapa anterior
+                  stateAccordion.manuallyExpanded.delete(prevActive);
+                  stateAccordion.manuallyCollapsed.add(prevActive);
+              }
+              if (activeStageKey) {
+                  // Abrir automaticamente a nova etapa ativa
+                  stateAccordion.manuallyCollapsed.delete(activeStageKey);
+              }
+          }
+          
+          // Tratar status terminal: recolher tudo na primeira vez que atinge terminal
+          const isTerminalState = ['succeeded', 'succeeded_with_warnings', 'failed', 'cancelled', 'canceled', 'stopped', 'error'].includes(job.state.toLowerCase());
+          if (isTerminalState) {
+              activeStageKey = null;
+              stateAccordion.activeStageKey = null;
+              if (!stateAccordion.terminalCollapseApplied) {
+                  stateAccordion.terminalCollapseApplied = true;
+                  stateAccordion.manuallyExpanded.clear();
+                  stateAccordion.manuallyCollapsed.clear();
+                  // Todos ficam fechados por padrão
+              }
+          } else {
+              stateAccordion.terminalCollapseApplied = false;
+          }
+
+          function isStageOpen(job, stageKey) {
+              const stateAcc = getLogAccordionState(job.id);
+              
+              // Se foi expandido ou recolhido manualmente
+              if (stateAcc.manuallyExpanded.has(stageKey)) {
+                  return true;
+              }
+              if (stateAcc.manuallyCollapsed.has(stageKey)) {
+                  return false;
+              }
+              
+              // Caso contrário, depende do estado do job
+              const isTerm = ['succeeded', 'succeeded_with_warnings', 'failed', 'cancelled', 'canceled', 'stopped', 'error'].includes(job.state.toLowerCase());
+              if (isTerm) {
+                  return false; // Todos iniciam recolhidos
+              }
+              
+              // Em execução: apenas a etapa ativa fica aberta por padrão
+              return stageKey === stateAcc.activeStageKey;
+          }
+
           // ─────────────────────────────────────────────────────────────────
           // Helper: render a single step as timeline-item HTML
           // ─────────────────────────────────────────────────────────────────
@@ -4453,14 +4608,15 @@
               let detailsWrapperHtml  = '';
 
               if (hasDetails) {
+                  const isOpen = isStageOpen(job, `step-${job.id}-${idx}`);
                   titleWithToggleHtml = `
                       <div style="display: flex; align-items: center; gap: 4px;">
                           <span style="font-weight: 600; font-size: 13px; color: var(--text-primary); cursor: pointer;" onclick="const btn = document.getElementById('toggle-btn-${job.id}-${idx}'); if (btn) btn.click();">${escapeHtml(step.title)}</span>
-                          <button id="toggle-btn-${job.id}-${idx}" onclick="event.stopPropagation(); toggleStepDetails(this, 'step-details-${job.id}-${idx}')" style="background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; font-size: 13px; padding: 0 4px; display: inline-flex; align-items: center; outline: none;">(+)</button>
+                          <button id="toggle-btn-${job.id}-${idx}" onclick="event.stopPropagation(); toggleStepDetails(this, 'step-details-${job.id}-${idx}')" style="background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; font-size: 13px; padding: 0 4px; display: inline-flex; align-items: center; outline: none;">${isOpen ? '(-)' : '(+)'}</button>
                       </div>
                   `;
                   detailsWrapperHtml = `
-                      <div id="step-details-${job.id}-${idx}" style="display: none; width: 100%;">
+                      <div id="step-details-${job.id}-${idx}" style="display: ${isOpen ? 'block' : 'none'}; width: 100%;">
                           ${subTextHtml}
                           ${stepCardHtml}
                       </div>
@@ -4496,15 +4652,17 @@
           // Helper: render the init step group (no Role header)
           function renderInitGroup(initSt, job) {
               if (!initSt) return '';
+              const stageKey = `init-${job.id}`;
+              const isOpen = isStageOpen(job, stageKey);
               const stepHtml = renderStepHtml(initSt, 'init', job);
               return `
-                  <div class="role-group role-group-init">
-                      <div class="role-group-header" onclick="toggleRoleGroup('init-${job.id}')">
+                  <div class="role-group role-group-init" aria-expanded="${isOpen}">
+                      <div class="role-group-header" onclick="toggleRoleGroup('${stageKey}')" aria-expanded="${isOpen}">
                           <span class="role-group-dot" style="background:#8c959f;"></span>
                           <span class="role-group-title">⚙ Inicialização do Processo</span>
-                          <span id="role-chevron-init-${job.id}" class="role-group-chevron" style="transform: rotate(180deg);">▾</span>
+                          <span id="role-chevron-${stageKey}" class="role-group-chevron" style="transform: ${isOpen ? 'rotate(180deg)' : ''};">▾</span>
                       </div>
-                      <div id="role-body-init-${job.id}" class="role-group-body">
+                      <div id="role-body-${stageKey}" class="role-group-body" style="display: ${isOpen ? 'block' : 'none'};">
                           <div style="position: relative;">
                               <div style="position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: #e1e4e8; z-index: 1;"></div>
                               <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
@@ -4520,12 +4678,6 @@
           if (roleGroups.length === 0) {
               // Flat rendering — same as before
               let flatRows = '';
-              const allFlatSteps = [];
-              if (initGroup) allFlatSteps.push(initGroup);
-              steps.forEach(s => {
-                  if (s.title !== SPECIAL_DIAG && s.title !== SPECIAL_INIT) allFlatSteps.push(s);
-              });
-              if (diagGroup) allFlatSteps.push(diagGroup);
 
               allFlatSteps.forEach((step, idx) => {
                   flatRows += renderStepHtml(step, idx, job);
@@ -4553,14 +4705,7 @@
                   const status = getRoleStatus(rg.steps, job.state, rg.isCurrentRole);
 
                   // Accordion open/close logic:
-                  // - running → open
-                  // - error   → open
-                  // - warning → open (but can be closed)
-                  // - succeeded → closed (except last if job still running)
-                  const isOpen = (status === 'running') ||
-                                 (status === 'error') ||
-                                 (status === 'warning' && rg.isCurrentRole) ||
-                                 (status === 'pending' && rg.isCurrentRole);
+                  const isOpen = isStageOpen(job, rg.roleId);
 
                   let dotColorRG = '#2da44e';
                   let badgeClass = 'badge-succeeded';
@@ -4588,8 +4733,8 @@
                   const lineHtmlRg = stepsInGroupHtml ? `<div style="position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
 
                   groupedHtml += `
-                      <div class="role-group ${rgCssClass}">
-                          <div class="role-group-header" onclick="toggleRoleGroup('${rg.roleId}')">
+                      <div class="role-group ${rgCssClass}" aria-expanded="${isOpen}">
+                          <div class="role-group-header" onclick="toggleRoleGroup('${rg.roleId}')" aria-expanded="${isOpen}">
                               <span class="role-group-dot" style="background: ${dotColorRG};"></span>
                               <div style="flex: 1; min-width: 0;">
                                   <div class="role-group-title">
@@ -4618,18 +4763,19 @@
 
               // Diagnostic group at the end (if any)
               if (diagGroup && diagGroup.outLines.length > 0) {
-                  const diagOpen = (job.state === 'running' || job.state === 'pending');
+                  const stageKey = `diag-${job.id}`;
+                  const isOpen = isStageOpen(job, stageKey);
                   const diagStepsHtml = renderStepHtml(diagGroup, 'diag', job);
                   taskLogCount++;
                   groupedHtml += `
-                      <div class="role-group role-group-diag">
-                          <div class="role-group-header" onclick="toggleRoleGroup('diag-${job.id}')">
+                      <div class="role-group role-group-diag" aria-expanded="${isOpen}">
+                          <div class="role-group-header" onclick="toggleRoleGroup('${stageKey}')" aria-expanded="${isOpen}">
                               <span class="role-group-dot" style="background: #f59e0b;"></span>
                               <span class="role-group-title">🔧 Diagnóstico Técnico (Poller)</span>
                               <span class="role-group-badge badge-warning">TÉCNICO</span>
-                              <span id="role-chevron-diag-${job.id}" class="role-group-chevron" style="transform: ${diagOpen ? 'rotate(180deg)' : ''};">▾</span>
+                              <span id="role-chevron-${stageKey}" class="role-group-chevron" style="transform: ${isOpen ? 'rotate(180deg)' : ''};">▾</span>
                           </div>
-                          <div id="role-body-diag-${job.id}" class="role-group-body" style="display: ${diagOpen ? 'block' : 'none'};">
+                          <div id="role-body-${stageKey}" class="role-group-body" style="display: ${isOpen ? 'block' : 'none'};">
                               <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
                                   ${diagStepsHtml}
                               </div>
@@ -4947,21 +5093,23 @@
           // Restaurar ou atualizar o scroll do registo de atividades
           const actScrollContainer = card.querySelector('.activity-log-scroll');
           if (actScrollContainer) {
-                      const saved = savedScrolls[actScrollContainer.id];
+              const saved = savedScrolls[actScrollContainer.id];
               const isRunning = job.state === 'running' || job.state === 'pending';
-              if (saved) {
-                  if (isRunning) {
-                      if (saved.isAtBottom) {
-                          actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
+              setTimeout(() => {
+                  if (saved) {
+                      if (isRunning) {
+                          if (saved.isAtBottom) {
+                              actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
+                          } else {
+                              actScrollContainer.scrollTop = saved.scrollTop;
+                          }
                       } else {
                           actScrollContainer.scrollTop = saved.scrollTop;
                       }
                   } else {
-                      actScrollContainer.scrollTop = saved.scrollTop;
+                      actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
                   }
-              } else {
-                  actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
-              }
+              }, 10);
           }
        });
 
@@ -5024,6 +5172,25 @@
                     `;
                }
                logContainer.innerHTML = rawLog || 'Nenhum log disponível para o job focado.';
+               
+                // Restaurar ou atualizar o scroll do log em tempo real (sidebar)
+                const isRunning = focusedJob.state === 'running' || focusedJob.state === 'pending';
+                setTimeout(() => {
+                    if (savedRealtimeScroll !== null) {
+                        if (isRunning) {
+                            if (realtimeIsAtBottom) {
+                                logContainer.scrollTop = logContainer.scrollHeight;
+                            } else {
+                                logContainer.scrollTop = savedRealtimeScroll;
+                            }
+                        } else {
+                            logContainer.scrollTop = savedRealtimeScroll;
+                        }
+                    } else {
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                }, 10);
+
                const statusEl = document.getElementById('log-connection-status');
                const timeEl = document.getElementById('log-updated-time');
                if (statusEl) {
@@ -5038,21 +5205,7 @@
                if (timeEl) {
                    timeEl.textContent = `Atualizado: ${formatTimeOnly(new Date())}`;
                }
-               // Restaurar ou atualizar o scroll do log em tempo real (sidebar)
-               const isRunning = focusedJob.state === 'running' || focusedJob.state === 'pending';
-               if (savedRealtimeScroll !== null) {
-                   if (isRunning) {
-                       if (realtimeIsAtBottom) {
-                           logContainer.scrollTop = logContainer.scrollHeight;
-                       } else {
-                           logContainer.scrollTop = savedRealtimeScroll;
-                       }
-                   } else {
-                       logContainer.scrollTop = savedRealtimeScroll;
-                   }
-               } else {
-                   logContainer.scrollTop = logContainer.scrollHeight;
-               }
+
            }
            // Copy log action
            document.getElementById('btn-copy-log').onclick = () => {
@@ -5122,23 +5275,78 @@
     function toggleStepDetails(btn, detailsId) {
         const detailsDiv = document.getElementById(detailsId);
         if (!detailsDiv) return;
-        if (detailsDiv.style.display === 'none') {
-            detailsDiv.style.display = 'block';
-            btn.textContent = '(-)';
-        } else {
-            detailsDiv.style.display = 'none';
-            btn.textContent = '(+)';
+        
+        // Extract jobId and idx/key from detailsId: step-details-${jobId}-${idx}
+        // e.g. step-details-5c163a95-b8e4-4354-a1af-012fe7559077-1
+        const prefix = 'step-details-';
+        if (!detailsId.startsWith(prefix)) return;
+        const remaining = detailsId.substring(prefix.length);
+        
+        // The last part is the idx/key, separated by '-'
+        const lastDash = remaining.lastIndexOf('-');
+        if (lastDash === -1) return;
+        const jobId = remaining.substring(0, lastDash);
+        const idx = remaining.substring(lastDash + 1);
+        const stageKey = `step-${jobId}-${idx}`;
+        
+        const isOpen = detailsDiv.style.display !== 'none';
+        const newOpen = !isOpen;
+        
+        detailsDiv.style.display = newOpen ? 'block' : 'none';
+        btn.textContent = newOpen ? '(-)' : '(+)';
+        
+        if (jobId) {
+            const state = getLogAccordionState(jobId);
+            if (newOpen) {
+                state.manuallyExpanded.add(stageKey);
+                state.manuallyCollapsed.delete(stageKey);
+            } else {
+                state.manuallyCollapsed.add(stageKey);
+                state.manuallyExpanded.delete(stageKey);
+            }
         }
     }
 
     // Toggle a Role group accordion in the Logs panel
     function toggleRoleGroup(roleId) {
+        let jobId = activeJobId;
+        if (roleId.includes('-')) {
+            if (roleId.startsWith('init-')) {
+                jobId = roleId.substring(5);
+            } else if (roleId.startsWith('diag-')) {
+                jobId = roleId.substring(5);
+            } else if (roleId.startsWith('role-')) {
+                const lastDash = roleId.lastIndexOf('-');
+                jobId = roleId.substring(5, lastDash);
+            }
+        }
+
         const body    = document.getElementById('role-body-' + roleId);
         const chevron = document.getElementById('role-chevron-' + roleId);
         if (!body) return;
+        
         const isOpen = body.style.display !== 'none';
-        body.style.display = isOpen ? 'none' : 'block';
-        if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+        const newOpen = !isOpen;
+        
+        body.style.display = newOpen ? 'block' : 'none';
+        if (chevron) chevron.style.transform = newOpen ? 'rotate(180deg)' : '';
+
+        // Atualizar os atributos de acessibilidade
+        const header = document.querySelector(`[onclick="toggleRoleGroup('${roleId}')"]`);
+        if (header) header.setAttribute('aria-expanded', newOpen.toString());
+        const groupEl = header ? header.closest('.role-group') : null;
+        if (groupEl) groupEl.setAttribute('aria-expanded', newOpen.toString());
+
+        if (jobId) {
+            const state = getLogAccordionState(jobId);
+            if (newOpen) {
+                state.manuallyExpanded.add(roleId);
+                state.manuallyCollapsed.delete(roleId);
+            } else {
+                state.manuallyCollapsed.add(roleId);
+                state.manuallyExpanded.delete(roleId);
+            }
+        }
     }
 
     function handleLogExport(el, jobId) {

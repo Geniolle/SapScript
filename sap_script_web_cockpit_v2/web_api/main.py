@@ -9,13 +9,17 @@ import requests
 
 from uuid import uuid4
 from typing import Any
+from datetime import datetime
 import time
 
 import threading
 
-WORKER_OFFLINE_AFTER_SECONDS = float(os.getenv("WORKER_OFFLINE_AFTER_SECONDS", "30.0"))
+WORKER_OFFLINE_AFTER_SECONDS = float(os.getenv("WORKER_OFFLINE_AFTER_SECONDS", "60.0"))
 worker_last_seen: dict[str, float] = {}
 worker_last_seen_lock = threading.Lock()
+WORKER_HEARTBEAT_DEBUG = os.getenv("WORKER_HEARTBEAT_DEBUG", "false").strip().lower() in ("1", "true", "yes", "sim")
+delayed_heartbeats_count = 0
+delayed_heartbeats_lock = threading.Lock()
 
 def update_worker_ping(worker_name: str) -> None:
     if not worker_name:
@@ -29,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo, get_job_state
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 import asyncio
 
@@ -1440,7 +1444,7 @@ def api_environments() -> dict[str, Any]:
     }
 
 @app.get("/api/worker/status")
-def api_worker_status(worker_name: str = None) -> dict[str, Any]:
+async def api_worker_status(worker_name: str = None) -> dict[str, Any]:
     now = time.time()
     with worker_last_seen_lock:
         if worker_name:
@@ -1651,10 +1655,19 @@ def api_append_job_log(
     validate_worker_token(x_worker_token)
     update_worker_ping_for_job(job_id)
     try:
-        job = get_job(job_id)
-        if job and job["state"] == "failed":
+        state = get_job_state(job_id)
+        if state is None:
+            raise HTTPException(status_code=404, detail="Job não encontrado")
+        if state == "failed":
             raise HTTPException(status_code=409, detail="Job has been cancelled or failed.")
-        return append_job_log(job_id=job_id, log_line=payload.log_line)
+        append_job_log(job_id=job_id, log_line=payload.log_line)
+        return {
+            "status": "ok",
+            "job_id": job_id,
+            "appended": True
+        }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1724,12 +1737,46 @@ class HeartbeatRequest(BaseModel):
     worker_name: str
 
 @app.post("/api/worker/heartbeat")
-def api_worker_heartbeat(
+async def api_worker_heartbeat(
     payload: HeartbeatRequest,
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
+    start_time = time.perf_counter()
     validate_worker_token(x_worker_token)
+    
+    if not payload.worker_name or not payload.worker_name.strip():
+        raise HTTPException(status_code=400, detail="Worker name inválido")
+    
+    now = time.time()
+    
+    # Check if the previous ping was delayed
+    with worker_last_seen_lock:
+        prev_seen = worker_last_seen.get(payload.worker_name)
+        
+    is_delayed = False
+    if prev_seen is not None:
+        interval = now - prev_seen
+        # If interval between heartbeats > 7.5 seconds (HEARTBEAT_SECONDS * 1.5)
+        if interval > 7.5:
+            is_delayed = True
+            with delayed_heartbeats_lock:
+                global delayed_heartbeats_count
+                delayed_heartbeats_count += 1
+                
     update_worker_ping(payload.worker_name)
+    
+    duration = time.perf_counter() - start_time
+    
+    if WORKER_HEARTBEAT_DEBUG:
+        now_str = datetime.now().isoformat()
+        with worker_last_seen_lock:
+            num_workers = len(worker_last_seen)
+        print(
+            f"[DEBUG HEARTBEAT] Recv: {now_str} | Worker: {payload.worker_name} | "
+            f"Duration: {duration:.6f}s | Active Workers: {num_workers} | "
+            f"Total Delayed: {delayed_heartbeats_count} (This ping delayed: {is_delayed})"
+        )
+        
     return {"status": "success", "message": "Heartbeat received"}
 
 

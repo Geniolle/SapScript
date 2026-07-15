@@ -21,32 +21,45 @@ stop_event = threading.Event()
 
 def heartbeat_loop() -> None:
     heartbeat_seconds = float(os.getenv("HEARTBEAT_SECONDS", "5.0"))
-    last_error_time = 0.0
-    error_cooldown = 60.0  # limit logging of heartbeat errors to once per minute to avoid terminal pollution
-    last_status_ok = True
+    error_cooldown = 60.0
+    debug_mode = os.getenv("WORKER_HEARTBEAT_DEBUG", "false").strip().lower() in ("1", "true", "yes", "sim")
     
-    while not stop_event.is_set():
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/api/worker/heartbeat",
-                headers=headers(),
-                json={"worker_name": WORKER_NAME},
-                timeout=3.0
-            )
-            response.raise_for_status()
-            if not last_status_ok:
-                print("❇️ Conexão de heartbeat restabelecida com a API.")
-                last_status_ok = True
-        except Exception as e:
-            current_time = time.time()
-            if last_status_ok:
-                print(f"⚠️ Falha no heartbeat do worker: {e}")
-                last_status_ok = False
-                last_error_time = current_time
-            elif current_time - last_error_time > error_cooldown:
-                print(f"⚠️ Falha contínua no heartbeat do worker: {e}")
-                last_error_time = current_time
-        stop_event.wait(heartbeat_seconds)
+    consecutive_failures = 0
+    last_error_time = 0.0
+    
+    with requests.Session() as session:
+        while not stop_event.is_set():
+            try:
+                response = session.post(
+                    f"{API_BASE_URL}/api/worker/heartbeat",
+                    headers=headers(),
+                    json={"worker_name": WORKER_NAME},
+                    timeout=(2.0, 8.0)
+                )
+                response.raise_for_status()
+                
+                if consecutive_failures > 0:
+                    print("❇️ Conexão de heartbeat restabelecida com a API.")
+                
+                consecutive_failures = 0
+                
+                if debug_mode:
+                    print("[DEBUG HEARTBEAT CLIENT] Heartbeat enviado com sucesso.")
+            except Exception as e:
+                consecutive_failures += 1
+                current_time = time.time()
+                
+                if consecutive_failures == 1:
+                    print(f"⚠️ Falha no heartbeat do worker: {e}")
+                    last_error_time = current_time
+                elif current_time - last_error_time > error_cooldown:
+                    print(f"⚠️ Falha contínua no heartbeat do worker (Falhas consecutivas: {consecutive_failures}): {e}")
+                    last_error_time = current_time
+                
+                if debug_mode:
+                    print(f"[DEBUG HEARTBEAT CLIENT] Falha no heartbeat. Total consecutivas: {consecutive_failures}. Erro: {e}")
+                    
+            stop_event.wait(heartbeat_seconds)
 
 
 def headers() -> dict[str, str]:
