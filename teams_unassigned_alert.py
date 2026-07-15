@@ -12,6 +12,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import signal
+import sys
+
+def handle_sigterm(signum, frame):
+    print("[TEAMS ALERT] Recebido SIGTERM, terminando de forma graciosa...")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, handle_sigterm)
+
 BOOL_TRUE = {"1", "true", "yes", "on", "sim", "s"}
 
 
