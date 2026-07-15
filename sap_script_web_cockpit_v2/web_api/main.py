@@ -11,7 +11,17 @@ from uuid import uuid4
 from typing import Any
 import time
 
-last_worker_ping: float = 0.0
+import threading
+
+WORKER_OFFLINE_AFTER_SECONDS = float(os.getenv("WORKER_OFFLINE_AFTER_SECONDS", "30.0"))
+worker_last_seen: dict[str, float] = {}
+worker_last_seen_lock = threading.Lock()
+
+def update_worker_ping(worker_name: str) -> None:
+    if not worker_name:
+        return
+    with worker_last_seen_lock:
+        worker_last_seen[worker_name] = time.time()
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -22,6 +32,14 @@ from pydantic import BaseModel
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 import asyncio
+
+def update_worker_ping_for_job(job_id: str) -> None:
+    try:
+        job = get_job(job_id)
+        if job and job.get("worker_name"):
+            update_worker_ping(job["worker_name"])
+    except Exception:
+        pass
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 SAP_SCRIPT_PROJECT_DIR = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
@@ -1422,9 +1440,18 @@ def api_environments() -> dict[str, Any]:
     }
 
 @app.get("/api/worker/status")
-def api_worker_status() -> dict[str, Any]:
-    global last_worker_ping
-    is_online = (time.time() - last_worker_ping) < 15.0
+def api_worker_status(worker_name: str = None) -> dict[str, Any]:
+    now = time.time()
+    with worker_last_seen_lock:
+        if worker_name:
+            last_seen = worker_last_seen.get(worker_name, 0.0)
+            is_online = (now - last_seen) < WORKER_OFFLINE_AFTER_SECONDS
+        else:
+            is_online = False
+            for w_name, last_seen in worker_last_seen.items():
+                if (now - last_seen) < WORKER_OFFLINE_AFTER_SECONDS:
+                    is_online = True
+                    break
     return {"status": "online" if is_online else "offline"}
 
 
@@ -1541,9 +1568,8 @@ def api_worker_claim_next_job(
     worker_name: str = "sap-worker",
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
-    global last_worker_ping
     validate_worker_token(x_worker_token)
-    last_worker_ping = time.time()
+    update_worker_ping(worker_name)
     job = claim_next_job(worker_name=worker_name)
     return {"job": job}
 
@@ -1552,9 +1578,8 @@ def api_claim_next_job(
     worker_name: str = "sap-worker",
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
-    global last_worker_ping
     validate_worker_token(x_worker_token)
-    last_worker_ping = time.time()
+    update_worker_ping(worker_name)
     job = claim_next_job(worker_name=worker_name)
     return {"job": job}
 
@@ -1574,8 +1599,7 @@ def api_complete_job(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
-    global last_worker_ping
-    last_worker_ping = time.time()
+    update_worker_ping_for_job(job_id)
     try:
         return complete_job(
             job_id=job_id,
@@ -1625,8 +1649,7 @@ def api_append_job_log(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
-    global last_worker_ping
-    last_worker_ping = time.time()
+    update_worker_ping_for_job(job_id)
     try:
         job = get_job(job_id)
         if job and job["state"] == "failed":
@@ -1648,8 +1671,7 @@ def api_update_sap_metadata(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
-    global last_worker_ping
-    last_worker_ping = time.time()
+    update_worker_ping_for_job(job_id)
     try:
         new_params = {
             "sap_system": payload.sap_system,
@@ -1671,8 +1693,7 @@ def api_update_sap_logon_debug(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
-    global last_worker_ping
-    last_worker_ping = time.time()
+    update_worker_ping_for_job(job_id)
     try:
         new_params = {
             "sap_logon_debug": payload.sap_logon_debug
@@ -1697,6 +1718,19 @@ def api_create_job(payload: CreateJobRequest) -> dict[str, Any]:
 def validate_worker_token(token: str) -> None:
     if token != WORKER_TOKEN:
         raise HTTPException(status_code=401, detail="Worker token inválido")
+
+
+class HeartbeatRequest(BaseModel):
+    worker_name: str
+
+@app.post("/api/worker/heartbeat")
+def api_worker_heartbeat(
+    payload: HeartbeatRequest,
+    x_worker_token: str = Header(default=""),
+) -> dict[str, Any]:
+    validate_worker_token(x_worker_token)
+    update_worker_ping(payload.worker_name)
+    return {"status": "success", "message": "Heartbeat received"}
 
 
 # ---------------------------------------------------------------------------

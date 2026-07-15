@@ -4,6 +4,7 @@ import os
 import socket
 import time
 import traceback
+import threading
 from typing import Any
 
 import requests
@@ -14,6 +15,38 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 WORKER_NAME = os.getenv("WORKER_NAME", socket.gethostname())
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "3"))
+
+# Thread stop event
+stop_event = threading.Event()
+
+def heartbeat_loop() -> None:
+    heartbeat_seconds = float(os.getenv("HEARTBEAT_SECONDS", "5.0"))
+    last_error_time = 0.0
+    error_cooldown = 60.0  # limit logging of heartbeat errors to once per minute to avoid terminal pollution
+    last_status_ok = True
+    
+    while not stop_event.is_set():
+        try:
+            response = requests.post(
+                f"{API_BASE_URL}/api/worker/heartbeat",
+                headers=headers(),
+                json={"worker_name": WORKER_NAME},
+                timeout=3.0
+            )
+            response.raise_for_status()
+            if not last_status_ok:
+                print("❇️ Conexão de heartbeat restabelecida com a API.")
+                last_status_ok = True
+        except Exception as e:
+            current_time = time.time()
+            if last_status_ok:
+                print(f"⚠️ Falha no heartbeat do worker: {e}")
+                last_status_ok = False
+                last_error_time = current_time
+            elif current_time - last_error_time > error_cooldown:
+                print(f"⚠️ Falha contínua no heartbeat do worker: {e}")
+                last_error_time = current_time
+        stop_event.wait(heartbeat_seconds)
 
 
 def headers() -> dict[str, str]:
@@ -71,20 +104,30 @@ def process_job(job: dict[str, Any]) -> None:
 def main() -> None:
     print(f"Worker {WORKER_NAME} ligado a {API_BASE_URL}")
     print("Para terminar, usa CTRL+C.")
-    while True:
-        try:
-            job = claim_next_job()
-            if job:
-                print(f"A executar job {job['id']} ({job['task']})")
-                process_job(job)
-            else:
+    
+    # Iniciar heartbeat thread
+    heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+    heartbeat_thread.start()
+    
+    try:
+        while True:
+            try:
+                job = claim_next_job()
+                if job:
+                    print(f"A executar job {job['id']} ({job['task']})")
+                    process_job(job)
+                else:
+                    time.sleep(POLL_SECONDS)
+            except KeyboardInterrupt:
+                raise
+            except BaseException:
+                print(traceback.format_exc())
                 time.sleep(POLL_SECONDS)
-        except KeyboardInterrupt:
-            print("Worker terminado pelo utilizador.")
-            break
-        except BaseException:
-            print(traceback.format_exc())
-            time.sleep(POLL_SECONDS)
+    except KeyboardInterrupt:
+        print("Worker terminado pelo utilizador.")
+    finally:
+        stop_event.set()
+        heartbeat_thread.join(timeout=1.0)
 
 
 if __name__ == "__main__":
