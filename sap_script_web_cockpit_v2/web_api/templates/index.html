@@ -1316,71 +1316,7 @@
       <!-- Visão Geral View -->
       <div id="view-visao-geral" style="flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <!-- KPIs -->
-        <section class="kpi-grid">
-          <div class="kpi-card" onclick="openKpiJobsModal('running')">
-            <div class="kpi-icon-wrapper blue">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Jobs em execução</div>
-              <div class="kpi-value"><span id="kpi-running">0</span> <span class="kpi-sub" id="kpi-running-sub">Sistema livre</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" onclick="openKpiJobsModal('pending')">
-            <div class="kpi-icon-wrapper yellow">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Pendentes</div>
-              <div class="kpi-value"><span id="kpi-pending">0</span> <span class="kpi-sub">A processar na fila</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" onclick="openKpiJobsModal('success')">
-            <div class="kpi-icon-wrapper green">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Concluídos hoje</div>
-              <div class="kpi-value"><span id="kpi-success">0</span> <span class="kpi-sub" id="kpi-success-rate">0% sem erro</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" onclick="openKpiJobsModal('failed')">
-            <div class="kpi-icon-wrapper red">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Erros</div>
-              <div class="kpi-value"><span id="kpi-failed">0</span> <span class="kpi-sub">Requer validação</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" style="cursor: default;">
-            <div class="kpi-icon-wrapper blue">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Tempo médio</div>
-              <div class="kpi-value"><span id="kpi-avg-time">0s</span> <span class="kpi-sub">De concluídos</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" style="cursor: default;">
-            <div class="kpi-icon-wrapper green">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Taxa de sucesso</div>
-              <div class="kpi-value"><span id="kpi-success-rate-general">100%</span> <span class="kpi-sub">Geral dos jobs</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" style="cursor: default;">
-            <div class="kpi-icon-wrapper yellow">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Última execução</div>
-              <div class="kpi-value"><span id="kpi-latest-time" style="font-size: 0.95rem;">---</span> <span class="kpi-sub">Data do último job</span></div>
-            </div>
-          </div>
-        </section>
+        {% include "components/dashboard_kpis.html" %}
 
         <!-- Main Grid -->
         <section class="dashboard-grid">
@@ -2643,6 +2579,7 @@
     </div>
   </div>
 
+  <script src="/static/js/dashboard-kpis.js?v=6"></script>
   <script>
     // ── SAP AGENT filter sidebar state (declared at top for global scope) ──
     let saAllTickets = [];
@@ -3416,7 +3353,6 @@
         if (jobsRes.ok) {
           const data = await jobsRes.json();
           allJobs = data.jobs || [];
-          calculateKPIs();
           renderQueue();
         }
 
@@ -3456,87 +3392,6 @@
       } catch(e) {}
     }
 
-    function calculateKPIs() {
-      const now = new Date();
-      let running = 0, pending = 0, successToday = 0, errorToday = 0;
-      let latestRunningProcess = '';
-      
-      let totalCompletedAllTime = 0;
-      let successAllTime = 0;
-      let totalDurationMs = 0;
-      let latestJobTime = null;
-
-      allJobs.forEach(job => {
-        const isToday = new Date(job.created_at).toDateString() === now.toDateString();
-        
-        // Track latest job timestamp
-        const jobDate = new Date(job.created_at);
-        if (!latestJobTime || jobDate > latestJobTime) {
-            latestJobTime = jobDate;
-        }
-
-        if (job.state === 'running') {
-            running++;
-            if (!latestRunningProcess) latestRunningProcess = job.params?.subprocesso || job.task;
-        }
-        if (job.state === 'pending') pending++;
-        
-        if (isToday && (job.state === 'succeeded' || job.state === 'succeeded_with_warnings')) successToday++;
-        if (isToday && job.state === 'failed') errorToday++;
-        
-        // General stats for all-time rates
-        if (job.state === 'succeeded') {
-            successAllTime++;
-            totalCompletedAllTime++;
-            
-            // Calculate duration
-            const duration = new Date(job.updated_at) - new Date(job.created_at);
-            if (duration > 0) {
-                totalDurationMs += duration;
-            }
-        } else if (job.state === 'failed') {
-            totalCompletedAllTime++;
-        }
-      });
-
-      document.getElementById('kpi-running').textContent = running;
-      document.getElementById('kpi-running-sub').textContent = running > 0 ? '+ ' + latestRunningProcess : 'Sistema livre';
-      
-      document.getElementById('kpi-pending').textContent = pending;
-      
-      document.getElementById('kpi-success').textContent = successToday;
-      const totalCompletedToday = successToday + errorToday;
-      const todayRate = totalCompletedToday > 0 ? Math.round((successToday / totalCompletedToday) * 100) : 100;
-      document.getElementById('kpi-success-rate').textContent = `${todayRate}% sem erro`;
-
-      document.getElementById('kpi-failed').textContent = errorToday;
-      
-      // Calculate avg duration
-      let avgDurationStr = '0s';
-      if (successAllTime > 0) {
-          const avgMs = totalDurationMs / successAllTime;
-          const avgSecs = Math.round(avgMs / 1000);
-          if (avgSecs < 60) {
-              avgDurationStr = `${avgSecs}s`;
-          } else {
-              const mins = Math.floor(avgSecs / 60);
-              const secs = avgSecs % 60;
-              avgDurationStr = `${mins}m ${secs}s`;
-          }
-      }
-      document.getElementById('kpi-avg-time').textContent = avgDurationStr;
-      
-      // General success rate
-      const generalRate = totalCompletedAllTime > 0 ? Math.round((successAllTime / totalCompletedAllTime) * 100) : 100;
-      document.getElementById('kpi-success-rate-general').textContent = `${generalRate}%`;
-      
-      // Latest time
-      let latestTimeStr = '---';
-      if (latestJobTime) {
-          latestTimeStr = latestJobTime.toLocaleDateString('pt-PT') + ' ' + latestJobTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      }
-      document.getElementById('kpi-latest-time').textContent = latestTimeStr;
-    }
 
     function renderQueue() {
       const qContainer = document.getElementById('queue-list-container');
@@ -3670,16 +3525,20 @@
             }
         }
 
-        // If no jobs at all to display
+                // If no jobs at all to display
         if (jobsToRender.length === 0) {
-           container.innerHTML = `
-              <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
-                 <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
-              </div>
-           `;
-           if (logContainer) logContainer.innerHTML = 'Nenhum log disponível...';
-           return;
-       }
+            container.innerHTML = `
+               <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                  <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
+               </div>
+            `;
+            if (logContainer) logContainer.innerHTML = 'Nenhum log disponível...';
+            DashboardKpis.updateFocusedJob(null);
+            return;
+        }
+
+        const focusedJob = allJobs.find(j => j.id === activeJobId);
+        DashboardKpis.updateFocusedJob(focusedJob);
 
         // Clear children that are not in the new jobsToRender list or empty state
         const activeIds = jobsToRender.map(j => `card-job-${j.id}`);
@@ -3979,7 +3838,7 @@
                   totalActions += meta.actions || 0;
               });
           }
-          let stageLabels = ['Inicialização e Logon SAP', 'Abertura e Verificação de Tela', 'Processamento Principal / Ações GUI', 'Conclusão / Geração de Logs'];
+                    let stageLabels = ['Inicialização e Logon SAP', 'Abertura e Verificação de Tela', 'Processamento Principal / Ações GUI', 'Conclusão / Geração de Logs'];
           const subLower = sub.toLowerCase();
           if (subLower.includes('pfcg_composta') || (subLower.includes('pfcg') && subLower.includes('composta'))) {
               stageLabels = ['Preparação e Dados', 'Atribuir Roles', 'Ordem de Transporte'];
@@ -3990,24 +3849,35 @@
           } else if (subLower.includes('pfcg_authority') || (subLower.includes('pfcg') && subLower.includes('authority'))) {
               stageLabels = ['Validação da Role', 'Inserção MASSVAL', 'Ordem de Transporte'];
           } else if (subLower.includes('cua_adicionar') || subLower.includes('adicionar')) {
-              stageLabels = ['Leitura do Excel', 'Pesquisa de Utilizadores', 'Atribuição no SAP CUA', 'Gravação de Resultados'];
+              stageLabels = ['Leitura do Excel', 'Pré-validação CUA', 'Processamento dos Utilizadores', 'Gravação de Resultados'];
           } else if (subLower.includes('cua_enddate') || subLower.includes('enddate') || subLower.includes('validade')) {
               stageLabels = ['Leitura do Excel', 'Acesso ao SAP CUA', 'Bloqueio / Data Fim', 'Gravação de Resultados'];
           } else if (subLower.includes('cua_remove') || subLower.includes('remove')) {
               stageLabels = ['Leitura do Excel', 'Acesso ao SAP CUA', 'Remoção de Perfis', 'Gravação de Resultados'];
           }
+          const updatedStages = new Set();
+          const isCuaAdicionar = subLower.includes('cua_adicionar') || subLower.includes('adicionar');
           lines.forEach(line => {
-              for (let s = 1; s <= 10; s++) {
-                  const tag = `[Etapa ${s}]`;
-                  if (line.includes(tag)) {
-                      const idx = line.indexOf(tag);
-                      const labelText = line.substring(idx + tag.length).trim();
-                      if (labelText && labelText.length < 60) {
-                          while (stageLabels.length < s) {
-                              stageLabels.push(`Etapa ${stageLabels.length + 1}`);
-                          }
-                          stageLabels[s - 1] = labelText;
+              let stageNum = null;
+              let labelText = '';
+              let m = line.match(/\[Fase\s+(\d+)\]/i);
+              if (m) {
+                  stageNum = parseInt(m[1]);
+                  labelText = line.substring(line.indexOf(m[0]) + m[0].length).trim();
+              } else {
+                  m = line.match(/\[Etapa\s+(\d+)\]/i);
+                  if (m) {
+                      stageNum = parseInt(m[1]);
+                      labelText = line.substring(line.indexOf(m[0]) + m[0].length).trim();
+                  }
+              }
+              if (stageNum && stageNum <= 10 && !updatedStages.has(stageNum)) {
+                  if (!isCuaAdicionar && labelText && labelText.length < 60) {
+                      while (stageLabels.length < stageNum) {
+                          stageLabels.push(`Etapa ${stageLabels.length + 1}`);
                       }
+                      stageLabels[stageNum - 1] = labelText;
+                      updatedStages.add(stageNum);
                   }
               }
           });
@@ -4026,16 +3896,28 @@
           } else {
               currentRoleLogs = lines;
           }
+                    function getActiveSubstepFromLine(line, totalStages) {
+              let m = line.match(/\[Fase\s+(\d+)\]/i);
+              if (m) return parseInt(m[1]);
+              m = line.match(/\[Etapa\s+(\d+)\]/i);
+              if (m) return parseInt(m[1]);
+              m = line.match(/\[Subetapa\s+(\d+)(?:\.\d+)?\]/i);
+              if (m) return parseInt(m[1]);
+              if (/\[Utilizador\s+\d+\/\d+\]/i.test(line)) {
+                  return 3;
+              }
+              return null;
+          }
+
           if (job.state === 'running') {
               let activeSubstep = 0;
               let currentRoleHasError = false;
               let currentRoleHasSuccess = false;
               
               currentRoleLogs.forEach(line => {
-                  for (let s = 1; s <= numStages; s++) {
-                      if (line.includes(`[Etapa ${s}]`)) {
-                          activeSubstep = s;
-                      }
+                  const s = getActiveSubstepFromLine(line, numStages);
+                  if (s && s <= numStages) {
+                      activeSubstep = s;
                   }
                   
                   if (line.includes('🔴 ERRO') || line.includes('❌ SAP Erro:') || line.includes('❌ Erro') || line.includes('❌ Falha')) {
@@ -4077,13 +3959,12 @@
               }
           } else if (job.state === 'succeeded' || job.state === 'succeeded_with_warnings') {
               for (let s = 0; s < numStages; s++) stepClasses[s] = 'completed';
-          } else if (job.state === 'failed') {
+                    } else if (job.state === 'failed') {
               let activeSubstep = 0;
               lines.forEach(line => {
-                  for (let s = 1; s <= numStages; s++) {
-                      if (line.includes(`[Etapa ${s}]`)) {
-                          activeSubstep = s;
-                      }
+                  const s = getActiveSubstepFromLine(line, numStages);
+                  if (s && s <= numStages) {
+                      activeSubstep = s;
                   }
               });
               for (let s = 0; s < numStages; s++) {
@@ -4102,6 +3983,28 @@
           // Group lines into steps
           let steps = [];
           let currentStep = null;
+
+          function formatGroupTitle(cleanLine) {
+              const match = cleanLine.match(/^\[(Fase|Etapa|Subetapa|Utilizador)\s+([^\]]+)\]\s*(.*)$/i);
+              if (match) {
+                  const type = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+                  const num = match[2].trim();
+                  const desc = match[3].trim();
+                  return desc ? `${type} ${num} — ${desc}` : `${type} ${num}`;
+              }
+              return cleanLine.trim();
+          }
+
+           function formatGroupTitle(cleanLine) {
+               const match = cleanLine.match(/^\[(Fase|Etapa|Subetapa|Utilizador)\s+([^\]]+)\]\s*(.*)$/i);
+               if (match) {
+                   const type = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+                   const num = match[2].trim();
+                   const desc = match[3].trim();
+                   return desc ? `${type} ${num} — ${desc}` : `${type} ${num}`;
+               }
+               return cleanLine.trim();
+           }
           
           let cmdArgs = [];
           if (p.ambiente) cmdArgs.push(`--ambiente ${p.ambiente}`);
@@ -4110,7 +4013,8 @@
           let cmdStr = `python Processos/${job.task} ${cmdArgs.join(' ')}`;
           const initTs = getTimestampForLine(job, 0, lines.length);
           
-          currentStep = {
+                    currentStep = {
+              id: `step-${job.id}-init`,
               title: 'Inicializar Subprocesso',
               dotColor: 'var(--primary)',
               inContent: cmdStr,
@@ -4184,75 +4088,84 @@
                    return;
                }
                
-               let isNewStep = false;
-               let newStepTitle = '';
-               let newStepColor = 'var(--primary)';
-               
-               const roleMatch = cleanLine.match(/▶\s*\[\d+\/\d+\]\s*(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\-]+)/i);
-               const chainMatch = cleanLine.match(/^([✅❌])\s*([^-]+)\s*-\s*(.*)$/);
-               const phaseMatch = cleanLine.match(/===+\s*(FASE\s+\d+:\s+[^=]+)\s*===+/i) || cleanLine.match(/(FASE\s+\d+:\s+.*)/i);
-               
-               if (roleMatch) {
-                   isNewStep = true;
-                   newStepTitle = cleanLine.trim();
-                   newStepColor = 'var(--primary)';
-               } else if (phaseMatch) {
-                   isNewStep = true;
-                   let titleStr = phaseMatch[1].trim();
-                   if (titleStr.toUpperCase() === titleStr) {
-                       titleStr = titleStr.toLowerCase().replace(/^(fase\s+\d+:?)\s*(.*)$/, (match, p1, p2) => {
-                           const part1 = p1.charAt(0).toUpperCase() + p1.slice(1);
-                           const prepositions = ['de', 'do', 'da', 'dos', 'das', 'em', 'para', 'com', 'por', 'a', 'o', 'e'];
-                           const words = p2.split(/\s+/).map((w, index) => {
-                               if (index === 0) return w.charAt(0).toUpperCase() + w.slice(1);
-                               if (prepositions.includes(w)) return w;
-                               return w.charAt(0).toUpperCase() + w.slice(1);
-                           });
-                           return part1 + ' ' + words.join(' ');
-                       });
-                   }
-                   newStepTitle = titleStr;
-                   newStepColor = 'var(--primary)';
-               } else if (chainMatch) {
-                   isNewStep = true;
-                   newStepTitle = `Validar Cadeia: ${chainMatch[2].trim()}`;
-                   newStepColor = chainMatch[1] === '✅' ? 'var(--success)' : 'var(--danger)';
-               } else if (cleanLine.startsWith('[Etapa ') || cleanLine.includes('[Etapa ')) {
-                   isNewStep = true;
-                   newStepTitle = cleanLine.trim();
-                   newStepColor = 'var(--primary)';
-               } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌ SAP Erro:') || cleanLine.includes('❌ Erro') || cleanLine.includes('❌ Falha') || cleanLine.startsWith('Traceback') || cleanLine.startsWith('ERRO:')) && !cleanLine.includes('[DEBUG POLLER]') && !cleanLine.includes('[TECHNICAL WARN]')) {
-                   if (currentStep) {
-                       currentStep.dotColor = 'var(--danger)';
-                   }
-               }
-               
-               if (isNewStep) {
-                   currentStep = {
-                       title: newStepTitle,
-                       dotColor: newStepColor,
-                       inContent: cleanLine.trim(),
-                       outLines: [],
-                       lineIndex: idx,
-                       timestamp: getTimestampForLine(job, idx, lines.length)
-                   };
-                   steps.push(currentStep);
-               } else {
-                   if (currentStep) {
-                       currentStep.outLines.push(cleanLine);
-                       
-                       const lowerLine = cleanLine.toLowerCase();
-                       if (cleanLine.includes('🟢 SUCESSO') || cleanLine.includes('✅') || lowerLine.includes('sucesso') || lowerLine.includes('concluída') || lowerLine.includes('concluido')) {
-                           currentStep.dotColor = 'var(--success)';
-                       } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌') || lowerLine.includes('falha') || lowerLine.includes('erro') || lowerLine.includes('exception') || lowerLine.includes('traceback') || cleanLine.startsWith('ERRO:')) && !cleanLine.includes('[DEBUG POLLER]') && !cleanLine.includes('[TECHNICAL WARN]')) {
-                           currentStep.dotColor = 'var(--danger)';
-                       } else if (cleanLine.includes('⚠️') || lowerLine.includes('warning') || lowerLine.includes('aviso') || cleanLine.startsWith('[WARN]') || cleanLine.startsWith('[DOC_WARN]')) {
-                           if (currentStep.dotColor !== 'var(--danger)' && currentStep.dotColor !== 'var(--success)') {
-                               currentStep.dotColor = 'var(--warning)';
-                           }
-                       }
-                   }
-               }
+                               let isNewStep = false;
+                let newStepTitle = '';
+                let newStepColor = 'var(--primary)';
+                
+                const roleMatch = cleanLine.match(/▶\s*\[\d+\/\d+\]\s*(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\-]+)/i);
+                const chainMatch = cleanLine.match(/^([✅❌])\s*([^-]+)\s*-\s*(.*)$/);
+                const phaseMatch = cleanLine.match(/===+\s*(FASE\s+\d+:\s+[^=]+)\s*===+/i) || cleanLine.match(/(FASE\s+\d+:\s+.*)/i);
+                const functionalMatch = cleanLine.match(/^\[(?:Fase|Etapa|Subetapa|Utilizador)\s+([^\]]+)\](.*)$/i);
+                
+                if (roleMatch) {
+                    isNewStep = true;
+                    newStepTitle = cleanLine.trim();
+                    newStepColor = 'var(--primary)';
+                } else if (phaseMatch) {
+                    isNewStep = true;
+                    let titleStr = phaseMatch[1].trim();
+                    if (titleStr.toUpperCase() === titleStr) {
+                        titleStr = titleStr.toLowerCase().replace(/^(fase\s+\d+:?)\s*(.*)$/, (match, p1, p2) => {
+                            const part1 = p1.charAt(0).toUpperCase() + p1.slice(1);
+                            const prepositions = ['de', 'do', 'da', 'dos', 'das', 'em', 'para', 'com', 'por', 'a', 'o', 'e'];
+                            const words = p2.split(/\s+/).map((w, index) => {
+                                if (index === 0) return w.charAt(0).toUpperCase() + w.slice(1);
+                                if (prepositions.includes(w)) return w;
+                                return w.charAt(0).toUpperCase() + w.slice(1);
+                            });
+                            return part1 + ' ' + words.join(' ');
+                        });
+                    }
+                    newStepTitle = titleStr;
+                    newStepColor = 'var(--primary)';
+                } else if (chainMatch) {
+                    isNewStep = true;
+                    newStepTitle = `Validar Cadeia: ${chainMatch[2].trim()}`;
+                    newStepColor = chainMatch[1] === '✅' ? 'var(--success)' : 'var(--danger)';
+                } else if (functionalMatch) {
+                    isNewStep = true;
+                    newStepTitle = formatGroupTitle(cleanLine);
+                    newStepColor = 'var(--primary)';
+                } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌ SAP Erro:') || cleanLine.includes('❌ Erro') || cleanLine.includes('❌ Falha') || cleanLine.startsWith('Traceback') || cleanLine.startsWith('ERRO:')) 
+                           && !cleanLine.includes('[DEBUG POLLER]') 
+                           && !cleanLine.includes('[TECHNICAL WARN]')
+                           && !cleanLine.toLowerCase().includes('heartbeat')) {
+                    if (currentStep) {
+                        currentStep.dotColor = 'var(--danger)';
+                    }
+                }
+                
+                if (isNewStep) {
+                    const groupIndex = steps.length;
+                    currentStep = {
+                        id: `step-${job.id}-${idx}-${groupIndex}`,
+                        title: newStepTitle,
+                        dotColor: newStepColor,
+                        inContent: cleanLine.trim(),
+                        outLines: [],
+                        lineIndex: idx,
+                        timestamp: getTimestampForLine(job, idx, lines.length)
+                    };
+                    steps.push(currentStep);
+                } else {
+                    if (currentStep) {
+                        currentStep.outLines.push(cleanLine);
+                        
+                        const lowerLine = cleanLine.toLowerCase();
+                        if (cleanLine.includes('🟢 SUCESSO') || cleanLine.includes('✅') || lowerLine.includes('sucesso') || lowerLine.includes('concluída') || lowerLine.includes('concluido')) {
+                            currentStep.dotColor = 'var(--success)';
+                        } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌') || lowerLine.includes('falha') || lowerLine.includes('erro') || lowerLine.includes('exception') || lowerLine.includes('traceback') || cleanLine.startsWith('ERRO:')) 
+                                   && !cleanLine.includes('[DEBUG POLLER]') 
+                                   && !cleanLine.includes('[TECHNICAL WARN]')
+                                   && !lowerLine.includes('heartbeat')) {
+                            currentStep.dotColor = 'var(--danger)';
+                        } else if (cleanLine.includes('⚠️') || lowerLine.includes('warning') || lowerLine.includes('aviso') || cleanLine.startsWith('[WARN]') || cleanLine.startsWith('[DOC_WARN]') || lowerLine.includes('heartbeat')) {
+                            if (currentStep.dotColor !== 'var(--danger)' && currentStep.dotColor !== 'var(--success)') {
+                                currentStep.dotColor = 'var(--warning)';
+                            }
+                        }
+                    }
+                }
            });
           
           // ─────────────────────────────────────────────────────────────────
@@ -4336,7 +4249,7 @@
                   // Append step to current role group (or create a catch-all)
                   if (!currentRoleGroup) {
                       // Steps before any ROLE marker → treat as init overflow
-                      if (!initGroup) initGroup = { title: SPECIAL_INIT, dotColor: 'var(--primary)', inContent: '', outLines: [], lineIndex: 0 };
+                                            if (!initGroup) initGroup = { id: `step-${job.id}-init`, title: SPECIAL_INIT, dotColor: 'var(--primary)', inContent: '', outLines: [], lineIndex: 0 };
                       initGroup.outLines.push(...step.outLines);
                   } else {
                       currentRoleGroup.steps.push(step);
@@ -4384,14 +4297,14 @@
                   }
               }
 
-              if (activeStageTitle) {
+                            if (activeStageTitle) {
                   const matchedRole = roleGroups.find(rg => rg.roleName === activeStageTitle || rg.roleTitle === activeStageTitle);
                   if (matchedRole) {
                       activeStageKey = matchedRole.roleId;
                   } else {
-                      const matchedStepIdx = allFlatSteps.findIndex(s => s.title === activeStageTitle || s.title.includes(activeStageTitle));
-                      if (matchedStepIdx !== -1) {
-                          activeStageKey = `step-${job.id}-${matchedStepIdx}`;
+                      const matchedStep = allFlatSteps.find(s => s.title === activeStageTitle || s.title.includes(activeStageTitle));
+                      if (matchedStep) {
+                          activeStageKey = matchedStep.id;
                       }
                   }
               }
@@ -4405,9 +4318,9 @@
                       if (matchedRole) {
                           activeStageKey = matchedRole.roleId;
                       } else {
-                          const matchedStepIdx = allFlatSteps.findIndex(s => s.title === explicitField || s.title.includes(explicitField) || String(s.lineIndex) === String(explicitField));
-                          if (matchedStepIdx !== -1) {
-                              activeStageKey = `step-${job.id}-${matchedStepIdx}`;
+                          const matchedStep = allFlatSteps.find(s => s.title === explicitField || s.title.includes(explicitField) || String(s.lineIndex) === String(explicitField));
+                          if (matchedStep) {
+                              activeStageKey = matchedStep.id;
                           }
                       }
                   }
@@ -4424,13 +4337,13 @@
                           const isCompleted = step.dotColor === 'var(--success)' || step.dotColor === '#2da44e' ||
                                               step.dotColor === 'var(--danger)' || step.dotColor === '#cf222e';
                           if (!isCompleted) {
-                              activeStageKey = `step-${job.id}-${i}`;
+                              activeStageKey = step.id;
                               break;
                           }
                       }
                       // Fallback final: o último passo registrado
                       if (!activeStageKey) {
-                          activeStageKey = `step-${job.id}-${allFlatSteps.length - 1}`;
+                          activeStageKey = allFlatSteps[allFlatSteps.length - 1].id;
                       }
                   } else if (initGroup) {
                       activeStageKey = `init-${job.id}`;
@@ -4603,20 +4516,21 @@
               else if (level === 'WARN')  dotColor = '#9a6700';
               else if (step.title.toLowerCase().includes('thought') || step.title.toLowerCase().includes('info')) dotColor = '#8c959f';
 
-              const hasDetails = (subTextHtml.trim() !== '' || stepCardHtml.trim() !== '');
+                            const hasDetails = (subTextHtml.trim() !== '' || stepCardHtml.trim() !== '');
               let titleWithToggleHtml = '';
               let detailsWrapperHtml  = '';
 
               if (hasDetails) {
-                  const isOpen = isStageOpen(job, `step-${job.id}-${idx}`);
+                  const stepKey = step.id || `step-${job.id}-${idx}`;
+                  const isOpen = isStageOpen(job, stepKey);
                   titleWithToggleHtml = `
                       <div style="display: flex; align-items: center; gap: 4px;">
-                          <span style="font-weight: 600; font-size: 13px; color: var(--text-primary); cursor: pointer;" onclick="const btn = document.getElementById('toggle-btn-${job.id}-${idx}'); if (btn) btn.click();">${escapeHtml(step.title)}</span>
-                          <button id="toggle-btn-${job.id}-${idx}" onclick="event.stopPropagation(); toggleStepDetails(this, 'step-details-${job.id}-${idx}')" style="background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; font-size: 13px; padding: 0 4px; display: inline-flex; align-items: center; outline: none;">${isOpen ? '(-)' : '(+)'}</button>
+                          <span style="font-weight: 600; font-size: 13px; color: var(--text-primary); cursor: pointer;" onclick="const btn = document.getElementById('toggle-btn-${stepKey}'); if (btn) btn.click();">${escapeHtml(step.title)}</span>
+                          <button id="toggle-btn-${stepKey}" onclick="event.stopPropagation(); toggleStepDetails(this, 'step-details-${stepKey}')" style="background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; font-size: 13px; padding: 0 4px; display: inline-flex; align-items: center; outline: none;">${isOpen ? '(-)' : '(+)'}</button>
                       </div>
                   `;
                   detailsWrapperHtml = `
-                      <div id="step-details-${job.id}-${idx}" style="display: ${isOpen ? 'block' : 'none'}; width: 100%;">
+                      <div id="step-details-${stepKey}" style="display: ${isOpen ? 'block' : 'none'}; width: 100%;">
                           ${subTextHtml}
                           ${stepCardHtml}
                       </div>
@@ -4857,74 +4771,12 @@
                   ${connectorHtml}
               `;
           }
-          let timelineHtml = `
-             <!-- Active Job KPIs Row -->
-             <div class="active-job-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px;">
-                <!-- Card 1: Roles Concluídas -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon green">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${concludedRoles}/${totalRoles}</span>
-                      <span class="job-kpi-title">${isCadeiaProcess ? 'Cadeias verificadas' : 'Roles concluídas'}</span>
-                      <span class="job-kpi-sub">${totalRoles > 0 ? Math.round((concludedRoles / totalRoles) * 100) + '%' : '100%'}</span>
-                   </div>
-                </div>
-                
-                <!-- Card 2: Ações -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon purple">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${totalActions}</span>
-                      <span class="job-kpi-title">Ações</span>
-                      <span class="job-kpi-sub">Total executadas</span>
-                   </div>
-                </div>
-                
-                <!-- Card 3: Tempo total -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon blue">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <circle cx="12" cy="12" r="10"></circle>
-                         <polyline points="12 6 12 12 16 14"></polyline>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${formatDuration(job.created_at, (job.state === 'running' || job.state === 'pending') ? null : job.updated_at)}</span>
-                      <span class="job-kpi-title">Tempo total</span>
-                      <span class="job-kpi-sub">Duração da execução</span>
-                   </div>
-                </div>
-                
-                <!-- Card 4: Erros -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon red">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                         <line x1="12" y1="9" x2="12" y2="13"></line>
-                         <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${errorCount}</span>
-                      <span class="job-kpi-title">Erros</span>
-                      <span class="job-kpi-sub">${errorCount > 0 ? 'Requer atenção' : 'Sem erros'}</span>
-                   </div>
-                </div>
-             </div>
-             
+                    let timelineHtml = `
              <!-- Split Bottom Columns -->
-             <div style="display: flex; gap: 24px; margin-top: 24px;">
+             <div style="display: flex; gap: 24px; margin-top: 12px;">
                 ${taskLogsHtml}
              </div>
-          `;
+           `;
           let progressLabelsHtml = '';
           let progressWidth = '0%';
           if (totalRoles > 0) {
@@ -5272,22 +5124,19 @@
         }
     }
 
-    function toggleStepDetails(btn, detailsId) {
+        function toggleStepDetails(btn, detailsId) {
         const detailsDiv = document.getElementById(detailsId);
         if (!detailsDiv) return;
         
-        // Extract jobId and idx/key from detailsId: step-details-${jobId}-${idx}
-        // e.g. step-details-5c163a95-b8e4-4354-a1af-012fe7559077-1
         const prefix = 'step-details-';
         if (!detailsId.startsWith(prefix)) return;
-        const remaining = detailsId.substring(prefix.length);
+        const stepKey = detailsId.substring(prefix.length);
         
-        // The last part is the idx/key, separated by '-'
-        const lastDash = remaining.lastIndexOf('-');
-        if (lastDash === -1) return;
-        const jobId = remaining.substring(0, lastDash);
-        const idx = remaining.substring(lastDash + 1);
-        const stageKey = `step-${jobId}-${idx}`;
+        const parts = stepKey.split('-');
+        let jobId = '';
+        if (parts.length >= 7) {
+            jobId = parts.slice(1, 6).join('-');
+        }
         
         const isOpen = detailsDiv.style.display !== 'none';
         const newOpen = !isOpen;
@@ -5298,11 +5147,11 @@
         if (jobId) {
             const state = getLogAccordionState(jobId);
             if (newOpen) {
-                state.manuallyExpanded.add(stageKey);
-                state.manuallyCollapsed.delete(stageKey);
+                state.manuallyExpanded.add(stepKey);
+                state.manuallyCollapsed.delete(stepKey);
             } else {
-                state.manuallyCollapsed.add(stageKey);
-                state.manuallyExpanded.delete(stageKey);
+                state.manuallyCollapsed.add(stepKey);
+                state.manuallyExpanded.delete(stepKey);
             }
         }
     }

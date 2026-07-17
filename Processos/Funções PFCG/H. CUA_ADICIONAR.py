@@ -2370,7 +2370,7 @@ def prevalidar_e_processar_atribuicoes(
     resultados_por_grupo = {}
     erros_validacao = {}  # idx_row -> msg
 
-    print("\n[Etapa 2] Pre-validacao CUA na tabela USLA04...")
+    print("\n[Fase 2] Pré-validação CUA na tabela USLA04")
 
     for (user_norm, sys_norm), info_linhas in grupos_validar.items():
         try:
@@ -2781,6 +2781,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confir
             print("[X] Lançamento cancelado pelo utilizador.")
             return df_filtrado
 
+    print("\n[Fase 3] Processamento dos Utilizadores")
     tempo_total_inicio = time.time()
 
     for idx_grupo, ((utilizador, sistema), df_grupo) in enumerate(grupos, 1):
@@ -2790,9 +2791,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confir
         # Obter a lista de roles únicas a adicionar para este utilizador e sistema
         roles_list = list(dict.fromkeys([str(r).strip() for r in df_grupo["AGR_NAME"] if str(r).strip()]))
         
-        print("\n======================================================================")
-        print(f">>> [{idx_grupo}/{total_grupos}] INICIANDO UTILIZADOR: {utilizador} | Sistema: {sistema} | Roles: {len(roles_list)}")
-        print("======================================================================")
+        print(f"\n[Utilizador {idx_grupo}/{total_grupos}] {utilizador}")
 
         # Verificar dados vazios
         if not utilizador or not sistema or not roles_list:
@@ -2814,7 +2813,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confir
                 continue
 
             # 1) Abre SU10
-            print("\n[Etapa 1] Pesquisa de Utilizador")
+            print("\n[Subetapa 3.1] Pesquisa de Utilizador")
             print("├─ Abrindo SU10...")
             ir_para_transacao(session, "SU10")
             capturar_status_bar(session, eventos_status, origem="ABERTURA_SU10", tentativas=5, espera=0.20)
@@ -2864,7 +2863,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confir
                 continue
 
             # 3) Vai para tab de funções
-            print("\n[Etapa 2] Atribuição de Funções no SAP CUA")
+            print("\n[Subetapa 3.2] Atribuição de Funções no SAP CUA")
             print("├─ Acedendo à aba de funções...")
             session.findById(tab_funcoes).select()
             time.sleep(0.40)
@@ -3028,7 +3027,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confir
             leitura_pos_save_erro = None
 
             if salvou_com_sucesso:
-                print("\n[Etapa 2.5] Validação pós-Save na tabela USLA04...")
+                print("\n[Subetapa 3.3] Validação pós-Save na tabela USLA04...")
                 try:
                     linhas_pos = consultar_usla04_para_grupo(session, utilizador, sistema)
                     hoje_date = datetime.now().date()
@@ -3265,7 +3264,7 @@ def executar(
     if not caminho_ficheiro:
         return False
 
-    print("\n[Etapa 1] Leitura do Excel")
+    print("\n[Fase 1] Leitura do Excel")
     df = ler_ficheiro(caminho_ficheiro, sheet_alvo)
     if df is None:
         return False
@@ -3296,7 +3295,7 @@ def executar(
         modo_nao_interativo=modo_nao_interativo
     )
 
-    print("\n[Etapa 4] Gravação de Resultados")
+    print("\n[Fase 4] Gravação de Resultados")
     ok_save = gravar_preservando_formatacao(caminho_ficheiro, sheet_alvo, df_proc)
     if ok_save:
         print("💾 Resultados gravados com sucesso no Excel!")
