@@ -3484,6 +3484,7 @@
     }
 
     function renderActiveJob() {
+        try {
         const container = document.getElementById('active-jobs-container');
         const logContainer = document.getElementById('realtime-log-container');
         if (!container) return;
@@ -4981,7 +4982,7 @@
        filterLogs();
 
        // Render Focused Job Logs in the sidebar
-       const focusedJob = allJobs.find(j => j.id === activeJobId);
+       // const focusedJob = allJobs.find(j => j.id === activeJobId);
        if (focusedJob && logContainer) {
            const lastJobId = logContainer.getAttribute('data-job-id');
            const lastUpdated = logContainer.getAttribute('data-updated-at');
@@ -5069,6 +5070,13 @@
        } else if (logContainer) {
           logContainer.innerHTML = 'Nenhum job em foco para visualização de logs.';
        }
+        } catch (error) {
+            console.error("Erro ao renderizar o Registo de Atividades:", error);
+            const container = document.getElementById("active-jobs-container");
+            if (container) {
+                container.innerHTML = "<div class=\'log-render-error\' style=\'color:var(--danger);padding:16px;font-style:italic;\'>Nao foi possivel apresentar os detalhes do log.</div>";
+            }
+        }
     }
 
     function filterLogs() {
