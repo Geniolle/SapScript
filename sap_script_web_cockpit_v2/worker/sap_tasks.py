@@ -235,14 +235,15 @@ def _run_sap_cockpit(params: dict[str, Any]) -> tuple[str, str]:
     result = cockpit.run_sap_cockpit(params)
 
     if isinstance(result, tuple) and len(result) == 2:
-        return str(result[0] or ""), str(result[1] or "")
+        return str(result[0] or ""), str(result[1] or ""), True
 
     if isinstance(result, dict):
         status = str(result.get("status") or result.get("STATUS") or "").strip()
         log = str(result.get("log") or result.get("log_text") or "")
-        return status, log
+        success = result.get("success", True)
+        return status, log, success
 
-    return str(result or ""), ""
+    return str(result or ""), "", True
 
 
 def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
@@ -620,10 +621,9 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                 print(f"[DOC] Documentação funcional ignorada: subprocesso ainda não suportado ({_subprocesso_solicitado})")
             # ──────────────────────────────────────────────────────────────────────
 
-            _cockpit_ok = True
-            _cockpit_error = ""
+            success_val = True
             try:
-                status, log = _run_sap_cockpit(params)
+                status, log, success_val = _run_sap_cockpit(params)
             except JobCancelledException:
                 print("\n❌ Execução cancelada pelo utilizador. A abortar transações SAP...")
                 try:
@@ -657,7 +657,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                 streamer.close()
 
             log_lines.append(log)
-            return status or "Execucao concluida, mas STATUS veio vazio.", "\n".join(log_lines)
+            return status or "Execucao concluida, mas STATUS veio vazio.", "\n".join(log_lines), success_val
 
 
         raise SapExecutionError(f"Rotina desconhecida: {task}")

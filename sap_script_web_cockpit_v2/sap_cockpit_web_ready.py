@@ -224,8 +224,7 @@ def _log_env_status(env_path: str):
                 if chave.startswith("SAP_") or chave == "SAPLOGON_PATH":
                     chave_upper = chave.upper()
                     if any(kw in chave_upper for kw in _SENSITIVE_KEYWORDS):
-                        masked = mask_password_last_two(valor)
-                        sap_vars.append(f"{chave} = CONFIGURADA | len={len(valor)} | masked={masked}")
+                        sap_vars.append(f"{chave} = CONFIGURADA")
                     else:
                         sap_vars.append(f"{chave} = {valor}")
     except Exception as e:
@@ -895,20 +894,53 @@ def _build_exec_kwargs(
         if info_exec["p_pedir_confirmacao"]:
             kwargs[info_exec["p_pedir_confirmacao"].name] = False
 
+    # Identificar dinamicamente o primeiro parâmetro posicional real da função
+    # (é passado como argumento posicional `ambiente_cockpit` em exec_fn(ambiente_cockpit, **kwargs))
+    # Nunca deve ser copiado do payload para kwargs, independentemente do nome que tenha.
+    primeiro_param_posicional = next(
+        (
+            p.name
+            for p in info_exec["params"]
+            if p.name != "self"
+            and p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ),
+        None,
+    )
+
+    # Conjunto base de nomes a saltar + alias conhecidos + parâmetro detetado
+    skip_names = {
+        "self",
+        "session",
+        "ambiente",
+        "ambiente_cockpit",
+        "environment",
+        "env",
+    }
+    if primeiro_param_posicional:
+        skip_names.add(primeiro_param_posicional)
+
     # Passa parâmetros custom do payload que coincidam com o nome de parâmetros da função
-    # (exclui os já preenchidos e o parâmetro posicional ambiente_cockpit)
-    SKIP_NAMES = {"self", "ambiente_cockpit", "session"}
+    # (exclui o primeiro parâmetro posicional e os já preenchidos)
     if payload:
         for p in info_exec["params"]:
             if (
                 p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-                or p.name in SKIP_NAMES
+                or p.name in skip_names
                 or p.name in kwargs
             ):
                 continue
             raw = payload.get(p.name)
             if raw is not None and str(raw).strip():
                 kwargs[p.name] = raw
+
+    info(
+        f"Subprocesso: {processo_escolhido} | "
+        f"Parâmetro posicional: {primeiro_param_posicional or 'não detetado'} | "
+        f"kwargs: {sorted(kwargs.keys())}"
+    )
 
     return kwargs
 
@@ -965,6 +997,10 @@ def _executar_um_script(
     # DOC_DEBUG_END
 
     modulo = _load_process_module(caminho_script)
+
+    info(f"Subprocesso carregado de: {os.path.abspath(getattr(modulo, '__file__', caminho_script))}")
+    info(f"Assinatura executar carregada: {inspect.signature(modulo.executar)}")
+    info(f"Opção de processamento recebida: {payload.get('opcao_processamento', 'não informada') if payload else 'não informada'}")
 
     if not hasattr(modulo, "executar"):
         raise SapCockpitError(f"O ficheiro '{processo_escolhido}' nao contem a funcao executar().")
@@ -1040,11 +1076,27 @@ def _executar_um_script(
     start_time = time.time()
     # DOC_DEBUG_END
 
+    # Validação de guarda: o parâmetro posicional principal nunca pode estar em kwargs
+    _param_pos = next(
+        (
+            p.name
+            for p in inspect.signature(exec_fn).parameters.values()
+            if p.name != "self"
+            and p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ),
+        None,
+    )
+    if _param_pos and _param_pos in kwargs:
+        raise SapCockpitError(
+            f"Parâmetro posicional duplicado antes da execução: '{_param_pos}'."
+        )
+
+    resultado_execucao = None
     try:
-        try:
-            exec_fn(ambiente_cockpit, **kwargs)
-        except TypeError:
-            exec_fn(ambiente_cockpit)
+        resultado_execucao = exec_fn(ambiente_cockpit, **kwargs)
     finally:
         # DOC_DEBUG_START
         if debug_enabled:
@@ -1116,7 +1168,15 @@ def _executar_um_script(
                 print(f"Modified: {datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')}")
         # DOC_DEBUG_END
 
-    return read_sbar_status(session)
+    if isinstance(resultado_execucao, dict):
+        return resultado_execucao
+    elif resultado_execucao is False:
+        return {"status": "ERRO", "success": False}
+    elif resultado_execucao is True:
+        return {"status": "CONCLUIDO", "success": True}
+
+    status_sbar = read_sbar_status(session) if session is not None else ""
+    return {"status": status_sbar or "CONCLUIDO", "success": True}
 
 
 def executar_processo(
@@ -1627,7 +1687,7 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
             session, _connection = obter_sessao_sap(ambiente_cockpit, interactive=False)
         log_lines.append(f"Processo: {caminho_processo}")
 
-        status = executar_processo(
+        result_dict = executar_processo(
             ambiente_cockpit,
             caminho_pasta=caminho_processo,
             sistema_desejado=sistema_desejado,
@@ -1636,8 +1696,22 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
             interactive=False,
         )
 
+        status = ""
+        if isinstance(result_dict, dict):
+            status = result_dict.get("status") or ""
+        else:
+            status = result_dict or ""
+
         status = status or (read_sbar_status(session) if session is not None else "")
         log_lines.append(f"STATUS: {status}")
+
+        if isinstance(result_dict, dict):
+            return {
+                "status": status,
+                "log": "\n".join(log_lines),
+                "success": result_dict.get("success", True),
+                "summary": result_dict.get("summary")
+            }
 
         return {
             "status": status,

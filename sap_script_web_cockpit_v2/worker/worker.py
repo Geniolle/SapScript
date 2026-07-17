@@ -92,9 +92,24 @@ def process_job(job: dict[str, Any]) -> None:
     log = ""
     state = "failed"
     try:
-        status, log = run_sap_task(job)
+        run_res = run_sap_task(job)
+        if isinstance(run_res, tuple) and len(run_res) == 3:
+            status, log, success_val = run_res
+        else:
+            status, log = run_res
+            # Fallback seguro não-textual de substring genérica
+            # Analisa apenas início das linhas para erros reais
+            success_val = True
+            for line in log.splitlines():
+                line_clean = line.strip()
+                if line_clean.startswith(("[ERROR]", "[ERRO]", "❌", "Traceback (most recent call last):")):
+                    success_val = False
+                    break
+
         has_warnings = "[DOC_WARN]" in log or "[TECHNICAL WARN]" in log or "warning" in status.lower()
-        if has_warnings:
+        if not success_val:
+            state = "failed"
+        elif has_warnings:
             state = "succeeded_with_warnings"
         else:
             state = "succeeded"

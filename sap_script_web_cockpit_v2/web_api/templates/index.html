@@ -1266,6 +1266,7 @@
             </div>
           </div>
         </div>
+        <a class="nav-item" id="nav-item-autorizacoes" onclick="switchView('autorizacoes')">Autorizações</a>
         <a class="nav-item" onclick="switchView('visao-geral')">Requests</a>
         <a class="nav-item" onclick="switchView('visao-geral')">Ficheiros</a>
         <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
@@ -2342,6 +2343,349 @@
             </div>
           </div>
 
+        </div>
+      </div>
+
+      <!-- Autorizações View -->
+      <style>
+        .auth-chat-shell {
+          max-width: 820px;
+          width: 100%;
+          margin: 24px;
+          background: var(--card-bg, #ffffff);
+          border: 1px solid var(--border-color);
+          border-radius: 16px;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+          align-self: flex-start;
+          overflow: hidden;
+          font-family: inherit;
+        }
+        .auth-chat-header {
+          padding: 16px 24px;
+          border-bottom: 1px solid var(--border-color);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: rgba(0, 0, 0, 0.01);
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        .auth-chat-header-left {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .auth-chat-header-icon {
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          font-size: 20px;
+          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+        .auth-chat-header-titles h3 {
+          margin: 0;
+          font-size: 1rem;
+          font-weight: 800;
+          color: var(--text-primary);
+        }
+        .auth-chat-header-titles p {
+          margin: 2px 0 0 0;
+          font-size: 0.78rem;
+          color: var(--text-secondary);
+        }
+        .auth-chat-status {
+          font-size: 11px;
+          font-weight: 700;
+          padding: 6px 12px;
+          border-radius: 20px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: rgba(0, 0, 0, 0.03);
+          color: var(--text-secondary);
+          transition: all 0.25s ease;
+        }
+        .auth-chat-status.connected {
+          color: #10b981;
+          background: rgba(16, 185, 129, 0.1);
+        }
+        .auth-chat-status.connecting {
+          color: #f59e0b;
+          background: rgba(245, 158, 11, 0.1);
+        }
+        .auth-chat-status.error {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+        .auth-chat-status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: currentColor;
+        }
+        .auth-chat-messages {
+          padding: 24px;
+          flex: 1;
+          min-height: 380px;
+          max-height: 480px;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          background: rgba(0, 0, 0, 0.005);
+        }
+        .auth-chat-bubble {
+          max-width: 80%;
+          padding: 12px 16px;
+          border-radius: 12px;
+          font-size: 0.85rem;
+          line-height: 1.5;
+          animation: authChatSlideIn 0.25s ease-out;
+        }
+        .auth-chat-bubble-assistant {
+          align-self: flex-start;
+          background: var(--card-bg, #ffffff);
+          border: 1px solid var(--border-color);
+          color: var(--text-primary);
+          border-top-left-radius: 2px;
+          display: flex;
+          gap: 10px;
+        }
+        .auth-chat-bubble-assistant-icon {
+          font-size: 14px;
+          margin-top: 2px;
+          color: #3b82f6;
+        }
+        .auth-chat-bubble-user {
+          align-self: flex-end;
+          background: linear-gradient(135deg, #2563eb, #1d4ed8);
+          color: white;
+          border-top-right-radius: 2px;
+          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+        }
+        .auth-chat-typing {
+          align-self: flex-start;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 12px 18px;
+          background: var(--card-bg, #ffffff);
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          border-top-left-radius: 2px;
+        }
+        .auth-chat-typing-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--text-secondary);
+          opacity: 0.4;
+          animation: authChatBounce 1.4s infinite both;
+        }
+        .auth-chat-typing-dot:nth-child(2) { animation-delay: .2s; }
+        .auth-chat-typing-dot:nth-child(3) { animation-delay: .4s; }
+        
+        .auth-chat-system-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 12px;
+          margin-top: 10px;
+          width: 100%;
+        }
+        .auth-chat-system-card {
+          border: 1px solid var(--border-color);
+          border-radius: 10px;
+          padding: 12px 14px;
+          background: var(--card-bg, #ffffff);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          text-align: left;
+        }
+        .auth-chat-system-card:hover {
+          border-color: #3b82f6;
+          background: rgba(59, 130, 246, 0.02);
+          transform: translateY(-1px);
+        }
+        .auth-chat-system-card.selected {
+          border-color: #2563eb;
+          background: rgba(37, 99, 235, 0.05);
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+        .auth-chat-system-card:focus-visible {
+          outline: 2px solid #2563eb;
+          outline-offset: 2px;
+        }
+        .auth-chat-system-card .sys-code {
+          font-weight: 800;
+          font-size: 0.9rem;
+          color: var(--text-primary);
+        }
+        .auth-chat-system-card .sys-client {
+          font-size: 0.72rem;
+          color: var(--text-secondary);
+          font-weight: 600;
+        }
+        .auth-chat-system-card .sys-conn {
+          font-size: 0.72rem;
+          color: var(--text-secondary);
+          opacity: 0.8;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        
+        .auth-chat-summary {
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          background: rgba(0, 0, 0, 0.01);
+          padding: 16px;
+          margin-top: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .auth-chat-summary-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.8rem;
+          border-bottom: 1px dashed var(--border-color);
+          padding-bottom: 6px;
+        }
+        .auth-chat-summary-row:last-child {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+        .auth-chat-summary-label {
+          color: var(--text-secondary);
+          font-weight: 600;
+        }
+        .auth-chat-summary-value {
+          color: var(--text-primary);
+          font-weight: 700;
+        }
+        .auth-chat-summary-actions {
+          display: flex;
+          gap: 10px;
+          margin-top: 10px;
+        }
+        
+        .auth-chat-composer {
+          padding: 16px 24px;
+          border-top: 1px solid var(--border-color);
+          background: rgba(0, 0, 0, 0.01);
+        }
+        .auth-chat-composer-form {
+          display: flex;
+          gap: 12px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .auth-chat-composer-input {
+          flex: 1;
+          padding: 12px 16px;
+          border: 1px solid var(--border-color);
+          border-radius: 10px;
+          font-size: 0.85rem;
+          color: var(--text-primary);
+          background: var(--card-bg, #ffffff);
+          outline: none;
+          transition: all 0.2s ease;
+        }
+        .auth-chat-composer-input:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+        }
+        .auth-chat-composer-send {
+          padding: 0 20px;
+          border: none;
+          border-radius: 10px;
+          background: linear-gradient(135deg, #2563eb, #1d4ed8);
+          color: white;
+          font-size: 0.82rem;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+        }
+        .auth-chat-composer-send:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+        .auth-chat-composer-send:disabled {
+          background: #cbd5e1;
+          color: #94a3b8;
+          cursor: not-allowed;
+          box-shadow: none;
+          transform: none;
+        }
+        
+        @keyframes authChatSlideIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes authChatBounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
+        }
+      </style>
+
+      <div id="view-autorizacoes" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
+        <div class="auth-chat-shell">
+          <div class="auth-chat-header">
+            <div class="auth-chat-header-left">
+              <div class="auth-chat-header-icon">🛡️</div>
+              <div class="auth-chat-header-titles">
+                <h3>Assistente de Autorizações SAP</h3>
+                <p>Análise inteligente de utilizadores, perfis e acessos SAP.</p>
+              </div>
+            </div>
+            <div id="auth-chat-status" class="auth-chat-status connecting">
+              <span class="auth-chat-status-dot"></span>
+              <span id="auth-chat-status-text">A carregar...</span>
+            </div>
+          </div>
+          
+          <div id="authorization-chat-messages" class="auth-chat-messages" aria-live="polite">
+            <!-- As bubbles de conversa serão injetadas dinamicamente aqui -->
+          </div>
+          
+          <div class="auth-chat-composer">
+            <form id="authorization-chat-form" class="auth-chat-composer-form">
+              <input 
+                type="text" 
+                id="authorization-chat-input" 
+                class="auth-chat-composer-input" 
+                placeholder="Escreva o utilizador SAP..." 
+                autocomplete="off" 
+                spellcheck="false" 
+                maxlength="40"
+                aria-label="Introduza o utilizador SAP para analisar"
+              >
+              <button 
+                type="submit" 
+                id="authorization-chat-send" 
+                class="auth-chat-composer-send" 
+                disabled
+              >
+                Enviar
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 
@@ -6215,6 +6559,12 @@
         deleteJob(jobId);
     }
 
+    function hideView(element) {
+        if (element) {
+            element.style.display = 'none';
+        }
+    }
+
     function switchView(viewName) {
         // 1. Remove active class from all nav items
         document.querySelectorAll('.nav-menu .nav-item').forEach(item => {
@@ -6225,22 +6575,57 @@
         const visaoGeralView = document.getElementById('view-visao-geral');
         const jiraView = document.getElementById('view-jira');
         const historicoView = document.getElementById('view-historico');
+        const autorizacoesView = document.getElementById('view-autorizacoes');
+        const definicoesView = document.getElementById('view-definicoes');
         const headerTitle = document.querySelector('.top-header .header-titles h2');
         const headerSub = document.querySelector('.top-header .header-titles p');
         const jiraSyncWrapper = document.getElementById('jira-sync-wrapper');
         const refreshBtn = document.getElementById('refresh-button');
         const newJobBtn = document.getElementById('new-job-btn');
 
+        hideView(visaoGeralView);
+        hideView(jiraView);
+        hideView(historicoView);
+        hideView(autorizacoesView);
+        hideView(definicoesView);
+
         if (viewName === 'visao-geral') {
             document.getElementById('nav-item-visao-geral').classList.add('active');
-            visaoGeralView.style.display = 'flex';
-            jiraView.style.display = 'none';
-            if (historicoView) historicoView.style.display = 'none';
+            if (visaoGeralView) visaoGeralView.style.display = 'flex';
             if (headerTitle) headerTitle.textContent = 'Cockpit SAP Script';
             if (headerSub) headerSub.textContent = 'Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.';
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
             if (refreshBtn) refreshBtn.style.display = 'inline-flex';
             if (newJobBtn) newJobBtn.style.display = 'inline-flex';
+        } else if (viewName === 'autorizacoes') {
+            const navItem = document.getElementById('nav-item-autorizacoes');
+            if (navItem) {
+                navItem.classList.add('active');
+            }
+            if (autorizacoesView) {
+                autorizacoesView.style.display = 'flex';
+            }
+            if (headerTitle) {
+                headerTitle.textContent = 'Autorizações';
+            }
+            if (headerSub) {
+                headerSub.textContent = 'Validação de permissões e acessos dos utilizadores SAP.';
+            }
+            if (jiraSyncWrapper) {
+                jiraSyncWrapper.style.display = 'none';
+            }
+            if (refreshBtn) {
+                refreshBtn.style.display = 'none';
+            }
+            if (newJobBtn) {
+                newJobBtn.style.display = 'none';
+            }
+            window.requestAnimationFrame(() => {
+                document.getElementById('auth-user-sap')?.focus();
+            });
+            if (typeof loadAuthorizationContext === 'function') {
+                loadAuthorizationContext();
+            }
         } else if (viewName === 'jira') {
             document.getElementById('nav-item-jira').classList.add('active');
             // Ensure JIRA dropdown is open when navigating to this view
@@ -9411,5 +9796,440 @@
     </div>
   </div>
 
+  <!-- ══ Script da View de Autorizações ══ -->
+  <script>
+    const AUTH_CHAT_STATES = {
+      LOADING: 'loading',
+      WAITING_USER: 'waiting_user',
+      WAITING_SYSTEM: 'waiting_system',
+      READY: 'ready',
+      VALIDATING: 'validating',
+      ERROR: 'error'
+    };
+
+    let authorizationChatState = AUTH_CHAT_STATES.LOADING;
+    let authorizationTargetUser = '';
+    let authorizationSelectedSystem = null;
+    let authorizationAvailableSystems = [];
+    let authorizationTechnicalUser = '';
+    let authChatFetchController = null;
+
+    function escapeAuthorizationText(text) {
+      if (!text) return '';
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function updateAuthorizationComposer() {
+      const input = document.getElementById('authorization-chat-input');
+      const btn = document.getElementById('authorization-chat-send');
+      if (!input || !btn) return;
+
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
+        input.disabled = false;
+        input.placeholder = "Escreva o utilizador SAP...";
+        btn.disabled = input.value.trim() === '';
+      } else {
+        input.disabled = true;
+        input.placeholder = "Aguardando próxima etapa...";
+        btn.disabled = true;
+      }
+    }
+
+    function showAuthorizationTypingIndicator() {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+      
+      // Remover indicador antigo se existir
+      hideAuthorizationTypingIndicator();
+
+      const typingDiv = document.createElement('div');
+      typingDiv.id = 'auth-chat-typing-indicator';
+      typingDiv.className = 'auth-chat-typing';
+      typingDiv.innerHTML = `
+        <span class="auth-chat-typing-dot"></span>
+        <span class="auth-chat-typing-dot"></span>
+        <span class="auth-chat-typing-dot"></span>
+      `;
+      container.appendChild(typingDiv);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function hideAuthorizationTypingIndicator() {
+      const el = document.getElementById('auth-chat-typing-indicator');
+      if (el) el.remove();
+    }
+
+    function appendAuthorizationMessage(sender, text, isHtml = false) {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      hideAuthorizationTypingIndicator();
+
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `auth-chat-bubble auth-chat-bubble-${sender}`;
+      
+      if (sender === 'assistant') {
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'auth-chat-bubble-assistant-icon';
+        iconSpan.textContent = '🛡️';
+        msgDiv.appendChild(iconSpan);
+
+        const contentSpan = document.createElement('span');
+        if (isHtml) {
+          contentSpan.innerHTML = text;
+        } else {
+          contentSpan.textContent = text;
+        }
+        msgDiv.appendChild(contentSpan);
+      } else {
+        if (isHtml) {
+          msgDiv.innerHTML = text;
+        } else {
+          msgDiv.textContent = text;
+        }
+      }
+
+      container.appendChild(msgDiv);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function resetAuthorizationChat() {
+      const container = document.getElementById('authorization-chat-messages');
+      const input = document.getElementById('authorization-chat-input');
+      if (container) container.innerHTML = '';
+      if (input) input.value = '';
+
+      authorizationTargetUser = '';
+      authorizationSelectedSystem = null;
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+      updateAuthorizationComposer();
+
+      showAuthorizationTypingIndicator();
+      setTimeout(() => {
+        appendAuthorizationMessage('assistant', 'Olá! Sou o Assistente de Autorizações SAP.');
+        showAuthorizationTypingIndicator();
+        setTimeout(() => {
+          appendAuthorizationMessage('assistant', 'Posso ajudar a analisar utilizadores, perfis, roles, transações e objetos de autorização.');
+          showAuthorizationTypingIndicator();
+          setTimeout(() => {
+            appendAuthorizationMessage('assistant', 'Qual utilizador SAP pretende analisar?');
+            updateAuthorizationComposer();
+            if (input) input.focus();
+          }, 400);
+        }, 400);
+      }, 300);
+    }
+
+    async function loadAuthorizationChat() {
+      // Abortar requisição anterior pendente
+      if (authChatFetchController) {
+        authChatFetchController.abort();
+      }
+      authChatFetchController = new AbortController();
+
+      authorizationChatState = AUTH_CHAT_STATES.LOADING;
+      updateAuthorizationComposer();
+
+      const statusDiv = document.getElementById('auth-chat-status');
+      const statusText = document.getElementById('auth-chat-status-text');
+      const container = document.getElementById('authorization-chat-messages');
+
+      if (statusDiv && statusText) {
+        statusDiv.className = "auth-chat-status connecting";
+        statusText.textContent = "A carregar...";
+      }
+      if (container) {
+        container.innerHTML = '';
+      }
+
+      showAuthorizationTypingIndicator();
+
+      try {
+        const response = await fetch('/api/authorizations/context', { signal: authChatFetchController.signal });
+        const data = await response.json();
+
+        if (statusDiv && statusText) {
+          if (data.env_found) {
+            statusDiv.className = "auth-chat-status connected";
+            authorizationTechnicalUser = (data.user_sap || "").trim();
+            statusText.textContent = `Sessão técnica: ${authorizationTechnicalUser || 'Indefinido'}`;
+          } else {
+            statusDiv.className = "auth-chat-status error";
+            statusText.textContent = "Erro .env";
+          }
+        }
+
+        if (!data.env_found) {
+          authorizationChatState = AUTH_CHAT_STATES.ERROR;
+          hideAuthorizationTypingIndicator();
+          appendAuthorizationMessage('assistant', `⚠️ Erro de Configuração: ${data.message || 'Ficheiro .env não encontrado no contentor.'}`);
+          appendRetryButton();
+          return;
+        }
+
+        authorizationAvailableSystems = data.systems || [];
+        
+        // Iniciar fluxo da conversa
+        resetAuthorizationChat();
+
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        authorizationChatState = AUTH_CHAT_STATES.ERROR;
+        if (statusDiv && statusText) {
+          statusDiv.className = "auth-chat-status error";
+          statusText.textContent = "Erro de Ligação";
+        }
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage('assistant', '⚠️ Erro ao comunicar com o servidor para obter as configurações.');
+        appendRetryButton();
+      }
+    }
+
+    function appendRetryButton() {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const btnDiv = document.createElement('div');
+      btnDiv.style.marginTop = '10px';
+      btnDiv.style.alignSelf = 'flex-start';
+
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-secondary';
+      btn.style.padding = '8px 16px';
+      btn.textContent = '🔄 Tentar novamente';
+      btn.onclick = loadAuthorizationChat;
+
+      btnDiv.appendChild(btn);
+      container.appendChild(btnDiv);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function handleAuthorizationChatSubmit(event) {
+      if (event) event.preventDefault();
+      
+      const input = document.getElementById('authorization-chat-input');
+      if (!input) return;
+
+      const rawVal = input.value.trim();
+      if (!rawVal) return;
+
+      // Validar caracteres do utilizador analisado (letras, números, ponto, hífen, underscore)
+      const sanitized = rawVal.toUpperCase().replace(/[^A-Z0-9\.\-_]/g, '');
+      if (!sanitized) {
+        input.value = '';
+        updateAuthorizationComposer();
+        return;
+      }
+
+      input.value = '';
+      updateAuthorizationComposer();
+
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
+        authorizationTargetUser = sanitized;
+        appendAuthorizationMessage('user', sanitized);
+
+        authorizationChatState = AUTH_CHAT_STATES.LOADING;
+        showAuthorizationTypingIndicator();
+
+        setTimeout(() => {
+          appendAuthorizationMessage('assistant', `Perfeito. O utilizador ${escapeAuthorizationText(authorizationTargetUser)} será analisado.`);
+          showAuthorizationTypingIndicator();
+          
+          setTimeout(() => {
+            appendAuthorizationMessage('assistant', 'Em qual sistema pretende realizar a validação?');
+            showAuthorizationSystemOptions();
+          }, 450);
+        }, 450);
+      }
+    }
+
+    function showAuthorizationSystemOptions() {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_SYSTEM;
+      updateAuthorizationComposer();
+
+      const grid = document.createElement('div');
+      grid.id = 'authorization-system-options';
+      grid.className = 'auth-chat-system-grid';
+
+      if (authorizationAvailableSystems.length === 0) {
+        const noSystems = document.createElement('div');
+        noSystems.style.color = '#ef4444';
+        noSystems.style.fontWeight = '600';
+        noSystems.textContent = 'Nenhum sistema SAP foi encontrado no .env.';
+        container.appendChild(noSystems);
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+
+      authorizationAvailableSystems.forEach(sys => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'auth-chat-system-card';
+        card.setAttribute('aria-pressed', 'false');
+        card.setAttribute('data-key', sys.key);
+
+        const codeSpan = document.createElement('span');
+        codeSpan.className = 'sys-code';
+        codeSpan.textContent = sys.system;
+
+        const clientSpan = document.createElement('span');
+        clientSpan.className = 'sys-client';
+        clientSpan.textContent = `Cliente ${sys.client}`;
+
+        card.appendChild(codeSpan);
+        card.appendChild(clientSpan);
+
+        if (sys.connection_name) {
+          const connSpan = document.createElement('span');
+          connSpan.className = 'sys-conn';
+          connSpan.textContent = sys.connection_name;
+          card.appendChild(connSpan);
+        }
+
+        card.onclick = () => selectAuthorizationSystem(sys.key);
+        card.onkeydown = (e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            selectAuthorizationSystem(sys.key);
+          }
+        };
+
+        grid.appendChild(card);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function selectAuthorizationSystem(sysKey) {
+      if (authorizationChatState !== AUTH_CHAT_STATES.WAITING_SYSTEM) return;
+
+      const sysInfo = authorizationAvailableSystems.find(s => s.key === sysKey);
+      if (!sysInfo) return;
+
+      authorizationSelectedSystem = sysInfo;
+      
+      // Destacar visualmente no grid
+      const cards = document.querySelectorAll('.auth-chat-system-card');
+      cards.forEach(card => {
+        if (card.getAttribute('data-key') === sysKey) {
+          card.classList.add('selected');
+          card.setAttribute('aria-pressed', 'true');
+        } else {
+          card.classList.remove('selected');
+          card.setAttribute('aria-pressed', 'false');
+        }
+      });
+
+      // Animação de transição para o resumo
+      authorizationChatState = AUTH_CHAT_STATES.LOADING;
+      showAuthorizationTypingIndicator();
+
+      setTimeout(() => {
+        appendAuthorizationMessage('assistant', 'Tudo pronto. Confirme os dados da análise.');
+        showAuthorizationSummary();
+      }, 500);
+    }
+
+    function showAuthorizationSummary() {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.READY;
+      updateAuthorizationComposer();
+
+      const summaryDiv = document.createElement('div');
+      summaryDiv.className = 'auth-chat-summary';
+
+      const fields = [
+        { label: 'Utilizador analisado', val: authorizationTargetUser },
+        { label: 'Sistema', val: authorizationSelectedSystem.system },
+        { label: 'Cliente', val: authorizationSelectedSystem.client },
+        { label: 'Ligação', val: authorizationSelectedSystem.connection_name || 'Sem nome' },
+        { label: 'Utilizador técnico', val: authorizationTechnicalUser || 'N/D' }
+      ];
+
+      fields.forEach(f => {
+        const row = document.createElement('div');
+        row.className = 'auth-chat-summary-row';
+
+        const lSpan = document.createElement('span');
+        lSpan.className = 'auth-chat-summary-label';
+        lSpan.textContent = f.label;
+
+        const vSpan = document.createElement('span');
+        vSpan.className = 'auth-chat-summary-value';
+        vSpan.textContent = f.val;
+
+        row.appendChild(lSpan);
+        row.appendChild(vSpan);
+        summaryDiv.appendChild(row);
+      });
+
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = 'auth-chat-summary-actions';
+
+      const btnChange = document.createElement('button');
+      btnChange.type = 'button';
+      btnChange.className = 'btn btn-secondary';
+      btnChange.style.padding = '8px 16px';
+      btnChange.style.fontSize = '0.8rem';
+      btnChange.textContent = 'Alterar dados';
+      btnChange.onclick = resetAuthorizationChat;
+
+      const btnStart = document.createElement('button');
+      btnStart.type = 'button';
+      btnStart.className = 'btn btn-primary';
+      btnStart.style.padding = '8px 20px';
+      btnStart.style.fontSize = '0.8rem';
+      btnStart.textContent = 'Iniciar análise';
+      btnStart.onclick = () => {
+        authorizationChatState = AUTH_CHAT_STATES.VALIDATING;
+        showAuthorizationTypingIndicator();
+        setTimeout(() => {
+          hideAuthorizationTypingIndicator();
+          appendAuthorizationMessage('assistant', 'A validação SAP será implementada na próxima etapa.');
+        }, 550);
+      };
+
+      actionsDiv.appendChild(btnChange);
+      actionsDiv.appendChild(btnStart);
+      summaryDiv.appendChild(actionsDiv);
+
+      container.appendChild(summaryDiv);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('authorization-chat-form');
+      const input = document.getElementById('authorization-chat-input');
+
+      if (input) {
+        input.addEventListener('input', () => {
+          // Normalizar e filtrar caracteres
+          const pos = input.selectionStart;
+          input.value = input.value.toUpperCase().replace(/[^A-Z0-9\.\-_]/g, '');
+          if (pos !== null) {
+            input.setSelectionRange(pos, pos);
+          }
+          updateAuthorizationComposer();
+        });
+      }
+
+      if (form) {
+        form.addEventListener('submit', handleAuthorizationChatSubmit);
+      }
+    });
+  </script>
 </body>
 </html>

@@ -835,6 +835,147 @@ async def api_get_ticket_details(ticket_key: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Autorizações SAP endpoints
+# ---------------------------------------------------------------------------
+
+def _find_authorization_env_file() -> Path | None:
+    """Localiza o ficheiro .env na ordem de prioridade definida."""
+    candidates: list[Path] = []
+
+    explicit_path = os.getenv("SAP_AUTH_ENV_FILE", "").strip()
+    if explicit_path:
+        candidates.append(Path(explicit_path))
+
+    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if project_dir:
+        candidates.append(Path(project_dir) / ".env")
+
+    candidates.append(Path("/sap-script/.env"))
+    candidates.append(Path.cwd() / ".env")
+
+    current_file = Path(__file__).resolve()
+    for parent in current_file.parents:
+        candidates.append(parent / ".env")
+
+    checked: set[str] = set()
+
+    for candidate in candidates:
+        try:
+            normalized = str(candidate.resolve())
+        except Exception:
+            normalized = str(candidate)
+
+        if normalized in checked:
+            continue
+
+        checked.add(normalized)
+
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+
+    return None
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Lê e parseia o .env de forma segura e em tempo de execução."""
+    resultado = {}
+    try:
+        with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            for line in f:
+                line_str = line.strip()
+                if not line_str or line_str.startswith("#"):
+                    continue
+                if "=" not in line_str:
+                    continue
+                parts = line_str.split("=", 1)
+                key = parts[0].strip()
+                val = parts[1].strip()
+                
+                # Remover aspas simples ou duplas se existirem
+                if len(val) >= 2 and ((val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'"))):
+                    val = val[1:-1]
+                resultado[key] = val
+    except Exception:
+        pass
+    return resultado
+
+@app.get("/api/authorizations/context")
+def api_get_authorizations_context() -> dict[str, Any]:
+    """Retorna o contexto de autorizações atualizado relendo o .env do disco."""
+    import re
+    
+    env_path = _find_authorization_env_file()
+    
+    # Logs de diagnóstico seguros
+    has_explicit = "sim" if os.getenv("SAP_AUTH_ENV_FILE") else "não"
+    print(f"[AUTH CONFIG] SAP_AUTH_ENV_FILE configurado: {has_explicit}")
+    print(f"[AUTH CONFIG] Caminho pesquisado: {env_path or '/sap-script/.env'}")
+    print(f"[AUTH CONFIG] Ficheiro encontrado: {'sim' if env_path else 'não'}")
+
+    if not env_path:
+        return {
+            "user_sap": "",
+            "systems": [],
+            "env_found": False,
+            "message": "Ficheiro .env não encontrado no contentor.",
+            "diagnostic": {
+                "configured_path": os.getenv("SAP_AUTH_ENV_FILE", "/sap-script/.env"),
+                "project_directory_configured": bool(os.getenv("SAP_SCRIPT_PROJECT_DIR"))
+            }
+        }
+        
+    env_data = _parse_env_file(env_path)
+    user_sap = env_data.get("SAP_USER", "").strip()
+    
+    systems = []
+    regex = re.compile(r"^(?P<system>[A-Z0-9_]+)CLNT(?P<client>[0-9]+)$")
+    
+    for key, val in env_data.items():
+        if key.startswith("SAP_PASSWORD_"):
+            sufixo = key[len("SAP_PASSWORD_"):]
+            match = regex.match(sufixo)
+            if match:
+                sys_name = match.group("system")
+                clnt_num = match.group("client")
+                
+                # Procurar connection_name opcional
+                conn_key = f"SAP_CONNECTION_{sufixo}"
+                conn_name = env_data.get(conn_key, "").strip()
+                
+                # Montar label premium
+                if conn_name:
+                    label = f"{sys_name} — Cliente {clnt_num} — {conn_name}"
+                else:
+                    label = f"{sys_name} — Cliente {clnt_num}"
+                    
+                systems.append({
+                    "key": sufixo,
+                    "system": sys_name,
+                    "client": clnt_num,
+                    "connection_name": conn_name,
+                    "label": label
+                })
+                
+    # Ordenar de forma previsível e remover duplicados
+    systems = sorted(systems, key=lambda x: x["key"])
+    
+    message = ""
+    if not user_sap:
+        message = "A variável SAP_USER não está configurada no .env."
+    elif not systems:
+        message = "Nenhum sistema SAP foi encontrado no .env."
+        
+    return {
+        "user_sap": user_sap,
+        "systems": systems,
+        "env_found": True,
+        "message": message
+    }
+
+
+# ---------------------------------------------------------------------------
 # Auto-Trigger SAP endpoints
 # ---------------------------------------------------------------------------
 
@@ -1517,8 +1658,25 @@ _KNOWN_JOB_FORM_FIELDS = {
     "task", "ambiente", "processo", "subprocesso",
     "request_option", "request_number", "request_desc",
     "request_type", "caminho_ficheiro", "transacao",
-    "nome_pasta",
+    "nome_pasta", "opcao_processamento",
 }
+
+def _validar_e_ajustar_params(params: dict[str, Any]) -> None:
+    sub = str(params.get("subprocesso") or "").strip()
+    is_cua_remove = sub == "J. CUA_REMOVE.py" or sub == "cua_remove" or "cua_remove" in sub.lower()
+    
+    if is_cua_remove:
+        opcao = params.get("opcao_processamento")
+        if not opcao or not str(opcao).strip():
+            params["opcao_processamento"] = "sistema_user"
+        elif params["opcao_processamento"] not in {"sistema_user", "sistema"}:
+            raise ValueError(
+                f"Opção de processamento inválida para CUA_REMOVE.\n"
+                f"Valores permitidos: sistema_user, sistema."
+            )
+    else:
+        # Se não for CUA_REMOVE, não incluir o parâmetro
+        params.pop("opcao_processamento", None)
 
 @app.post("/jobs")
 async def create_job_from_form(request: Request) -> dict[str, Any]:
@@ -1534,6 +1692,7 @@ async def create_job_from_form(request: Request) -> dict[str, Any]:
     caminho_ficheiro = str(form.get("caminho_ficheiro") or "").strip()
     transacao = str(form.get("transacao") or "").strip()
     nome_pasta = str(form.get("nome_pasta") or "").strip()
+    opcao_processamento = str(form.get("opcao_processamento") or "").strip()
 
     params = {
         "ambiente": ambiente,
@@ -1546,11 +1705,17 @@ async def create_job_from_form(request: Request) -> dict[str, Any]:
         "caminho_ficheiro": caminho_ficheiro,
         "transacao": transacao,
         "nome_pasta": nome_pasta,
+        "opcao_processamento": opcao_processamento,
     }
 
     for key, value in form.multi_items():
         if key not in _KNOWN_JOB_FORM_FIELDS:
             params[key] = str(value).strip()
+
+    try:
+        _validar_e_ajustar_params(params)
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err)) from val_err
 
     return create_job(task=task, params=params)
 
@@ -1723,7 +1888,11 @@ class CreateJobRequest(BaseModel):
 @app.post("/api/jobs")
 def api_create_job(payload: CreateJobRequest) -> dict[str, Any]:
     try:
-        return create_job(task=payload.task, params=payload.params or {})
+        params = payload.params or {}
+        _validar_e_ajustar_params(params)
+        return create_job(task=payload.task, params=params)
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err)) from val_err
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
