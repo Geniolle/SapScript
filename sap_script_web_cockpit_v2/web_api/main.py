@@ -35,6 +35,7 @@ from pydantic import BaseModel
 
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo, get_job_state
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
+from web_api.authorization_agent import get_analysis_types
 import asyncio
 
 def update_worker_ping_for_job(job_id: str) -> None:
@@ -970,9 +971,85 @@ def api_get_authorizations_context() -> dict[str, Any]:
     return {
         "user_sap": user_sap,
         "systems": systems,
+        "analysis_types": get_analysis_types(),
         "env_found": True,
         "message": message
     }
+
+
+class AuthorizationStartRequest(BaseModel):
+    target_user: str
+    target_system_key: str
+    analysis_type: str
+
+
+def is_any_worker_active() -> bool:
+    import time
+    now = time.time()
+    with worker_last_seen_lock:
+        for w_name, last_seen in worker_last_seen.items():
+            if now - last_seen <= WORKER_OFFLINE_AFTER_SECONDS:
+                return True
+    return False
+
+
+@app.post("/api/authorizations/start")
+async def api_start_authorization_analysis(payload: AuthorizationStartRequest) -> dict[str, Any]:
+    target_user = payload.target_user.strip().upper()
+    target_system_key = payload.target_system_key.strip().upper()
+    analysis_type = payload.analysis_type.strip().lower()
+
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Utilizador a analisar não foi informado.")
+    
+    if len(target_user) > 40:
+        raise HTTPException(status_code=400, detail="Utilizador a analisar excede o limite de 40 caracteres.")
+
+    if not target_system_key:
+        raise HTTPException(status_code=400, detail="Sistema alvo da análise não foi informado.")
+
+    # 1. Validar se o sistema existe no contexto do .env
+    env_path = _find_authorization_env_file()
+    if not env_path:
+        raise HTTPException(status_code=400, detail="Ficheiro .env não encontrado no contentor.")
+    
+    env_data = _parse_env_file(env_path)
+    if f"SAP_PASSWORD_{target_system_key}" not in env_data:
+        raise HTTPException(status_code=400, detail=f"Sistema alvo '{target_system_key}' não está configurado no .env.")
+
+    # 2. Validar tipo de análise
+    from web_api.authorization_agent import validate_analysis_selection
+    if not validate_analysis_selection(analysis_type) or analysis_type not in {"master_data", "authorizations"}:
+        raise HTTPException(status_code=400, detail="Tipo de análise inválido.")
+
+    # 3. Validar configuração do CUA
+    cua_sap_key = os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001").strip().upper()
+    if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env."
+        )
+
+    # 4. Validar se há pelo menos um worker disponível
+    if not is_any_worker_active():
+        raise HTTPException(status_code=400, detail="Nenhum worker ativo está disponível de momento.")
+
+    params = {
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "analysis_type": analysis_type,
+        "cua_sap_key": cua_sap_key
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "authorization_open_cua", params)
+        return {
+            "job_id": job["id"],
+            "state": job["state"],
+            "message": "Abertura da sessão SAP CUA iniciada."
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -1584,20 +1661,72 @@ def api_environments() -> dict[str, Any]:
         "environments": get_available_environments()
     }
 
-@app.get("/api/worker/status")
-async def api_worker_status(worker_name: str = None) -> dict[str, Any]:
+WORKER_REQUIRED_TASKS = {
+    "authorization_open_cua",
+    "sap_cockpit",
+    "sap_agent_analysis",
+    "sap_gui_chat_action",
+    "open_transaction",
+    "select_excel_file",
+    "ping_status",
+    "sap_search_requests",
+}
+
+
+def get_worker_runtime_status(worker_name: str | None = None) -> dict[str, Any]:
+    import time
     now = time.time()
+    is_online = False
+    last_seen_seconds = None
     with worker_last_seen_lock:
         if worker_name:
-            last_seen = worker_last_seen.get(worker_name, 0.0)
-            is_online = (now - last_seen) < WORKER_OFFLINE_AFTER_SECONDS
+            last_seen = worker_last_seen.get(worker_name)
+            if last_seen is not None:
+                last_seen_seconds = now - last_seen
+                is_online = last_seen_seconds < WORKER_OFFLINE_AFTER_SECONDS
         else:
-            is_online = False
-            for w_name, last_seen in worker_last_seen.items():
-                if (now - last_seen) < WORKER_OFFLINE_AFTER_SECONDS:
-                    is_online = True
-                    break
-    return {"status": "online" if is_online else "offline"}
+            if worker_last_seen:
+                most_recent = max(worker_last_seen.values())
+                last_seen_seconds = now - most_recent
+                is_online = last_seen_seconds < WORKER_OFFLINE_AFTER_SECONDS
+
+    if is_online:
+        return {
+            "online": True,
+            "state": "online",
+            "message": "Worker online.",
+            "last_seen_seconds": round(last_seen_seconds, 1) if last_seen_seconds is not None else None
+        }
+    else:
+        return {
+            "online": False,
+            "state": "offline",
+            "message": "O Worker Windows está desligado.",
+            "last_seen_seconds": round(last_seen_seconds, 1) if last_seen_seconds is not None else None
+        }
+
+
+def require_worker_online(task: str | None = None, message: str | None = None):
+    if task and task not in WORKER_REQUIRED_TASKS:
+        return
+    status = get_worker_runtime_status()
+    if not status["online"]:
+        msg = message or "O Worker Windows está desligado. Ligue o worker antes de iniciar a ação."
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "worker_offline",
+                "message": msg,
+            },
+        )
+
+
+@app.get("/api/worker/status")
+async def api_worker_status(worker_name: str = None) -> dict[str, Any]:
+    status_info = get_worker_runtime_status(worker_name)
+    # Add backward compatibility "status" key
+    status_info["status"] = status_info["state"]
+    return status_info
 
 
 @app.get("/api/processes")

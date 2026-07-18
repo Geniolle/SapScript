@@ -397,6 +397,63 @@ SUPPORTED_FUNCTIONAL_DOC_PROCESSES: frozenset[str] = frozenset({
 })
 
 
+def _run_authorization_open_cua(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    target_user = str(params.get("target_user") or "").strip().upper()
+    target_system_key = str(params.get("target_system_key") or "").strip().upper()
+    analysis_type = str(params.get("analysis_type") or "").strip().lower()
+    cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+
+    if not target_user:
+        raise SapExecutionError("Utilizador a analisar não foi informado.")
+
+    if not target_system_key:
+        raise SapExecutionError("Sistema alvo da análise não foi informado.")
+
+    if analysis_type not in {"master_data", "authorizations"}:
+        raise SapExecutionError("Tipo de análise inválido.")
+
+    try:
+        from sap_session import ensure_sap_access_from_env, session_info
+
+        session = ensure_sap_access_from_env(key=cua_sap_key, timeout_s=40)
+        info = session_info(session)
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível abrir a sessão SAP CUA: {exc}") from exc
+
+    expected_system = "SPA"
+    expected_client = "001"
+
+    if str(info.get("system_name") or "").strip().upper() != expected_system:
+        raise SapExecutionError("A sessão aberta não corresponde ao sistema CUA esperado.")
+
+    if str(info.get("client") or "").strip() != expected_client:
+        raise SapExecutionError("A sessão aberta não corresponde ao cliente CUA esperado.")
+
+    result = {
+        "success": True,
+        "execution_environment": "CUA",
+        "system_name": info.get("system_name", ""),
+        "client": info.get("client", ""),
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "analysis_type": analysis_type,
+    }
+
+    status = json.dumps(result, ensure_ascii=False)
+    log = (
+        "Sessão SAP CUA aberta ou reutilizada com sucesso.\n"
+        f"Utilizador analisado: {target_user}\n"
+        f"Sistema alvo: {target_system_key}\n"
+        f"Tipo de análise: {analysis_type}\n"
+        f"Sistema técnico: {info.get('system_name', '')}\n"
+        f"Cliente técnico: {info.get('client', '')}"
+    )
+
+    return status, log
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
     module_name = os.getenv("SAP_COCKPIT_MODULE", "sap_script_web_cockpit_v2.sap_cockpit_web_ready").strip()
@@ -418,8 +475,12 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     task = job["task"]
     params = job.get("params", {}) or {}
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
-
     try:
+        if task == "authorization_open_cua":
+            status, log = _run_authorization_open_cua(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
         if task == "sap_agent_analysis":
             status, log = _run_sap_agent_analysis(params)
             log_lines.append(log)

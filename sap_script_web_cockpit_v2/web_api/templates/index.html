@@ -2543,6 +2543,50 @@
           overflow: hidden;
           text-overflow: ellipsis;
         }
+
+        .auth-chat-analysis-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 12px;
+          margin-top: 10px;
+          width: 100%;
+        }
+        .auth-chat-analysis-card {
+          border: 1px solid var(--border-color);
+          border-radius: 10px;
+          padding: 12px 14px;
+          background: var(--card-bg, #ffffff);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          text-align: left;
+        }
+        .auth-chat-analysis-card:hover {
+          border-color: #3b82f6;
+          background: rgba(59, 130, 246, 0.02);
+          transform: translateY(-1px);
+        }
+        .auth-chat-analysis-card.selected {
+          border-color: #2563eb;
+          background: rgba(37, 99, 235, 0.05);
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+        .auth-chat-analysis-card:focus-visible {
+          outline: 2px solid #2563eb;
+          outline-offset: 2px;
+        }
+        .auth-chat-analysis-card .analysis-title {
+          font-weight: 800;
+          font-size: 0.90rem;
+          color: var(--text-primary);
+        }
+        .auth-chat-analysis-card .analysis-desc {
+          font-size: 0.72rem;
+          color: var(--text-secondary);
+          line-height: 1.35;
+        }
         
         .auth-chat-summary {
           border: 1px solid var(--border-color);
@@ -2670,11 +2714,12 @@
                 type="text" 
                 id="authorization-chat-input" 
                 class="auth-chat-composer-input" 
-                placeholder="Escreva o utilizador SAP..." 
+                placeholder="A carregar configuração SAP..." 
                 autocomplete="off" 
                 spellcheck="false" 
                 maxlength="40"
                 aria-label="Introduza o utilizador SAP para analisar"
+                disabled
               >
               <button 
                 type="submit" 
@@ -6589,6 +6634,19 @@
         hideView(autorizacoesView);
         hideView(definicoesView);
 
+        if (viewName !== 'autorizacoes') {
+            if (typeof authorizationChatRequestId !== 'undefined') {
+                authorizationChatRequestId++;
+            }
+            if (typeof authorizationJobRequestId !== 'undefined') {
+                authorizationJobRequestId++;
+            }
+            if (typeof authChatFetchController !== 'undefined' && authChatFetchController) {
+                authChatFetchController.abort();
+                authChatFetchController = null;
+            }
+        }
+
         if (viewName === 'visao-geral') {
             document.getElementById('nav-item-visao-geral').classList.add('active');
             if (visaoGeralView) visaoGeralView.style.display = 'flex';
@@ -6620,11 +6678,8 @@
             if (newJobBtn) {
                 newJobBtn.style.display = 'none';
             }
-            window.requestAnimationFrame(() => {
-                document.getElementById('auth-user-sap')?.focus();
-            });
-            if (typeof loadAuthorizationContext === 'function') {
-                loadAuthorizationContext();
+            if (typeof loadAuthorizationChat === 'function') {
+                loadAuthorizationChat();
             }
         } else if (viewName === 'jira') {
             document.getElementById('nav-item-jira').classList.add('active');
@@ -9802,7 +9857,10 @@
       LOADING: 'loading',
       WAITING_USER: 'waiting_user',
       WAITING_SYSTEM: 'waiting_system',
+      WAITING_ANALYSIS_TYPE: 'waiting_analysis_type',
       READY: 'ready',
+      OPENING_SAP: 'opening_sap',
+      SAP_READY: 'sap_ready',
       VALIDATING: 'validating',
       ERROR: 'error'
     };
@@ -9813,6 +9871,39 @@
     let authorizationAvailableSystems = [];
     let authorizationTechnicalUser = '';
     let authChatFetchController = null;
+    let authorizationChatRequestId = 0;
+    let authorizationSelectedAnalysisType = null;
+    let authorizationAnalysisTypes = [];
+    let authorizationActiveJobId = null;
+    let authorizationJobRequestId = 0;
+
+    async function fetchAuthorizationContext(signal) {
+      const controller = new AbortController();
+      const onAbort = () => controller.abort();
+      if (signal) {
+        signal.addEventListener('abort', onAbort);
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        controller.abort();
+      }, 10000);
+
+      try {
+        return await fetch('/api/authorizations/context', {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json'
+          },
+          cache: 'no-store',
+          signal: controller.signal
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      }
+    }
 
     function escapeAuthorizationText(text) {
       if (!text) return '';
@@ -9826,18 +9917,38 @@
 
     function updateAuthorizationComposer() {
       const input = document.getElementById('authorization-chat-input');
-      const btn = document.getElementById('authorization-chat-send');
-      if (!input || !btn) return;
+      const button = document.getElementById('authorization-chat-send');
 
-      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
-        input.disabled = false;
-        input.placeholder = "Escreva o utilizador SAP...";
-        btn.disabled = input.value.trim() === '';
-      } else {
-        input.disabled = true;
-        input.placeholder = "Aguardando próxima etapa...";
-        btn.disabled = true;
+      if (!input || !button) {
+        return;
       }
+
+      const waitingForUser =
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_USER;
+
+      input.disabled = !waitingForUser;
+
+      if (authorizationChatState === AUTH_CHAT_STATES.LOADING) {
+        input.placeholder = 'A carregar configuração SAP...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
+        input.placeholder = 'Introduza o utilizador SAP...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_SYSTEM) {
+        input.placeholder = 'Selecione um sistema acima...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_ANALYSIS_TYPE) {
+        input.placeholder = 'Selecione o tipo de análise...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.OPENING_SAP) {
+        input.placeholder = 'A abrir sessão SAP CUA...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.SAP_READY) {
+        input.placeholder = 'Sessão SAP CUA pronta.';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.ERROR) {
+        input.placeholder = 'Configuração indisponível';
+      } else {
+        input.placeholder = 'Aguarde...';
+      }
+
+      button.disabled =
+        !waitingForUser ||
+        input.value.trim() === '';
     }
 
     function showAuthorizationTypingIndicator() {
@@ -9906,87 +10017,150 @@
 
       authorizationTargetUser = '';
       authorizationSelectedSystem = null;
-      authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
-      updateAuthorizationComposer();
+      authorizationSelectedAnalysisType = null;
+    }
+
+    function updateAuthorizationStatus(status, detailText = '') {
+      const statusDiv = document.getElementById('auth-chat-status');
+      const statusText = document.getElementById('auth-chat-status-text');
+      if (!statusDiv || !statusText) return;
+
+      if (status === 'loading') {
+        statusDiv.className = "auth-chat-status connecting";
+        statusText.textContent = "A carregar...";
+      } else if (status === 'ready') {
+        statusDiv.className = "auth-chat-status connected";
+        statusText.textContent = `Sessão técnica: ${authorizationTechnicalUser || 'Indefinido'}`;
+      } else if (status === 'error') {
+        statusDiv.className = "auth-chat-status error";
+        statusText.textContent = detailText || "Erro";
+      }
+    }
+
+    function renderAuthorizationLoadError(error) {
+      hideAuthorizationTypingIndicator();
+      const isTimeout = error && (error.name === 'AbortError' || error.message?.includes('aborted'));
+      const msg = isTimeout 
+        ? 'A configuração SAP demorou demasiado para responder.' 
+        : `⚠️ Erro: ${error?.message || 'Erro ao carregar a configuração.'}`;
+      appendAuthorizationMessage('assistant', msg);
+      appendRetryButton();
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function renderAuthorizationWelcomeMessages(requestId) {
+      const container = document.getElementById('authorization-chat-messages');
+      const input = document.getElementById('authorization-chat-input');
+      if (container) container.innerHTML = '';
+      if (input) input.value = '';
 
       showAuthorizationTypingIndicator();
-      setTimeout(() => {
-        appendAuthorizationMessage('assistant', 'Olá! Sou o Assistente de Autorizações SAP.');
-        showAuthorizationTypingIndicator();
-        setTimeout(() => {
-          appendAuthorizationMessage('assistant', 'Posso ajudar a analisar utilizadores, perfis, roles, transações e objetos de autorização.');
-          showAuthorizationTypingIndicator();
-          setTimeout(() => {
-            appendAuthorizationMessage('assistant', 'Qual utilizador SAP pretende analisar?');
-            updateAuthorizationComposer();
-            if (input) input.focus();
-          }, 400);
-        }, 400);
-      }, 300);
+      await delay(300);
+      if (requestId !== authorizationChatRequestId) return;
+
+      appendAuthorizationMessage('assistant', 'Olá! Sou o Assistente de Autorizações SAP.');
+      showAuthorizationTypingIndicator();
+      await delay(400);
+      if (requestId !== authorizationChatRequestId) return;
+
+      appendAuthorizationMessage('assistant', 'Posso ajudar a analisar utilizadores, perfis, roles, transações e objetos de autorização.');
+      showAuthorizationTypingIndicator();
+      await delay(400);
+      if (requestId !== authorizationChatRequestId) return;
+
+      appendAuthorizationMessage('assistant', 'Qual utilizador SAP pretende analisar?');
+      if (requestId !== authorizationChatRequestId) return;
+
+      hideAuthorizationTypingIndicator();
     }
 
     async function loadAuthorizationChat() {
-      // Abortar requisição anterior pendente
+      initializeAuthorizationChatEvents();
+      const currentRequestId = ++authorizationChatRequestId;
+
       if (authChatFetchController) {
         authChatFetchController.abort();
       }
       authChatFetchController = new AbortController();
 
+      resetAuthorizationChat();
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       updateAuthorizationComposer();
-
-      const statusDiv = document.getElementById('auth-chat-status');
-      const statusText = document.getElementById('auth-chat-status-text');
-      const container = document.getElementById('authorization-chat-messages');
-
-      if (statusDiv && statusText) {
-        statusDiv.className = "auth-chat-status connecting";
-        statusText.textContent = "A carregar...";
-      }
-      if (container) {
-        container.innerHTML = '';
-      }
-
-      showAuthorizationTypingIndicator();
+      updateAuthorizationStatus('loading');
 
       try {
-        const response = await fetch('/api/authorizations/context', { signal: authChatFetchController.signal });
-        const data = await response.json();
+        const response = await fetchAuthorizationContext(authChatFetchController.signal);
 
-        if (statusDiv && statusText) {
-          if (data.env_found) {
-            statusDiv.className = "auth-chat-status connected";
-            authorizationTechnicalUser = (data.user_sap || "").trim();
-            statusText.textContent = `Sessão técnica: ${authorizationTechnicalUser || 'Indefinido'}`;
-          } else {
-            statusDiv.className = "auth-chat-status error";
-            statusText.textContent = "Erro .env";
-          }
-        }
-
-        if (!data.env_found) {
-          authorizationChatState = AUTH_CHAT_STATES.ERROR;
-          hideAuthorizationTypingIndicator();
-          appendAuthorizationMessage('assistant', `⚠️ Erro de Configuração: ${data.message || 'Ficheiro .env não encontrado no contentor.'}`);
-          appendRetryButton();
+        if (currentRequestId !== authorizationChatRequestId) {
           return;
         }
 
-        authorizationAvailableSystems = data.systems || [];
-        
-        // Iniciar fluxo da conversa
-        resetAuthorizationChat();
-
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        authorizationChatState = AUTH_CHAT_STATES.ERROR;
-        if (statusDiv && statusText) {
-          statusDiv.className = "auth-chat-status error";
-          statusText.textContent = "Erro de Ligação";
+        if (!response.ok) {
+          throw new Error(`Erro HTTP ${response.status}`);
         }
-        hideAuthorizationTypingIndicator();
-        appendAuthorizationMessage('assistant', '⚠️ Erro ao comunicar com o servidor para obter as configurações.');
-        appendRetryButton();
+
+        const data = await response.json();
+
+        if (currentRequestId !== authorizationChatRequestId) {
+          return;
+        }
+
+        authorizationTechnicalUser =
+          String(data.user_sap || '').trim().toUpperCase();
+
+        authorizationAvailableSystems =
+          Array.isArray(data.systems) ? data.systems : [];
+
+        authorizationAnalysisTypes =
+          Array.isArray(data.analysis_types) ? data.analysis_types : [];
+
+        if (!data.env_found) {
+          throw new Error(
+            data.message || 'Não foi possível carregar a configuração SAP.'
+          );
+        }
+
+        if (!authorizationTechnicalUser) {
+          throw new Error(
+            data.message || 'SAP_USER não está configurado.'
+          );
+        }
+
+        if (authorizationAvailableSystems.length === 0) {
+          throw new Error(
+            data.message || 'Nenhum sistema SAP foi configurado.'
+          );
+        }
+
+        updateAuthorizationStatus('ready');
+
+        await renderAuthorizationWelcomeMessages(currentRequestId);
+
+        if (currentRequestId !== authorizationChatRequestId) {
+          return;
+        }
+
+        authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+        updateAuthorizationComposer();
+
+        window.requestAnimationFrame(() => {
+          document.getElementById('authorization-chat-input')?.focus();
+        });
+      } catch (error) {
+        if (currentRequestId !== authorizationChatRequestId) {
+          return;
+        }
+
+        authorizationChatState = AUTH_CHAT_STATES.ERROR;
+        renderAuthorizationLoadError(error);
+        updateAuthorizationStatus('error', error?.name === 'AbortError' ? 'Timeout' : 'Erro');
+      } finally {
+        if (currentRequestId === authorizationChatRequestId && authorizationChatState !== AUTH_CHAT_STATES.WAITING_USER) {
+          updateAuthorizationComposer();
+        }
       }
     }
 
@@ -10130,6 +10304,92 @@
         }
       });
 
+      // Transição para a próxima etapa: perguntar o tipo de análise
+      authorizationChatState = AUTH_CHAT_STATES.LOADING;
+      showAuthorizationTypingIndicator();
+
+      setTimeout(() => {
+        appendAuthorizationMessage('assistant', 'Que tipo de análise pretende realizar?');
+        showAuthorizationAnalysisOptions();
+      }, 500);
+    }
+
+    function showAuthorizationAnalysisOptions() {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_ANALYSIS_TYPE;
+      updateAuthorizationComposer();
+
+      const grid = document.createElement('div');
+      grid.id = 'authorization-analysis-options';
+      grid.className = 'auth-chat-analysis-grid';
+
+      if (authorizationAnalysisTypes.length === 0) {
+        const noTypes = document.createElement('div');
+        noTypes.style.color = '#ef4444';
+        noTypes.style.fontWeight = '600';
+        noTypes.textContent = 'Nenhum tipo de análise configurado no backend.';
+        container.appendChild(noTypes);
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+
+      authorizationAnalysisTypes.forEach(t => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'auth-chat-analysis-card';
+        card.setAttribute('aria-pressed', 'false');
+        card.setAttribute('data-key', t.key);
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'analysis-title';
+        const emoji = t.key === 'master_data' ? '👤 ' : '🛡️ ';
+        titleSpan.textContent = emoji + t.label;
+
+        const descSpan = document.createElement('span');
+        descSpan.className = 'analysis-desc';
+        descSpan.textContent = t.description;
+
+        card.appendChild(titleSpan);
+        card.appendChild(descSpan);
+
+        card.onclick = () => selectAuthorizationAnalysisType(t.key);
+        card.onkeydown = (e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            selectAuthorizationAnalysisType(t.key);
+          }
+        };
+
+        grid.appendChild(card);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function selectAuthorizationAnalysisType(typeKey) {
+      if (authorizationChatState !== AUTH_CHAT_STATES.WAITING_ANALYSIS_TYPE) return;
+
+      const typeInfo = authorizationAnalysisTypes.find(t => t.key === typeKey);
+      if (!typeInfo) return;
+
+      authorizationSelectedAnalysisType = typeInfo;
+
+      // Destacar visualmente no grid
+      const cards = document.querySelectorAll('.auth-chat-analysis-card');
+      cards.forEach(card => {
+        if (card.getAttribute('data-key') === typeKey) {
+          card.classList.add('selected');
+          card.setAttribute('aria-pressed', 'true');
+        } else {
+          card.classList.remove('selected');
+          card.setAttribute('aria-pressed', 'false');
+        }
+      });
+
       // Animação de transição para o resumo
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       showAuthorizationTypingIndicator();
@@ -10138,6 +10398,181 @@
         appendAuthorizationMessage('assistant', 'Tudo pronto. Confirme os dados da análise.');
         showAuthorizationSummary();
       }, 500);
+    }
+
+    async function startAuthorizationAnalysis() {
+      if (
+        authorizationChatState === AUTH_CHAT_STATES.OPENING_SAP ||
+        authorizationActiveJobId
+      ) {
+        return;
+      }
+
+      if (!authorizationTargetUser || !authorizationSelectedSystem || !authorizationSelectedAnalysisType) {
+        return;
+      }
+
+      const currentRequestId = ++authorizationJobRequestId;
+      authorizationChatState = AUTH_CHAT_STATES.OPENING_SAP;
+      updateAuthorizationComposer();
+
+      // Disable change button and change start button text
+      const btnStart = document.querySelector('.auth-chat-summary-actions .btn-primary');
+      const btnChange = document.querySelector('.auth-chat-summary-actions .btn-secondary');
+      if (btnStart) {
+        btnStart.disabled = true;
+        btnStart.textContent = 'A abrir SAP...';
+      }
+      if (btnChange) {
+        btnChange.disabled = true;
+      }
+
+      // Mostrar mensagem do assistente e indicador de escrita
+      appendAuthorizationMessage('assistant', 'A abrir uma sessão segura no SAP CUA...');
+      showAuthorizationTypingIndicator();
+
+      const payload = {
+        target_user: authorizationTargetUser,
+        target_system_key: authorizationSelectedSystem.key,
+        analysis_type: authorizationSelectedAnalysisType.key
+      };
+
+      try {
+        const response = await fetch('/api/authorizations/start', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (currentRequestId !== authorizationJobRequestId) {
+          return;
+        }
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `Erro HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        authorizationActiveJobId = data.job_id;
+        
+        // Iniciar polling
+        pollAuthorizationJob(data.job_id, currentRequestId);
+
+      } catch (err) {
+        if (currentRequestId !== authorizationJobRequestId) {
+          return;
+        }
+        hideAuthorizationTypingIndicator();
+        authorizationChatState = AUTH_CHAT_STATES.READY;
+        authorizationActiveJobId = null;
+        updateAuthorizationComposer();
+
+        // Restore buttons
+        if (btnStart) {
+          btnStart.disabled = false;
+          btnStart.textContent = 'Iniciar análise';
+        }
+        if (btnChange) {
+          btnChange.disabled = false;
+        }
+
+        appendAuthorizationMessage(
+          'assistant',
+          '⚠️ Não foi possível abrir a sessão SAP CUA. Verifique o worker e a configuração da ligação.'
+        );
+      }
+    }
+
+    function pollAuthorizationJob(jobId, currentRequestId) {
+      const startTime = Date.now();
+      const timeoutMs = 60000;
+
+      async function check() {
+        if (currentRequestId !== authorizationJobRequestId) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/jobs/${jobId}`);
+          if (!response.ok) {
+            throw new Error(`Erro HTTP ${response.status}`);
+          }
+          const job = await response.json();
+
+          if (currentRequestId !== authorizationJobRequestId) {
+            return;
+          }
+
+          if (job.state === 'succeeded') {
+            let statusData = {};
+            try {
+              statusData = JSON.parse(job.status);
+            } catch (e) {
+              throw new Error('Status do job não é um JSON válido.');
+            }
+
+            if (statusData.success === true && statusData.system_name === 'SPA' && String(statusData.client) === '001') {
+              hideAuthorizationTypingIndicator();
+              authorizationChatState = AUTH_CHAT_STATES.SAP_READY;
+              authorizationActiveJobId = null;
+              updateAuthorizationComposer();
+
+              const btnStart = document.querySelector('.auth-chat-summary-actions .btn-primary');
+              if (btnStart) {
+                btnStart.textContent = 'Sessão pronta';
+              }
+
+              appendAuthorizationMessage('assistant', 'Sessão SAP CUA aberta com sucesso.');
+              
+              const analysisLabel = authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : '';
+              appendAuthorizationMessage(
+                'assistant',
+                `Estou ligado ao CUA e pronto para iniciar a análise de ${analysisLabel} do utilizador ${escapeAuthorizationText(authorizationTargetUser)} no sistema ${authorizationSelectedSystem.system}.`
+              );
+            } else {
+              throw new Error(statusData.message || 'Validação da sessão CUA falhou.');
+            }
+
+          } else if (job.state === 'failed' || job.state === 'cancelled') {
+            throw new Error(job.status || 'O job falhou ou foi cancelado.');
+          } else {
+            // Pending or running
+            if (Date.now() - startTime > timeoutMs) {
+              throw new Error('Tempo limite de 60 segundos esgotado.');
+            }
+            setTimeout(check, 1200);
+          }
+
+        } catch (err) {
+          if (currentRequestId !== authorizationJobRequestId) {
+            return;
+          }
+          hideAuthorizationTypingIndicator();
+          authorizationChatState = AUTH_CHAT_STATES.READY;
+          authorizationActiveJobId = null;
+          updateAuthorizationComposer();
+
+          const btnStart = document.querySelector('.auth-chat-summary-actions .btn-primary');
+          const btnChange = document.querySelector('.auth-chat-summary-actions .btn-secondary');
+          if (btnStart) {
+            btnStart.disabled = false;
+            btnStart.textContent = 'Iniciar análise';
+          }
+          if (btnChange) {
+            btnChange.disabled = false;
+          }
+
+          appendAuthorizationMessage(
+            'assistant',
+            '⚠️ Não foi possível abrir a sessão SAP CUA. Verifique o worker e a configuração da ligação.'
+          );
+        }
+      }
+
+      setTimeout(check, 1200);
     }
 
     function showAuthorizationSummary() {
@@ -10154,9 +10589,7 @@
       const fields = [
         { label: 'Utilizador analisado', val: authorizationTargetUser },
         { label: 'Sistema', val: authorizationSelectedSystem.system },
-        { label: 'Cliente', val: authorizationSelectedSystem.client },
-        { label: 'Ligação', val: authorizationSelectedSystem.connection_name || 'Sem nome' },
-        { label: 'Utilizador técnico', val: authorizationTechnicalUser || 'N/D' }
+        { label: 'Tipo de análise', val: authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : 'N/D' }
       ];
 
       fields.forEach(f => {
@@ -10185,7 +10618,20 @@
       btnChange.style.padding = '8px 16px';
       btnChange.style.fontSize = '0.8rem';
       btnChange.textContent = 'Alterar dados';
-      btnChange.onclick = resetAuthorizationChat;
+      btnChange.onclick = async () => {
+        resetAuthorizationChat();
+        const currentId = ++authorizationChatRequestId;
+        authorizationChatState = AUTH_CHAT_STATES.LOADING;
+        updateAuthorizationComposer();
+        await renderAuthorizationWelcomeMessages(currentId);
+        if (currentId === authorizationChatRequestId) {
+          authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+          updateAuthorizationComposer();
+          window.requestAnimationFrame(() => {
+            document.getElementById('authorization-chat-input')?.focus();
+          });
+        }
+      };
 
       const btnStart = document.createElement('button');
       btnStart.type = 'button';
@@ -10194,12 +10640,7 @@
       btnStart.style.fontSize = '0.8rem';
       btnStart.textContent = 'Iniciar análise';
       btnStart.onclick = () => {
-        authorizationChatState = AUTH_CHAT_STATES.VALIDATING;
-        showAuthorizationTypingIndicator();
-        setTimeout(() => {
-          hideAuthorizationTypingIndicator();
-          appendAuthorizationMessage('assistant', 'A validação SAP será implementada na próxima etapa.');
-        }, 550);
+        startAuthorizationAnalysis();
       };
 
       actionsDiv.appendChild(btnChange);
@@ -10210,25 +10651,47 @@
       container.scrollTop = container.scrollHeight;
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    function handleAuthorizationChatInput(event) {
+      const input = event.currentTarget;
+
+      if (!(input instanceof HTMLInputElement)) {
+        return;
+      }
+
+      const normalized = input.value
+        .toUpperCase()
+        .replace(/[^A-Z0-9._-]/g, '')
+        .slice(0, 40);
+
+      if (input.value !== normalized) {
+        input.value = normalized;
+      }
+
+      updateAuthorizationComposer();
+    }
+
+    let authorizationChatEventsInitialized = false;
+
+    function initializeAuthorizationChatEvents() {
+      if (authorizationChatEventsInitialized) {
+        return;
+      }
+
       const form = document.getElementById('authorization-chat-form');
       const input = document.getElementById('authorization-chat-input');
 
-      if (input) {
-        input.addEventListener('input', () => {
-          // Normalizar e filtrar caracteres
-          const pos = input.selectionStart;
-          input.value = input.value.toUpperCase().replace(/[^A-Z0-9\.\-_]/g, '');
-          if (pos !== null) {
-            input.setSelectionRange(pos, pos);
-          }
-          updateAuthorizationComposer();
-        });
+      if (!form || !input) {
+        return;
       }
 
-      if (form) {
-        form.addEventListener('submit', handleAuthorizationChatSubmit);
-      }
+      form.addEventListener('submit', handleAuthorizationChatSubmit);
+      input.addEventListener('input', handleAuthorizationChatInput);
+
+      authorizationChatEventsInitialized = true;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initializeAuthorizationChatEvents();
     });
   </script>
 </body>
