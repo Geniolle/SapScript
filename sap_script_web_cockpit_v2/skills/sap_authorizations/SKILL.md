@@ -72,3 +72,29 @@ Depois de confirmar utilizador, sistema alvo e tipo de análise:
 6. Nunca apresentar passwords ou credenciais.
 7. A abertura da sessão deve ocorrer pelo worker Windows.
 
+## Dependência do Worker Windows
+
+Antes de qualquer ação que necessite abrir ou consultar o SAP:
+
+1. Confirmar que o Worker Windows está online.
+2. Caso esteja offline, não criar o job.
+3. Informar ao utilizador que deve ligar o worker.
+4. Nunca afirmar que o SAP está a abrir enquanto o worker estiver offline.
+5. Preservar os dados já informados na conversa.
+6. Depois de o worker ficar online, solicitar nova confirmação para iniciar.
+7. A validação deve existir no frontend e no backend.
+
+## Fonte da análise de autorizações
+
+A análise central de roles utiliza:
+
+- USZBVSYS para confirmar a associação do utilizador ao sistema;
+- USLA04 para roles e validades;
+- USL04 para perfis locais;
+- USRSYSACTT opcionalmente para descrições.
+
+O campo SUBSYSTEM deve receber a chave lógica completa, como S4DCLNT100.
+A sessão técnica permanece no CUA SPA/001.
+A análise é somente de leitura.
+A abertura da sessão SAP não representa a conclusão da análise.
+

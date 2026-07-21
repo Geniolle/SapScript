@@ -417,7 +417,11 @@ def _run_authorization_open_cua(params: dict[str, Any]) -> tuple[str, str]:
     try:
         from sap_session import ensure_sap_access_from_env, session_info
 
-        session = ensure_sap_access_from_env(key=cua_sap_key, timeout_s=40)
+        session = ensure_sap_access_from_env(
+            key=cua_sap_key,
+            timeout_s=40,
+            load_env=True,
+        )
         info = session_info(session)
     except Exception as exc:
         raise SapExecutionError(f"Não foi possível abrir a sessão SAP CUA: {exc}") from exc
@@ -454,6 +458,135 @@ def _run_authorization_open_cua(params: dict[str, Any]) -> tuple[str, str]:
     return status, log
 
 
+def validate_completed_analysis(result: dict[str, Any]) -> None:
+    if not result:
+        raise SapExecutionError("Resultado da análise está vazio.")
+        
+    if not result.get("success"):
+        raise SapExecutionError(f"A análise falhou: {result.get('message')}")
+        
+    code = result.get("code")
+    if code not in {"analysis_complete", "user_not_assigned_to_system"}:
+        raise SapExecutionError(f"Código de conclusão de análise inválido: {code}")
+        
+    if result.get("data_source_verified") is not True:
+        raise SapExecutionError("A veracidade das fontes da análise não pôde ser confirmada.")
+        
+    if result.get("worker_feature_version") != "authorization-tables-v1":
+        raise SapExecutionError("A sessão CUA foi aberta, mas a consulta das tabelas não foi executada pelo Worker (versão antiga detetada).")
+        
+    queries = result.get("queries") or []
+    if not queries:
+        raise SapExecutionError("A sessão CUA foi aberta, mas a consulta das tabelas não foi executada.")
+        
+    tables_executed = {q.get("table") for q in queries if q.get("executed") and q.get("filters_applied")}
+    
+    if code == "analysis_complete":
+        required = {"USZBVSYS", "USLA04", "USL04"}
+        missing = required - tables_executed
+        if missing:
+            raise SapExecutionError(f"A consulta das tabelas obrigatórias está incompleta. Tabelas em falta: {', '.join(missing)}")
+            
+    elif code == "user_not_assigned_to_system":
+        if "USZBVSYS" not in tables_executed:
+            raise SapExecutionError("A tabela USZBVSYS não foi consultada para confirmar a associação ao sistema.")
+
+
+def _run_authorization_analyze_user(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    target_user = str(params.get("target_user") or "").strip().upper()
+    target_system_key = str(params.get("target_system_key") or "").strip().upper()
+    analysis_type = str(params.get("analysis_type") or "").strip().lower()
+    cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+
+    if not target_user:
+        raise SapExecutionError("Utilizador a analisar não foi informado.")
+
+    if not target_system_key:
+        raise SapExecutionError("Sistema alvo da análise não foi informado.")
+
+    if analysis_type not in {"master_data", "authorizations"}:
+        raise SapExecutionError("Tipo de análise inválido.")
+
+    try:
+        from sap_session import ensure_sap_access_from_env, session_info
+
+        cua_session = ensure_sap_access_from_env(
+            key=cua_sap_key,
+            timeout_s=40,
+            load_env=True,
+        )
+        info = session_info(cua_session)
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível abrir a sessão SAP CUA: {exc}") from exc
+
+    expected_system = "SPA"
+    expected_client = "001"
+
+    if str(info.get("system_name") or "").strip().upper() != expected_system:
+        raise SapExecutionError("A sessão aberta não corresponde ao sistema CUA esperado (deve ser SPA).")
+
+    if str(info.get("client") or "").strip() != expected_client:
+        raise SapExecutionError("A sessão aberta não corresponde ao cliente CUA esperado (deve ser 001).")
+
+    import sys
+    import os
+    WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
+    if WORKER_DIR not in sys.path:
+        sys.path.insert(0, WORKER_DIR)
+
+    try:
+        from .authorization_table_analysis import analyze_user_authorizations
+    except ImportError:
+        from authorization_table_analysis import analyze_user_authorizations
+
+    result = analyze_user_authorizations(
+        session=cua_session,
+        target_user=target_user,
+        target_system_key=target_system_key,
+    )
+
+    validate_completed_analysis(result)
+
+    # Construir checkpoints exatamente como pedido
+    log_lines = [
+        "[AUTH] Módulo authorization_table_analysis carregado.",
+        "[AUTH] Sessão CUA validada: SPA/001."
+    ]
+    
+    queries = result.get("queries", [])
+    
+    # 1. USZBVSYS
+    q_sys = next((q for q in queries if q["table"] == "USZBVSYS"), None)
+    if q_sys:
+        log_lines.append("[AUTH] A abrir SE16.")
+        log_lines.append("[AUTH] Tabela USZBVSYS informada.")
+        log_lines.append("[AUTH] Filtros USZBVSYS aplicados.")
+        log_lines.append("[AUTH] Resultado USZBVSYS lido.")
+
+    if result.get("code") == "analysis_complete":
+        # 2. USLA04
+        q_roles = next((q for q in queries if q["table"] == "USLA04"), None)
+        if q_roles:
+            log_lines.append("[AUTH] Tabela USLA04 informada.")
+            log_lines.append("[AUTH] Filtros USLA04 aplicados.")
+            log_lines.append("[AUTH] Lista clássica USLA04 lida.")
+            
+        # 3. USL04
+        q_profs = next((q for q in queries if q["table"] == "USL04"), None)
+        if q_profs:
+            log_lines.append("[AUTH] Tabela USL04 informada.")
+            log_lines.append("[AUTH] Filtros USL04 aplicados.")
+            log_lines.append("[AUTH] Resultado USL04 lido.")
+    
+    log_lines.append("[AUTH] Análise concluída.")
+
+    safe_log = "\n".join(log_lines)
+
+    return json.dumps(result, ensure_ascii=False), safe_log
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
     module_name = os.getenv("SAP_COCKPIT_MODULE", "sap_script_web_cockpit_v2.sap_cockpit_web_ready").strip()
@@ -476,6 +609,11 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     params = job.get("params", {}) or {}
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
     try:
+        if task == "authorization_analyze_user":
+            status, log = _run_authorization_analyze_user(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
         if task == "authorization_open_cua":
             status, log = _run_authorization_open_cua(params)
             log_lines.append(log)
