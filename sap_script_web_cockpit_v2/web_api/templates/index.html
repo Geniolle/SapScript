@@ -1267,8 +1267,6 @@
           </div>
         </div>
         <a class="nav-item" id="nav-item-autorizacoes" onclick="switchView('autorizacoes')">Autorizações</a>
-        <a class="nav-item" onclick="switchView('visao-geral')">Requests</a>
-        <a class="nav-item" onclick="switchView('visao-geral')">Ficheiros</a>
         <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
         <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')">⚙️ Definições</a>
       </nav>
@@ -3389,6 +3387,7 @@
     }
 
     function _applyWebParamsToModal(params, config) {
+      requestOptionsAllowedByConfig = true;
       const fileSec   = document.getElementById('file-picker-section');
       const reqSec    = document.getElementById('request-options-section');
       const ambSel    = document.getElementById('ambiente-select');
@@ -3398,6 +3397,7 @@
       if (config) {
         if (config.show_file_picker === false && fileSec) fileSec.hidden = true;
         if (config.show_request_options === false && reqSec) reqSec.hidden = true;
+        requestOptionsAllowedByConfig = false;
         if (config.ambiente && ambSel) {
           ambSel.value = config.ambiente;
           const ambLabel = ambSel.closest('label');
@@ -3415,6 +3415,7 @@
       }
 
       // Renderizar WEB_PARAMS
+      updateRequestOptionsVisibilityByEnvironment();
       if (!params || !params.length || !container) return;
       const html = params.map(p => {
         const req = p.required ? ' <span style="color:#ef4444">*</span>' : '';
@@ -3460,12 +3461,12 @@
     }
 
     function _resetWebParams() {
+      requestOptionsAllowedByConfig = true;
       const container = document.getElementById('web-params-container');
       if (container) container.innerHTML = '';
       const fileSec = document.getElementById('file-picker-section');
       if (fileSec) fileSec.hidden = false;
       const reqSec = document.getElementById('request-options-section');
-      if (reqSec) reqSec.hidden = false;
       const ambSel = document.getElementById('ambiente-select');
       if (ambSel) {
         const ambLabel = ambSel.closest('label');
@@ -3473,6 +3474,7 @@
       }
       const badge = document.getElementById('lock-badge-ambiente-select');
       if (badge) badge.remove();
+      updateRequestOptionsVisibilityByEnvironment();
     }
 
     function cleanSubprocessName(value) {
@@ -3562,6 +3564,7 @@
     btnNewJob.onclick = () => {
         resetModalLock();
         form.reset();
+        updateRequestOptionsVisibilityByEnvironment();
         requestOptionSelect.dispatchEvent(new Event('change'));
         processoSelect.dispatchEvent(new Event('change'));
         modal.classList.add('active');
@@ -3644,6 +3647,7 @@
     const sapRequestsSubtitle = document.getElementById('sap-requests-subtitle');
     
     let searchPollInterval = null;
+    let requestOptionsAllowedByConfig = true;
     
     btnCloseSapRequests.onclick = () => {
         closeSapRequestsModal();
@@ -3760,6 +3764,7 @@
 
     ambienteSelect.addEventListener('change', () => {
        envDisplay.textContent = ambienteSelect.options[ambienteSelect.selectedIndex].text || '---';
+       updateRequestOptionsVisibilityByEnvironment();
     });
 
     restoreLastExcelPath();
@@ -3800,9 +3805,38 @@
 
       requestDescField.hidden = opt !== '2';
       requestDescInput.disabled = opt !== '2';
+      requestDescInput.required = false;
       
       requestTypeField.hidden = opt !== '2';
       requestTypeSelect.disabled = opt !== '2';
+      requestTypeSelect.required = opt === "2";
+    }
+
+    function updateRequestOptionsVisibilityByEnvironment() {
+      const reqSec = document.getElementById('request-options-section');
+      if (!reqSec) return;
+
+      const ambiente = String(ambienteSelect.value || '').trim().toUpperCase();
+      const shouldShow = ambiente === 'DEV' && requestOptionsAllowedByConfig;
+
+      if (!shouldShow) {
+        reqSec.hidden = true;
+        requestOptionSelect.disabled = true;
+        requestOptionSelect.value = '4';
+        requestNumberInput.value = '';
+        requestNumberInput.disabled = true;
+        requestDescInput.value = '';
+        requestDescInput.disabled = true;
+        requestTypeSelect.value = '1';
+        requestTypeSelect.disabled = true;
+        requestNumberField.hidden = true;
+        requestDescField.hidden = true;
+        requestTypeField.hidden = true;
+      } else {
+        reqSec.hidden = false;
+        requestOptionSelect.disabled = false;
+        updateRequestFieldsVisibility();
+      }
     }
 
     function setExcelPath(path) {
@@ -10013,6 +10047,10 @@
     let authorizationLoadingWatchdog = null;
     const AUTHORIZATION_CONFIG_ENDPOINT = '/api/authorizations/config';
 
+    function getAuthorizationExecutionMode() {
+      return String(authorizationSelectedSystem?.execution_mode || '').trim().toUpperCase();
+    }
+
     async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -10047,6 +10085,7 @@
 
       const waitingForUser =
         authorizationChatState === AUTH_CHAT_STATES.WAITING_USER;
+      const executionMode = getAuthorizationExecutionMode();
 
       input.disabled = !waitingForUser;
 
@@ -10059,18 +10098,17 @@
       } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_ANALYSIS_TYPE) {
         input.placeholder = 'Selecione o tipo de análise...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.OPENING_SAP) {
-        input.placeholder = 'A abrir sessão SAP CUA...';
+        input.placeholder = executionMode === 'RFC' ? 'A abrir ligação RFC...' : 'A abrir sessão SAP...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.SAP_READY) {
-        input.placeholder = 'Sessão SAP CUA pronta.';
+        input.placeholder = executionMode === 'RFC' ? 'Ligação RFC pronta.' : 'Sessão SAP pronta.';
       } else if (authorizationChatState === AUTH_CHAT_STATES.ANALYZING) {
-        input.placeholder = 'A analisar autorizações no CUA...';
+        input.placeholder = executionMode === 'RFC' ? 'A analisar autorizações via RFC...' : 'A analisar autorizações...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.ANALYSIS_COMPLETE) {
         input.placeholder = 'Análise concluída.';
-      } else if (authorizationChatState === AUTH_CHAT_STATES.ERROR) {
-        input.placeholder = 'Configuração indisponível';
       } else {
         input.placeholder = 'Aguarde...';
       }
+
 
       button.disabled =
         !waitingForUser ||
@@ -10244,7 +10282,7 @@
 
       if (!container.querySelector('[data-message-key="authorization-initial-question"]')) {
         appendAuthorizationMessage('assistant', 'Olá! Sou o Assistente de Autorizações SAP.');
-        appendAuthorizationMessage('assistant', 'Posso ajudar a analisar utilizadores, perfis, roles, transações e objetos de autorização.');
+        appendAuthorizationMessage('assistant', 'Posso ajudar a analisar utilizadores, roles, perfis, transações e objetos de autorização.');
         appendAuthorizationAssistantMessage(
           'Qual é o utilizador SAP que pretende analisar?',
           {
@@ -10553,12 +10591,12 @@
         showAuthorizationTypingIndicator();
 
         setTimeout(() => {
-          appendAuthorizationMessage('assistant', `Perfeito. O utilizador ${escapeAuthorizationText(authorizationTargetUser)} será analisado.`);
+          appendAuthorizationMessage('assistant', `Perfeito. Vou analisar o utilizador ${escapeAuthorizationText(authorizationTargetUser)}.`);
           showAuthorizationTypingIndicator();
           
           setTimeout(() => {
-            appendAuthorizationMessage('assistant', 'Em qual sistema pretende realizar a validação?');
-            showAuthorizationSystemOptions();
+            appendAuthorizationMessage('assistant', 'Que tipo de análise pretende fazer?');
+            showAuthorizationAnalysisOptions();
           }, 450);
         }, 450);
       }
@@ -10611,6 +10649,13 @@
           card.appendChild(connSpan);
         }
 
+        if (sys.execution_mode) {
+          const modeSpan = document.createElement('span');
+          modeSpan.className = 'sys-conn';
+          modeSpan.textContent = sys.execution_mode;
+          card.appendChild(modeSpan);
+        }
+
         card.onclick = () => selectAuthorizationSystem(sys.key);
         card.onkeydown = (e) => {
           if (e.key === ' ' || e.key === 'Enter') {
@@ -10646,13 +10691,13 @@
         }
       });
 
-      // Transição para a próxima etapa: perguntar o tipo de análise
+      // TransiÃ§Ã£o para a prÃ³xima etapa: mostrar o resumo
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       showAuthorizationTypingIndicator();
 
       setTimeout(() => {
-        appendAuthorizationMessage('assistant', 'Que tipo de análise pretende realizar?');
-        showAuthorizationAnalysisOptions();
+        appendAuthorizationMessage('assistant', 'Está tudo pronto. Confirme os dados da análise.');
+        showAuthorizationSummary();
       }, 500);
     }
 
@@ -10732,13 +10777,13 @@
         }
       });
 
-      // Animação de transição para o resumo
+      // TransiÃ§Ã£o para a prÃ³xima etapa: perguntar o sistema alvo
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       showAuthorizationTypingIndicator();
 
       setTimeout(() => {
-        appendAuthorizationMessage('assistant', 'Tudo pronto. Confirme os dados da análise.');
-        showAuthorizationSummary();
+        appendAuthorizationMessage('assistant', 'Em que sistema pretende fazer a análise?');
+        showAuthorizationSystemOptions();
       }, 500);
     }
 
@@ -10751,8 +10796,8 @@
       const warningHtml = `
         <div id="authorization-worker-offline" style="border-left: 4px solid var(--warning, #ff9800); padding-left: 10px; margin: 5px 0;">
           <div style="font-weight: bold; color: var(--warning, #ff9800); margin-bottom: 5px;">O Worker Windows está desligado.</div>
-          <div style="margin-bottom: 10px;">Para abrir o SAP CUA, ligue primeiro o worker através do botão “Ligar Worker” no canto inferior esquerdo.</div>
-          <div style="margin-bottom: 12px;">Depois de o worker ficar online, volte a clicar em “Iniciar análise”.</div>
+          <div style="margin-bottom: 10px;">Para abrir o SAP CUA, ligue primeiro o Worker através do botão “Ligar Worker” no canto inferior esquerdo.</div>
+          <div style="margin-bottom: 12px;">Quando o Worker estiver online, volte a clicar em “Iniciar análise”.</div>
           <button type="button" id="chat-start-worker-btn" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; padding: 6px 12px; border: none; border-radius: 4px; background-color: var(--warning, #ff9800); color: #fff; font-weight: bold; font-family: inherit;">
             🖥️ Ligar Worker
           </button>
@@ -10845,7 +10890,14 @@
       }
 
       // Mostrar mensagem do assistente e indicador de escrita
-      appendAuthorizationMessage('assistant', 'A abrir uma sessão segura no SAP CUA...');
+      const executionMode = getAuthorizationExecutionMode();
+      const selectedSystemLabel = authorizationSelectedSystem?.system || 'sistema selecionado';
+      appendAuthorizationMessage(
+        'assistant',
+        executionMode === 'RFC'
+          ? `A iniciar a ligação RFC ao sistema ${escapeAuthorizationText(selectedSystemLabel)}...`
+          : `A iniciar a análise no sistema ${escapeAuthorizationText(selectedSystemLabel)}...`
+      );
       showAuthorizationTypingIndicator();
 
       const payload = {
@@ -10934,27 +10986,57 @@
             return;
           }
 
+          const executionMode = getAuthorizationExecutionMode();
+
           // Escutar os logs para avisar sobre a transição de abertura para consulta
           if (job.log) {
-            if (!hasPrintedCuaReady && (job.log.includes("Sessão CUA validada") || job.log.includes("Sessão SAP CUA aberta"))) {
+            if (
+              !hasPrintedCuaReady &&
+              (
+                job.log.includes("Sessão CUA validada") ||
+                job.log.includes("Sessão SAP CUA aberta") ||
+                job.log.includes("Ligação RFC estabelecida")
+              )
+            ) {
               hasPrintedCuaReady = true;
               hideAuthorizationTypingIndicator();
-              appendAuthorizationMessage('assistant', 'Sessão CUA pronta. A consultar USZBVSYS...');
+              appendAuthorizationMessage(
+                'assistant',
+                executionMode === 'RFC'
+                  ? 'Ligação RFC pronta. Vou consultar a USZBVSYS...'
+                  : 'Sessão pronta. Vou consultar a USZBVSYS...'
+              );
               showAuthorizationTypingIndicator();
             }
-            if (job.log.includes("A abrir SE16N para USLA04") && !job.log.includes("USLA04 executada")) {
+            if (
+              (job.log.includes("A abrir SE16N para USLA04") || job.log.includes("Tabela USLA04 informada")) &&
+              !job.log.includes("USLA04 executada")
+            ) {
               if (!window.hasPrintedUsla04) {
                 window.hasPrintedUsla04 = true;
                 hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage('assistant', 'Utilizador validado. A consultar as roles em USLA04...');
+                appendAuthorizationMessage(
+                  'assistant',
+                  executionMode === 'RFC'
+                    ? 'Utilizador validado. Vou consultar as roles em USLA04 via RFC...'
+                    : 'Utilizador validado. Vou consultar as roles em USLA04...'
+                );
                 showAuthorizationTypingIndicator();
               }
             }
-            if (job.log.includes("A abrir SE16N para USL04") && !job.log.includes("USL04 executada")) {
+            if (
+              (job.log.includes("A abrir SE16N para USL04") || job.log.includes("Tabela USL04 informada")) &&
+              !job.log.includes("USL04 executada")
+            ) {
               if (!window.hasPrintedUsl04) {
                 window.hasPrintedUsl04 = true;
                 hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage('assistant', 'A consultar os perfis em USL04...');
+                appendAuthorizationMessage(
+                  'assistant',
+                  executionMode === 'RFC'
+                    ? 'Vou consultar os perfis em USL04 via RFC...'
+                    : 'Vou consultar os perfis em USL04...'
+                );
                 showAuthorizationTypingIndicator();
               }
             }
@@ -10972,7 +11054,7 @@
             
             // Validar identificação de versão do Worker
             if (statusData.worker_feature_version !== "authorization-tables-v1") {
-              throw new Error('A sessão CUA foi aberta, mas a consulta das tabelas não foi executada pelo Worker (versão antiga detetada). Reinicie o Worker.');
+              throw new Error('A análise foi iniciada, mas a consulta das tabelas não foi executada pelo Worker (versão antiga detetada). Reinicie o Worker.');
             }
 
             // Validar payload estruturado
@@ -10982,7 +11064,11 @@
               !Array.isArray(statusData.queries) ||
               statusData.queries.length === 0
             ) {
-              throw new Error('A sessão CUA foi aberta, mas a consulta das tabelas não foi executada.');
+              throw new Error(
+                executionMode === 'RFC'
+                  ? 'A ligação RFC foi estabelecida, mas a consulta das tabelas não foi executada.'
+                  : 'A análise foi iniciada, mas a consulta das tabelas não foi executada.'
+              );
             }
 
             // Mapear queries executadas
@@ -11023,7 +11109,12 @@
 
               if (statusData.code === 'user_not_assigned_to_system') {
                 const sysShort = authorizationSelectedSystem ? authorizationSelectedSystem.system : statusData.target_system.system;
-                appendAuthorizationMessage('assistant', `O utilizador ${escapeAuthorizationText(statusData.target_user)} não está associado ao sistema ${escapeAuthorizationText(sysShort)} no CUA.`);
+                appendAuthorizationMessage(
+                  'assistant',
+                  executionMode === 'RFC'
+                    ? `O utilizador ${escapeAuthorizationText(statusData.target_user)} não está associado ao sistema ${escapeAuthorizationText(sysShort)} via RFC.`
+                    : `O utilizador ${escapeAuthorizationText(statusData.target_user)} não está associado ao sistema ${escapeAuthorizationText(sysShort)}.`
+                );
                 
                 const actionsHtml = `
                   <div class="auth-actions-row">
@@ -11032,7 +11123,12 @@
                 `;
                 appendAuthorizationMessage('assistant', actionsHtml, true);
               } else if (statusData.code === 'analysis_complete') {
-                appendAuthorizationMessage('assistant', 'Análise de autorizações concluída.');
+                appendAuthorizationMessage(
+                  'assistant',
+                  executionMode === 'RFC'
+                    ? 'Análise de autorizações concluída via RFC.'
+                    : 'Análise de autorizações concluída.'
+                );
 
                 const s = statusData.summary;
                 const sysShort = authorizationSelectedSystem ? authorizationSelectedSystem.system : statusData.target_system.system;
@@ -11181,17 +11277,25 @@
           if (err && err.isWorkerOfflineDuringExecution) {
             showAuthorizationWorkerOfflineMessage();
           } else {
-            let userFriendlyMsg = '⚠️ A sessão CUA foi aberta, mas a consulta das tabelas não foi executada. Reinicie o Worker e tente novamente.';
+            let userFriendlyMsg = executionMode === 'RFC'
+              ? '⚠️ A ligação RFC foi estabelecida, mas a consulta das tabelas não foi executada. Reinicie o Worker e tente novamente.'
+              : '⚠️ A análise foi iniciada, mas a consulta das tabelas não foi executada. Reinicie o Worker e tente novamente.';
             const errText = err.message || '';
             if (errText.includes('table_not_authorized')) {
-              userFriendlyMsg = '⚠️ O utilizador técnico não possui autorização para consultar a tabela necessária no CUA.';
+              userFriendlyMsg = '⚠️ O utilizador técnico não possui autorização para consultar a tabela necessária.';
             } else if (errText.includes('filter_not_applied')) {
               userFriendlyMsg = '⚠️ Não foi possível aplicar de forma segura os filtros da análise.';
             } else if (errText.includes('user_not_assigned_to_system')) {
               const sysShort = authorizationSelectedSystem ? authorizationSelectedSystem.system : 'alvo';
-              userFriendlyMsg = `⚠️ O utilizador ${escapeAuthorizationText(authorizationTargetUser)} não está associado ao sistema ${escapeAuthorizationText(sysShort)} no CUA.`;
+              userFriendlyMsg = `⚠️ O utilizador ${escapeAuthorizationText(authorizationTargetUser)} não está associado ao sistema ${escapeAuthorizationText(sysShort)}.`;
             } else if (errText.includes('Não foi possível abrir a sessão SAP CUA')) {
-              userFriendlyMsg = '⚠️ Não foi possível abrir a sessão SAP CUA. Verifique se o SAP GUI está configurado e com Scripting ativo.';
+              userFriendlyMsg = executionMode === 'RFC'
+                ? '⚠️ Não foi possível abrir a ligação RFC ao sistema selecionado. Verifique as credenciais RFC e o acesso ao SAP.'
+                : '⚠️ Não foi possível abrir a sessão SAP. Verifique se o SAP GUI está configurado e com Scripting ativo.';
+            } else if (errText.includes('rfc_connection_failed')) {
+              userFriendlyMsg = '⚠️ Não foi possível abrir a ligação RFC ao sistema selecionado. Verifique as credenciais RFC e o acesso ao SAP.';
+            } else if (errText.includes('rfc_table_read_failed')) {
+              userFriendlyMsg = '⚠️ Não foi possível consultar uma das tabelas SAP via RFC.';
             } else if (errText.includes('versão antiga')) {
               userFriendlyMsg = '⚠️ ' + errText;
             }
@@ -11223,8 +11327,9 @@
 
       const fields = [
         { label: 'Utilizador analisado', val: authorizationTargetUser },
-        { label: 'Sistema', val: authorizationSelectedSystem.system },
-        { label: 'Tipo de análise', val: authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : 'N/D' }
+        { label: 'Tipo de análise', val: authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : 'N/D' },
+        { label: 'Modo de execução', val: getAuthorizationExecutionMode() || 'N/D' },
+        { label: 'Sistema', val: authorizationSelectedSystem.system }
       ];
 
       fields.forEach(f => {
