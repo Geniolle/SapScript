@@ -5611,9 +5611,7 @@
            // Copy log action
            document.getElementById('btn-copy-log').onclick = () => {
               navigator.clipboard.writeText(focusedJob.log || '');
-              const old = document.getElementById('btn-copy-log').textContent;
-              document.getElementById('btn-copy-log').textContent = 'Copiado!';
-              setTimeout(() => document.getElementById('btn-copy-log').textContent = old, 2000);
+              showToast('Log foi copiado', 'success');
            };
        } else if (logContainer) {
           logContainer.innerHTML = 'Nenhum job em foco para visualização de logs.';
@@ -5982,7 +5980,7 @@
         const job = allJobs.find(j => j.id === jobId);
         if (job) {
             navigator.clipboard.writeText(job.log || '');
-            alert('Logs copiados com sucesso!');
+            showToast('Log foi copiado', 'success');
         }
     }
 
