@@ -5627,38 +5627,28 @@
 
     function filterLogs() {
         const queryInput = document.getElementById('log-search-input');
-        const stateSelect = document.getElementById('log-state-select');
-        const timeSelect = document.getElementById('log-time-select');
-        
+        const levelSelect = document.getElementById('log-level-select');
+
         activeLogQuery = queryInput ? queryInput.value.toLowerCase() : '';
-        activeLogState = stateSelect ? stateSelect.value : 'ALL';
-        activeLogTime = timeSelect ? timeSelect.value : 'ALL';
-        
-        const now = Date.now();
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        
-        const items = document.querySelectorAll('.timeline-item');
+        activeLogLevel = levelSelect ? levelSelect.value : 'ALL';
+
+        const items = document.querySelectorAll('.log-row');
         items.forEach(item => {
             const text = item.textContent.toLowerCase();
-            const state = item.getAttribute('data-state') || 'completed';
-            const timestamp = parseInt(item.getAttribute('data-time') || '0');
-            
-            const matchQuery = text.includes(activeLogQuery);
-            const matchState = (activeLogState === 'ALL') || (state === activeLogState);
-            
-            let matchTime = true;
-            if (activeLogTime === 'TODAY') {
-                const todayStart = new Date().setHours(0,0,0,0);
-                matchTime = timestamp >= todayStart;
-            } else if (activeLogTime === '24H') {
-                matchTime = (now - timestamp) <= oneDayMs;
-            } else if (activeLogTime === '7D') {
-                matchTime = (now - timestamp) <= (7 * oneDayMs);
-            } else if (activeLogTime === '30D') {
-                matchTime = (now - timestamp) <= (30 * oneDayMs);
+            const logLine = item.querySelector('.log-line');
+            let level = 'INFO';
+
+            if (logLine) {
+                if (logLine.classList.contains('ok')) level = 'OK';
+                else if (logLine.classList.contains('erro')) level = 'ERROR';
+                else if (logLine.classList.contains('warn')) level = 'WARN';
+                else level = 'INFO';
             }
-            
-            if (matchQuery && matchState && matchTime) {
+
+            const matchQuery = text.includes(activeLogQuery);
+            const matchLevel = (activeLogLevel === 'ALL') || (level === activeLogLevel);
+
+            if (matchQuery && matchLevel) {
                 item.style.display = 'flex';
             } else {
                 item.style.display = 'none';
