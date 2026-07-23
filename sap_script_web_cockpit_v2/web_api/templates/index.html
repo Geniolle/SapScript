@@ -3550,10 +3550,6 @@
     let activeJobId = null;
     let activeJobDetailsExpanded = true;
     let expandedJobs = {};
-    let activeLogQuery = '';
-    let activeLogLevel = 'ALL';
-    let activeLogState = 'ALL';
-    let activeLogTime = 'ALL';
     let expandedLogItems = {};
 
     // Elementos DOM
@@ -5259,13 +5255,6 @@
                        Registro de Atividades (Logs)
                     </span>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                       <input type="text" id="log-search-input" placeholder="Search logs" oninput="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-primary); width: 140px; outline: none; height: 28px;">
-                       <select id="log-level-select" onchange="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); cursor: pointer; outline: none; height: 28px;">
-                          <option value="ALL">Log Level</option>
-                          <option value="INFO">Info</option>
-                          <option value="WARN">Warning</option>
-                          <option value="ERROR">Error</option>
-                       </select>
                        <button class="btn" onclick="copyJobLog('${job.id}')" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 500; height: 28px;">
                           📋 Copiar Logs
                        </button>
@@ -5514,21 +5503,6 @@
           }
        });
 
-       // Restore input value and trigger filter for all cards
-       const queryInput = document.getElementById('log-search-input');
-       const stateSelect = document.getElementById('log-state-select');
-       const timeSelect = document.getElementById('log-time-select');
-       if (queryInput) {
-           queryInput.value = activeLogQuery;
-       }
-       if (stateSelect) {
-           stateSelect.value = activeLogState;
-       }
-       if (timeSelect) {
-           timeSelect.value = activeLogTime;
-       }
-       filterLogs();
-
        // Render Focused Job Logs in the sidebar
        // const focusedJob = allJobs.find(j => j.id === activeJobId);
        if (focusedJob && logContainer) {
@@ -5625,38 +5599,7 @@
         }
     }
 
-    function filterLogs() {
-        const queryInput = document.getElementById('log-search-input');
-        const levelSelect = document.getElementById('log-level-select');
-
-        activeLogQuery = queryInput ? queryInput.value.toLowerCase() : '';
-        activeLogLevel = levelSelect ? levelSelect.value : 'ALL';
-
-        const items = document.querySelectorAll('.log-row');
-        items.forEach(item => {
-            const text = item.textContent.toLowerCase();
-            const logLine = item.querySelector('.log-line');
-            let level = 'INFO';
-
-            if (logLine) {
-                if (logLine.classList.contains('ok')) level = 'OK';
-                else if (logLine.classList.contains('erro')) level = 'ERROR';
-                else if (logLine.classList.contains('warn')) level = 'WARN';
-                else level = 'INFO';
-            }
-
-            const matchQuery = text.includes(activeLogQuery);
-            const matchLevel = (activeLogLevel === 'ALL') || (level === activeLogLevel);
-
-            if (matchQuery && matchLevel) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
-            }
-        });
-    }
-
-    function toggleLogItemDetails(itemId) {
+        function toggleLogItemDetails(itemId) {
         expandedLogItems[itemId] = !expandedLogItems[itemId];
         const container = document.getElementById(`log-item-details-${itemId}`);
         const icon = document.getElementById(`chevron-icon-${itemId}`);
