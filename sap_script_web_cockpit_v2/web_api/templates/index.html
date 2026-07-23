@@ -5251,12 +5251,12 @@
           let taskLogsHtml = `
              <div style="flex: 1 1 100%; min-width: 100%; display: flex; flex-direction: column;">
                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-                    <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
-                       Registro de Atividades (Logs)
-                    </span>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                       <button class="btn" onclick="copyJobLog('${job.id}')" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 500; height: 28px;">
-                          📋 Copiar Logs
+                       <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
+                          Registro de Atividades (Logs)
+                       </span>
+                       <button onclick="copyJobLog('${job.id}')" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0; margin: 0; opacity: 0.6; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
+                          📋
                        </button>
                     </div>
                  </div>
