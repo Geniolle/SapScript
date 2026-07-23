@@ -3886,6 +3886,7 @@
         formMessage.textContent = 'Criado com sucesso!';
         setTimeout(() => modal.classList.remove('active'), 1000);
         await loadJobs();
+        switchView('visao-geral');
       } catch (err) {
         formMessage.textContent = 'Falha ao criar.';
       }
@@ -8502,6 +8503,7 @@
 
             if (data.triggered > 0) {
                 showToast(`✅ ${data.triggered} job(s) SAP criado(s) com sucesso!`, 'success');
+                setTimeout(() => switchView('visao-geral'), 500);
             } else if (data.tickets_found === 0) {
                 showToast('Nenhum ticket JIRA elegível encontrado.', 'info');
             } else {
@@ -8539,6 +8541,7 @@
 
             showToast(data.message || 'Job SAP criado com sucesso!', 'success');
             input.value = ''; // clear input
+            setTimeout(() => switchView('visao-geral'), 500);
 
             // Reload logs and results
             atLoadLog();
@@ -9982,6 +9985,10 @@
       return String(authorizationSelectedSystem?.execution_mode || '').trim().toUpperCase();
     }
 
+    function isAuthorizationDevFlow() {
+      return String(authorizationSelectedSystem?.system || '').trim().toUpperCase() === 'DEV';
+    }
+
     async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -10897,7 +10904,9 @@
     function pollAuthorizationJob(jobId, currentRequestId) {
       const startTime = Date.now();
       const timeoutMs = 120000;
-      let hasPrintedCuaReady = false;
+      let hasPrintedAuthorizationReady = false;
+      window.hasPrintedAgrUsers = false;
+      window.hasPrintedAgrTcodes = false;
       window.hasPrintedUsla04 = false;
       window.hasPrintedUsl04 = false;
 
@@ -10922,22 +10931,59 @@
           // Escutar os logs para avisar sobre a transição de abertura para consulta
           if (job.log) {
             if (
-              !hasPrintedCuaReady &&
+              !hasPrintedAuthorizationReady &&
               (
                 job.log.includes("Sessão CUA validada") ||
                 job.log.includes("Sessão SAP CUA aberta") ||
-                job.log.includes("Ligação RFC estabelecida")
+                job.log.includes("Ligação RFC estabelecida") ||
+                job.log.includes("AGR_USERS")
               )
             ) {
-              hasPrintedCuaReady = true;
+              hasPrintedAuthorizationReady = true;
               hideAuthorizationTypingIndicator();
               appendAuthorizationMessage(
                 'assistant',
                 executionMode === 'RFC'
-                  ? 'Ligação RFC pronta. Vou consultar a USZBVSYS...'
-                  : 'Sessão pronta. Vou consultar a USZBVSYS...'
+                  ? (isAuthorizationDevFlow()
+                    ? 'Ligação RFC pronta. Vou consultar a AGR_USERS...'
+                    : 'Ligação RFC pronta. Vou consultar a USZBVSYS...')
+                  : (isAuthorizationDevFlow()
+                    ? 'Sessão pronta. Vou consultar a AGR_USERS...'
+                    : 'Sessão pronta. Vou consultar a USZBVSYS...')
               );
               showAuthorizationTypingIndicator();
+            }
+            if (
+              (job.log.includes("AGR_USERS") || job.log.includes("Tabela AGR_USERS informada")) &&
+              !job.log.includes("Roles lidas via AGR_USERS")
+            ) {
+              if (!window.hasPrintedAgrUsers) {
+                window.hasPrintedAgrUsers = true;
+                hideAuthorizationTypingIndicator();
+                appendAuthorizationMessage(
+                  'assistant',
+                  executionMode === 'RFC'
+                    ? 'Utilizador validado. Vou consultar as roles em AGR_USERS via RFC...'
+                    : 'Utilizador validado. Vou consultar as roles em AGR_USERS...'
+                );
+                showAuthorizationTypingIndicator();
+              }
+            }
+            if (
+              (job.log.includes("AGR_TCODES") || job.log.includes("Tabela AGR_TCODES informada")) &&
+              !job.log.includes("Funções AGR_TCODES lidas")
+            ) {
+              if (!window.hasPrintedAgrTcodes) {
+                window.hasPrintedAgrTcodes = true;
+                hideAuthorizationTypingIndicator();
+                appendAuthorizationMessage(
+                  'assistant',
+                  executionMode === 'RFC'
+                    ? 'Vou consultar as funções em AGR_TCODES via RFC...'
+                    : 'Vou consultar as funções em AGR_TCODES...'
+                );
+                showAuthorizationTypingIndicator();
+              }
             }
             if (
               (job.log.includes("A abrir SE16N para USLA04") || job.log.includes("Tabela USLA04 informada")) &&
@@ -11008,22 +11054,37 @@
               queryMap[q.table] = q;
             });
 
-            const qSys = queryMap["USZBVSYS"];
-            if (!qSys || qSys.executed !== true || qSys.filters_applied !== true) {
-              throw new Error('A consulta na tabela USZBVSYS não foi realizada ou os filtros não foram aplicados.');
+            const isDevFlow = isAuthorizationDevFlow() || Boolean(queryMap["AGR_USERS"]);
+            if (isDevFlow) {
+              const qUsers = queryMap["AGR_USERS"];
+              if (!qUsers || qUsers.executed !== true || qUsers.filters_applied !== true) {
+                throw new Error('A consulta na tabela AGR_USERS não foi realizada ou os filtros não foram aplicados.');
+              }
+            } else {
+              const qSys = queryMap["USZBVSYS"];
+              if (!qSys || qSys.executed !== true || qSys.filters_applied !== true) {
+                throw new Error('A consulta na tabela USZBVSYS não foi realizada ou os filtros não foram aplicados.');
+              }
             }
 
             if (statusData.code === 'analysis_complete') {
-              const qRoles = queryMap["USLA04"];
-              const qProfs = queryMap["USL04"];
-              if (!qRoles || qRoles.executed !== true || qRoles.filters_applied !== true) {
-                throw new Error('A consulta na tabela USLA04 não foi realizada ou os filtros não foram aplicados.');
-              }
-              if (!qProfs || qProfs.executed !== true || qProfs.filters_applied !== true) {
-                throw new Error('A consulta na tabela USL04 não foi realizada ou os filtros não foram aplicados.');
+              if (isDevFlow) {
+                const qTcodes = queryMap["AGR_TCODES"];
+                if (!qTcodes || qTcodes.executed !== true || qTcodes.filters_applied !== true) {
+                  throw new Error('A consulta na tabela AGR_TCODES não foi realizada ou os filtros não foram aplicados.');
+                }
+              } else {
+                const qRoles = queryMap["USLA04"];
+                const qProfs = queryMap["USL04"];
+                if (!qRoles || qRoles.executed !== true || qRoles.filters_applied !== true) {
+                  throw new Error('A consulta na tabela USLA04 não foi realizada ou os filtros não foram aplicados.');
+                }
+                if (!qProfs || qProfs.executed !== true || qProfs.filters_applied !== true) {
+                  throw new Error('A consulta na tabela USL04 não foi realizada ou os filtros não foram aplicados.');
+                }
               }
             } else if (statusData.code === 'user_not_assigned_to_system') {
-              // Já validamos USZBVSYS acima
+              // Já validamos a tabela base acima
             } else {
               throw new Error(`Código de resposta inválido: ${statusData.code}`);
             }
@@ -11063,6 +11124,10 @@
 
                 const s = statusData.summary;
                 const sysShort = authorizationSelectedSystem ? authorizationSelectedSystem.system : statusData.target_system.system;
+                const functions = Array.isArray(statusData.functions) ? statusData.functions : [];
+                const functionCodes = functions
+                  .map(f => String(f?.tcode || '').trim())
+                  .filter(Boolean);
                 
                 let rowsHtml = '';
                 const roles = statusData.roles || [];
@@ -11110,6 +11175,22 @@
                   `;
                 }
 
+                let functionsHtml = '';
+                if (functionCodes.length > 0) {
+                  const maxVisibleFunctions = 60;
+                  const visibleFunctions = functionCodes.slice(0, maxVisibleFunctions);
+                  const hiddenCount = functionCodes.length - visibleFunctions.length;
+                  functionsHtml = `
+                    <div class="auth-summary-card" style="margin-top: 14px;">
+                      <div class="auth-summary-header">Funções associadas</div>
+                      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
+                        ${visibleFunctions.map(code => `<span class="badge" style="background: rgba(16,185,129,0.14); color: #bbf7d0; border: 1px solid rgba(16,185,129,0.28);">${escapeAuthorizationText(code)}</span>`).join('')}
+                      </div>
+                      ${hiddenCount > 0 ? `<div style="margin-top:10px; color: var(--text-muted); font-size: 0.78rem;">A mostrar ${visibleFunctions.length} de ${functionCodes.length} funções.</div>` : ''}
+                    </div>
+                  `;
+                }
+
                 const resultHtml = `
                   <div class="auth-analysis-result">
                     <div class="auth-summary-card">
@@ -11122,8 +11203,11 @@
                         <div class="auth-summary-item"><strong>Expiradas:</strong> <span class="badge badge-danger">${s.expired_roles}</span></div>
                         <div class="auth-summary-item"><strong>Futuras:</strong> <span class="badge badge-warning">${s.future_roles}</span></div>
                         <div class="auth-summary-item"><strong>Perfis Locais:</strong> <span>${s.total_profiles}</span></div>
+                        <div class="auth-summary-item"><strong>Funções:</strong> <span>${functionCodes.length}</span></div>
                       </div>
                     </div>
+
+                    ${functionsHtml}
 
                     <div class="auth-table-wrapper">
                       <table class="auth-result-table">
