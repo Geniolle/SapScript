@@ -10028,9 +10028,13 @@
     let authorizationChatRequestId = 0;
     let authorizationSelectedAnalysisType = null;
     let authorizationLastStatusData = null;
+    let authorizationLastDisplayedRoles = [];
+    let authorizationPendingRemoval = null;
+    let authorizationRemovalLastContext = null;
     let authorizationAnalysisTypes = [];
     let authorizationActiveJobId = null;
     let authorizationJobRequestId = 0;
+    let authorizationRemovalJobRequestId = 0;
 
     let authorizationLoadRequestId = 0;
     let authorizationChatLoading = false;
@@ -10116,9 +10120,9 @@
       } else if (authorizationChatState === AUTH_CHAT_STATES.ANALYZING) {
         input.placeholder = executionMode === 'RFC' ? 'A analisar autorizações via RFC...' : 'A analisar autorizações...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.ANALYSIS_COMPLETE) {
-        input.placeholder = 'Pergunte sobre a lista ou peça expiradas/ativas...';
+        input.placeholder = 'Pergunte sobre a lista ou diga "remova estas funções"...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.READY) {
-        input.placeholder = 'Pergunte sobre a lista ou peça expiradas/ativas...';
+        input.placeholder = 'Pergunte sobre a lista ou diga "remova estas funções"...';
       } else {
         input.placeholder = 'Aguarde...';
       }
@@ -10132,6 +10136,8 @@
     function renderAuthorizationFollowUpResult(title, items, emptyMessage) {
       const container = document.getElementById('authorization-chat-messages');
       if (!container) return;
+
+      authorizationLastDisplayedRoles = Array.isArray(items) ? items.slice() : [];
 
       const wrapper = document.createElement('div');
       wrapper.className = 'auth-chat-summary';
@@ -10184,20 +10190,501 @@
       container.scrollTop = container.scrollHeight;
     }
 
-    function handleAuthorizationFollowUp(rawQuery) {
-      const query = String(rawQuery || '').trim().toLowerCase();
-      const data = authorizationLastStatusData;
+    function renderAuthorizationRemovalPrompt(roles, label) {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
 
-      if (!data || !Array.isArray(data.roles)) {
-        appendAuthorizationMessage('assistant', 'Não tenho a lista anterior disponível para responder a esta pergunta.');
+      const list = Array.isArray(roles) ? roles.slice() : [];
+      authorizationPendingRemoval = {
+        roles: list,
+        label: label || 'as funções selecionadas',
+        targetUser: authorizationTargetUser,
+        targetSystemKey: authorizationSelectedSystem?.key || '',
+        systemShort: authorizationSelectedSystem?.system || ''
+      };
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'auth-chat-summary';
+
+      const header = document.createElement('div');
+      header.className = 'auth-chat-summary-row';
+      header.style.fontWeight = '700';
+      header.style.paddingBottom = '10px';
+      header.innerHTML = `<span class="auth-chat-summary-label">Remover funções</span><span class="auth-chat-summary-value">${String(list.length)}</span>`;
+      wrapper.appendChild(header);
+
+      const text = document.createElement('div');
+      text.style.marginBottom = '10px';
+      text.textContent = `Queres que eu crie a remoção no CUA para ${label || 'as funções selecionadas'} do utilizador ${authorizationTargetUser}?`;
+      wrapper.appendChild(text);
+
+      const items = document.createElement('div');
+      items.style.display = 'grid';
+      items.style.gap = '8px';
+
+      list.forEach(item => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.gap = '12px';
+        row.style.padding = '8px 10px';
+        row.style.border = '1px solid var(--border-color)';
+        row.style.borderRadius = '10px';
+        row.style.background = 'rgba(0,0,0,0.02)';
+
+        const left = document.createElement('span');
+        left.style.fontWeight = '700';
+        left.textContent = item.role || item.function || '';
+
+        const right = document.createElement('span');
+        right.style.color = 'var(--text-secondary)';
+        right.textContent = [item.valid_from, item.valid_to, item.assignment_origin_label || item.assignment_origin].filter(Boolean).join(' · ');
+
+        row.appendChild(left);
+        row.appendChild(right);
+        items.appendChild(row);
+      });
+
+      wrapper.appendChild(items);
+
+      const actions = document.createElement('div');
+      actions.className = 'auth-chat-summary-actions';
+      actions.style.marginTop = '10px';
+
+      actions.innerHTML = `
+        <button type="button" class="btn btn-secondary btn-sm" onclick="cancelAuthorizationRemoval()">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="confirmAuthorizationRemoval()">Criar remoção</button>
+      `;
+      wrapper.appendChild(actions);
+
+      container.appendChild(wrapper);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function isAuthorizationTerminalJobState(state) {
+      const normalized = String(state || '').trim().toLowerCase();
+      return ['succeeded', 'succeeded_with_warnings', 'failed', 'cancelled', 'canceled', 'stopped', 'error'].includes(normalized);
+    }
+
+    function parseAuthorizationRemovalSummary(job) {
+      const logText = String(job?.log || '');
+      const statusText = String(job?.status || '');
+      const sourceText = `${logText}\n${statusText}`;
+      const getMatchNumber = (pattern) => {
+        const match = sourceText.match(pattern);
+        return match ? Number.parseInt(match[1], 10) : null;
+      };
+
+      const systemMatch = sourceText.match(/Sistema principal do pedido:\s*([^\n\r]+)/i)
+        || sourceText.match(/SISTEMA='([^']+)'/i)
+        || sourceText.match(/SISTEMA=([A-Z0-9_]+)/i);
+      const userMatch = sourceText.match(/UTILIZADOR='([^']+)'/i)
+        || sourceText.match(/UTILIZADOR=([A-Z0-9.\-_]+)/i);
+
+      return {
+        user: userMatch ? String(userMatch[1] || '').trim() : '',
+        system: systemMatch ? String(systemMatch[1] || '').trim() : '',
+        processed: getMatchNumber(/Linhas processadas:\s*(\d+)/i),
+        concluded: getMatchNumber(/Conclu[ií]das:\s*(\d+)/i),
+        warnings: getMatchNumber(/Avisos:\s*(\d+)/i),
+        errors: getMatchNumber(/Erros:\s*(\d+)/i),
+        removed: getMatchNumber(/Fun[cç][oõ]es eliminadas:\s*(\d+)/i),
+        noMatches: /Nenhuma fun[cç][aã]o encontrada/i.test(sourceText)
+      };
+    }
+
+    function buildAuthorizationRemovalFeedback(job) {
+      const summary = parseAuthorizationRemovalSummary(job);
+      const fallbackContext = authorizationRemovalLastContext || {};
+      const state = String(job?.state || '').trim().toLowerCase();
+      const stateLabel = state === 'succeeded_with_warnings' ? 'concluida com avisos' : state === 'succeeded' ? 'concluida com sucesso' : state || 'terminada';
+      const jobIdShort = String(job?.id || '').slice(0, 8);
+      const pluralize = (value, singular, plural) => `${value} ${value === 1 ? singular : plural}`;
+      const counts = [];
+
+      if (summary.processed !== null) counts.push(pluralize(summary.processed, 'linha processada', 'linhas processadas'));
+      if (summary.concluded !== null) counts.push(pluralize(summary.concluded, 'concluida', 'concluidas'));
+      if (summary.warnings !== null) counts.push(pluralize(summary.warnings, 'aviso', 'avisos'));
+      if (summary.errors !== null) counts.push(pluralize(summary.errors, 'erro', 'erros'));
+      if (summary.removed !== null) counts.push(pluralize(summary.removed, 'funcao eliminada', 'funcoes eliminadas'));
+
+      const subjectUser = summary.user || String(fallbackContext.user || '').trim();
+      const subjectSystem = summary.system || String(fallbackContext.system || '').trim();
+      const subject = subjectUser && subjectSystem
+        ? `${subjectUser} no sistema ${subjectSystem}`
+        : subjectUser
+          ? `o utilizador ${subjectUser}`
+          : 'a remocao';
+
+      let message = `Remocao ${stateLabel} para ${subject}`;
+      if (jobIdShort) {
+        message += ` (job #${jobIdShort})`;
+      }
+      if (counts.length > 0) {
+        message += `: ${counts.join(', ')}.`;
+      }
+      if (summary.noMatches) {
+        message += ' O log indica que nao foram encontradas funcoes no sistema alvo.';
+      } else if (summary.removed === 0) {
+        message += ' Sem funcoes eliminadas.';
+      }
+      return message;
+    }
+
+    function normalizeAuthorizationToken(value) {
+      return String(value || '').trim().toUpperCase();
+    }
+
+    function normalizeAuthorizationSearchText(value) {
+      return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+    }
+
+    function extractAuthorizationTransactionCode(query) {
+      const upperQuery = normalizeAuthorizationSearchText(query);
+      const candidates = upperQuery.match(/\b[A-Z0-9]{3,5}\b/g) || [];
+      const stopWords = new Set([
+        'ROLE', 'ROLES', 'FUNCAO', 'FUNCOES', 'FUNÇÃO', 'FUNÇÕES', 'TRANSA', 'TRANSAO',
+        'TRANSAÇÕES', 'TRANSAÇÕES', 'TRANACOES', 'LISTA', 'QUAIS', 'QUAIS', 'QUAL', 'QUAISAS',
+        'MINHAS', 'MEUS', 'MINHA', 'TEM', 'COM', 'SOBRE', 'PARA'
+      ]);
+      return candidates.find((code) => !stopWords.has(code)) || '';
+    }
+
+    function extractAuthorizationRoleFromQuery(query, roles) {
+      const queryUpper = normalizeAuthorizationSearchText(query);
+      const roleList = Array.isArray(roles) ? roles : [];
+
+      const directMatch = roleList.find((role) => {
+        const roleName = normalizeAuthorizationToken(role?.role || role?.name || role?.function || '');
+        return roleName && queryUpper.includes(roleName);
+      });
+      if (directMatch) {
+        return String(directMatch.role || directMatch.name || directMatch.function || '').trim();
+      }
+
+      const roleMatch = normalizeAuthorizationSearchText(query).match(/(?:ROLE|FUNCAO|FUNCOES)\s+([A-Z0-9._-]+)/i);
+      if (roleMatch && roleMatch[1]) {
+        return String(roleMatch[1]).trim();
+      }
+
+      return '';
+    }
+
+    function getAuthorizationRoleFunctions(data, roleName) {
+      const targetRole = normalizeAuthorizationToken(roleName);
+      if (!targetRole) {
+        return [];
+      }
+
+      const roleFunctionsMap = data && typeof data.role_functions === 'object' && data.role_functions ? data.role_functions : {};
+      const mapEntry = roleFunctionsMap[targetRole] || roleFunctionsMap[String(roleName).trim()] || [];
+      const roleEntry = Array.isArray(data?.roles)
+        ? data.roles.find((role) => normalizeAuthorizationToken(role?.role || role?.name || role?.function || '') === targetRole)
+        : null;
+      const rawList = Array.isArray(mapEntry) && mapEntry.length > 0
+        ? mapEntry
+        : Array.isArray(roleEntry?.functions)
+          ? roleEntry.functions
+          : [];
+
+      const seen = new Set();
+      const result = [];
+      rawList.forEach((item) => {
+        const tcode = String(item || '').trim().toUpperCase();
+        if (!tcode || seen.has(tcode)) {
+          return;
+        }
+        seen.add(tcode);
+        result.push(tcode);
+      });
+      return result;
+    }
+
+    function getAuthorizationRolesWithTransaction(data, tcode) {
+      const targetTcode = normalizeAuthorizationToken(tcode);
+      if (!targetTcode) {
+        return [];
+      }
+
+      const roleList = Array.isArray(data?.roles) ? data.roles : [];
+      const roleFunctionsMap = data && typeof data.role_functions === 'object' && data.role_functions ? data.role_functions : {};
+      const seen = new Set();
+      const result = [];
+
+      roleList.forEach((role) => {
+        const roleName = String(role?.role || role?.name || role?.function || '').trim();
+        if (!roleName) {
+          return;
+        }
+
+        const roleKey = normalizeAuthorizationToken(roleName);
+        const roleFunctions = Array.isArray(role?.functions) && role.functions.length > 0
+          ? role.functions
+          : Array.isArray(roleFunctionsMap[roleKey]) ? roleFunctionsMap[roleKey] : [];
+
+        const hasTransaction = roleFunctions.some((item) => normalizeAuthorizationToken(item) === targetTcode);
+        if (!hasTransaction || seen.has(roleKey)) {
+          return;
+        }
+
+        seen.add(roleKey);
+        result.push(roleName);
+      });
+
+      return result;
+    }
+
+    function getAuthorizationAllFunctions(data) {
+      const seen = new Set();
+      const result = [];
+      const functionsList = Array.isArray(data?.functions) ? data.functions : [];
+      functionsList.forEach((item) => {
+        const tcode = String(item?.tcode || item?.function || item || '').trim().toUpperCase();
+        if (!tcode || seen.has(tcode)) {
+          return;
+        }
+        seen.add(tcode);
+        result.push(tcode);
+      });
+      return result;
+    }
+
+    function renderAuthorizationPlainList(title, items, emptyMessage) {
+      if (!Array.isArray(items) || items.length === 0) {
+        appendAuthorizationMessage('assistant', emptyMessage);
         return;
       }
 
-      const roles = data.roles;
+      const html = `
+        <div class="auth-chat-summary">
+          <div class="auth-chat-summary-row" style="font-weight:700; margin-bottom:10px;">
+            <span class="auth-chat-summary-label">${escapeAuthorizationText(title)}</span>
+            <span class="auth-chat-summary-value">${String(items.length)}</span>
+          </div>
+          <div style="display:grid; gap:6px;">
+            ${items.map((item) => `<div style="padding:8px 10px; border:1px solid var(--border-color); border-radius:10px; background:rgba(0,0,0,0.02); font-family:monospace; font-weight:700;">${escapeAuthorizationText(item)}</div>`).join('')}
+          </div>
+        </div>
+      `;
+      appendAuthorizationMessage('assistant', html, true);
+    }
+
+    function renderAuthorizationTable(title, columns, rows, emptyMessage) {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        appendAuthorizationMessage('assistant', emptyMessage);
+        return;
+      }
+
+      const thead = `<tr>${columns.map((column) => `<th>${escapeAuthorizationText(column)}</th>`).join('')}</tr>`;
+      const tbody = rows.map((row) => {
+        const cells = Array.isArray(row) ? row : [];
+        return `<tr>${cells.map((cell) => `<td style="vertical-align:top;">${escapeAuthorizationText(cell)}</td>`).join('')}</tr>`;
+      }).join('');
+
+      const html = `
+        <div class="auth-chat-summary">
+          <div class="auth-chat-summary-row" style="font-weight:700; margin-bottom:10px;">
+            <span class="auth-chat-summary-label">${escapeAuthorizationText(title)}</span>
+            <span class="auth-chat-summary-value">${String(rows.length)}</span>
+          </div>
+          <div class="auth-table-wrapper">
+            <table class="auth-result-table">
+              <thead>${thead}</thead>
+              <tbody>${tbody}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+      appendAuthorizationMessage('assistant', html, true);
+    }
+    async function pollAuthorizationRemovalJob(jobId, requestId) {
+      const startTime = Date.now();
+      const timeoutMs = 180000;
+
+      async function check() {
+        if (requestId !== authorizationRemovalJobRequestId) {
+          return;
+        }
+
+        if (Date.now() - startTime > timeoutMs) {
+          if (requestId === authorizationRemovalJobRequestId) {
+            hideAuthorizationTypingIndicator();
+            appendAuthorizationMessage(
+              'assistant',
+              `O job de remocao #${String(jobId || '').slice(0, 8)} demorou demasiado a concluir. Vai a lista de jobs para confirmar o estado final.`
+            );
+          }
+          return;
+        }
+
+        try {
+          const response = await fetchWithTimeout(`/api/jobs/${jobId}`, {}, 10000);
+          if (!response.ok) {
+            throw new Error(`Erro HTTP ${response.status}`);
+          }
+
+          const job = await response.json();
+          if (requestId !== authorizationRemovalJobRequestId) {
+            return;
+          }
+
+          if (!isAuthorizationTerminalJobState(job.state)) {
+            window.setTimeout(check, 2000);
+            return;
+          }
+
+          hideAuthorizationTypingIndicator();
+
+          if (String(job.state || '').toLowerCase() === 'failed' || String(job.state || '').toLowerCase() === 'error') {
+            appendAuthorizationMessage(
+              'assistant',
+              `A remocao terminou com erro no job #${String(jobId || '').slice(0, 8)}. ${String(job.status || 'Consulta o log do job para ver o detalhe.')}`
+            );
+            return;
+          }
+
+          appendAuthorizationMessage('assistant', buildAuthorizationRemovalFeedback(job));
+        } catch (error) {
+          if (requestId !== authorizationRemovalJobRequestId) {
+            return;
+          }
+
+          window.setTimeout(check, 3000);
+        }
+      }
+
+      window.setTimeout(check, 1200);
+    }
+
+    function handleAuthorizationFollowUp(rawQuery) {
+      const query = String(rawQuery || '').trim().toLowerCase();
+      const data = authorizationLastStatusData;
+      const roles = Array.isArray(data?.roles) ? data.roles : [];
+      const requestedRole = extractAuthorizationRoleFromQuery(query, roles);
+      const requestedTransaction = extractAuthorizationTransactionCode(query);
+      const wantsTransactions = /transa|tcode|funcoes?|funcao|transacoes?/i.test(normalizeAuthorizationSearchText(query));
+      const wantsRemoval = query.includes('elimin') || query.includes('remov') || query.includes('apag') || query.includes('tirar') || query.includes('retir');
+      const wantsAllRoles = query.includes('todas') || query.includes('todos') || query.includes('tudo');
       const isExpired = query.includes('expir');
       const isActive = query.includes('ativa') || query.includes('activo') || query.includes('ativo') || query.includes('active');
       const isDirect = query.includes('diret') || query.includes('direct');
       const isIndirect = query.includes('indiret') || query.includes('indirect');
+
+      if (!data || !Array.isArray(data.roles)) {
+        if (wantsTransactions || requestedRole || requestedTransaction) {
+          appendAuthorizationMessage(
+            'assistant',
+            requestedRole
+              ? `Ainda não tenho a análise carregada. Faz primeiro a pesquisa do utilizador e depois eu listo as transações da role ${requestedRole}.`
+              : requestedTransaction
+                ? `Ainda não tenho a análise carregada. Faz primeiro a pesquisa do utilizador e depois eu procuro a transação ${requestedTransaction} nas tuas funções.`
+                : 'Ainda não tenho a análise carregada. Faz primeiro a pesquisa do utilizador e depois eu listo as transações.'
+          );
+          return;
+        }
+
+        appendAuthorizationMessage(
+          'assistant',
+          'Ainda não tenho a lista anterior carregada. Faz primeiro a análise do utilizador ou pede-me para filtrar a lista já existente.'
+        );
+        return;
+      }
+
+      if (wantsTransactions || requestedRole || requestedTransaction) {
+        const allFunctions = getAuthorizationAllFunctions(data);
+
+        if (requestedRole) {
+          const roleFunctions = getAuthorizationRoleFunctions(data, requestedRole);
+          if (roleFunctions.length > 0) {
+            if (roleFunctions.length <= 8) {
+              renderAuthorizationTable(
+                `Transações da role ${requestedRole}`,
+                ['Transação'],
+                roleFunctions.map((item) => [item]),
+                `Não encontrei transações associadas à role ${requestedRole} na análise atual.`
+              );
+            } else {
+              renderAuthorizationPlainList(
+                `Transações da role ${requestedRole}`,
+                roleFunctions,
+                `Não encontrei transações associadas à role ${requestedRole} na análise atual.`
+              );
+            }
+            return;
+          }
+
+          const requestedToken = normalizeAuthorizationToken(requestedRole).replace(/^ROLE\s+/, '');
+          const similarRoles = roles
+            .map((role) => String(role?.role || role?.name || role?.function || '').trim())
+            .filter(Boolean)
+            .filter((roleName) => normalizeAuthorizationToken(roleName).includes(requestedToken))
+            .slice(0, 8);
+
+          appendAuthorizationMessage(
+            'assistant',
+            similarRoles.length > 0
+              ? `Não encontrei transações associadas à role ${requestedRole} na análise atual. Roles parecidas nesta lista: ${similarRoles.join(', ')}.`
+              : `Não encontrei transações associadas à role ${requestedRole} na análise atual. Se esta análise foi feita em CUA, pode não ter detalhe de AGR_TCODES.`
+          );
+          return;
+        }
+
+        if (requestedTransaction) {
+          const matchingRoles = getAuthorizationRolesWithTransaction(data, requestedTransaction);
+          if (matchingRoles.length > 0) {
+            renderAuthorizationTable(
+              `Funções com a transação ${requestedTransaction}`,
+              ['Função'],
+              matchingRoles.map((item) => [item]),
+              `Não encontrei funções com a transação ${requestedTransaction} na análise atual.`
+            );
+            return;
+          }
+
+          appendAuthorizationMessage(
+            'assistant',
+            `Não encontrei funções com a transação ${requestedTransaction} na análise atual. Se a análise foi feita em CUA, pode não existir detalhe de AGR_TCODES por role.`
+          );
+          return;
+        }
+
+        if (allFunctions.length > 0) {
+          renderAuthorizationPlainList(
+            'Lista de funções/TCODEs',
+            allFunctions,
+            'Não tenho funções disponíveis na análise atual.'
+          );
+          return;
+        }
+
+        appendAuthorizationMessage('assistant', 'Não tenho funções disponíveis na análise atual.');
+        return;
+      }
+
+      if (wantsRemoval) {
+        const candidateRoles = authorizationLastDisplayedRoles.length > 0
+          ? authorizationLastDisplayedRoles
+          : (wantsAllRoles ? roles : []);
+
+        if (!candidateRoles.length) {
+          appendAuthorizationMessage(
+            'assistant',
+            'Para remover funções, primeiro pede a lista filtrada ou indica "remova as funções mostradas" / "remova todas as funções do utilizador".'
+          );
+          return;
+        }
+
+        renderAuthorizationRemovalPrompt(
+          candidateRoles,
+          wantsAllRoles || authorizationLastDisplayedRoles.length === 0
+            ? 'as funções do utilizador'
+            : 'as funções mostradas na lista'
+        );
+        return;
+      }
 
       let filtered = roles.slice();
       if (isExpired) {
@@ -10229,8 +10716,89 @@
 
       appendAuthorizationMessage(
         'assistant',
-        'Posso filtrar a lista por "expiradas", "ativas", "diretas" ou "indiretas".'
+        'Posso filtrar a lista por "expiradas", "ativas", "diretas" ou "indiretas". Também posso mostrar as transações de uma role ou procurar uma transação nas suas funções.'
       );
+    }
+    async function confirmAuthorizationRemoval() {
+      if (!authorizationPendingRemoval) {
+        appendAuthorizationMessage('assistant', 'Não tenho funções pendentes para remover.');
+        return;
+      }
+
+      const pending = authorizationPendingRemoval;
+      const roles = Array.isArray(pending.roles) ? pending.roles : [];
+      const payload = {
+        target_user: pending.targetUser || authorizationTargetUser,
+        target_system_key: pending.targetSystemKey || authorizationSelectedSystem?.key || '',
+        roles: roles.map(item => ({
+          role: item.role || item.function || item.agr_name || item.AGR_NAME || item.name || ''
+        })),
+        opcao_processamento: 'sistema_user'
+      };
+
+      if (!payload.target_user || !payload.target_system_key || payload.roles.length === 0) {
+        appendAuthorizationMessage('assistant', 'Não tenho dados suficientes para criar o pedido de remoção.');
+        return;
+      }
+
+      appendAuthorizationMessage('assistant', 'A preparar o pedido de remoção das funções selecionadas...');
+
+      try {
+        const response = await fetch('/api/authorizations/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const detail = data.detail || data.message || '';
+          const routeMsg = response.status === 404
+            ? 'A rota /api/authorizations/remove não foi encontrada na API em execução. Reinicia o serviço web para carregar o código novo.'
+            : response.status === 503
+              ? 'O serviço web ou o worker SAP está indisponível. Confirma que ambos estão ligados e volta a tentar.'
+              : `A API devolveu HTTP ${response.status}.`;
+          throw new Error(detail ? `${routeMsg} Detalhe: ${detail}` : routeMsg);
+        }
+
+        appendAuthorizationMessage(
+          'assistant',
+          `Job CUA_REMOVE criado com sucesso no CUA. Job #${String(data.job_id || '').slice(0, 8)} para remover ${data.roles_count || roles.length} funções do sistema alvo.`
+        );
+        authorizationRemovalLastContext = {
+          user: payload.target_user,
+          system: payload.target_system_key,
+          rolesCount: data.roles_count || roles.length
+        };
+        appendAuthorizationMessage(
+          'assistant',
+          'Vou acompanhar a execução do job e mostrar o resultado final quando terminar.'
+        );
+        authorizationRemovalJobRequestId++;
+        showAuthorizationTypingIndicator(authorizationRemovalJobRequestId, 'A aguardar o fim do job...');
+        pollAuthorizationRemovalJob(data.job_id, authorizationRemovalJobRequestId);
+        authorizationPendingRemoval = null;
+      } catch (error) {
+        const errText = String(error?.message || error || '');
+        const statusHint = errText.includes('A rota /api/authorizations/remove não foi encontrada')
+          ? 'Falta recarregar o serviço web antes de criar o pedido de remoção.'
+          : errText.includes('serviço web ou o worker SAP está indisponível')
+            ? 'Falta ligar o worker SAP ou o serviço web.'
+            : '';
+        appendAuthorizationMessage(
+          'assistant',
+          statusHint
+            ? `Não foi possível criar o pedido de remoção: ${statusHint} ${errText}`
+            : `Não foi possível criar o pedido de remoção: ${errText}`
+        );
+      }
+    }
+
+    function cancelAuthorizationRemoval() {
+      authorizationRemovalJobRequestId++;
+      authorizationPendingRemoval = null;
+      authorizationRemovalLastContext = null;
+      appendAuthorizationMessage('assistant', 'Pedido de remoção cancelado.');
     }
 
     function removeAuthorizationTypingIndicator() {
@@ -10340,10 +10908,14 @@
 
     function resetAuthorizationChat() {
       stopAuthorizationJobPolling();
+      authorizationRemovalJobRequestId++;
       clearAuthorizationTimers();
       removeAuthorizationTypingIndicator();
 
       authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+      authorizationLastDisplayedRoles = [];
+      authorizationPendingRemoval = null;
+      authorizationRemovalLastContext = null;
       window.hasPrintedAgrUsers = false;
       window.hasPrintedAgrTcodes = false;
       window.hasPrintedUsla04 = false;
@@ -11429,6 +12001,7 @@
                 
                 let rowsHtml = '';
                 const roles = statusData.roles || [];
+                authorizationLastDisplayedRoles = Array.isArray(roles) ? roles.slice() : [];
                 
                 roles.forEach((r, idx) => {
                   const validityFrom = r.valid_from || '(aberta)';

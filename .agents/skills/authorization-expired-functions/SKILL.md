@@ -17,6 +17,9 @@ Use this skill after an authorization analysis has finished and the user asks fo
   - direct only
   - indirect only
   - counts by status
+  - transactions assigned to a role
+  - functions assigned to a user
+  - names only / plain list outputs
 
 ## Core Rule
 
@@ -32,6 +35,9 @@ Use this skill after an authorization analysis has finished and the user asks fo
 - Preserve the role or function names exactly as shown.
 - If the user asks for a count, include the total expired count.
 - If the user asks for direct or indirect assignments, use the assignment labels already present in the list.
+- If the user asks for transactions assigned to a role, return only the transaction codes or transaction names already present in the analysis results.
+- If the user asks for the functions of a role, return the list of functions/TCODEs associated with that role from the final authorization data.
+- If the user asks for "a lista das funções", prefer a plain list with one item per line.
 
 ## Recommended Filtering
 
@@ -54,3 +60,5 @@ Then:
 - "Liste-me somente as funcoes expiradas" -> return only expired role or function names.
 - "Quantas estao expiradas?" -> return the number plus the expired names if useful.
 - "Mostre as expiradas diretas" -> return only entries marked expired and direct.
+- "Quais as transações atribuídas à função Z_LOGISTIC_TEMP?" -> return only the transactions linked to that role.
+- "Quero a lista das funções" -> return a plain list of the functions/TCODEs from the analyzed result.

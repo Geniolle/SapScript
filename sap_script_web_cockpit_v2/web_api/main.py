@@ -31,12 +31,13 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, delete_all_jobs, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo, get_job_state
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 from web_api.authorization_agent import get_analysis_types, get_execution_mode_for_system_key
 import asyncio
+from openpyxl import Workbook
 
 def update_worker_ping_for_job(job_id: str) -> None:
     try:
@@ -983,6 +984,13 @@ def _authorization_env_alias(system_key: str) -> str:
     return ""
 
 
+def _authorization_system_short_name(system_key: str) -> str:
+    cleaned = str(system_key or "").strip().upper()
+    if "CLNT" in cleaned:
+        return cleaned.split("CLNT", 1)[0]
+    return cleaned
+
+
 def _first_env_value(env_data: dict[str, str], *names: str) -> str:
     for name in names:
         if not name:
@@ -1133,6 +1141,13 @@ class AuthorizationStartRequest(BaseModel):
     analysis_type: str
 
 
+class AuthorizationRemoveRequest(BaseModel):
+    target_user: str
+    target_system_key: str
+    roles: list[Any] = Field(default_factory=list)
+    opcao_processamento: str = "sistema_user"
+
+
 def is_any_worker_active() -> bool:
     import time
     now = time.time()
@@ -1221,6 +1236,117 @@ async def api_start_authorization_analysis(payload: AuthorizationStartRequest) -
             "job_id": job["id"],
             "state": job["state"],
             "message": "Análise de autorizações iniciada."
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/authorizations/remove")
+async def api_remove_authorization_roles(payload: AuthorizationRemoveRequest) -> dict[str, Any]:
+    import re
+
+    target_user = payload.target_user.strip().upper()
+    target_system_key = payload.target_system_key.strip().upper()
+    opcao_processamento = str(payload.opcao_processamento or "sistema_user").strip().lower() or "sistema_user"
+    cua_sap_key = os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001").strip().upper()
+
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Utilizador a remover não foi informado.")
+
+    if len(target_user) > 40:
+        raise HTTPException(status_code=400, detail="Utilizador a remover excede o limite de 40 caracteres.")
+
+    if not re.match(r"^[A-Z0-9.\-_]+$", target_user):
+        raise HTTPException(status_code=400, detail="Utilizador contém caracteres inválidos.")
+
+    if not target_system_key:
+        raise HTTPException(status_code=400, detail="Sistema alvo não foi informado.")
+
+    if not re.match(r"^[A-Z0-9_]+CLNT[0-9]+$", target_system_key):
+        raise HTTPException(status_code=400, detail="Formato de sistema lógico inválido.")
+
+    roles: list[str] = []
+    for item in payload.roles or []:
+        if isinstance(item, str):
+            raw_role = item
+        elif isinstance(item, dict):
+            raw_role = item.get("role") or item.get("function") or item.get("agr_name") or item.get("AGR_NAME") or item.get("name") or ""
+        else:
+            raw_role = ""
+
+        role = str(raw_role or "").strip().upper()
+        if role:
+            roles.append(role)
+
+    roles = list(dict.fromkeys(roles))
+    if not roles:
+        raise HTTPException(status_code=400, detail="Nenhuma função válida foi informada para remoção.")
+
+    if opcao_processamento not in {"sistema_user", "sistema"}:
+        raise HTTPException(status_code=400, detail="Opção de processamento inválida. Valores permitidos: sistema_user, sistema.")
+
+    env_path = _find_authorization_env_file()
+    if not env_path:
+        raise HTTPException(status_code=400, detail="Ficheiro .env não encontrado no contentor.")
+
+    env_data = _parse_env_file(env_path)
+    if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
+        raise HTTPException(status_code=400, detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env.")
+
+    ambiente = "CUA"
+
+    require_worker_online(
+        "sap_cockpit",
+        message="O Worker Windows está desligado. Ligue o worker antes de iniciar a remoção de funções."
+    )
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+    system_short = _authorization_system_short_name(target_system_key)
+    safe_name = _safe_upload_filename(f"CUA_REMOVE_{target_user}_{target_system_key}.xlsx")
+    container_path = UPLOADS_DIR / safe_name
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "CUA_REMOVE"
+    sheet.append(["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME", "STATUS", "MSG", "TIMESTEMP"])
+
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    for idx, role in enumerate(roles, start=1):
+        sheet.append([idx, target_user, target_system_key, role, "", "", now])
+
+    workbook.save(container_path)
+
+    job_params: dict[str, Any] = {
+        "ambiente": ambiente,
+        "processo": "Funções PFCG",
+        "subprocesso": "J. CUA_REMOVE.py",
+        "request_option": "4",
+        "request_number": "",
+        "request_desc": f"{target_user} | {target_system_key} | {len(roles)} funções a remover",
+        "request_type": "1",
+        "caminho_ficheiro": _windows_upload_path(safe_name),
+        "transacao": "",
+        "opcao_processamento": opcao_processamento,
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "cua_sap_key": cua_sap_key,
+        "roles": roles,
+        "source": "authorization_follow_up",
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
+        return {
+            "success": True,
+            "job_id": job["id"],
+            "state": job["state"],
+            "message": f"Job CUA_REMOVE criado com {len(roles)} funções.",
+            "caminho_ficheiro": _windows_upload_path(safe_name),
+            "ambiente": ambiente,
+            "system_short": system_short,
+            "roles_count": len(roles),
+            "cua_sap_key": cua_sap_key,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
