@@ -479,151 +479,607 @@ def read_current_status(description: str = "") -> SapGuiResult:
         )
 
 
-def collect_sap_components(container) -> list[dict[str, Any]]:
-    """Percorre recursivamente o container e recolhe propriedades dos componentes relevantes."""
-    components = []
-    
-    def walk(node):
-        if node is None:
-            return
-        
-        comp_info = {}
-        for prop in ["Id", "Name", "Type", "Text", "Changeable", "Left", "Top", "Width", "Height"]:
-            try:
-                val = getattr(node, prop, None)
-                if prop in ["Left", "Top", "Width", "Height"]:
-                    comp_info[prop.lower()] = int(val) if val is not None else 0
-                elif prop == "Changeable":
-                    comp_info[prop.lower()] = bool(val) if val is not None else False
-                else:
-                    comp_info[prop.lower()] = str(val) if val is not None else ""
-            except Exception:
-                comp_info[prop.lower()] = 0 if prop in ["Left", "Top", "Width", "Height"] else (False if prop == "Changeable" else "")
-        
-        comp_type = comp_info.get("type", "")
-        if comp_type in ("GuiLabel", "GuiTextField", "GuiCTextField"):
-            is_visible = True
-            try:
-                if getattr(node, "Visible", True) is False:
-                    is_visible = False
-            except Exception:
-                pass
-            if is_visible and comp_info.get("width", 0) > 0 and comp_info.get("height", 0) > 0:
-                comp_info["element"] = node
-                components.append(comp_info)
-        
-        try:
-            children = getattr(node, "Children", None)
-            if children:
-                for i in range(children.Count):
-                    walk(children.Element(i))
-        except Exception:
-            pass
+def get_sap_children(obj):
+    children = []
+    try:
+        collection = obj.Children
+        count = int(collection.Count)
+    except Exception:
+        return children
 
-    walk(container)
-    return components
+    for index in range(count):
+        child = None
+        try:
+            child = collection.Item(index)
+        except Exception:
+            try:
+                child = collection(index)
+            except Exception:
+                try:
+                    child = collection.Element(index)
+                except Exception:
+                    child = None
+        if child is not None:
+            children.append(child)
+    return children
+
+
+def collect_sap_components(root, max_depth=12, max_nodes=3000):
+    result = []
+    visited_ids = set()
+
+    def visit(component, depth):
+        if component is None:
+            return
+        if depth > max_depth:
+            return
+        if len(result) >= max_nodes:
+            return
+
+        try:
+            component_id = str(getattr(component, "Id", ""))
+        except Exception:
+            component_id = ""
+
+        visit_key = component_id or id(component)
+        if visit_key in visited_ids:
+            return
+
+        visited_ids.add(visit_key)
+        result.append(component)
+
+        for child in get_sap_children(component):
+            visit(child, depth + 1)
+
+    visit(root, 0)
+    return result
+
+
+def describe_sap_component(component):
+    def safe_attr(name, default=None):
+        try:
+            return getattr(component, name)
+        except Exception:
+            return default
+
+    def safe_int(val):
+        try:
+            return int(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    return {
+        "id": str(safe_attr("Id", "") or ""),
+        "name": str(safe_attr("Name", "") or ""),
+        "type": str(safe_attr("Type", "") or ""),
+        "text": str(safe_attr("Text", "") or ""),
+        "changeable": safe_attr("Changeable", None),
+        "enabled": safe_attr("Enabled", None),
+        "visible": safe_attr("Visible", None),
+        "left": safe_int(safe_attr("Left", None)),
+        "top": safe_int(safe_attr("Top", None)),
+        "width": safe_int(safe_attr("Width", None)),
+        "height": safe_int(safe_attr("Height", None)),
+    }
+
+
+def is_sap_true(value):
+    if value is True:
+        return True
+    if isinstance(value, int):
+        return value != 0
+    return str(value or "").strip().lower() in {"true", "1", "-1", "yes"}
+
+
+def is_editable_sap_field(component) -> bool:
+    desc = describe_sap_component(component)
+    comp_type = desc["type"]
+    if comp_type not in {"GuiTextField", "GuiCTextField", "GuiPasswordField"}:
+        return False
+
+    enabled = desc["enabled"]
+    if enabled is False or str(enabled).strip().lower() in {"false", "0", "no"}:
+        return False
+
+    changeable = desc["changeable"]
+    if changeable is None:
+        return True
+    return is_sap_true(changeable)
+
+
+def normalize_label(value):
+    return str(value or "").strip().upper().rstrip(":")
+
+
+def is_sap_label(component, label_name: str) -> bool:
+    desc = describe_sap_component(component)
+    if desc["type"] in {"GuiTextField", "GuiCTextField", "GuiPasswordField"}:
+        return False
+
+    norm_text = normalize_label(desc["text"])
+    norm_target = normalize_label(label_name)
+
+    if norm_text == norm_target:
+        return True
+
+    if desc["type"] == "GuiLabel":
+        translated_terms = {
+            "BNAME": ["BNAME", "UTILIZADOR", "USER", "NOME"],
+            "SUBSYSTEM": ["SUBSYSTEM", "SISTEMA", "SYSTEM", "LOGICAL SYSTEM"]
+        }.get(norm_target, [norm_target])
+        if norm_text in translated_terms or any(term in norm_text for term in translated_terms):
+            return True
+
+    return False
+
+
+def get_se16_usr_components(session) -> list:
+    raw_components = []
+    try:
+        wnd0 = session.findById("wnd[0]")
+        if wnd0:
+            raw_components = collect_sap_components(wnd0)
+    except Exception:
+        pass
+
+    try:
+        usr = session.findById("wnd[0]/usr")
+        if usr:
+            usr_comps = collect_sap_components(usr)
+            seen = set()
+            combined = []
+            for c in raw_components + usr_comps:
+                try:
+                    c_id = str(getattr(c, "Id", ""))
+                except Exception:
+                    c_id = ""
+                key = c_id or id(c)
+                if key not in seen:
+                    seen.add(key)
+                    combined.append(c)
+            raw_components = combined
+    except Exception:
+        pass
+
+    filtered = []
+    for c in raw_components:
+        try:
+            c_id = str(getattr(c, "Id", ""))
+        except Exception:
+            c_id = ""
+        if "/usr/" in c_id or "wnd[0]" not in c_id:
+            filtered.append(c)
+    return filtered
+
+
+def find_se16_low_field_by_label_with_components(components: list, field_name: str) -> Any:
+    field_upper = field_name.upper()
+    target_label = None
+    for c in components:
+        if is_sap_label(c, field_upper):
+            target_label = describe_sap_component(c)
+            break
+
+    if not target_label:
+        return None
+
+    label_top = target_label.get("top")
+    label_left = target_label.get("left")
+    if label_top is None or label_left is None:
+        return None
+
+    candidates = []
+    for c in components:
+        if not is_editable_sap_field(c):
+            continue
+
+        desc = describe_sap_component(c)
+        tf_top = desc.get("top")
+        tf_left = desc.get("left")
+        if tf_top is None or tf_left is None:
+            continue
+
+        v_diff = abs(tf_top - label_top)
+        if v_diff <= 8:
+            if tf_left > label_left:
+                candidates.append((v_diff, tf_left - label_left, c))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: (x[0], x[1]))
+    best_candidate = candidates[0][2]
+    return best_candidate
 
 
 def find_se16_low_field_by_label(session, field_name: str) -> Any:
     """Localiza o campo LOW para o field_name na tela de seleção SE16 clássica usando posicionamento por label."""
+    components = get_se16_usr_components(session)
+    return find_se16_low_field_by_label_with_components(components, field_name)
+
+
+def get_direct_user_area_children(session):
+    user_area = session.findById("wnd[0]/usr")
+    collection = user_area.Children
+    count = int(collection.Count)
+    result = []
+
+    for index in range(count):
+        component = None
+        try:
+            component = collection.Item(index)
+        except Exception:
+            try:
+                component = collection(index)
+            except Exception:
+                try:
+                    component = collection.Element(index)
+                except Exception:
+                    component = None
+
+        if component is not None:
+            result.append(
+                {
+                    "index": index,
+                    "component": component,
+                }
+            )
+    return result
+
+
+def normalize_se16_caption(value):
+    return str(value or "").strip().upper().rstrip(":")
+
+
+def try_write_se16_field(component, value):
     try:
-        usr = session.findById("wnd[0]/usr")
+        try:
+            component.setFocus()
+        except Exception:
+            pass
+
+        component.Text = str(value)
+        time.sleep(0.1)
+        actual = str(getattr(component, "Text", "") or "").strip()
+        return actual.upper() == str(value).strip().upper()
     except Exception:
-        return None
-        
-    components = collect_sap_components(usr)
-    
-    field_upper = field_name.upper()
+        return False
+
+
+class Se16FilterNotFoundError(RuntimeError):
+    pass
+
+
+def safe_component_id(component):
+    try:
+        return str(getattr(component, "Id", ""))
+    except Exception:
+        return ""
+
+
+def find_and_fill_se16_low_field(session, *, field_name, value):
+    children = get_direct_user_area_children(session)
+    expected_caption = normalize_se16_caption(field_name)
+
     translated_terms = {
         "BNAME": ["BNAME", "UTILIZADOR", "USER", "NOME"],
         "SUBSYSTEM": ["SUBSYSTEM", "SISTEMA", "SYSTEM", "LOGICAL SYSTEM"]
-    }.get(field_upper, [field_upper])
-    
-    target_label = None
-    for c in components:
-        if c.get("type") == "GuiLabel":
-            text = c.get("text", "").strip().upper()
-            if text in translated_terms or text.replace(":", "") in translated_terms or any(term == text for term in translated_terms):
-                target_label = c
-                break
-            if any(term in text for term in translated_terms):
-                target_label = c
-                break
+    }.get(expected_caption, [expected_caption])
 
-    if not target_label:
-        return None
-    
-    label_top = target_label.get("top", 0)
-    label_left = target_label.get("left", 0)
-    
-    candidates = []
-    for c in components:
-        if c.get("type") not in ("GuiTextField", "GuiCTextField"):
+    for position, entry in enumerate(children):
+        component = entry["component"]
+        try:
+            text = normalize_se16_caption(component.Text)
+        except Exception:
+            text = ""
+
+        if text != expected_caption and text not in translated_terms and not any(term in text for term in translated_terms):
             continue
-        if not c.get("changeable"):
-            continue
-            
-        tf_top = c.get("top", 0)
-        tf_left = c.get("left", 0)
-        
-        # Mesma linha vertical com tolerância de 8 pixels
-        if abs(tf_top - label_top) <= 8:
-            if tf_left > label_left:
-                candidates.append(c)
-                
-    if not candidates:
-        return None
-        
-    candidates.sort(key=lambda x: x.get("left", 0))
-    best_candidate = candidates[0]
-    return best_candidate.get("element")
+
+        candidate_positions = [
+            position + 1,
+            position + 2,
+        ]
+
+        for candidate_position in candidate_positions:
+            if candidate_position >= len(children):
+                continue
+
+            candidate = children[candidate_position]["component"]
+            try:
+                cand_text = str(getattr(candidate, "Text", "")).strip().lower()
+                cand_type = str(getattr(candidate, "Type", ""))
+                if "Button" in cand_type:
+                    continue
+                if cand_text in ("to", "até", "a"):
+                    continue
+                if normalize_se16_caption(cand_text) in {"BNAME", "SUBSYSTEM"}:
+                    continue
+            except Exception:
+                pass
+
+            if try_write_se16_field(candidate, value):
+                return {
+                    "field_name": field_name,
+                    "caption_index": entry["index"],
+                    "input_index": children[candidate_position]["index"],
+                    "input_id": safe_component_id(candidate),
+                    "component": candidate,
+                }
+
+    raise Se16FilterNotFoundError(
+        f"Não foi possível localizar o campo LOW de {field_name} na SE16."
+    )
+
+
+def fill_se16_field_with_fallbacks(session, field_name: str, value: str, table: str) -> Any:
+    field_upper = field_name.upper()
+    table_upper = table.upper()
+
+    # 1. iteração sequencial de children + próximo elemento
+    try:
+        res = find_and_fill_se16_low_field(session, field_name=field_upper, value=value)
+        if res:
+            return res["component"]
+    except Exception:
+        pass
+
+    # 2. Fallbacks de IDs específicos para USZBVSYS
+    if table_upper == "USZBVSYS":
+        specific_ids = {
+            "BNAME": [
+                "wnd[0]/usr/ctxtI1-LOW",
+                "wnd[0]/usr/txtI1-LOW",
+            ],
+            "SUBSYSTEM": [
+                "wnd[0]/usr/ctxtI3-LOW",
+                "wnd[0]/usr/txtI3-LOW",
+            ]
+        }.get(field_upper, [])
+
+        for spec_id in specific_ids:
+            try:
+                comp = session.findById(spec_id)
+                if comp and try_write_se16_field(comp, value):
+                    return comp
+            except Exception:
+                pass
+
+    # 3. Fallback de IDs semânticos/conhecidos gerais
+    general_ids = {
+        "BNAME": [
+            "wnd[0]/usr/txtBNAME-LOW",
+            "wnd[0]/usr/txtI1-LOW",
+            "wnd[0]/usr/txtI1",
+            "wnd[0]/usr/ctxtBNAME-LOW",
+            "wnd[0]/usr/ctxtI1-LOW",
+            "wnd[0]/usr/ctxtI1",
+        ],
+        "SUBSYSTEM": [
+            "wnd[0]/usr/ctxtSUBSYSTEM-LOW",
+            "wnd[0]/usr/ctxtI2-LOW",
+            "wnd[0]/usr/ctxtI2",
+            "wnd[0]/usr/txtSUBSYSTEM-LOW",
+            "wnd[0]/usr/txtI2-LOW",
+            "wnd[0]/usr/txtI2",
+        ]
+    }.get(field_upper, [])
+
+    for gen_id in general_ids:
+        try:
+            comp = session.findById(gen_id)
+            if comp and try_write_se16_field(comp, value):
+                return comp
+        except Exception:
+            pass
+
+    # 4. Fallback geométrico (Left/Top)
+    try:
+        comp = find_se16_low_field_by_label(session, field_upper)
+        if comp and try_write_se16_field(comp, value):
+            return comp
+    except Exception:
+        pass
+
+    # 5. Fallback por sufixos clássicos do _find_selection_field
+    usr_area = None
+    try:
+        usr_area = session.findById("wnd[0]/usr")
+    except Exception:
+        pass
+
+    if usr_area:
+        for suffix in [f"{field_upper}-LOW", f"SO_{field_upper[:4]}-LOW", f"GD-{field_upper}-LOW", field_upper]:
+            try:
+                comp = _find_selection_field(usr_area, suffix)
+                if comp and try_write_se16_field(comp, value):
+                    return comp
+            except Exception:
+                pass
+
+        if field_upper == "BNAME":
+            for idx in ("I1-LOW", "I1"):
+                try:
+                    comp = _find_selection_field(usr_area, idx)
+                    if comp and try_write_se16_field(comp, value):
+                        return comp
+                except Exception:
+                    pass
+        elif field_upper == "SUBSYSTEM":
+            for idx in ("I2-LOW", "I2"):
+                try:
+                    comp = _find_selection_field(usr_area, idx)
+                    if comp and try_write_se16_field(comp, value):
+                        return comp
+                except Exception:
+                    pass
+
+    return None
 
 
 def _find_se16_field(session, field_name: str) -> Any:
-    """Procura um elemento de seleção na SE16 para o campo dado."""
-    try:
-        usr = session.findById("wnd[0]/usr")
-    except Exception:
-        return None
-        
+    """Procura um elemento de seleção na SE16 para o campo dado (compatibilidade com testes)."""
     field_upper = field_name.upper()
 
-    # 1. Tentar Name/Id exato ou contendo o nome técnico (fallback semântico por Name e ID)
-    # Procurar primeiro na árvore por elementos editáveis contendo o nome técnico no ID ou Name (evitando -HIGH)
-    components = collect_sap_components(usr)
-    editables = [c for c in components if c.get("changeable") and c.get("type") in ("GuiTextField", "GuiCTextField")]
-    
+    try:
+        children = get_direct_user_area_children(session)
+        expected_caption = normalize_se16_caption(field_upper)
+        translated_terms = {
+            "BNAME": ["BNAME", "UTILIZADOR", "USER", "NOME"],
+            "SUBSYSTEM": ["SUBSYSTEM", "SISTEMA", "SYSTEM", "LOGICAL SYSTEM"]
+        }.get(expected_caption, [expected_caption])
+
+        for position, entry in enumerate(children):
+            component = entry["component"]
+            try:
+                text = normalize_se16_caption(component.Text)
+            except Exception:
+                text = ""
+
+            if text == expected_caption or text in translated_terms or any(term in text for term in translated_terms):
+                candidate_positions = [position + 1, position + 2]
+                for pos in candidate_positions:
+                    if pos < len(children):
+                        cand = children[pos]["component"]
+                        try:
+                            cand_type = str(getattr(cand, "Type", ""))
+                            cand_text = str(getattr(cand, "Text", "")).strip().lower()
+                            if "Button" not in cand_type and cand_text not in ("to", "até", "a"):
+                                return cand
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
+    components = get_se16_usr_components(session)
+    editables = [c for c in components if is_editable_sap_field(c)]
+
+    general_ids = {
+        "BNAME": [
+            "wnd[0]/usr/txtBNAME-LOW",
+            "wnd[0]/usr/txtI1-LOW",
+            "wnd[0]/usr/txtI1",
+            "wnd[0]/usr/ctxtBNAME-LOW",
+            "wnd[0]/usr/ctxtI1-LOW",
+            "wnd[0]/usr/ctxtI1",
+        ],
+        "SUBSYSTEM": [
+            "wnd[0]/usr/ctxtSUBSYSTEM-LOW",
+            "wnd[0]/usr/ctxtI2-LOW",
+            "wnd[0]/usr/ctxtI2",
+            "wnd[0]/usr/txtSUBSYSTEM-LOW",
+            "wnd[0]/usr/txtI2-LOW",
+            "wnd[0]/usr/txtI2",
+        ]
+    }.get(field_upper, [])
+
     for c in editables:
-        name = c.get("name", "").upper()
-        elem_id = c.get("id", "").upper()
+        desc = describe_sap_component(c)
+        if desc["id"] in general_ids:
+            return c
+
+    for c in editables:
+        desc = describe_sap_component(c)
+        name = desc["name"].upper()
+        elem_id = desc["id"].upper()
         if field_upper in name or field_upper in elem_id:
             if "-HIGH" not in elem_id and "-HIGH" not in name:
-                return c.get("element")
+                return c
 
-    # 2. Se não encontrar por ID/Name semântico, usar associação label -> campo pela posição
-    elem = find_se16_low_field_by_label(session, field_name)
+    elem = find_se16_low_field_by_label_with_components(components, field_name)
     if elem:
         return elem
-        
-    # 3. Outros fallbacks baseados em sufixos clássicos conhecidos
-    for suffix in [f"{field_upper}-LOW", f"SO_{field_upper[:4]}-LOW", f"GD-{field_upper}-LOW", field_upper]:
-        elem = _find_selection_field(usr, suffix)
-        if elem:
-            return elem
 
-    # 4. Fallback posicional para tabelas conhecidas
-    if field_upper == "BNAME":
-        for idx in ("I1-LOW", "I1"):
-            elem = _find_selection_field(usr, idx)
+    usr_area = None
+    try:
+        usr_area = session.findById("wnd[0]/usr")
+    except Exception:
+        pass
+
+    if usr_area:
+        for suffix in [f"{field_upper}-LOW", f"SO_{field_upper[:4]}-LOW", f"GD-{field_upper}-LOW", field_upper]:
+            elem = _find_selection_field(usr_area, suffix)
             if elem:
                 return elem
-    elif field_upper == "SUBSYSTEM":
-        for idx in ("I2-LOW", "I2"):
-            elem = _find_selection_field(usr, idx)
-            if elem:
-                return elem
+
+        if field_upper == "BNAME":
+            for idx in ("I1-LOW", "I1"):
+                elem = _find_selection_field(usr_area, idx)
+                if elem:
+                    return elem
+        elif field_upper == "SUBSYSTEM":
+            for idx in ("I2-LOW", "I2"):
+                elem = _find_selection_field(usr_area, idx)
+                if elem:
+                    return elem
 
     return None
+
+
+class Se16FieldDiscoveryError(RuntimeError):
+    pass
+
+
+def build_safe_discovery_error(snapshot):
+    labels = snapshot.get("labels", [])
+    editable_fields = snapshot.get("editable_fields", [])
+    labels_text = [l.get("text", "") for l in labels]
+    editables_ids = [e.get("id", "") for e in editable_fields]
+    return (
+        f"Não foi possível localizar os campos obrigatórios da SE16.\n"
+        f"Labels encontradas: {labels_text}\n"
+        f"Campos editáveis encontrados: {editables_ids}"
+    )
+
+
+def wait_for_se16_fields(session, timeout_s=15):
+    deadline = time.monotonic() + timeout_s
+    last_snapshot = {"labels": [], "editable_fields": []}
+
+    while time.monotonic() < deadline:
+        try:
+            children = get_direct_user_area_children(session)
+            labels = []
+            editable_fields = []
+
+            for entry in children:
+                comp = entry["component"]
+                try:
+                    text = normalize_se16_caption(comp.Text)
+                    comp_type = str(getattr(comp, "Type", ""))
+                except Exception:
+                    text = ""
+                    comp_type = ""
+
+                translated_bname = ["BNAME", "UTILIZADOR", "USER", "NOME"]
+                translated_sub = ["SUBSYSTEM", "SISTEMA", "SYSTEM", "LOGICAL SYSTEM"]
+
+                if text in translated_bname or text in translated_sub:
+                    labels.append({
+                        "id": safe_component_id(comp),
+                        "text": text,
+                        "type": comp_type
+                    })
+
+                if "TextField" in comp_type or "CTextField" in comp_type:
+                    editable_fields.append({
+                        "id": safe_component_id(comp),
+                        "type": comp_type
+                    })
+
+            last_snapshot = {
+                "labels": labels,
+                "editable_fields": editable_fields,
+            }
+            if labels and editable_fields:
+                return [entry["component"] for entry in children]
+        except Exception:
+            pass
+        time.sleep(0.4)
+
+    raise Se16FieldDiscoveryError(
+        build_safe_discovery_error(last_snapshot)
+    )
 
 
 def wait_for_se16_selection_screen(session, table: str, timeout_s: float = 15.0) -> bool:
@@ -638,21 +1094,9 @@ def wait_for_se16_selection_screen(session, table: str, timeout_s: float = 15.0)
                 time.sleep(0.5)
                 continue
             
-            usr = session.findById("wnd[0]/usr")
-            components = collect_sap_components(usr)
-            editables = [c for c in components if c.get("changeable") and c.get("type") in ("GuiTextField", "GuiCTextField")]
-            
-            if not editables:
-                time.sleep(0.5)
-                continue
-                
-            if table_upper == "USZBVSYS":
-                has_bname = any("BNAME" in str(c.get("text", "")).upper() for c in components)
-                if not has_bname:
-                    time.sleep(0.5)
-                    continue
-            
-            return True
+            components = wait_for_se16_fields(session, timeout_s=2.0)
+            if components:
+                return True
         except Exception:
             time.sleep(0.5)
     return False
@@ -844,6 +1288,7 @@ def se16_query_with_session(
         pass
 
     applied_filters = []
+    filters_applied = {}
     if filters:
         for f in filters:
             field_name = str(f.get("field") or "").strip().upper()
@@ -864,30 +1309,26 @@ def se16_query_with_session(
 
             print(f"[AUTH][SE16] A localizar filtro {field_name}.")
             
-            usr_area = session.findById("wnd[0]/usr")
-            components = collect_sap_components(usr_area)
-            translated_terms = {
-                "BNAME": ["BNAME", "UTILIZADOR", "USER", "NOME"],
-                "SUBSYSTEM": ["SUBSYSTEM", "SISTEMA", "SYSTEM", "LOGICAL SYSTEM"]
-            }.get(field_name, [field_name])
+            components = get_se16_usr_components(session)
+            total_n = len(components)
+            labels_n = sum(1 for c in components if describe_sap_component(c)["type"] == "GuiLabel")
+            text_fields_n = sum(1 for c in components if describe_sap_component(c)["type"] in ("GuiTextField", "GuiCTextField", "GuiPasswordField"))
+            containers_n = total_n - labels_n - text_fields_n
+            print(f"[AUTH][SE16][DEBUG] Total de componentes: {total_n}")
+            print(f"[AUTH][SE16][DEBUG] Labels encontrados: {labels_n}")
+            print(f"[AUTH][SE16][DEBUG] Campos de texto encontrados: {text_fields_n}")
+            print(f"[AUTH][SE16][DEBUG] Contentores encontrados: {containers_n}")
             
-            label_found = False
-            for comp in components:
-                if comp.get("type") == "GuiLabel":
-                    text = comp.get("text", "").strip().upper()
-                    if text in translated_terms or text.replace(":", "") in translated_terms or any(term in text for term in translated_terms):
-                        label_found = True
-                        break
-            if label_found:
-                print(f"[AUTH][SE16] Label {field_name} encontrada.")
-            else:
-                print(f"[AUTH][SE16] Label {field_name} não encontrada.")
+            editables = [c for c in components if is_editable_sap_field(c)]
+            for c in editables:
+                desc = describe_sap_component(c)
+                print(f"[AUTH][SE16][DEBUG] Candidato - Id: {desc['id']}, Name: {desc['name']}, Type: {desc['type']}, Text: {desc['text']}, Changeable: {desc['changeable']}, Left: {desc['left']}, Top: {desc['top']}")
 
             field_element = _find_se16_field(session, field_name)
 
             if not field_element:
-                labels_found = [comp.get("text", "").strip() for comp in components if comp.get("type") == "GuiLabel"]
-                editables_found = [comp.get("id", "").strip() for comp in components if comp.get("changeable") and comp.get("type") in ("GuiTextField", "GuiCTextField")]
+                labels_found = [describe_sap_component(comp).get("text", "").strip() for comp in components if describe_sap_component(comp).get("type") == "GuiLabel"]
+                editables_found = [describe_sap_component(comp).get("id", "").strip() for comp in components if is_editable_sap_field(comp)]
                 error_msg = f"Não foi possível localizar o campo {field_name} no ecrã de seleção da tabela {table_upper} na SE16."
                 tech_log = (
                     f"Tabela: {table_upper}\n"
@@ -920,21 +1361,23 @@ def se16_query_with_session(
                 time.sleep(0.1)
                 written_value = str(field_element.Text).strip()
                 if written_value.upper() == value.upper():
+                    filters_applied[field_name] = True
                     applied_filters.append(field_name)
                 else:
                     field_element.Text = value
                     time.sleep(0.2)
                     written_value = str(field_element.Text).strip()
                     if written_value.upper() == value.upper():
+                        filters_applied[field_name] = True
                         applied_filters.append(field_name)
             except Exception as exc:
                 print(f"[AUTH][SE16][ERROR] Erro ao preencher campo {field_name}: {exc}")
                 pass
 
-            if field_name in applied_filters:
+            if filters_applied.get(field_name):
                 print(f"[AUTH][SE16] {field_name} preenchido e validado.")
             else:
-                error_msg = f"Não foi possível localizar o campo {field_name} no ecrã de seleção da tabela {table_upper} na SE16."
+                error_msg = f"Não foi possível preencher/validar o campo {field_name} no ecrã de seleção da tabela {table_upper} na SE16."
                 print(f"[AUTH][SE16][ERROR] {error_msg}")
                 if strict_filters:
                     return SapGuiResult(
@@ -944,6 +1387,21 @@ def se16_query_with_session(
                         success=False,
                         result_text=f"❌ {error_msg}",
                     )
+
+        # Validar se todos os filtros necessários foram aplicados antes de prosseguir
+        expected_filters = {str(f.get("field")).strip().upper() for f in filters if f.get("field")}
+        applied_keys = {k for k, v in filters_applied.items() if v}
+        
+        if strict_filters and expected_filters != applied_keys:
+            error_msg = f"Validação de filtros falhou. Filtros esperados: {expected_filters}, aplicados: {applied_keys}."
+            print(f"[AUTH][SE16][ERROR] {error_msg}")
+            return SapGuiResult(
+                action="se16_query",
+                description=action_desc,
+                error=error_msg,
+                success=False,
+                result_text=f"❌ {error_msg}",
+            )
 
         print("[AUTH][SE16] Todos os filtros obrigatórios foram aplicados. A executar F8.")
 

@@ -14,6 +14,17 @@
 #  - Etapa 2 de performance: sem pandas
 #  - Etapa 3 de performance: cache de IDs SAP
 ###################################################################################
+import sys
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+import functools
+print = functools.partial(print, flush=True)
+
 
 def executar(
     ambiente_cockpit,
@@ -23,7 +34,6 @@ def executar(
     pedir_confirmacao=True,
     nome_pasta=None
 ):
-    import sys
     import os
     import time
     import re
@@ -94,6 +104,70 @@ def executar(
         root.destroy()
         return path
 
+    def gravar_resultados_excel(caminho_ficheiro, sheet_name, header_map, records, resultados):
+        col_st, col_ms, col_tm = header_map.get("STATUS"), header_map.get("MSG"), header_map.get("TIMESTEMP")
+        
+        # 1. Tentar via Excel COM primeiro (mais seguro no Windows para não corromper abas complexas)
+        try:
+            import win32com.client
+            import pythoncom
+            pythoncom.CoInitialize()
+            
+            try:
+                excel_app = win32com.client.GetActiveObject("Excel.Application")
+            except Exception:
+                excel_app = win32com.client.Dispatch("Excel.Application")
+            
+            excel_app.Visible = False
+            excel_app.DisplayAlerts = False
+            
+            abs_path = os.path.abspath(caminho_ficheiro)
+            wb_excel = excel_app.Workbooks.Open(abs_path)
+            ws_excel = wb_excel.Worksheets(sheet_name)
+            
+            for rec in records:
+                chave_busca = str(rec["AGR_NAME"]).strip()
+                res = resultados.get(chave_busca)
+                if res:
+                    if col_st:
+                        ws_excel.Cells(rec["_row"], col_st).Value = res["STATUS"]
+                    if col_ms:
+                        ws_excel.Cells(rec["_row"], col_ms).Value = res["MSG"]
+                    if col_tm:
+                        ws_excel.Cells(rec["_row"], col_tm).Value = res["TIMESTEMP"]
+            
+            wb_excel.Save()
+            wb_excel.Close(SaveChanges=True)
+            try:
+                excel_app.Quit()
+            except:
+                pass
+            return True
+        except Exception as e_com:
+            print(f"  [DEBUG] Falha ao gravar via Excel COM ({e_com}). Usando openpyxl como fallback...")
+            
+        # 2. Fallback usando openpyxl
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(caminho_ficheiro)
+            ws = wb[sheet_name]
+            for rec in records:
+                chave_busca = str(rec["AGR_NAME"]).strip()
+                res = resultados.get(chave_busca)
+                if res:
+                    if col_st:
+                        ws.cell(row=rec["_row"], column=col_st).value = res["STATUS"]
+                    if col_ms:
+                        ws.cell(row=rec["_row"], column=col_ms).value = res["MSG"]
+                    if col_tm:
+                        ws.cell(row=rec["_row"], column=col_tm).value = res["TIMESTEMP"]
+            wb.save(caminho_ficheiro)
+            wb.close()
+            return True
+        except Exception as e_openpyxl:
+            print(f"  ❌ Falha crítica ao gravar Excel com openpyxl: {e_openpyxl}")
+            return False
+
     def split_tcodes(raw):
         if not raw:
             return []
@@ -114,13 +188,17 @@ def executar(
     # BLOCO 1: LER EXCEL
     ###################################################################################
     if not caminho_ficheiro:
-        if modo_nao_interativo:
-            raise ValueError("Faltou o parâmetro --xlsx em modo não-interativo.")
-        print("📂 Selecione o ficheiro Excel…")
-        caminho_ficheiro = selecionar_ficheiro()
-        if not caminho_ficheiro:
-            print("❌ Operação cancelada.")
-            return
+        if os.path.exists("S4H_Perfis de autorização.xlsx"):
+            caminho_ficheiro = "S4H_Perfis de autorização.xlsx"
+            print("📂 Utilizando ficheiro Excel padrão encontrado na raiz: S4H_Perfis de autorização.xlsx")
+        else:
+            if modo_nao_interativo:
+                raise ValueError("Faltou o parâmetro --xlsx em modo não-interativo.")
+            print("📂 Selecione o ficheiro Excel…")
+            caminho_ficheiro = selecionar_ficheiro()
+            if not caminho_ficheiro:
+                print("❌ Operação cancelada.")
+                return
 
     if not os.path.exists(caminho_ficheiro):
         print(f"❌ Ficheiro não encontrado: {caminho_ficheiro}")
@@ -746,6 +824,78 @@ def executar(
             "erro_tecnico": False,
             "debug": {}
         }
+        
+        # --- TENTAR VIA RFC PRIMEIRO ---
+        try:
+            system_name = str(sess_principal.Info.SystemName).upper()
+            client = str(sess_principal.Info.Client)
+            
+            ashost = os.getenv("SAP_ASHOST")
+            user = os.getenv("SAP_USER")
+            
+            env_passwd_key = f"SAP_PASSWORD_{system_name}CLNT{client}"
+            passwd = os.getenv(env_passwd_key) or os.getenv("SAP_PASSWD") or os.getenv("SAP_PASSWORD")
+            
+            sysnr = os.getenv("SAP_SYSNR") or "00"
+            lang = os.getenv("SAP_LANG") or os.getenv("SAP_LANGUAGE") or "PT"
+            
+            if ashost and user and passwd:
+                from pyrfc import Connection
+                conn_params = {
+                    "ashost": ashost,
+                    "sysnr": sysnr,
+                    "client": client,
+                    "user": user,
+                    "passwd": passwd,
+                    "lang": lang
+                }
+                print(f"├─ Tentando ligar via RFC (Host: {ashost}, Client: {client}, User: {user})...")
+                rfc_conn = Connection(**conn_params)
+                
+                options = [{"TEXT": f"AGR_NAME = '{agr_name}'"}]
+                fields = [{"FIELDNAME": "TCODE"}]
+                rfc_res = rfc_conn.call(
+                    "RFC_READ_TABLE",
+                    QUERY_TABLE="AGR_TCODES",
+                    DELIMITER="|",
+                    FIELDS=fields,
+                    OPTIONS=options,
+                    ROWCOUNT=9999
+                )
+                tcodes_set = set()
+                for row in rfc_res.get("DATA", []):
+                    wa = row.get("WA", "").strip()
+                    if wa:
+                        tc = wa.split("|")[0].strip().upper()
+                        tc_norm = normalizar_tcode(tc)
+                        if tc_norm:
+                            tcodes_set.add(tc_norm)
+                rfc_conn.close()
+                
+                res["tcodes"] = tcodes_set
+                res["qtd"] = len(tcodes_set)
+                res["ok"] = True
+                res["mensagem"] = f"Consulta RFC concluída com sucesso. {len(tcodes_set)} tcodes lidas."
+                print(f"├─ Consulta RFC concluída com sucesso. {len(tcodes_set)} tcodes encontradas.")
+                
+                tcodes_log = sorted(list(tcodes_set))
+                print("├─ TCODEs encontradas na AGR_TCODES:")
+                if tcodes_log:
+                    for tc_item in tcodes_log[:10]:
+                        print(f"│  └─ {tc_item}")
+                    if len(tcodes_log) > 10:
+                        print(f"│  └─ ... (+ {len(tcodes_log) - 10} adicionais)")
+                else:
+                    print("│  └─ nenhuma")
+                    
+                return res
+            else:
+                print("  ⚠️ Parâmetros RFC incompletos no .env. Ignorando RFC.")
+        except Exception as rfc_exc:
+            print(f"  ⚠️ Não foi possível consultar via RFC: {rfc_exc}")
+            print("  ├─ Revertendo para consulta via GUI (SE16H)...")
+            
+        # --- FALLBACK SE16H GUI ---
         new_session = None
         try:
             print(f"├─ Consultando AGR_TCODES para a role {agr_name}...")
@@ -1863,18 +2013,7 @@ def executar(
                 
                 # Checkpoint Excel save
                 try:
-                    col_st, col_ms, col_tm = header_map.get("STATUS"), header_map.get("MSG"), header_map.get("TIMESTEMP")
-                    for rec in records:
-                        chave_busca = str(rec["AGR_NAME"]).strip()
-                        res = resultados.get(chave_busca)
-                        if res:
-                            if col_st:
-                                ws.cell(row=rec["_row"], column=col_st).value = res["STATUS"]
-                            if col_ms:
-                                ws.cell(row=rec["_row"], column=col_ms).value = res["MSG"]
-                            if col_tm:
-                                ws.cell(row=rec["_row"], column=col_tm).value = res["TIMESTEMP"]
-                    wb.save(caminho_ficheiro)
+                    gravar_resultados_excel(caminho_ficheiro, NOME_SHEET, header_map, records, resultados)
                 except Exception as cp_exc:
                     print(f"  ⚠️ Erro ao salvar checkpoint do Excel: {cp_exc}")
 
@@ -1883,24 +2022,10 @@ def executar(
     ###################################################################################
     # BLOCO 5: GRAVAR EXCEL E TEMPO TOTAL
     ###################################################################################
-    try:
-        col_st, col_ms, col_tm = header_map.get("STATUS"), header_map.get("MSG"), header_map.get("TIMESTEMP")
-        for rec in records:
-            chave_busca = str(rec["AGR_NAME"]).strip()
-            res = resultados.get(chave_busca)
-            if res:
-                if col_st:
-                    ws.cell(row=rec["_row"], column=col_st).value = res["STATUS"]
-                if col_ms:
-                    ws.cell(row=rec["_row"], column=col_ms).value = res["MSG"]
-                if col_tm:
-                    ws.cell(row=rec["_row"], column=col_tm).value = res["TIMESTEMP"]
-
-        wb.save(caminho_ficheiro)
-        wb.close()
+    if gravar_resultados_excel(caminho_ficheiro, NOME_SHEET, header_map, records, resultados):
         print("\n💾 Resultados gravados com sucesso no Excel!")
-    except Exception as e:
-        print(f"\n❌ Erro a gravar Excel: {e}")
+    else:
+        print("\n❌ Erro ao gravar resultados finais no Excel.")
 
     # Imprimir Resumo Comparativo das Roles
     if role_metrics:

@@ -453,6 +453,19 @@ def delete_job(job_id: str) -> None:
         conn.commit()
 
 
+def delete_all_jobs() -> int:
+    with get_connection() as conn:
+        before = conn.execute("SELECT COUNT(*) AS total FROM jobs").fetchone()
+        cur = conn.execute("DELETE FROM jobs")
+        conn.commit()
+        if before is not None:
+            try:
+                return int(before["total"])
+            except Exception:
+                pass
+        return int(cur.rowcount or 0)
+
+
 def update_job_params(job_id: str, new_params: dict[str, Any]) -> dict[str, Any]:
     now = utc_now()
     with get_connection() as conn:

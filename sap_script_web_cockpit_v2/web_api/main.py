@@ -33,9 +33,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo, get_job_state
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, delete_all_jobs, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo, get_job_state
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
-from web_api.authorization_agent import get_analysis_types
+from web_api.authorization_agent import get_analysis_types, get_execution_mode_for_system_key
 import asyncio
 
 def update_worker_ping_for_job(job_id: str) -> None:
@@ -969,6 +969,80 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         pass
     return resultado
 
+
+def _authorization_env_alias(system_key: str) -> str:
+    cleaned = str(system_key or "").strip().upper()
+    if cleaned.startswith("S4D"):
+        return "DEV"
+    if cleaned.startswith("S4Q"):
+        return "QAD"
+    if cleaned.startswith("S4P"):
+        return "PRD"
+    if cleaned.startswith("SPA"):
+        return "CUA"
+    return ""
+
+
+def _first_env_value(env_data: dict[str, str], *names: str) -> str:
+    for name in names:
+        if not name:
+            continue
+        value = str(env_data.get(name, "")).strip()
+        if value:
+            return value
+    return ""
+
+
+def _build_authorization_rfc_connection(env_data: dict[str, str], target_system_key: str) -> dict[str, str]:
+    system_key = str(target_system_key or "").strip().upper()
+    system_alias = _authorization_env_alias(system_key)
+    system_name = system_key.split("CLNT", 1)[0]
+    client = system_key.split("CLNT", 1)[1] if "CLNT" in system_key else ""
+
+    connection = {
+        "ashost": _first_env_value(
+            env_data,
+            f"SAP_ASHOST_{system_key}",
+            f"SAP_ASHOST_{system_name}",
+            f"SAP_ASHOST_{system_alias}" if system_alias else "",
+            "SAP_ASHOST",
+        ),
+        "sysnr": _first_env_value(
+            env_data,
+            f"SAP_SYSNR_{system_key}",
+            f"SAP_SYSNR_{system_name}",
+            f"SAP_SYSNR_{system_alias}" if system_alias else "",
+            "SAP_SYSNR",
+        ) or "00",
+        "client": client,
+        "user": _first_env_value(
+            env_data,
+            f"SAP_USER_{system_key}",
+            f"SAP_USER_{system_name}",
+            f"SAP_USER_{system_alias}" if system_alias else "",
+            "SAP_USER",
+        ),
+        "passwd": _first_env_value(
+            env_data,
+            f"SAP_PASSWORD_{system_key}",
+            f"SAP_PASSWORD_{system_name}",
+            f"SAP_PASSWORD_{system_alias}" if system_alias else "",
+            "SAP_PASSWORD",
+        ),
+        "lang": _first_env_value(
+            env_data,
+            f"SAP_RFC_LANGUAGE_{system_key}",
+            f"SAP_RFC_LANGUAGE_{system_name}",
+            f"SAP_RFC_LANGUAGE_{system_alias}" if system_alias else "",
+            f"SAP_LANGUAGE_{system_key}",
+            f"SAP_LANGUAGE_{system_name}",
+            f"SAP_LANGUAGE_{system_alias}" if system_alias else "",
+            "SAP_RFC_LANGUAGE",
+            "SAP_LANGUAGE",
+        ) or "PT",
+    }
+    return connection
+
 @app.get("/api/authorizations/context")
 @app.get("/api/authorizations/config")
 def api_get_authorizations_context() -> dict[str, Any]:
@@ -1028,7 +1102,8 @@ def api_get_authorizations_context() -> dict[str, Any]:
                     "system": sys_name,
                     "client": clnt_num,
                     "connection_name": conn_name,
-                    "label": label
+                    "label": label,
+                    "execution_mode": get_execution_mode_for_system_key(sufixo)
                 })
                 
     # Ordenar de forma previsível e remover duplicados
@@ -1104,13 +1179,26 @@ async def api_start_authorization_analysis(payload: AuthorizationStartRequest) -
     if not validate_analysis_selection(analysis_type) or analysis_type not in {"master_data", "authorizations"}:
         raise HTTPException(status_code=400, detail="Tipo de análise inválido.")
 
-    # 3. Validar configuração do CUA
+    execution_mode = get_execution_mode_for_system_key(target_system_key)
+
+    # 3. Validar configuração da ligação SAP consoante o modo
     cua_sap_key = os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001").strip().upper()
-    if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env."
-        )
+    if execution_mode == "RFC":
+        rfc_connection = _build_authorization_rfc_connection(env_data, target_system_key)
+        if not rfc_connection["ashost"] or not rfc_connection["sysnr"] or not rfc_connection["user"] or not rfc_connection["passwd"]:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Configuração RFC para {target_system_key} incompleta. "
+                    "É necessário configurar o host, o número do sistema, o utilizador e a password no .env."
+                )
+            )
+    else:
+        if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env."
+            )
 
     # 4. Validar se há pelo menos um worker disponível
     require_worker_online(
@@ -1122,7 +1210,9 @@ async def api_start_authorization_analysis(payload: AuthorizationStartRequest) -
         "target_user": target_user,
         "target_system_key": target_system_key,
         "analysis_type": analysis_type,
-        "cua_sap_key": cua_sap_key
+        "cua_sap_key": cua_sap_key,
+        "execution_mode": execution_mode,
+        "rfc_connection": _build_authorization_rfc_connection(env_data, target_system_key) if execution_mode == "RFC" else None,
     }
 
     try:
@@ -1968,6 +2058,15 @@ def api_delete_job(job_id: str) -> dict[str, Any]:
     try:
         delete_job(job_id=job_id)
         return {"status": "success", "message": "Job eliminado com sucesso."}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/jobs/delete-all")
+def api_delete_all_jobs() -> dict[str, Any]:
+    try:
+        deleted = delete_all_jobs()
+        return {"status": "success", "message": "Todos os jobs foram eliminados com sucesso.", "deleted": deleted}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

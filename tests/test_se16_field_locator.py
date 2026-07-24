@@ -335,3 +335,60 @@ def test_f8_only_when_both_applied():
     )
     
     wnd_mock.sendVKey.assert_any_call(8)
+
+
+# Test 15: Changeable = -1 (valor numérico SAP para True)
+def test_changeable_minus_one():
+    field = MockSAPElement(element_id="wnd[0]/usr/txtBNAME-LOW", Type="GuiTextField", Changeable=-1, Name="BNAME-LOW")
+    usr = MockSAPElement(element_id="wnd[0]/usr", children=[field])
+    session = MagicMock()
+    session.findById.return_value = usr
+    
+    found = _find_se16_field(session, "BNAME")
+    assert found is not None
+    assert found.Id == "wnd[0]/usr/txtBNAME-LOW"
+
+
+# Test 16: Changeable indisponível (retorna None ou levanta erro ao acessar)
+def test_changeable_unavailable():
+    class MockNoChangeable(MockSAPElement):
+        @property
+        def Changeable(self):
+            raise AttributeError("Propriedade indisponível")
+        @Changeable.setter
+        def Changeable(self, val):
+            pass
+
+    field = MockNoChangeable(element_id="wnd[0]/usr/txtBNAME-LOW", Type="GuiTextField", Name="BNAME-LOW")
+    usr = MockSAPElement(element_id="wnd[0]/usr", children=[field])
+    session = MagicMock()
+    session.findById.return_value = usr
+    
+    found = _find_se16_field(session, "BNAME")
+    assert found is not None
+    assert found.Id == "wnd[0]/usr/txtBNAME-LOW"
+
+
+# Test 17: Coleção COM customizada usando Item(index) e chamada direta
+def test_custom_collection_indexing():
+    class CustomCollection:
+        def __init__(self, items):
+            self.items = items
+            self.Count = len(items)
+        def Item(self, idx):
+            return self.items[idx]
+
+    class CustomSAPElement(MockSAPElement):
+        def __init__(self, element_id, children_items):
+            super().__init__(element_id=element_id)
+            self.Children = CustomCollection(children_items)
+
+    field = MockSAPElement(element_id="wnd[0]/usr/txtBNAME-LOW", Type="GuiTextField", Changeable=True, Name="BNAME-LOW")
+    usr = CustomSAPElement("wnd[0]/usr", [field])
+    session = MagicMock()
+    session.findById.return_value = usr
+
+    found = _find_se16_field(session, "BNAME")
+    assert found is not None
+    assert found.Id == "wnd[0]/usr/txtBNAME-LOW"
+

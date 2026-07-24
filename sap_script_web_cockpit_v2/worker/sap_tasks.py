@@ -447,7 +447,7 @@ def _run_authorization_open_cua(params: dict[str, Any]) -> tuple[str, str]:
 
     status = json.dumps(result, ensure_ascii=False)
     log = (
-        "Sessão SAP CUA aberta ou reutilizada com sucesso.\n"
+        "Sessão SAP CUA validada com sucesso.\n"
         f"Utilizador analisado: {target_user}\n"
         f"Sistema alvo: {target_system_key}\n"
         f"Tipo de análise: {analysis_type}\n"
@@ -461,38 +461,196 @@ def _run_authorization_open_cua(params: dict[str, Any]) -> tuple[str, str]:
 def validate_completed_analysis(result: dict[str, Any]) -> None:
     if not result:
         raise SapExecutionError("Resultado da análise está vazio.")
-        
+
     if not result.get("success"):
         raise SapExecutionError(f"A análise falhou: {result.get('message')}")
-        
+
     code = result.get("code")
-    if code not in {"analysis_complete", "user_not_assigned_to_system"}:
+    if code not in {"analysis_complete", "user_not_assigned_to_system", "user_not_found"}:
         raise SapExecutionError(f"Código de conclusão de análise inválido: {code}")
-        
+
     if result.get("data_source_verified") is not True:
         raise SapExecutionError("A veracidade das fontes da análise não pôde ser confirmada.")
-        
+
     if result.get("worker_feature_version") != "authorization-tables-v1":
         raise SapExecutionError("A sessão CUA foi aberta, mas a consulta das tabelas não foi executada pelo Worker (versão antiga detetada).")
-        
+
     queries = result.get("queries") or []
     if not queries:
         raise SapExecutionError("A sessão CUA foi aberta, mas a consulta das tabelas não foi executada.")
-        
+
     tables_executed = {q.get("table") for q in queries if q.get("executed") and q.get("filters_applied")}
-    
+    source = str(result.get("source") or "").strip().upper()
+    dev_flow = source == "RFC_AGR_USERS" or "AGR_USERS" in tables_executed
+    master_flow = source in {"RFC_USER_MASTER", "CUA_USER_MASTER"} or "USR02" in tables_executed
+
     if code == "analysis_complete":
-        required = {"USZBVSYS", "USLA04", "USL04"}
+        if master_flow:
+            required = {"USR02", "USR21", "USR04", "AGR_USERS"}
+        else:
+            required = {"AGR_USERS", "AGR_TCODES"} if dev_flow else {"USZBVSYS", "USLA04", "USL04"}
         missing = required - tables_executed
         if missing:
             raise SapExecutionError(f"A consulta das tabelas obrigatórias está incompleta. Tabelas em falta: {', '.join(missing)}")
-            
-    elif code == "user_not_assigned_to_system":
-        if "USZBVSYS" not in tables_executed:
-            raise SapExecutionError("A tabela USZBVSYS não foi consultada para confirmar a associação ao sistema.")
+
+    elif code in {"user_not_assigned_to_system", "user_not_found"}:
+        if master_flow:
+            required_table = "USR02"
+        else:
+            required_table = "AGR_USERS" if dev_flow else "USZBVSYS"
+        if required_table not in tables_executed:
+            raise SapExecutionError(f"A tabela {required_table} não foi consultada para confirmar a associação ao sistema.")
 
 
-def _run_authorization_analyze_user(params: dict[str, Any]) -> tuple[str, str]:
+def _authorization_uses_rfc(target_system_key: str) -> bool:
+    system_key = str(target_system_key or "").strip().upper()
+    if os.getenv("AUTHORIZATION_FORCE_RFC", "").strip().lower() in {"1", "true", "yes", "sim"}:
+        return True
+    return system_key.startswith("S4")
+
+
+def _make_job_progress_logger(job_id: str):
+    api_url = os.environ.get("SAP_API_BASE_URL", "").strip()
+    token = os.environ.get("SAP_WORKER_TOKEN", "").strip()
+
+    def _log(line: str) -> None:
+        message = str(line or "").strip()
+        if not message or not api_url or not token:
+            return
+        try:
+            requests.post(
+                f"{api_url}/api/jobs/{job_id}/log",
+                headers={"X-Worker-Token": token},
+                json={"log_line": message},
+                timeout=5,
+            )
+        except Exception:
+            pass
+
+    return _log
+
+
+def _run_authorization_analyze_user_rfc(params: dict[str, Any], progress_logger: Any | None = None) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    target_user = str(params.get("target_user") or "").strip().upper()
+    target_system_key = str(params.get("target_system_key") or "").strip().upper()
+    analysis_type = str(params.get("analysis_type") or "").strip().lower()
+
+    if not target_user:
+        raise SapExecutionError("Utilizador a analisar não foi informado.")
+
+    if not target_system_key:
+        raise SapExecutionError("Sistema alvo da análise não foi informado.")
+
+    if analysis_type not in {"master_data", "authorizations"}:
+        raise SapExecutionError("Tipo de análise inválido.")
+
+    try:
+        if analysis_type == "master_data":
+            from .user_master_data_analysis import analyze_user_master_data_rfc
+        elif target_system_key.startswith(("S4D", "S4P")):
+            from .authorization_rfc_dev_analysis import analyze_user_authorizations_rfc_dev
+        else:
+            from .authorization_rfc_analysis import analyze_user_authorizations_rfc
+    except ImportError:
+        if analysis_type == "master_data":
+            from user_master_data_analysis import analyze_user_master_data_rfc
+        elif target_system_key.startswith(("S4D", "S4P")):
+            from authorization_rfc_dev_analysis import analyze_user_authorizations_rfc_dev
+        else:
+            from authorization_rfc_analysis import analyze_user_authorizations_rfc
+
+    if analysis_type == "master_data":
+        result = analyze_user_master_data_rfc(
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+            connection_params=params.get("rfc_connection") if isinstance(params.get("rfc_connection"), dict) else None,
+        )
+    elif target_system_key.startswith(("S4D", "S4P")):
+        result = analyze_user_authorizations_rfc_dev(
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+            connection_params=params.get("rfc_connection") if isinstance(params.get("rfc_connection"), dict) else None,
+        )
+    else:
+        result = analyze_user_authorizations_rfc(
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+            connection_params=params.get("rfc_connection") if isinstance(params.get("rfc_connection"), dict) else None,
+        )
+
+    validate_completed_analysis(result)
+
+    log_lines = [
+        "[AUTH RFC] Ligação RFC validada.",
+    ]
+
+    queries = result.get("queries", [])
+
+    if analysis_type == "master_data":
+        q_usr02 = next((q for q in queries if q["table"] == "USR02"), None)
+        if q_usr02:
+            log_lines.append("[AUTH RFC] Tabela USR02 informada.")
+            log_lines.append("[AUTH RFC] Filtros USR02 aplicados.")
+            log_lines.append("[AUTH RFC] Dados de validade e bloqueio lidos.")
+
+        q_usr21 = next((q for q in queries if q["table"] == "USR21"), None)
+        if q_usr21:
+            log_lines.append("[AUTH RFC] Tabela USR21 informada.")
+            log_lines.append("[AUTH RFC] Ligação do utilizador ao endereço lida.")
+
+        q_usr04 = next((q for q in queries if q["table"] == "USR04"), None)
+        if q_usr04:
+            log_lines.append("[AUTH RFC] Tabela USR04 informada.")
+            log_lines.append("[AUTH RFC] Perfis do utilizador lidos.")
+
+        q_roles = next((q for q in queries if q["table"] == "AGR_USERS"), None)
+        if q_roles:
+            log_lines.append("[AUTH RFC] Tabela AGR_USERS informada.")
+            log_lines.append("[AUTH RFC] Roles do utilizador lidas.")
+    else:
+        q_dev_users = next((q for q in queries if q["table"] == "AGR_USERS"), None)
+        if q_dev_users:
+            log_lines.append("[AUTH RFC] Tabela AGR_USERS informada.")
+            log_lines.append("[AUTH RFC] Filtros AGR_USERS aplicados.")
+            log_lines.append("[AUTH RFC] Roles lidas via AGR_USERS.")
+
+        q_sys = next((q for q in queries if q["table"] == "USZBVSYS"), None)
+        if q_sys:
+            log_lines.append("[AUTH RFC] Tabela USZBVSYS informada.")
+            log_lines.append("[AUTH RFC] Filtros USZBVSYS aplicados.")
+            log_lines.append("[AUTH RFC] Resultado USZBVSYS lido.")
+
+        if result.get("code") == "analysis_complete":
+            q_dev_tcodes = next((q for q in queries if q["table"] == "AGR_TCODES"), None)
+            if q_dev_tcodes:
+                log_lines.append("[AUTH RFC] Tabela AGR_TCODES informada.")
+                log_lines.append("[AUTH RFC] Filtros AGR_TCODES aplicados.")
+                log_lines.append("[AUTH RFC] Funções AGR_TCODES lidas.")
+
+            q_roles = next((q for q in queries if q["table"] == "USLA04"), None)
+            if q_roles:
+                log_lines.append("[AUTH RFC] Tabela USLA04 informada.")
+                log_lines.append("[AUTH RFC] Filtros USLA04 aplicados.")
+                log_lines.append("[AUTH RFC] Lista clássica USLA04 lida.")
+
+            q_profs = next((q for q in queries if q["table"] == "USL04"), None)
+            if q_profs:
+                log_lines.append("[AUTH RFC] Tabela USL04 informada.")
+                log_lines.append("[AUTH RFC] Filtros USL04 aplicados.")
+                log_lines.append("[AUTH RFC] Resultado USL04 lido.")
+
+    log_lines.append("[AUTH RFC] Análise concluída com sucesso.")
+
+    safe_log = "\n".join(log_lines)
+    return json.dumps(result, ensure_ascii=False), safe_log
+
+
+def _run_authorization_analyze_user(params: dict[str, Any], progress_logger: Any | None = None) -> tuple[str, str]:
     _prepare_project_imports()
 
     target_user = str(params.get("target_user") or "").strip().upper()
@@ -536,51 +694,82 @@ def _run_authorization_analyze_user(params: dict[str, Any]) -> tuple[str, str]:
     if WORKER_DIR not in sys.path:
         sys.path.insert(0, WORKER_DIR)
 
-    try:
-        from .authorization_table_analysis import analyze_user_authorizations
-    except ImportError:
-        from authorization_table_analysis import analyze_user_authorizations
+    if analysis_type == "master_data":
+        try:
+            from .user_master_data_analysis import analyze_user_master_data
+        except ImportError:
+            from user_master_data_analysis import analyze_user_master_data
 
-    result = analyze_user_authorizations(
-        session=cua_session,
-        target_user=target_user,
-        target_system_key=target_system_key,
-    )
+        result = analyze_user_master_data(
+            session=cua_session,
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+        )
+    else:
+        try:
+            from .authorization_table_analysis import analyze_user_authorizations
+        except ImportError:
+            from authorization_table_analysis import analyze_user_authorizations
+
+        result = analyze_user_authorizations(
+            session=cua_session,
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+        )
 
     validate_completed_analysis(result)
 
-    # Construir checkpoints exatamente como pedido
     log_lines = [
-        "[AUTH] Módulo authorization_table_analysis carregado.",
         "[AUTH] Sessão CUA validada: SPA/001."
     ]
-    
-    queries = result.get("queries", [])
-    
-    # 1. USZBVSYS
-    q_sys = next((q for q in queries if q["table"] == "USZBVSYS"), None)
-    if q_sys:
-        log_lines.append("[AUTH] A abrir SE16.")
-        log_lines.append("[AUTH] Tabela USZBVSYS informada.")
-        log_lines.append("[AUTH] Filtros USZBVSYS aplicados.")
-        log_lines.append("[AUTH] Resultado USZBVSYS lido.")
 
-    if result.get("code") == "analysis_complete":
-        # 2. USLA04
-        q_roles = next((q for q in queries if q["table"] == "USLA04"), None)
+    queries = result.get("queries", [])
+
+    if analysis_type == "master_data":
+        q_usr02 = next((q for q in queries if q["table"] == "USR02"), None)
+        if q_usr02:
+            log_lines.append("[AUTH] Tabela USR02 informada.")
+            log_lines.append("[AUTH] Filtros USR02 aplicados.")
+            log_lines.append("[AUTH] Dados de validade e bloqueio lidos.")
+
+        q_usr21 = next((q for q in queries if q["table"] == "USR21"), None)
+        if q_usr21:
+            log_lines.append("[AUTH] Tabela USR21 informada.")
+            log_lines.append("[AUTH] Ligação do utilizador ao endereço lida.")
+
+        q_usr04 = next((q for q in queries if q["table"] == "USR04"), None)
+        if q_usr04:
+            log_lines.append("[AUTH] Tabela USR04 informada.")
+            log_lines.append("[AUTH] Perfis do utilizador lidos.")
+
+        q_roles = next((q for q in queries if q["table"] == "AGR_USERS"), None)
         if q_roles:
-            log_lines.append("[AUTH] Tabela USLA04 informada.")
-            log_lines.append("[AUTH] Filtros USLA04 aplicados.")
-            log_lines.append("[AUTH] Lista clássica USLA04 lida.")
-            
-        # 3. USL04
-        q_profs = next((q for q in queries if q["table"] == "USL04"), None)
-        if q_profs:
-            log_lines.append("[AUTH] Tabela USL04 informada.")
-            log_lines.append("[AUTH] Filtros USL04 aplicados.")
-            log_lines.append("[AUTH] Resultado USL04 lido.")
-    
-    log_lines.append("[AUTH] Análise concluída.")
+            log_lines.append("[AUTH] Tabela AGR_USERS informada.")
+            log_lines.append("[AUTH] Roles do utilizador lidas.")
+    else:
+        q_sys = next((q for q in queries if q["table"] == "USZBVSYS"), None)
+        if q_sys:
+            log_lines.append("[AUTH] A abrir SE16.")
+            log_lines.append("[AUTH] Tabela USZBVSYS informada.")
+            log_lines.append("[AUTH] Filtros USZBVSYS aplicados.")
+            log_lines.append("[AUTH] Resultado USZBVSYS lido.")
+
+        if result.get("code") == "analysis_complete":
+            q_roles = next((q for q in queries if q["table"] == "USLA04"), None)
+            if q_roles:
+                log_lines.append("[AUTH] Tabela USLA04 informada.")
+                log_lines.append("[AUTH] Filtros USLA04 aplicados.")
+                log_lines.append("[AUTH] Lista clássica USLA04 lida.")
+
+            q_profs = next((q for q in queries if q["table"] == "USL04"), None)
+            if q_profs:
+                log_lines.append("[AUTH] Tabela USL04 informada.")
+                log_lines.append("[AUTH] Filtros USL04 aplicados.")
+                log_lines.append("[AUTH] Resultado USL04 lido.")
+
+    log_lines.append("[AUTH] Análise concluída com sucesso.")
 
     safe_log = "\n".join(log_lines)
 
@@ -610,7 +799,36 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
     try:
         if task == "authorization_analyze_user":
-            status, log = _run_authorization_analyze_user(params)
+            os.environ["SAP_JOB_ID"] = str(job["id"])
+            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+            os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
+            progress_logger = _make_job_progress_logger(str(job["id"]))
+            target_user = str(params.get("target_user") or "").strip().upper()
+            target_system_key = str(params.get("target_system_key") or "").strip().upper()
+            analysis_type = str(params.get("analysis_type") or "").strip().lower()
+            requested_execution_mode = str(params.get("execution_mode") or "").strip().upper()
+            execution_mode = "RFC" if _authorization_uses_rfc(target_system_key) else "CUA"
+            cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+            modo_label = f"modo={execution_mode}"
+            if requested_execution_mode and requested_execution_mode != execution_mode:
+                modo_label = f"modo_pedido={requested_execution_mode}, modo_execucao={execution_mode}"
+            progress_logger(
+                "[AUTH] Pedido recebido: "
+                f"utilizador={target_user or '<vazio>'}, "
+                f"sistema={target_system_key or '<vazio>'}, "
+                f"tipo={analysis_type or '<vazio>'}, "
+                f"{modo_label}, "
+                f"cua_sap_key={cua_sap_key}."
+            )
+            progress_logger(
+                f"[AUTH] A iniciar a análise no sistema {target_system_key}."
+                if not _authorization_uses_rfc(target_system_key)
+                else f"[AUTH RFC] A iniciar a ligação RFC ao sistema {target_system_key}."
+            )
+            if _authorization_uses_rfc(target_system_key):
+                status, log = _run_authorization_analyze_user_rfc(params, progress_logger=progress_logger)
+            else:
+                status, log = _run_authorization_analyze_user(params, progress_logger=progress_logger)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 

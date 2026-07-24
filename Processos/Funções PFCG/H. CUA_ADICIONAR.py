@@ -2719,7 +2719,13 @@ def marcar_resultado(df_ref, idx, status, msg):
     df_ref.at[idx, "TIMESTEMP"] = agora_str()
 
 
-def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pedir_confirmacao=True, modo_nao_interativo=False):
+def atribuir_funcao_usuario(
+    df_filtrado,
+    session,
+    sistema_desejado,
+    pedir_confirmacao=True,
+    modo_nao_interativo=False,
+):
     """
     Atribui AGR_NAME ao UTILIZADOR via SU10 de forma agrupada por utilizador/sistema.
     Garante idempotência, evitando atribuir funções que já existam no SAP CUA,

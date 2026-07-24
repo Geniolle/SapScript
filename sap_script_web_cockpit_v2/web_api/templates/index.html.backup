@@ -639,34 +639,10 @@
       .filters-grid {
         grid-template-columns: repeat(2, 1fr) !important;
       }
-      .auth-chat-shell {
-        height: calc(100vh - 120px);
-        max-height: calc(100vh - 120px);
-        margin: 16px 12px;
-      }
-      #view-autorizacoes {
-        padding-bottom: 16px !important;
-      }
-      .auth-chat-messages {
-        padding: 18px;
-      }
     }
     @media (max-width: 480px) {
       .filters-grid {
         grid-template-columns: 1fr !important;
-      }
-      .auth-chat-shell {
-        height: calc(100vh - 104px);
-        max-height: calc(100vh - 104px);
-        margin: 12px 10px;
-      }
-      .auth-chat-header,
-      .auth-chat-composer {
-        padding-left: 16px;
-        padding-right: 16px;
-      }
-      .auth-chat-messages {
-        padding: 14px;
       }
     }
     .premium-select {
@@ -1291,6 +1267,8 @@
           </div>
         </div>
         <a class="nav-item" id="nav-item-autorizacoes" onclick="switchView('autorizacoes')">Autorizações</a>
+        <a class="nav-item" onclick="switchView('visao-geral')">Requests</a>
+        <a class="nav-item" onclick="switchView('visao-geral')">Ficheiros</a>
         <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
         <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')">⚙️ Definições</a>
       </nav>
@@ -1331,6 +1309,8 @@
               <span id="jira-last-sync-text">Nunca sincronizado</span>
             </span>
           </div>
+          <button type="button" id="refresh-button" class="btn btn-secondary" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
+          <button type="button" id="new-job-btn" class="btn btn-primary">+ Novo job</button>
         </div>
       </header>
 
@@ -2372,8 +2352,6 @@
           max-width: 820px;
           width: 100%;
           margin: 24px;
-          height: calc(100vh - 170px);
-          max-height: calc(100vh - 170px);
           background: var(--card-bg, #ffffff);
           border: 1px solid var(--border-color);
           border-radius: 16px;
@@ -2455,8 +2433,8 @@
         .auth-chat-messages {
           padding: 24px;
           flex: 1;
-          min-height: 0;
-          max-height: none;
+          min-height: 380px;
+          max-height: 480px;
           overflow-y: auto;
           display: flex;
           flex-direction: column;
@@ -2740,7 +2718,6 @@
           padding: 16px 24px;
           border-top: 1px solid var(--border-color);
           background: rgba(0, 0, 0, 0.01);
-          flex-shrink: 0;
         }
         .auth-chat-composer-form {
           display: flex;
@@ -2800,7 +2777,7 @@
         }
       </style>
 
-      <div id="view-autorizacoes" style="display: none; flex: 1; min-height: 0; overflow: hidden; padding-bottom: 32px; flex-direction: column;">
+      <div id="view-autorizacoes" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <div class="auth-chat-shell">
           <div class="auth-chat-header">
             <div class="auth-chat-header-left">
@@ -2829,7 +2806,7 @@
                 placeholder="A carregar configuração SAP..." 
                 autocomplete="off" 
                 spellcheck="false" 
-                maxlength="200"
+                maxlength="40"
                 aria-label="Introduza o utilizador SAP para analisar"
                 disabled
               >
@@ -3412,7 +3389,6 @@
     }
 
     function _applyWebParamsToModal(params, config) {
-      requestOptionsAllowedByConfig = true;
       const fileSec   = document.getElementById('file-picker-section');
       const reqSec    = document.getElementById('request-options-section');
       const ambSel    = document.getElementById('ambiente-select');
@@ -3422,7 +3398,6 @@
       if (config) {
         if (config.show_file_picker === false && fileSec) fileSec.hidden = true;
         if (config.show_request_options === false && reqSec) reqSec.hidden = true;
-        requestOptionsAllowedByConfig = false;
         if (config.ambiente && ambSel) {
           ambSel.value = config.ambiente;
           const ambLabel = ambSel.closest('label');
@@ -3440,7 +3415,6 @@
       }
 
       // Renderizar WEB_PARAMS
-      updateRequestOptionsVisibilityByEnvironment();
       if (!params || !params.length || !container) return;
       const html = params.map(p => {
         const req = p.required ? ' <span style="color:#ef4444">*</span>' : '';
@@ -3486,12 +3460,12 @@
     }
 
     function _resetWebParams() {
-      requestOptionsAllowedByConfig = true;
       const container = document.getElementById('web-params-container');
       if (container) container.innerHTML = '';
       const fileSec = document.getElementById('file-picker-section');
       if (fileSec) fileSec.hidden = false;
       const reqSec = document.getElementById('request-options-section');
+      if (reqSec) reqSec.hidden = false;
       const ambSel = document.getElementById('ambiente-select');
       if (ambSel) {
         const ambLabel = ambSel.closest('label');
@@ -3499,7 +3473,6 @@
       }
       const badge = document.getElementById('lock-badge-ambiente-select');
       if (badge) badge.remove();
-      updateRequestOptionsVisibilityByEnvironment();
     }
 
     function cleanSubprocessName(value) {
@@ -3575,12 +3548,24 @@
     let activeJobId = null;
     let activeJobDetailsExpanded = true;
     let expandedJobs = {};
+    let activeLogQuery = '';
+    let activeLogLevel = 'ALL';
+    let activeLogState = 'ALL';
+    let activeLogTime = 'ALL';
     let expandedLogItems = {};
 
     // Elementos DOM
     const modal = document.getElementById('modal-novo-job');
+    const btnNewJob = document.getElementById('new-job-btn');
     const btnCloseModal = document.getElementById('close-modal-btn');
     const btnCancelModal = document.getElementById('cancel-modal-btn');
+    btnNewJob.onclick = () => {
+        resetModalLock();
+        form.reset();
+        requestOptionSelect.dispatchEvent(new Event('change'));
+        processoSelect.dispatchEvent(new Event('change'));
+        modal.classList.add('active');
+    };
     btnCloseModal.onclick = () => {
         modal.classList.remove('active');
         resetModalLock();
@@ -3659,7 +3644,6 @@
     const sapRequestsSubtitle = document.getElementById('sap-requests-subtitle');
     
     let searchPollInterval = null;
-    let requestOptionsAllowedByConfig = true;
     
     btnCloseSapRequests.onclick = () => {
         closeSapRequestsModal();
@@ -3776,7 +3760,6 @@
 
     ambienteSelect.addEventListener('change', () => {
        envDisplay.textContent = ambienteSelect.options[ambienteSelect.selectedIndex].text || '---';
-       updateRequestOptionsVisibilityByEnvironment();
     });
 
     restoreLastExcelPath();
@@ -3817,38 +3800,9 @@
 
       requestDescField.hidden = opt !== '2';
       requestDescInput.disabled = opt !== '2';
-      requestDescInput.required = false;
       
       requestTypeField.hidden = opt !== '2';
       requestTypeSelect.disabled = opt !== '2';
-      requestTypeSelect.required = opt === "2";
-    }
-
-    function updateRequestOptionsVisibilityByEnvironment() {
-      const reqSec = document.getElementById('request-options-section');
-      if (!reqSec) return;
-
-      const ambiente = String(ambienteSelect.value || '').trim().toUpperCase();
-      const shouldShow = ambiente === 'DEV' && requestOptionsAllowedByConfig;
-
-      if (!shouldShow) {
-        reqSec.hidden = true;
-        requestOptionSelect.disabled = true;
-        requestOptionSelect.value = '4';
-        requestNumberInput.value = '';
-        requestNumberInput.disabled = true;
-        requestDescInput.value = '';
-        requestDescInput.disabled = true;
-        requestTypeSelect.value = '1';
-        requestTypeSelect.disabled = true;
-        requestNumberField.hidden = true;
-        requestDescField.hidden = true;
-        requestTypeField.hidden = true;
-      } else {
-        reqSec.hidden = false;
-        requestOptionSelect.disabled = false;
-        updateRequestFieldsVisibility();
-      }
     }
 
     function setExcelPath(path) {
@@ -3902,11 +3856,23 @@
         formMessage.textContent = 'Criado com sucesso!';
         setTimeout(() => modal.classList.remove('active'), 1000);
         await loadJobs();
-        switchView('visao-geral');
       } catch (err) {
         formMessage.textContent = 'Falha ao criar.';
       }
       document.getElementById('submit-job-btn').disabled = false;
+    });
+
+    document.getElementById('refresh-button').addEventListener('click', async () => {
+      const btn = document.getElementById('refresh-button');
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span style="display:inline-block; animation: spin 0.7s linear infinite;">↻</span>&nbsp;A atualizar...';
+      try {
+        await loadJobs();
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '↻ Atualizar';
+      }
     });
 
     // Gestão de Abas da Queue
@@ -5255,12 +5221,19 @@
           let taskLogsHtml = `
              <div style="flex: 1 1 100%; min-width: 100%; display: flex; flex-direction: column;">
                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+                    <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
+                       Registro de Atividades (Logs)
+                    </span>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                       <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
-                          Registro de Atividades (Logs)
-                       </span>
-                       <button onclick="copyJobLog('${job.id}')" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0; margin: 0; opacity: 0.6; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
-                          📋
+                       <input type="text" id="log-search-input" placeholder="Search logs" oninput="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-primary); width: 140px; outline: none; height: 28px;">
+                       <select id="log-level-select" onchange="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); cursor: pointer; outline: none; height: 28px;">
+                          <option value="ALL">Log Level</option>
+                          <option value="INFO">Info</option>
+                          <option value="WARN">Warning</option>
+                          <option value="ERROR">Error</option>
+                       </select>
+                       <button class="btn" onclick="copyJobLog('${job.id}')" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 500; height: 28px;">
+                          📋 Copiar Logs
                        </button>
                     </div>
                  </div>
@@ -5368,14 +5341,14 @@
                   `;
               }
           }
-           dropdownOptionsHtml += `
-              <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--danger); font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.07)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); deleteJob('${job.id}')">
-                🗑️ Eliminar Job
-              </button>
-              <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--danger); font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.07)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); deleteAllJobs()">
-                🧨 Eliminar Todos os Jobs
-              </button>
-           `;
+          dropdownOptionsHtml += `
+             <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--text-secondary); cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(0, 0, 0, 0.04)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); copyJobLog('${job.id}')">
+                📋 Copiar Logs
+             </button>
+             <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--danger); font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.07)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); deleteJob('${job.id}')">
+               🗑️ Eliminar Job
+             </button>
+          `;
 
           const shortId = job.id.substring(0, 8);
           const isFocused = job.id === activeJobId;
@@ -5507,6 +5480,21 @@
           }
        });
 
+       // Restore input value and trigger filter for all cards
+       const queryInput = document.getElementById('log-search-input');
+       const stateSelect = document.getElementById('log-state-select');
+       const timeSelect = document.getElementById('log-time-select');
+       if (queryInput) {
+           queryInput.value = activeLogQuery;
+       }
+       if (stateSelect) {
+           stateSelect.value = activeLogState;
+       }
+       if (timeSelect) {
+           timeSelect.value = activeLogTime;
+       }
+       filterLogs();
+
        // Render Focused Job Logs in the sidebar
        // const focusedJob = allJobs.find(j => j.id === activeJobId);
        if (focusedJob && logContainer) {
@@ -5589,7 +5577,9 @@
            // Copy log action
            document.getElementById('btn-copy-log').onclick = () => {
               navigator.clipboard.writeText(focusedJob.log || '');
-              showToast('Log foi copiado', 'success');
+              const old = document.getElementById('btn-copy-log').textContent;
+              document.getElementById('btn-copy-log').textContent = 'Copiado!';
+              setTimeout(() => document.getElementById('btn-copy-log').textContent = old, 2000);
            };
        } else if (logContainer) {
           logContainer.innerHTML = 'Nenhum job em foco para visualização de logs.';
@@ -5603,7 +5593,48 @@
         }
     }
 
-        function toggleLogItemDetails(itemId) {
+    function filterLogs() {
+        const queryInput = document.getElementById('log-search-input');
+        const stateSelect = document.getElementById('log-state-select');
+        const timeSelect = document.getElementById('log-time-select');
+        
+        activeLogQuery = queryInput ? queryInput.value.toLowerCase() : '';
+        activeLogState = stateSelect ? stateSelect.value : 'ALL';
+        activeLogTime = timeSelect ? timeSelect.value : 'ALL';
+        
+        const now = Date.now();
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        
+        const items = document.querySelectorAll('.timeline-item');
+        items.forEach(item => {
+            const text = item.textContent.toLowerCase();
+            const state = item.getAttribute('data-state') || 'completed';
+            const timestamp = parseInt(item.getAttribute('data-time') || '0');
+            
+            const matchQuery = text.includes(activeLogQuery);
+            const matchState = (activeLogState === 'ALL') || (state === activeLogState);
+            
+            let matchTime = true;
+            if (activeLogTime === 'TODAY') {
+                const todayStart = new Date().setHours(0,0,0,0);
+                matchTime = timestamp >= todayStart;
+            } else if (activeLogTime === '24H') {
+                matchTime = (now - timestamp) <= oneDayMs;
+            } else if (activeLogTime === '7D') {
+                matchTime = (now - timestamp) <= (7 * oneDayMs);
+            } else if (activeLogTime === '30D') {
+                matchTime = (now - timestamp) <= (30 * oneDayMs);
+            }
+            
+            if (matchQuery && matchState && matchTime) {
+                item.style.display = 'flex';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+
+    function toggleLogItemDetails(itemId) {
         expandedLogItems[itemId] = !expandedLogItems[itemId];
         const container = document.getElementById(`log-item-details-${itemId}`);
         const icon = document.getElementById(`chevron-icon-${itemId}`);
@@ -5917,66 +5948,7 @@
         const job = allJobs.find(j => j.id === jobId);
         if (job) {
             navigator.clipboard.writeText(job.log || '');
-            showToast('Log foi copiado', 'success');
-        }
-    }
-
-    function closeAllMenus() {
-        const allMenus = document.querySelectorAll('.job-options-menu');
-        allMenus.forEach(menu => {
-            menu.style.display = 'none';
-        });
-    }
-
-    async function deleteAllJobs() {
-        const confirmed = window.confirm('Tem a certeza que quer eliminar todos os jobs? Esta ação não pode ser desfeita.');
-        if (!confirmed) return;
-
-        const jobIds = (allJobs || []).map(job => job.id).filter(Boolean);
-        if (jobIds.length === 0) {
-            showToast('Não existem jobs para eliminar', 'info');
-            return;
-        }
-
-        try {
-            const res = await fetch('/api/jobs/delete-all', { method: 'POST' });
-            if (!res.ok) {
-                const text = await res.text();
-                throw new Error(text || 'Falha ao eliminar todos os jobs.');
-            }
-            closeAllMenus();
-            activeJobId = null;
-            await loadJobs();
-            showToast('Todos os jobs foram eliminados', 'success');
-        } catch (err) {
-            console.warn('Falha no endpoint de eliminação em massa, a usar eliminação individual:', err);
-            let removed = 0;
-            const failures = [];
-
-            for (const jobId of jobIds) {
-                try {
-                    const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
-                    if (!res.ok) {
-                        const text = await res.text();
-                        throw new Error(text || 'Falha ao eliminar job.');
-                    }
-                    removed += 1;
-                } catch (deleteErr) {
-                    failures.push({ jobId, error: deleteErr });
-                }
-            }
-
-            closeAllMenus();
-            activeJobId = null;
-            await loadJobs();
-
-            if (failures.length === 0) {
-                showToast(`Todos os jobs foram eliminados (${removed})`, 'success');
-            } else if (removed > 0) {
-                showToast(`Eliminar todos os jobs concluído parcialmente (${removed}/${jobIds.length})`, 'warning');
-            } else {
-                showToast('Não foi possível eliminar todos os jobs', 'error');
-            }
+            alert('Logs copiados com sucesso!');
         }
     }
 
@@ -6000,7 +5972,10 @@
 
     // Close menus when clicking outside
     document.addEventListener('click', function() {
-        closeAllMenus();
+        const allMenus = document.querySelectorAll('.job-options-menu');
+        allMenus.forEach(menu => {
+            menu.style.display = 'none';
+        });
     });
 
     function escapeHtml(value) {
@@ -6803,6 +6778,8 @@
             if (headerTitle) headerTitle.textContent = 'Cockpit SAP Script';
             if (headerSub) headerSub.textContent = 'Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.';
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
+            if (refreshBtn) refreshBtn.style.display = 'inline-flex';
+            if (newJobBtn) newJobBtn.style.display = 'inline-flex';
         } else if (viewName === 'autorizacoes') {
             const navItem = document.getElementById('nav-item-autorizacoes');
             if (navItem) {
@@ -8560,7 +8537,6 @@
 
             if (data.triggered > 0) {
                 showToast(`✅ ${data.triggered} job(s) SAP criado(s) com sucesso!`, 'success');
-                setTimeout(() => switchView('visao-geral'), 500);
             } else if (data.tickets_found === 0) {
                 showToast('Nenhum ticket JIRA elegível encontrado.', 'info');
             } else {
@@ -8598,7 +8574,6 @@
 
             showToast(data.message || 'Job SAP criado com sucesso!', 'success');
             input.value = ''; // clear input
-            setTimeout(() => switchView('visao-geral'), 500);
 
             // Reload logs and results
             atLoadLog();
@@ -10027,7 +10002,6 @@
     let authChatFetchController = null;
     let authorizationChatRequestId = 0;
     let authorizationSelectedAnalysisType = null;
-    let authorizationLastStatusData = null;
     let authorizationAnalysisTypes = [];
     let authorizationActiveJobId = null;
     let authorizationJobRequestId = 0;
@@ -10038,27 +10012,6 @@
     let authorizationLoadPromise = null;
     let authorizationLoadingWatchdog = null;
     const AUTHORIZATION_CONFIG_ENDPOINT = '/api/authorizations/config';
-
-    function getAuthorizationExecutionMode() {
-      const systemKey = String(authorizationSelectedSystem?.key || '').trim().toUpperCase();
-      const explicitMode = String(authorizationSelectedSystem?.execution_mode || '').trim().toUpperCase();
-      if (systemKey.startsWith('S4')) {
-        return 'RFC';
-      }
-      if (systemKey.startsWith('SPA')) {
-        return 'CUA';
-      }
-      if (explicitMode === 'RFC' || explicitMode === 'CUA') {
-        return explicitMode;
-      }
-      return '';
-    }
-
-    function isAuthorizationDevFlow() {
-      const systemValue = String(authorizationSelectedSystem?.system || '').trim().toUpperCase();
-      const keyValue = String(authorizationSelectedSystem?.key || '').trim().toUpperCase();
-      return systemValue === 'DEV' || keyValue.startsWith('S4');
-    }
 
     async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
       const controller = new AbortController();
@@ -10094,12 +10047,8 @@
 
       const waitingForUser =
         authorizationChatState === AUTH_CHAT_STATES.WAITING_USER;
-      const followUpReady =
-        authorizationChatState === AUTH_CHAT_STATES.READY ||
-        authorizationChatState === AUTH_CHAT_STATES.ANALYSIS_COMPLETE;
-      const executionMode = getAuthorizationExecutionMode();
 
-      input.disabled = !(waitingForUser || followUpReady);
+      input.disabled = !waitingForUser;
 
       if (authorizationChatState === AUTH_CHAT_STATES.LOADING) {
         input.placeholder = 'A carregar configuração SAP...';
@@ -10110,127 +10059,22 @@
       } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_ANALYSIS_TYPE) {
         input.placeholder = 'Selecione o tipo de análise...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.OPENING_SAP) {
-        input.placeholder = executionMode === 'RFC' ? 'A abrir ligação RFC...' : 'A abrir sessão SAP...';
+        input.placeholder = 'A abrir sessão SAP CUA...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.SAP_READY) {
-        input.placeholder = executionMode === 'RFC' ? 'Ligação RFC pronta.' : 'Sessão SAP pronta.';
+        input.placeholder = 'Sessão SAP CUA pronta.';
       } else if (authorizationChatState === AUTH_CHAT_STATES.ANALYZING) {
-        input.placeholder = executionMode === 'RFC' ? 'A analisar autorizações via RFC...' : 'A analisar autorizações...';
+        input.placeholder = 'A analisar autorizações no CUA...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.ANALYSIS_COMPLETE) {
-        input.placeholder = 'Pergunte sobre a lista ou peça expiradas/ativas...';
-      } else if (authorizationChatState === AUTH_CHAT_STATES.READY) {
-        input.placeholder = 'Pergunte sobre a lista ou peça expiradas/ativas...';
+        input.placeholder = 'Análise concluída.';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.ERROR) {
+        input.placeholder = 'Configuração indisponível';
       } else {
         input.placeholder = 'Aguarde...';
       }
 
-
       button.disabled =
-        !(waitingForUser || followUpReady) ||
+        !waitingForUser ||
         input.value.trim() === '';
-    }
-
-    function renderAuthorizationFollowUpResult(title, items, emptyMessage) {
-      const container = document.getElementById('authorization-chat-messages');
-      if (!container) return;
-
-      const wrapper = document.createElement('div');
-      wrapper.className = 'auth-chat-summary';
-
-      const header = document.createElement('div');
-      header.className = 'auth-chat-summary-row';
-      header.style.fontWeight = '700';
-      header.style.paddingBottom = '10px';
-      header.innerHTML = `<span class="auth-chat-summary-label">${escapeAuthorizationText(title)}</span><span class="auth-chat-summary-value">${String(items.length)}</span>`;
-      wrapper.appendChild(header);
-
-      if (!items.length) {
-        const empty = document.createElement('div');
-        empty.style.fontSize = '0.85rem';
-        empty.style.color = 'var(--text-secondary)';
-        empty.textContent = emptyMessage;
-        wrapper.appendChild(empty);
-      } else {
-        const list = document.createElement('div');
-        list.style.display = 'grid';
-        list.style.gap = '8px';
-
-        items.forEach(item => {
-          const row = document.createElement('div');
-          row.style.display = 'flex';
-          row.style.justifyContent = 'space-between';
-          row.style.gap = '12px';
-          row.style.padding = '8px 10px';
-          row.style.border = '1px solid var(--border-color)';
-          row.style.borderRadius = '10px';
-          row.style.background = 'rgba(0,0,0,0.02)';
-
-          const left = document.createElement('span');
-          left.style.fontWeight = '700';
-          left.textContent = item.role || item.function || '';
-
-          const right = document.createElement('span');
-          right.style.color = 'var(--text-secondary)';
-          right.textContent = [item.valid_from, item.valid_to, item.assignment_origin_label || item.assignment_origin].filter(Boolean).join(' · ');
-
-          row.appendChild(left);
-          row.appendChild(right);
-          list.appendChild(row);
-        });
-
-        wrapper.appendChild(list);
-      }
-
-      container.appendChild(wrapper);
-      container.scrollTop = container.scrollHeight;
-    }
-
-    function handleAuthorizationFollowUp(rawQuery) {
-      const query = String(rawQuery || '').trim().toLowerCase();
-      const data = authorizationLastStatusData;
-
-      if (!data || !Array.isArray(data.roles)) {
-        appendAuthorizationMessage('assistant', 'Não tenho a lista anterior disponível para responder a esta pergunta.');
-        return;
-      }
-
-      const roles = data.roles;
-      const isExpired = query.includes('expir');
-      const isActive = query.includes('ativa') || query.includes('activo') || query.includes('ativo') || query.includes('active');
-      const isDirect = query.includes('diret') || query.includes('direct');
-      const isIndirect = query.includes('indiret') || query.includes('indirect');
-
-      let filtered = roles.slice();
-      if (isExpired) {
-        filtered = filtered.filter(r => String(r.validity_status || '').toLowerCase() === 'expired');
-      } else if (isActive) {
-        filtered = filtered.filter(r => String(r.validity_status || '').toLowerCase() === 'active');
-      }
-
-      if (isDirect) {
-        filtered = filtered.filter(r => {
-          const origin = String(r.assignment_origin_label || r.assignment_origin || '').toLowerCase();
-          return origin.includes('direta') || origin.includes('direct');
-        });
-      } else if (isIndirect) {
-        filtered = filtered.filter(r => {
-          const origin = String(r.assignment_origin_label || r.assignment_origin || '').toLowerCase();
-          return origin.includes('indireta') || origin.includes('indirect');
-        });
-      }
-
-      if (isExpired || isActive || isDirect || isIndirect) {
-        renderAuthorizationFollowUpResult(
-          isExpired ? 'Funções expiradas' : isActive ? 'Funções ativas' : isDirect ? 'Funções diretas' : 'Funções indiretas',
-          filtered,
-          'Nenhuma função corresponde ao filtro pedido.'
-        );
-        return;
-      }
-
-      appendAuthorizationMessage(
-        'assistant',
-        'Posso filtrar a lista por "expiradas", "ativas", "diretas" ou "indiretas".'
-      );
     }
 
     function removeAuthorizationTypingIndicator() {
@@ -10251,7 +10095,7 @@
       });
     }
 
-    function showAuthorizationTypingIndicator(requestId = null, label = 'A pensar...') {
+    function showAuthorizationTypingIndicator(requestId = null) {
       const container = document.getElementById('authorization-chat-messages');
       if (!container) return;
       
@@ -10264,7 +10108,6 @@
         typingDiv.dataset.requestId = requestId;
       }
       typingDiv.innerHTML = `
-        <span class="auth-chat-typing-label">${label}</span>
         <span class="auth-chat-typing-dot"></span>
         <span class="auth-chat-typing-dot"></span>
         <span class="auth-chat-typing-dot"></span>
@@ -10344,13 +10187,6 @@
       removeAuthorizationTypingIndicator();
 
       authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
-      window.hasPrintedAgrUsers = false;
-      window.hasPrintedAgrTcodes = false;
-      window.hasPrintedUsla04 = false;
-      window.hasPrintedUsl04 = false;
-      window.hasPrintedUsr02 = false;
-      window.hasPrintedUsr21 = false;
-      window.hasPrintedUsr04 = false;
 
       clearAuthorizationMessages();
       renderAuthorizationInitialQuestion();
@@ -10408,9 +10244,9 @@
 
       if (!container.querySelector('[data-message-key="authorization-initial-question"]')) {
         appendAuthorizationMessage('assistant', 'Olá! Sou o Assistente de Autorizações SAP.');
-        appendAuthorizationMessage('assistant', 'Posso ajudar a analisar utilizadores, funções, perfis, transações e objetos de autorização.');
+        appendAuthorizationMessage('assistant', 'Posso ajudar a analisar utilizadores, perfis, roles, transações e objetos de autorização.');
         appendAuthorizationAssistantMessage(
-          'Que utilizador SAP pretende analisar?',
+          'Qual é o utilizador SAP que pretende analisar?',
           {
             key: 'authorization-initial-question'
           }
@@ -10698,18 +10534,18 @@
       const rawVal = input.value.trim();
       if (!rawVal) return;
 
-      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
-        // O primeiro passo continua a aceitar apenas o identificador SAP.
-        const sanitized = rawVal.toUpperCase().replace(/[^A-Z0-9\.\-_]/g, '');
-        if (!sanitized) {
-          input.value = '';
-          updateAuthorizationComposer();
-          return;
-        }
-
+      // Validar caracteres do utilizador analisado (letras, números, ponto, hífen, underscore)
+      const sanitized = rawVal.toUpperCase().replace(/[^A-Z0-9\.\-_]/g, '');
+      if (!sanitized) {
         input.value = '';
         updateAuthorizationComposer();
+        return;
+      }
 
+      input.value = '';
+      updateAuthorizationComposer();
+
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
         authorizationTargetUser = sanitized;
         appendAuthorizationMessage('user', sanitized);
 
@@ -10717,23 +10553,14 @@
         showAuthorizationTypingIndicator();
 
         setTimeout(() => {
-          appendAuthorizationMessage('assistant', `Perfeito. Vou analisar o utilizador ${escapeAuthorizationText(authorizationTargetUser)}.`);
+          appendAuthorizationMessage('assistant', `Perfeito. O utilizador ${escapeAuthorizationText(authorizationTargetUser)} será analisado.`);
           showAuthorizationTypingIndicator();
           
           setTimeout(() => {
-            appendAuthorizationMessage('assistant', 'Que tipo de análise pretende fazer?');
-            showAuthorizationAnalysisOptions();
+            appendAuthorizationMessage('assistant', 'Em qual sistema pretende realizar a validação?');
+            showAuthorizationSystemOptions();
           }, 450);
         }, 450);
-      } else if (
-        authorizationChatState === AUTH_CHAT_STATES.READY ||
-        authorizationChatState === AUTH_CHAT_STATES.ANALYSIS_COMPLETE
-      ) {
-        input.value = '';
-        updateAuthorizationComposer();
-
-        appendAuthorizationMessage('user', rawVal);
-        handleAuthorizationFollowUp(rawVal);
       }
     }
 
@@ -10784,13 +10611,6 @@
           card.appendChild(connSpan);
         }
 
-        if (sys.execution_mode) {
-          const modeSpan = document.createElement('span');
-          modeSpan.className = 'sys-conn';
-          modeSpan.textContent = sys.execution_mode;
-          card.appendChild(modeSpan);
-        }
-
         card.onclick = () => selectAuthorizationSystem(sys.key);
         card.onkeydown = (e) => {
           if (e.key === ' ' || e.key === 'Enter') {
@@ -10826,13 +10646,13 @@
         }
       });
 
-      // TransiÃ§Ã£o para a prÃ³xima etapa: mostrar o resumo
+      // Transição para a próxima etapa: perguntar o tipo de análise
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       showAuthorizationTypingIndicator();
 
       setTimeout(() => {
-        appendAuthorizationMessage('assistant', 'Está tudo pronto. Confirme os dados da análise.');
-        showAuthorizationSummary();
+        appendAuthorizationMessage('assistant', 'Que tipo de análise pretende realizar?');
+        showAuthorizationAnalysisOptions();
       }, 500);
     }
 
@@ -10912,13 +10732,13 @@
         }
       });
 
-      // TransiÃ§Ã£o para a prÃ³xima etapa: perguntar o sistema alvo
+      // Animação de transição para o resumo
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       showAuthorizationTypingIndicator();
 
       setTimeout(() => {
-        appendAuthorizationMessage('assistant', 'Em que sistema pretende fazer a análise?');
-        showAuthorizationSystemOptions();
+        appendAuthorizationMessage('assistant', 'Tudo pronto. Confirme os dados da análise.');
+        showAuthorizationSummary();
       }, 500);
     }
 
@@ -10931,8 +10751,8 @@
       const warningHtml = `
         <div id="authorization-worker-offline" style="border-left: 4px solid var(--warning, #ff9800); padding-left: 10px; margin: 5px 0;">
           <div style="font-weight: bold; color: var(--warning, #ff9800); margin-bottom: 5px;">O Worker Windows está desligado.</div>
-          <div style="margin-bottom: 10px;">Para abrir o SAP CUA, ligue primeiro o Worker através do botão “Ligar Worker” no canto inferior esquerdo.</div>
-          <div style="margin-bottom: 12px;">Quando o Worker estiver online, volte a clicar em “Iniciar análise”.</div>
+          <div style="margin-bottom: 10px;">Para abrir o SAP CUA, ligue primeiro o worker através do botão “Ligar Worker” no canto inferior esquerdo.</div>
+          <div style="margin-bottom: 12px;">Depois de o worker ficar online, volte a clicar em “Iniciar análise”.</div>
           <button type="button" id="chat-start-worker-btn" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; padding: 6px 12px; border: none; border-radius: 4px; background-color: var(--warning, #ff9800); color: #fff; font-weight: bold; font-family: inherit;">
             🖥️ Ligar Worker
           </button>
@@ -11025,16 +10845,7 @@
       }
 
       // Mostrar mensagem do assistente e indicador de escrita
-      const executionMode = getAuthorizationExecutionMode();
-      const isDevFlow = isAuthorizationDevFlow();
-      const isRfcFlow = executionMode === 'RFC' || isDevFlow;
-      const selectedSystemLabel = authorizationSelectedSystem?.system || 'sistema selecionado';
-      appendAuthorizationMessage(
-        'assistant',
-        isRfcFlow
-          ? `A iniciar a ligação RFC ao sistema ${escapeAuthorizationText(selectedSystemLabel)}...`
-          : `A iniciar a análise no sistema ${escapeAuthorizationText(selectedSystemLabel)}...`
-      );
+      appendAuthorizationMessage('assistant', 'A abrir uma sessão segura no SAP CUA...');
       showAuthorizationTypingIndicator();
 
       const payload = {
@@ -11103,18 +10914,9 @@
     function pollAuthorizationJob(jobId, currentRequestId) {
       const startTime = Date.now();
       const timeoutMs = 120000;
-      const executionMode = getAuthorizationExecutionMode();
-      const isDevFlow = isAuthorizationDevFlow();
-      const isMasterDataFlow = authorizationSelectedAnalysisType && authorizationSelectedAnalysisType.key === 'master_data';
-      const isRfcFlow = executionMode === 'RFC' || isDevFlow;
-      let hasPrintedAuthorizationReady = false;
-      window.hasPrintedAgrUsers = false;
-      window.hasPrintedAgrTcodes = false;
+      let hasPrintedCuaReady = false;
       window.hasPrintedUsla04 = false;
       window.hasPrintedUsl04 = false;
-      window.hasPrintedUsr02 = false;
-      window.hasPrintedUsr21 = false;
-      window.hasPrintedUsr04 = false;
 
       async function check() {
         if (currentRequestId !== authorizationJobRequestId) {
@@ -11132,172 +10934,28 @@
             return;
           }
 
-          const executionMode = getAuthorizationExecutionMode();
-
           // Escutar os logs para avisar sobre a transição de abertura para consulta
           if (job.log) {
-            if (
-              !hasPrintedAuthorizationReady &&
-              (
-                job.log.includes("Sessão CUA validada") ||
-                job.log.includes("Sessão SAP CUA aberta") ||
-                job.log.includes("Ligação RFC estabelecida") ||
-                job.log.includes("AGR_USERS") ||
-                job.log.includes("USR02")
-              )
-            ) {
-              hasPrintedAuthorizationReady = true;
+            if (!hasPrintedCuaReady && (job.log.includes("Sessão CUA validada") || job.log.includes("Sessão SAP CUA aberta"))) {
+              hasPrintedCuaReady = true;
               hideAuthorizationTypingIndicator();
-              appendAuthorizationMessage(
-                'assistant',
-                isRfcFlow
-                  ? (isMasterDataFlow
-                    ? 'Ligação RFC pronta. Vou consultar os dados mestres do utilizador...'
-                    : (isDevFlow
-                      ? 'Ligação RFC pronta. Vou consultar as atribuições em AGR_USERS...'
-                      : 'Ligação RFC pronta. Vou consultar a USZBVSYS...'))
-                  : (isMasterDataFlow
-                    ? 'Ligação pronta. Vou consultar os dados mestres do utilizador...'
-                    : (isDevFlow
-                      ? 'Ligação pronta. Vou consultar as atribuições em AGR_USERS...'
-                      : 'Ligação pronta. Vou consultar a USZBVSYS...'))
-              );
-              if (!document.querySelector('[data-authorization-typing="true"]')) {
-                showAuthorizationTypingIndicator(currentRequestId, isRfcFlow ? 'A pensar...' : 'A aguardar...');
-              }
+              appendAuthorizationMessage('assistant', 'Sessão CUA pronta. A consultar USZBVSYS...');
+              showAuthorizationTypingIndicator();
             }
-            if (
-              isMasterDataFlow &&
-              (job.log.includes("USR02") || job.log.includes("Tabela USR02 informada")) &&
-              !job.log.includes("Dados de validade e bloqueio lidos")
-            ) {
-              if (!window.hasPrintedUsr02) {
-                window.hasPrintedUsr02 = true;
-                hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? 'Vou consultar USR02 via RFC...'
-                    : 'Vou consultar USR02...'
-                );
-                if (!document.querySelector('[data-authorization-typing="true"]')) {
-                  showAuthorizationTypingIndicator(currentRequestId, 'A pensar...');
-                }
-              }
-            }
-            if (
-              isMasterDataFlow &&
-              (job.log.includes("USR21") || job.log.includes("Tabela USR21 informada")) &&
-              !job.log.includes("Ligação do utilizador ao endereço lida")
-            ) {
-              if (!window.hasPrintedUsr21) {
-                window.hasPrintedUsr21 = true;
-                hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? 'Vou consultar a ligação do utilizador ao endereço via RFC...'
-                    : 'Vou consultar a ligação do utilizador ao endereço...'
-                );
-                if (!document.querySelector('[data-authorization-typing="true"]')) {
-                  showAuthorizationTypingIndicator(currentRequestId, 'A pensar...');
-                }
-              }
-            }
-            if (
-              isMasterDataFlow &&
-              (job.log.includes("USR04") || job.log.includes("Tabela USR04 informada")) &&
-              !job.log.includes("Perfis do utilizador lidos")
-            ) {
-              if (!window.hasPrintedUsr04) {
-                window.hasPrintedUsr04 = true;
-                hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? 'Vou consultar os perfis em USR04 via RFC...'
-                    : 'Vou consultar os perfis em USR04...'
-                );
-                if (!document.querySelector('[data-authorization-typing="true"]')) {
-                  showAuthorizationTypingIndicator(currentRequestId, 'A pensar...');
-                }
-              }
-            }
-            if (
-              (job.log.includes("AGR_USERS") || job.log.includes("Tabela AGR_USERS informada")) &&
-              !job.log.includes("Roles do utilizador lidas") &&
-              !job.log.includes("Roles lidas via AGR_USERS")
-            ) {
-              if (!window.hasPrintedAgrUsers) {
-                window.hasPrintedAgrUsers = true;
-                hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage(
-                  'assistant',
-                  isRfcFlow
-                    ? (isMasterDataFlow
-                      ? 'Vou consultar as roles em AGR_USERS via RFC...'
-                      : 'Utilizador validado. Vou consultar as atribuições em AGR_USERS via RFC...')
-                    : (isMasterDataFlow
-                      ? 'Vou consultar as roles em AGR_USERS...'
-                      : 'Utilizador validado. Vou consultar as atribuições em AGR_USERS...')
-                );
-                if (!document.querySelector('[data-authorization-typing="true"]')) {
-                  showAuthorizationTypingIndicator(currentRequestId, 'A pensar...');
-                }
-              }
-            }
-            if (
-              (job.log.includes("AGR_TCODES") || job.log.includes("Tabela AGR_TCODES informada")) &&
-              !job.log.includes("Funções AGR_TCODES lidas")
-            ) {
-              if (!window.hasPrintedAgrTcodes) {
-                window.hasPrintedAgrTcodes = true;
-                hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? 'Vou consultar as transações em AGR_TCODES via RFC...'
-                    : 'Vou consultar as transações em AGR_TCODES...'
-                );
-                if (!document.querySelector('[data-authorization-typing="true"]')) {
-                  showAuthorizationTypingIndicator(currentRequestId, 'A pensar...');
-                }
-              }
-            }
-            if (
-              (job.log.includes("A abrir SE16N para USLA04") || job.log.includes("Tabela USLA04 informada")) &&
-              !job.log.includes("USLA04 executada")
-            ) {
+            if (job.log.includes("A abrir SE16N para USLA04") && !job.log.includes("USLA04 executada")) {
               if (!window.hasPrintedUsla04) {
                 window.hasPrintedUsla04 = true;
                 hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? 'Utilizador validado. Vou consultar as funções em USLA04 via RFC...'
-                    : 'Utilizador validado. Vou consultar as funções em USLA04...'
-                );
-                if (!document.querySelector('[data-authorization-typing="true"]')) {
-                  showAuthorizationTypingIndicator(currentRequestId, 'A pensar...');
-                }
+                appendAuthorizationMessage('assistant', 'Utilizador validado. A consultar as roles em USLA04...');
+                showAuthorizationTypingIndicator();
               }
             }
-            if (
-              (job.log.includes("A abrir SE16N para USL04") || job.log.includes("Tabela USL04 informada")) &&
-              !job.log.includes("USL04 executada")
-            ) {
+            if (job.log.includes("A abrir SE16N para USL04") && !job.log.includes("USL04 executada")) {
               if (!window.hasPrintedUsl04) {
                 window.hasPrintedUsl04 = true;
                 hideAuthorizationTypingIndicator();
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? 'Vou consultar os perfis em USL04 via RFC...'
-                    : 'Vou consultar os perfis em USL04...'
-                );
-                if (!document.querySelector('[data-authorization-typing="true"]')) {
-                  showAuthorizationTypingIndicator(currentRequestId, 'A pensar...');
-                }
+                appendAuthorizationMessage('assistant', 'A consultar os perfis em USL04...');
+                showAuthorizationTypingIndicator();
               }
             }
           }
@@ -11314,7 +10972,7 @@
             
             // Validar identificação de versão do Worker
             if (statusData.worker_feature_version !== "authorization-tables-v1") {
-              throw new Error('A análise foi iniciada, mas a consulta das tabelas não foi executada pelo Worker (versão antiga detetada). Reinicie o Worker.');
+              throw new Error('A sessão CUA foi aberta, mas a consulta das tabelas não foi executada pelo Worker (versão antiga detetada). Reinicie o Worker.');
             }
 
             // Validar payload estruturado
@@ -11324,11 +10982,7 @@
               !Array.isArray(statusData.queries) ||
               statusData.queries.length === 0
             ) {
-              throw new Error(
-                executionMode === 'RFC'
-                  ? 'A ligação RFC foi estabelecida, mas a consulta das tabelas não foi executada.'
-                  : 'A análise foi iniciada, mas a consulta das tabelas não foi executada.'
-              );
+              throw new Error('A sessão CUA foi aberta, mas a consulta das tabelas não foi executada.');
             }
 
             // Mapear queries executadas
@@ -11337,55 +10991,28 @@
               queryMap[q.table] = q;
             });
 
-            const isMasterData = statusData.analysis_type === 'master_data';
-            const isDevFlow = isAuthorizationDevFlow() || Boolean(queryMap["AGR_USERS"]);
-            if (isMasterData) {
-              const requiredMasterTables = ["USR02", "USR21", "USR04", "AGR_USERS"];
-              requiredMasterTables.forEach(table => {
-                const q = queryMap[table];
-                if (!q || q.executed !== true || q.filters_applied !== true) {
-                  throw new Error(`A consulta na tabela ${table} não foi realizada ou os filtros não foram aplicados.`);
-                }
-              });
-            } else if (isDevFlow) {
-              const qUsers = queryMap["AGR_USERS"];
-              if (!qUsers || qUsers.executed !== true || qUsers.filters_applied !== true) {
-                throw new Error('A consulta na tabela AGR_USERS não foi realizada ou os filtros não foram aplicados.');
-              }
-            } else {
-              const qSys = queryMap["USZBVSYS"];
-              if (!qSys || qSys.executed !== true || qSys.filters_applied !== true) {
-                throw new Error('A consulta na tabela USZBVSYS não foi realizada ou os filtros não foram aplicados.');
-              }
+            const qSys = queryMap["USZBVSYS"];
+            if (!qSys || qSys.executed !== true || qSys.filters_applied !== true) {
+              throw new Error('A consulta na tabela USZBVSYS não foi realizada ou os filtros não foram aplicados.');
             }
 
             if (statusData.code === 'analysis_complete') {
-              if (isMasterData) {
-                // Já validado acima
-              } else if (isDevFlow) {
-                const qTcodes = queryMap["AGR_TCODES"];
-                if (!qTcodes || qTcodes.executed !== true || qTcodes.filters_applied !== true) {
-                  throw new Error('A consulta na tabela AGR_TCODES não foi realizada ou os filtros não foram aplicados.');
-                }
-              } else {
-                const qRoles = queryMap["USLA04"];
-                const qProfs = queryMap["USL04"];
-                  if (!qRoles || qRoles.executed !== true || qRoles.filters_applied !== true) {
-                    throw new Error('A consulta na tabela USLA04 não foi realizada ou os filtros não foram aplicados.');
-                  }
-                  if (!qProfs || qProfs.executed !== true || qProfs.filters_applied !== true) {
-                    throw new Error('A consulta na tabela USL04 não foi realizada ou os filtros não foram aplicados.');
-                  }
-                }
-            } else if (statusData.code === 'user_not_assigned_to_system' || statusData.code === 'user_not_found') {
-              // Já validamos a tabela base acima
+              const qRoles = queryMap["USLA04"];
+              const qProfs = queryMap["USL04"];
+              if (!qRoles || qRoles.executed !== true || qRoles.filters_applied !== true) {
+                throw new Error('A consulta na tabela USLA04 não foi realizada ou os filtros não foram aplicados.');
+              }
+              if (!qProfs || qProfs.executed !== true || qProfs.filters_applied !== true) {
+                throw new Error('A consulta na tabela USL04 não foi realizada ou os filtros não foram aplicados.');
+              }
+            } else if (statusData.code === 'user_not_assigned_to_system') {
+              // Já validamos USZBVSYS acima
             } else {
               throw new Error(`Código de resposta inválido: ${statusData.code}`);
             }
 
             authorizationChatState = AUTH_CHAT_STATES.ANALYSIS_COMPLETE;
             authorizationActiveJobId = null;
-            authorizationLastStatusData = statusData;
             updateAuthorizationComposer();
 
               const btnStart = document.querySelector('.auth-chat-summary-actions .btn-primary');
@@ -11396,12 +11023,7 @@
 
               if (statusData.code === 'user_not_assigned_to_system') {
                 const sysShort = authorizationSelectedSystem ? authorizationSelectedSystem.system : statusData.target_system.system;
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? `O utilizador ${escapeAuthorizationText(statusData.target_user)} não está associado ao sistema ${escapeAuthorizationText(sysShort)} via RFC.`
-                    : `O utilizador ${escapeAuthorizationText(statusData.target_user)} não está associado ao sistema ${escapeAuthorizationText(sysShort)}.`
-                );
+                appendAuthorizationMessage('assistant', `O utilizador ${escapeAuthorizationText(statusData.target_user)} não está associado ao sistema ${escapeAuthorizationText(sysShort)} no CUA.`);
                 
                 const actionsHtml = `
                   <div class="auth-actions-row">
@@ -11410,22 +11032,10 @@
                 `;
                 appendAuthorizationMessage('assistant', actionsHtml, true);
               } else if (statusData.code === 'analysis_complete') {
-                appendAuthorizationMessage(
-                  'assistant',
-                  executionMode === 'RFC'
-                    ? 'Análise de autorizações concluída via RFC.'
-                    : 'Análise de autorizações concluída.'
-                );
+                appendAuthorizationMessage('assistant', 'Análise de autorizações concluída.');
 
                 const s = statusData.summary;
                 const sysShort = authorizationSelectedSystem ? authorizationSelectedSystem.system : statusData.target_system.system;
-                const functions = Array.isArray(statusData.functions) ? statusData.functions : [];
-                const functionCodes = functions
-                  .map(f => String(f?.tcode || '').trim())
-                  .filter(Boolean);
-                const isMasterData = statusData.analysis_type === 'master_data';
-                const masterData = statusData.master_data || {};
-                const masterDataFullName = masterData.full_name || masterData.name_text || [masterData.name_first, masterData.name_last].filter(Boolean).join(' ').trim();
                 
                 let rowsHtml = '';
                 const roles = statusData.roles || [];
@@ -11476,16 +11086,15 @@
                 const resultHtml = `
                   <div class="auth-analysis-result">
                     <div class="auth-summary-card">
-                      <div class="auth-summary-header">${isMasterData ? 'Resumo dos Dados Mestres' : 'Resumo do Utilizador'}: ${escapeAuthorizationText(statusData.target_user)}</div>
+                      <div class="auth-summary-header">Resumo do Utilizador: ${escapeAuthorizationText(statusData.target_user)}</div>
                       <div class="auth-summary-grid">
                         <div class="auth-summary-item"><strong>Utilizador:</strong> <span>${escapeAuthorizationText(statusData.target_user)}</span></div>
-                        <div class="auth-summary-item"><strong>${isMasterData ? 'Nome completo' : 'Sistema'}:</strong> <span>${escapeAuthorizationText(isMasterData ? (masterDataFullName || 'N/D') : sysShort)}</span></div>
-                        <div class="auth-summary-item"><strong>${isMasterData ? 'Email' : 'Funções encontradas'}:</strong> <span>${escapeAuthorizationText(isMasterData ? (masterData.email || 'N/D') : String(s.total_roles ?? 0))}</span></div>
-                        <div class="auth-summary-item"><strong>${isMasterData ? 'Grupo' : 'Ativas'}:</strong> <span class="${isMasterData ? '' : 'badge badge-success'}">${escapeAuthorizationText(isMasterData ? (masterData.user_group || 'N/D') : String(s.active_roles ?? 0))}</span></div>
-                        <div class="auth-summary-item"><strong>${isMasterData ? 'Validade' : 'Expiradas'}:</strong> <span class="${isMasterData ? '' : 'badge badge-danger'}">${escapeAuthorizationText(isMasterData ? `${masterData.valid_from || '(aberta)'} - ${masterData.valid_to || '(aberta)'}` : String(s.expired_roles ?? 0))}</span></div>
-                        <div class="auth-summary-item"><strong>${isMasterData ? 'Bloqueio' : 'Futuras'}:</strong> <span class="${isMasterData ? '' : 'badge badge-warning'}">${escapeAuthorizationText(isMasterData ? (masterData.lock_status || 'N/D') : String(s.future_roles ?? 0))}</span></div>
-                        <div class="auth-summary-item"><strong>Perfis do Utilizador:</strong> <span>${String(s.total_profiles ?? 0)}</span></div>
-                        <div class="auth-summary-item"><strong>${isMasterData ? 'Roles' : 'Transações'}:</strong> <span>${isMasterData ? String(s.total_roles ?? 0) : String(functionCodes.length)}</span></div>
+                        <div class="auth-summary-item"><strong>Sistema:</strong> <span>${escapeAuthorizationText(sysShort)}</span></div>
+                        <div class="auth-summary-item"><strong>Roles encontradas:</strong> <span>${s.total_roles}</span></div>
+                        <div class="auth-summary-item"><strong>Ativas:</strong> <span class="badge badge-success">${s.active_roles}</span></div>
+                        <div class="auth-summary-item"><strong>Expiradas:</strong> <span class="badge badge-danger">${s.expired_roles}</span></div>
+                        <div class="auth-summary-item"><strong>Futuras:</strong> <span class="badge badge-warning">${s.future_roles}</span></div>
+                        <div class="auth-summary-item"><strong>Perfis Locais:</strong> <span>${s.total_profiles}</span></div>
                       </div>
                     </div>
 
@@ -11526,10 +11135,6 @@
             throw new Error(errorMsg);
           } else {
             // Pending or running
-            if (!document.querySelector('[data-authorization-typing="true"]')) {
-              showAuthorizationTypingIndicator(currentRequestId, job.state === 'running' ? 'A processar...' : 'A aguardar execução...');
-            }
-
             if (Date.now() - startTime > timeoutMs) {
               throw new Error('Tempo limite da análise esgotado.');
             }
@@ -11576,25 +11181,17 @@
           if (err && err.isWorkerOfflineDuringExecution) {
             showAuthorizationWorkerOfflineMessage();
           } else {
-            let userFriendlyMsg = executionMode === 'RFC'
-              ? '⚠️ A ligação RFC foi estabelecida, mas a consulta das tabelas não foi executada. Reinicie o Worker e tente novamente.'
-              : '⚠️ A análise foi iniciada, mas a consulta das tabelas não foi executada. Reinicie o Worker e tente novamente.';
+            let userFriendlyMsg = '⚠️ A sessão CUA foi aberta, mas a consulta das tabelas não foi executada. Reinicie o Worker e tente novamente.';
             const errText = err.message || '';
             if (errText.includes('table_not_authorized')) {
-              userFriendlyMsg = '⚠️ O utilizador técnico não possui autorização para consultar a tabela necessária.';
+              userFriendlyMsg = '⚠️ O utilizador técnico não possui autorização para consultar a tabela necessária no CUA.';
             } else if (errText.includes('filter_not_applied')) {
               userFriendlyMsg = '⚠️ Não foi possível aplicar de forma segura os filtros da análise.';
             } else if (errText.includes('user_not_assigned_to_system')) {
               const sysShort = authorizationSelectedSystem ? authorizationSelectedSystem.system : 'alvo';
-              userFriendlyMsg = `⚠️ O utilizador ${escapeAuthorizationText(authorizationTargetUser)} não está associado ao sistema ${escapeAuthorizationText(sysShort)}.`;
+              userFriendlyMsg = `⚠️ O utilizador ${escapeAuthorizationText(authorizationTargetUser)} não está associado ao sistema ${escapeAuthorizationText(sysShort)} no CUA.`;
             } else if (errText.includes('Não foi possível abrir a sessão SAP CUA')) {
-              userFriendlyMsg = executionMode === 'RFC'
-                ? '⚠️ Não foi possível abrir a ligação RFC ao sistema selecionado. Verifique as credenciais RFC e o acesso ao SAP.'
-                : '⚠️ Não foi possível abrir a sessão SAP. Verifique se o SAP GUI está configurado e com Scripting ativo.';
-            } else if (errText.includes('rfc_connection_failed')) {
-              userFriendlyMsg = '⚠️ Não foi possível abrir a ligação RFC ao sistema selecionado. Verifique as credenciais RFC e o acesso ao SAP.';
-            } else if (errText.includes('rfc_table_read_failed')) {
-              userFriendlyMsg = '⚠️ Não foi possível consultar uma das tabelas SAP via RFC.';
+              userFriendlyMsg = '⚠️ Não foi possível abrir a sessão SAP CUA. Verifique se o SAP GUI está configurado e com Scripting ativo.';
             } else if (errText.includes('versão antiga')) {
               userFriendlyMsg = '⚠️ ' + errText;
             }
@@ -11626,9 +11223,8 @@
 
       const fields = [
         { label: 'Utilizador analisado', val: authorizationTargetUser },
-        { label: 'Tipo de análise', val: authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : 'N/D' },
-        { label: 'Modo de execução', val: getAuthorizationExecutionMode() || 'N/D' },
-        { label: 'Sistema', val: authorizationSelectedSystem.system }
+        { label: 'Sistema', val: authorizationSelectedSystem.system },
+        { label: 'Tipo de análise', val: authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : 'N/D' }
       ];
 
       fields.forEach(f => {
@@ -11689,15 +11285,13 @@
         return;
       }
 
-      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
-        const normalized = input.value
-          .toUpperCase()
-          .replace(/[^A-Z0-9._-]/g, '')
-          .slice(0, 40);
+      const normalized = input.value
+        .toUpperCase()
+        .replace(/[^A-Z0-9._-]/g, '')
+        .slice(0, 40);
 
-        if (input.value !== normalized) {
-          input.value = normalized;
-        }
+      if (input.value !== normalized) {
+        input.value = normalized;
       }
 
       updateAuthorizationComposer();

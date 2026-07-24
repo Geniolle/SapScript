@@ -156,6 +156,20 @@ def test_cancelled_job_returns_409():
     assert response.status_code == 409
     assert "cancelled" in response.json()["detail"].lower()
 
+def test_delete_all_jobs_endpoint():
+    """Garante que a eliminação em massa remove todos os jobs existentes."""
+    job1 = create_job(task="test_task_1", params={})
+    job2 = create_job(task="test_task_2", params={})
+
+    response = client.post("/api/jobs/delete-all")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["deleted"] >= 2
+
+    assert get_job(job1["id"]) is None
+    assert get_job(job2["id"]) is None
+
 def test_worker_heartbeat_client_logging(monkeypatch, capsys):
     """Valida o comportamento do cliente de heartbeat: falha temporária, restabelecida e cooldown."""
     import worker as worker_mod

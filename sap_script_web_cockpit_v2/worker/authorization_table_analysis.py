@@ -1,4 +1,5 @@
 import re
+import os
 from datetime import datetime
 from typing import Any
 from sap_agent.sap_gui_actions import se16_query_with_session
@@ -63,6 +64,17 @@ def normalize_sap_date(date_str: str) -> str:
         return f"{parts[2]}-{parts[1]}-{parts[0]}"
         
     return ""
+
+
+def format_sap_date_display(date_str: str) -> str:
+    normalized = normalize_sap_date(date_str)
+    if not normalized:
+        return ""
+    try:
+        dt = datetime.strptime(normalized, "%Y-%m-%d").date()
+    except Exception:
+        return normalized
+    return dt.strftime("%d/%m/%Y")
 
 def classify_validity(valid_from: str, valid_to: str, today_str: str) -> str:
     from_cleaned = str(valid_from or "").strip()
@@ -154,6 +166,7 @@ def analyze_user_authorizations(
     target_user: str,
     target_system_key: str,
     max_rows: int = 5000,
+    progress_logger: Any | None = None,
 ) -> dict[str, Any]:
     try:
         sys_name = str(session.Info.SystemName or "").strip().upper()
@@ -162,7 +175,7 @@ def analyze_user_authorizations(
         return {
             "success": False,
             "code": "invalid_cua_session",
-            "message": f"Erro ao ler informações da sessão SAP: {exc}",
+            "message": f"Não foi possível validar a sessão SAP: {exc}",
             "roles": [],
             "profiles": []
         }
@@ -171,15 +184,25 @@ def analyze_user_authorizations(
         return {
             "success": False,
             "code": "invalid_cua_session",
-            "message": f"A sessão disponível ({sys_name}/{client}) não corresponde ao CUA SPA/001.",
+            "message": f"Sessão CUA inválida: {sys_name}/{client} (esperado SPA/001).",
             "roles": [],
             "profiles": []
         }
+
+    if callable(progress_logger):
+        cua_sap_key = str(os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+        progress_logger(
+            f"[AUTH] Pedido recebido: utilizador={target_user}, sistema={target_system_key}, "
+            f"tipo=authorizations, modo=CUA, execution_mode=CUA, cua_sap_key={cua_sap_key}."
+        )
 
     executed_queries = []
 
     # 1. USZBVSYS
     try:
+        if callable(progress_logger):
+            progress_logger("[AUTH] A abrir sessão CUA...")
+            progress_logger("[AUTH] Sessão CUA validada. A consultar USZBVSYS...")
         filters_sys = [
             {"field": "BNAME", "value": target_user},
             {"field": "SUBSYSTEM", "value": target_system_key}
@@ -211,20 +234,25 @@ def analyze_user_authorizations(
         simple_sys = target_system_key
         if "CLNT" in target_system_key:
             simple_sys = target_system_key.split("CLNT", 1)[0]
+        if callable(progress_logger):
+            progress_logger("[AUTH] O utilizador não está associado ao sistema alvo no CUA.")
         return {
             "success": True,
             "code": "user_not_assigned_to_system",
-            "message": f"O utilizador {target_user} não está associado ao sistema {simple_sys} no CUA.",
+            "message": f"Utilizador {target_user} não associado ao sistema {simple_sys} no CUA.",
             "user_assigned_to_system": False,
             "roles": [],
             "profiles": [],
             "queries": executed_queries,
             "data_source_verified": True,
+            "execution_mode": "CUA",
             "worker_feature_version": "authorization-tables-v1"
         }
 
     # 2. USLA04
     try:
+        if callable(progress_logger):
+            progress_logger("[AUTH] Utilizador validado. A consultar USLA04...")
         filters_roles = [
             {"field": "BNAME", "value": target_user},
             {"field": "SUBSYSTEM", "value": target_system_key}
@@ -254,6 +282,8 @@ def analyze_user_authorizations(
 
     # 3. USL04
     try:
+        if callable(progress_logger):
+            progress_logger("[AUTH] A consultar USL04...")
         filters_profiles = [
             {"field": "BNAME", "value": target_user},
             {"field": "SUBSYSTEM", "value": target_system_key}
@@ -289,19 +319,19 @@ def analyze_user_authorizations(
         if not role_name:
             continue
         
-        valid_from = normalize_sap_date(r.get("FROM_DAT", ""))
-        valid_to = normalize_sap_date(r.get("TO_DAT", ""))
+        valid_from_raw = normalize_sap_date(r.get("FROM_DAT", ""))
+        valid_to_raw = normalize_sap_date(r.get("TO_DAT", ""))
         org_flag = str(r.get("ORG_FLAG") or "").strip()
-        
-        status_info = classify_validity(valid_from, valid_to, today_str)
+
+        status_info = classify_validity(valid_from_raw, valid_to_raw, today_str)
         origin_info = classify_assignment_origin(org_flag)
         
         raw_roles.append({
             "role": role_name,
             "description": "",
             "subsystem": target_system_key,
-            "valid_from": valid_from,
-            "valid_to": valid_to,
+            "valid_from": format_sap_date_display(valid_from_raw),
+            "valid_to": format_sap_date_display(valid_to_raw),
             "validity_status": status_info,
             "assignment_origin": origin_info["origin"],
             "assignment_origin_label": origin_info["origin_label"],
@@ -338,12 +368,17 @@ def analyze_user_authorizations(
     if truncated:
         warnings.append(f"A consulta atingiu o limite máximo de {max_rows} linhas.")
 
+    if callable(progress_logger):
+        progress_logger("[AUTH] Análise concluída com sucesso.")
+
     return {
         "success": True,
         "code": "analysis_complete",
+        "message": "Análise de autorizações concluída com sucesso.",
         "analysis_type": "authorizations",
         "source": "CUA_USLA04",
         "target_user": target_user,
+        "execution_mode": "CUA",
         "execution_system": {
             "key": "SPACLNT001",
             "system": "SPA",

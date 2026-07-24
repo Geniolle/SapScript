@@ -1,10 +1,10 @@
 from typing import Any
 
-AUTHORIZATION_EXECUTION_ENVIRONMENT = "CUA"
+AUTHORIZATION_EXECUTION_ENVIRONMENT = "RFC"
 
 ANALYSIS_TYPES = {
     "master_data": {
-        "label": "Dados mestre",
+        "label": "Dados mestres",
         "description": (
             "Estado do utilizador, validade, bloqueios e "
             "informações gerais da conta SAP."
@@ -36,3 +36,10 @@ def get_analysis_type(type_key: str) -> dict[str, Any] | None:
 
 def validate_analysis_selection(type_key: str) -> bool:
     return type_key in ANALYSIS_TYPES
+
+
+def get_execution_mode_for_system_key(system_key: str) -> str:
+    cleaned = str(system_key or "").strip().upper()
+    if cleaned.startswith("S4"):
+        return "RFC"
+    return "CUA"

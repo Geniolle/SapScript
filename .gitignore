@@ -15,5 +15,6 @@ credentials.json
 
 # Local uploads and temporary files
 sap_script_uploads/
+Relatórios/
 *.bak_*
 *.log
