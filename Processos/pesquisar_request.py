@@ -57,6 +57,8 @@ class RequestSearchOptions:
     debug_perf: bool = False
     save_cache: bool = True
     print_results: bool = True
+    use_rfc: bool = True
+    user_filter: Optional[str] = None
 
 @dataclass
 class RequestItem:
@@ -925,6 +927,13 @@ def imprimir_resultados(items: list[RequestItem], system: str, user: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def pesquisar_requests_service(options: RequestSearchOptions, session: Optional[Any] = None) -> RequestSearchResult:
+    if options.use_rfc:
+        try:
+            from pesquisar_request_rfc import pesquisar_requests_rfc_service
+            return pesquisar_requests_rfc_service(options)
+        except Exception as exc_rfc:
+            print(f"⚠️ Pesquisa de requests via RFC falhou ({exc_rfc}). A recorrer a pesquisa GUI...")
+
     # Adquirir lock para evitar execuções concorrentes no mesmo processo Python
     if not _REQUEST_SEARCH_LOCK.acquire(blocking=False):
         if options.debug_perf:
@@ -951,6 +960,24 @@ def pesquisar_requests_service(options: RequestSearchOptions, session: Optional[
                 system_name = (session_base.Info.SystemName or "").upper()
             except Exception:
                 user = ""
+
+            # Validar se o sistema da sessão SAP recebida corresponde ao sistema solicitado
+            if options.system_name and system_name and system_name != options.system_name.upper().strip():
+                target_sys = options.system_name.upper().strip()
+                if options.debug_perf:
+                    print(f"[REQ_PERF] Sessão SAP recebida ({system_name}) difere do sistema solicitado ({target_sys}). A procurar sessão correta...")
+                try:
+                    app = _get_application()
+                    corrected_session = _pick_session(app, system_name=target_sys)
+                    if corrected_session:
+                        session_base = corrected_session
+                        user = (session_base.Info.User or "").strip()
+                        system_name = (session_base.Info.SystemName or "").upper()
+                except Exception:
+                    raise RuntimeError(
+                        f"A janela SAP GUI aberta é do sistema '{system_name}', mas o processo solicitou o sistema '{target_sys}'. "
+                        f"Por favor, abra/faça login numa janela do sistema {target_sys}."
+                    )
 
             # Abre o novo modo (/ose16h) a partir da sessão recebida
             work_session, created_new = abrir_se16h_em_novo_modo(session_base, perf=perf)
@@ -1075,7 +1102,20 @@ def listar_requests(
     close_after=True,
     debug_perf=False,
     session=None,
+    use_rfc=True,
 ) -> list[tuple[str, str]]:
+    if use_rfc:
+        try:
+            from pesquisar_request_rfc import listar_requests as listar_requests_rfc
+            return listar_requests_rfc(
+                system_name=system_name,
+                max_rows=max_rows,
+                include_requests=include_requests,
+                debug_perf=debug_perf,
+            )
+        except Exception as e:
+            print(f"⚠️ Erro ao executar pesquisa via RFC ({e}). A recorrer a pesquisa GUI...")
+
     options = RequestSearchOptions(
         system_name=system_name,
         max_rows=max_rows,
@@ -1240,6 +1280,22 @@ if __name__ == "__main__":
             
         print("✅ Testes mínimos executados com sucesso!")
         sys.exit(0)
+
+    if "--rfc" in sys.argv:
+        try:
+            from pesquisar_request_rfc import listar_requests as listar_requests_rfc
+            sys.argv.remove("--rfc")
+            options = _parse_args(sys.argv[1:])
+            listar_requests_rfc(
+                system_name=options.system_name,
+                max_rows=options.max_rows,
+                include_requests=options.include_requests,
+                debug_perf=options.debug_perf,
+            )
+            sys.exit(0)
+        except Exception as e:
+            print(f"❌ Erro ao executar pesquisa RFC: {e}", file=sys.stderr)
+            sys.exit(1)
 
     try:
         options = _parse_args(sys.argv[1:])

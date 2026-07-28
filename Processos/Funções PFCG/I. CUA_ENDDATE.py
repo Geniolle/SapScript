@@ -52,9 +52,21 @@ MAPA_SISTEMA = {
 # Mapeamento para o filtro SUBSYSTEM do grid de Roles na SU01
 MAPA_SUBSYSTEM = {
     "DEV": "S4DCLNT100",
+    "S4D": "S4DCLNT100",
+    "S4DCLNT100": "S4DCLNT100",
+    "DESENVOLVIMENTO": "S4DCLNT100",
     "QAD": "S4QCLNT100",
+    "S4Q": "S4QCLNT100",
+    "S4QCLNT100": "S4QCLNT100",
+    "QUALIDADE": "S4QCLNT100",
     "PRD": "S4PCLNT100",
+    "S4P": "S4PCLNT100",
+    "S4PCLNT100": "S4PCLNT100",
+    "PRODUCAO": "S4PCLNT100",
+    "PRODUÇÃO": "S4PCLNT100",
     "CUA": "SPACLNT001",
+    "SPA": "SPACLNT001",
+    "SPACLNT001": "SPACLNT001",
 }
 
 ###################################################################################
@@ -153,13 +165,28 @@ def resolver_subsystem(valor_sistema):
     """
     Aceita:
     - DEV / QAD / PRD / CUA
-    - ou já o valor final tipo S4DCLNT100
+    - S4D / S4Q / S4P / SPA
+    - S4DCLNT100 / S4QCLNT100 / S4PCLNT100 / SPACLNT001
+    - Rótulos do assistente Web como 'S4P — Cliente 100 — PRODUÇÃO (S4H)'
+    Retorna o código de SUBSYSTEM CUA exato do SAP (ex: S4PCLNT100).
     """
     bruto = str(valor_sistema or "").strip()
+    if not bruto:
+        return ""
+
     norm = normalizar_valor(bruto)
 
     if norm in MAPA_SUBSYSTEM:
         return MAPA_SUBSYSTEM[norm]
+
+    if "S4P" in norm or "PRD" in norm or "PRODUCAO" in norm:
+        return "S4PCLNT100"
+    if "S4D" in norm or "DEV" in norm or "DESENVOLVIMENTO" in norm:
+        return "S4DCLNT100"
+    if "S4Q" in norm or "QAD" in norm or "QUALIDADE" in norm:
+        return "S4QCLNT100"
+    if "SPA" in norm or "CUA" in norm:
+        return "SPACLNT001"
 
     return bruto
 
@@ -510,30 +537,117 @@ def validar_linha(row):
 # BLOCO 9: HELPERS DO NOVO MAPEAMENTO SU01
 ###################################################################################
 
-def aplicar_filtro_shell(session, shell, coluna, valor_filtro, campo_popup):
+def obter_children(obj):
+    try:
+        children = obj.Children
+        total = children.Count
+        return [children.Item(i) for i in range(total)]
+    except Exception:
+        try:
+            return list(obj.Children)
+        except Exception:
+            return []
+
+def coletar_componentes_recursivo(obj, lista):
+    try:
+        lista.append(obj)
+    except Exception:
+        return
+    for filho in obter_children(obj):
+        coletar_componentes_recursivo(filho, lista)
+
+def listar_campos_popup(session):
+    componentes = []
+    try:
+        wnd1 = session.findById("wnd[1]")
+    except Exception:
+        return componentes
+    coletar_componentes_recursivo(wnd1, componentes)
+    return componentes
+
+def descrever_componente(obj):
+    try:
+        obj_id = str(getattr(obj, "Id", "") or "")
+    except Exception:
+        obj_id = ""
+    try:
+        obj_type = str(getattr(obj, "Type", "") or "")
+    except Exception:
+        obj_type = ""
+    try:
+        name = str(getattr(obj, "Name", "") or "")
+    except Exception:
+        name = ""
+    try:
+        text = str(getattr(obj, "Text", "") or "")
+    except Exception:
+        text = ""
+    try:
+        changeable = getattr(obj, "Changeable")
+    except Exception:
+        changeable = "?"
+    return {"id": obj_id, "type": obj_type, "name": name, "text": text, "changeable": changeable}
+
+def obter_campos_low_popup(session):
+    candidatos = []
+    for comp in listar_campos_popup(session):
+        info = descrever_componente(comp)
+        obj_id = info["id"].upper()
+        if "-LOW" not in obj_id:
+            continue
+        candidatos.append(info)
+
+    def score(info):
+        changeable = info["changeable"] is True
+        obj_id = info["id"].lower()
+        prioridade_tipo = 0
+        if "/ctxt" in obj_id:
+            prioridade_tipo = 2
+        elif "/txt" in obj_id:
+            prioridade_tipo = 1
+        return (1 if changeable else 0, prioridade_tipo, len(obj_id))
+
+    candidatos.sort(key=score, reverse=True)
+    return candidatos
+
+def preencher_popup_filtro(session, valor, descricao_filtro=""):
+    candidatos = obter_campos_low_popup(session)
+    if not candidatos:
+        return {"success": False, "error": f"Nenhum campo '*-LOW' foi encontrado no wnd[1] para {descricao_filtro}."}
+
+    for info in candidatos:
+        obj_id = info["id"]
+        try:
+            obj = session.findById(obj_id)
+            try:
+                obj.setFocus()
+            except Exception:
+                pass
+            obj.text = str(valor)
+            escrito = str(getattr(obj, "Text", "") or "")
+            if normalizar_valor(escrito) != normalizar_valor(valor):
+                raise Exception("Valor escrito não corresponde ao esperado no campo.")
+
+            session.findById("wnd[1]/tbar[0]/btn[0]").press()
+            time.sleep(0.4)
+            return {"success": True, "field_id": obj_id, "current_value": escrito}
+        except Exception as e:
+            continue
+
+    return {"success": False, "error": f"Não foi possível preencher o campo do filtro {descricao_filtro}."}
+
+def aplicar_filtro_shell(session, shell, coluna, valor_filtro):
     """
-    Aplica filtro no ALV/GRID através do menu de contexto.
-    Exemplo:
-    - coluna SUBSYSTEM → campo_popup ctxt%%DYN001-LOW
-    - coluna AGR_NAME  → campo_popup ctxt%%DYN002-LOW
+    Aplica filtro no ALV/GRID dinamicamente usando preencher_popup_filtro do J. CUA_REMOVE.
     """
     shell.currentCellColumn = coluna
     shell.contextMenu()
     shell.selectContextMenuItem("&FILTER")
 
-    if not aguardar_objeto(session, campo_popup, timeout=5, intervalo=0.3):
-        raise Exception(f"Popup de filtro não abriu para a coluna {coluna}.")
-
-    campo = session.findById(campo_popup)
-    campo.text = valor_filtro
-    try:
-        campo.setFocus()
-        campo.caretPosition = len(valor_filtro)
-    except Exception:
-        pass
-
-    session.findById("wnd[1]/tbar[0]/btn[0]").press()
-    time.sleep(0.4)
+    res = preencher_popup_filtro(session, valor_filtro, descricao_filtro=coluna)
+    if not res.get("success"):
+        raise Exception(f"Falha ao aplicar filtro na coluna {coluna} com valor '{valor_filtro}': {res.get('error')}")
+    time.sleep(0.3)
 
 
 def abrir_su01_em_alteracao(session, utilizador):
@@ -595,8 +709,7 @@ def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_
         session=session,
         shell=shell,
         coluna="SUBSYSTEM",
-        valor_filtro=subsystem,
-        campo_popup="wnd[1]/usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN001-LOW"
+        valor_filtro=subsystem
     )
 
     # Filtro 2: AGR_NAME
@@ -604,8 +717,7 @@ def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_
         session=session,
         shell=shell,
         coluna="AGR_NAME",
-        valor_filtro=agr_name,
-        campo_popup="wnd[1]/usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN002-LOW"
+        valor_filtro=agr_name
     )
 
     # Alterar data final

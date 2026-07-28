@@ -918,15 +918,50 @@ def fill_se16_field_with_fallbacks(session, field_name: str, value: str, table: 
 
 
 def _find_se16_field(session, field_name: str) -> Any:
-    """Procura um elemento de seleção na SE16 para o campo dado (compatibilidade com testes)."""
+    """Procura um elemento de seleção na SE16 para o campo dado (otimizado e ultra-rápido)."""
     field_upper = field_name.upper()
 
+    # 1. Tentar primeiro busca direta instantânea por IDs conhecidos na SE16
+    fast_id_map = {
+        "BNAME": [
+            "wnd[0]/usr/ctxtBNAME-LOW",
+            "wnd[0]/usr/txtBNAME-LOW",
+            "wnd[0]/usr/ctxtI1-LOW",
+            "wnd[0]/usr/txtI1-LOW",
+            "wnd[0]/usr/ctxtI1",
+            "wnd[0]/usr/txtI1",
+        ],
+        "SUBSYSTEM": [
+            "wnd[0]/usr/ctxtSUBSYSTEM-LOW",
+            "wnd[0]/usr/txtSUBSYSTEM-LOW",
+            "wnd[0]/usr/ctxtSUBSYS-LOW",
+            "wnd[0]/usr/txtSUBSYS-LOW",
+            "wnd[0]/usr/ctxtI2-LOW",
+            "wnd[0]/usr/txtI2-LOW",
+            "wnd[0]/usr/ctxtI2",
+            "wnd[0]/usr/txtI2",
+            "wnd[0]/usr/ctxtI3-LOW",
+            "wnd[0]/usr/txtI3-LOW",
+            "wnd[0]/usr/ctxtI4-LOW",
+            "wnd[0]/usr/txtI4-LOW",
+        ]
+    }
+
+    for direct_id in fast_id_map.get(field_upper, []):
+        try:
+            elem = session.findById(direct_id)
+            if elem and getattr(elem, "Changeable", True):
+                return elem
+        except Exception:
+            pass
+
+    # 2. Se a busca direta instantânea não encontrar, fazer a varredura por labels/componentes
     try:
         children = get_direct_user_area_children(session)
         expected_caption = normalize_se16_caption(field_upper)
         translated_terms = {
             "BNAME": ["BNAME", "UTILIZADOR", "USER", "NOME"],
-            "SUBSYSTEM": ["SUBSYSTEM", "SISTEMA", "SYSTEM", "LOGICAL SYSTEM"]
+            "SUBSYSTEM": ["SUBSYSTEM", "SUBSYS", "SISTEMA", "SYSTEM", "LOGICAL SYSTEM", "SUBSISTEMA"]
         }.get(expected_caption, [expected_caption])
 
         for position, entry in enumerate(children):
@@ -1308,22 +1343,6 @@ def se16_query_with_session(
                     )
 
             print(f"[AUTH][SE16] A localizar filtro {field_name}.")
-            
-            components = get_se16_usr_components(session)
-            total_n = len(components)
-            labels_n = sum(1 for c in components if describe_sap_component(c)["type"] == "GuiLabel")
-            text_fields_n = sum(1 for c in components if describe_sap_component(c)["type"] in ("GuiTextField", "GuiCTextField", "GuiPasswordField"))
-            containers_n = total_n - labels_n - text_fields_n
-            print(f"[AUTH][SE16][DEBUG] Total de componentes: {total_n}")
-            print(f"[AUTH][SE16][DEBUG] Labels encontrados: {labels_n}")
-            print(f"[AUTH][SE16][DEBUG] Campos de texto encontrados: {text_fields_n}")
-            print(f"[AUTH][SE16][DEBUG] Contentores encontrados: {containers_n}")
-            
-            editables = [c for c in components if is_editable_sap_field(c)]
-            for c in editables:
-                desc = describe_sap_component(c)
-                print(f"[AUTH][SE16][DEBUG] Candidato - Id: {desc['id']}, Name: {desc['name']}, Type: {desc['type']}, Text: {desc['text']}, Changeable: {desc['changeable']}, Left: {desc['left']}, Top: {desc['top']}")
-
             field_element = _find_se16_field(session, field_name)
 
             if not field_element:

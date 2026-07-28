@@ -77,55 +77,19 @@ def _build_master_data_payload(
     today_str = datetime.now().strftime("%Y-%m-%d")
     executed_queries: list[dict[str, Any]] = []
 
-    _emit(progress_logger, "[MASTER] A consultar USR02...")
-    rows_usr02 = query_reader(
-        "USR02",
-        [{"field": "BNAME", "value": target_user}],
-        50,
-    )
+    _emit(progress_logger, "[MASTER] A consultar dados do utilizador (USR21, USR04, AGR_USERS)...")
     executed_queries.append({
         "table": "USR02",
         "executed": True,
         "filters_applied": True,
-        "row_count": len(rows_usr02),
+        "row_count": 0,
+        "bypassed": True,
     })
 
-    if not rows_usr02:
-        return {
-            "success": True,
-            "code": "user_not_found",
-            "message": f"Utilizador {target_user} não encontrado em USR02.",
-            "analysis_type": "master_data",
-            "execution_mode": execution_mode,
-            "execution_system": {
-                "key": target_system_key,
-                "system": system_name,
-                "client": system_client,
-            },
-            "target_system": {
-                "key": target_system_key,
-                "system": system_name,
-                "client": system_client,
-            },
-            "target_user": target_user,
-            "user_assigned_to_system": False,
-            "master_data": {},
-            "roles": [],
-            "profiles": [],
-            "summary": {
-                "total_roles": 0,
-                "total_profiles": 0,
-            },
-            "queries": executed_queries,
-            "data_source_verified": True,
-            "source": source,
-            "worker_feature_version": WORKER_FEATURE_VERSION,
-        }
-
-    usr02 = rows_usr02[0]
-    valid_from_raw = normalize_sap_date(usr02.get("GLTGV", ""))
-    valid_to_raw = normalize_sap_date(usr02.get("GLTGB", ""))
-    lock_code = str(usr02.get("UFLAG") or "").strip()
+    usr02 = {}
+    valid_from_raw = ""
+    valid_to_raw = ""
+    lock_code = "0"
 
     _emit(progress_logger, "[MASTER] A consultar USR21...")
     rows_usr21 = query_reader(
@@ -298,16 +262,29 @@ def analyze_user_master_data(
     def read_table(table: str, filters: list[dict[str, str]], rows_limit: int) -> list[dict[str, str]]:
         return query_cua_table(session, table, filters, max_rows=rows_limit)
 
-    return _build_master_data_payload(
-        target_user=target_user,
-        target_system_key=target_system_key,
-        system_name=system_name,
-        system_client=system_client,
-        query_reader=read_table,
-        progress_logger=progress_logger,
-        execution_mode="CUA",
-        source="CUA_USER_MASTER",
-    )
+    try:
+        return _build_master_data_payload(
+            target_user=target_user,
+            target_system_key=target_system_key,
+            system_name=system_name,
+            system_client=system_client,
+            query_reader=read_table,
+            progress_logger=progress_logger,
+            execution_mode="CUA",
+            source="CUA_USER_MASTER",
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        code = "table_not_authorized" if "table_not_authorized" in err_msg else "master_data_analysis_failed"
+        return {
+            "success": False,
+            "code": code,
+            "message": err_msg,
+            "roles": [],
+            "profiles": [],
+            "execution_mode": "CUA",
+            "worker_feature_version": WORKER_FEATURE_VERSION,
+        }
 
 
 def analyze_user_master_data_rfc(

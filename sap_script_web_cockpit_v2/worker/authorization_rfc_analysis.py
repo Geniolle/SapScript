@@ -276,100 +276,33 @@ def analyze_user_authorizations_rfc(
 
     executed_queries: list[dict[str, Any]] = []
 
+    subsystem_to_match = str(target_subsystem_key or target_system_key).strip().upper()
+
     try:
         if callable(progress_logger):
-            progress_logger("[AUTH RFC] Ligação RFC validada. A consultar USZBVSYS...")
+            progress_logger(f"[AUTH RFC] Ligação RFC validada. A consultar USLA04 para {target_user} no subsistema {subsystem_to_match}...")
 
-        rows_sys = _read_rfc_table(
-            connection,
-            "USZBVSYS",
-            ["BNAME", "SUBSYSTEM"],
-            [
-                {"field": "BNAME", "value": target_user},
-            ],
-            max_rows=max_rows,
-        )
-        rows_sys = [
-            row for row in rows_sys
-            if str(row.get("SUBSYSTEM") or "").strip().upper() == target_system_key
-        ]
-        executed_queries.append({
-            "table": "USZBVSYS",
-            "executed": True,
-            "filters_applied": True,
-            "row_count": len(rows_sys),
-        })
-
-        if not rows_sys:
-            if callable(progress_logger):
-                progress_logger("[AUTH RFC] Utilizador não associado ao sistema alvo via RFC.")
-            return {
-                "success": True,
-                "code": "user_not_assigned_to_system",
-                "message": f"Utilizador {target_user} não associado ao sistema {system_name} via RFC.",
-                "user_assigned_to_system": False,
-                "roles": [],
-                "profiles": [],
-                "queries": executed_queries,
-                "data_source_verified": True,
-                "execution_mode": "RFC",
-                "execution_system": {
-                    "key": target_system_key,
-                    "system": system_name,
-                    "client": system_client,
-                },
-                "target_system": {
-                    "key": target_system_key,
-                    "system": system_name,
-                    "client": system_client,
-                },
-                "worker_feature_version": RFC_FEATURE_VERSION,
-            }
-
-        if callable(progress_logger):
-            progress_logger("[AUTH RFC] Utilizador validado. A consultar USLA04 via RFC...")
+        rfc_filters = [{"field": "BNAME", "value": target_user}]
+        if subsystem_to_match and subsystem_to_match.upper() not in {"", "ALL", "TODOS", "SPA", "SPACLNT001"}:
+            rfc_filters.append({"field": "SUBSYSTEM", "value": subsystem_to_match})
 
         rows_roles = _read_rfc_table(
             connection,
             "USLA04",
             ["BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT", "ORG_FLAG"],
-            [
-                {"field": "BNAME", "value": target_user},
-            ],
+            rfc_filters,
             max_rows=max_rows,
         )
-        rows_roles = [
-            row for row in rows_roles
-            if str(row.get("SUBSYSTEM") or "").strip().upper() == target_system_key
-        ]
+        if subsystem_to_match and subsystem_to_match.upper() not in {"", "ALL", "TODOS", "SPA", "SPACLNT001"}:
+            rows_roles = [
+                row for row in rows_roles
+                if str(row.get("SUBSYSTEM") or "").strip().upper() == subsystem_to_match
+            ]
         executed_queries.append({
             "table": "USLA04",
             "executed": True,
             "filters_applied": True,
             "row_count": len(rows_roles),
-        })
-
-        if callable(progress_logger):
-            progress_logger("[AUTH RFC] A consultar USL04 via RFC...")
-
-        rows_profiles = _read_rfc_table(
-            connection,
-            "USL04",
-            ["BNAME", "SUBSYSTEM", "PROFILE"],
-            [
-                {"field": "BNAME", "value": target_user},
-            ],
-            max_rows=max_rows,
-        )
-        rows_profiles = [
-            row for row in rows_profiles
-            if str(row.get("SUBSYSTEM") or "").strip().upper() == target_system_key
-        ]
-        executed_queries.append({
-            "table": "USL04",
-            "executed": True,
-            "filters_applied": True,
-            "row_count": len(rows_profiles),
         })
 
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -378,7 +311,7 @@ def analyze_user_authorizations_rfc(
             role_name = str(row.get("AGR_NAME") or "").strip()
             if not role_name:
                 continue
-
+            row_subsystem = str(row.get("SUBSYSTEM") or subsystem_to_match or "").strip()
             valid_from_raw = normalize_sap_date(row.get("FROM_DAT", ""))
             valid_to_raw = normalize_sap_date(row.get("TO_DAT", ""))
             org_flag = str(row.get("ORG_FLAG") or "").strip()
@@ -387,7 +320,7 @@ def analyze_user_authorizations_rfc(
             raw_roles.append({
                 "role": role_name,
                 "description": "",
-                "subsystem": target_system_key,
+                "subsystem": row_subsystem,
                 "valid_from": format_sap_date_display(valid_from_raw),
                 "valid_to": format_sap_date_display(valid_to_raw),
                 "validity_status": classify_validity(valid_from_raw, valid_to_raw, today_str),
@@ -397,31 +330,22 @@ def analyze_user_authorizations_rfc(
             })
 
         deduped_roles = deduplicate_roles(raw_roles)
+        summary = build_authorization_summary(deduped_roles, [])
 
-        raw_profiles: list[dict[str, Any]] = []
-        for row in rows_profiles:
-            profile_name = str(row.get("PROFILE") or "").strip()
-            if not profile_name:
-                continue
-            raw_profiles.append({
-                "profile": profile_name,
-                "subsystem": target_system_key,
-            })
+        systems_summary_map: dict[str, dict[str, Any]] = {}
+        for r_item in deduped_roles:
+            sys_key = r_item.get("subsystem") or "OUTROS"
+            if sys_key not in systems_summary_map:
+                sys_name = sys_key.split("CLNT", 1)[0] if "CLNT" in sys_key else sys_key
+                systems_summary_map[sys_key] = {
+                    "subsystem": sys_key,
+                    "system": sys_name,
+                    "roles_count": 0
+                }
+            systems_summary_map[sys_key]["roles_count"] += 1
+        systems_summary = list(systems_summary_map.values())
 
-        seen_profiles: set[str] = set()
-        deduped_profiles: list[dict[str, Any]] = []
-        for profile in raw_profiles:
-            profile_name = profile["profile"]
-            if profile_name in seen_profiles:
-                continue
-            seen_profiles.add(profile_name)
-            deduped_profiles.append(profile)
-
-        summary = build_authorization_summary(deduped_roles, deduped_profiles)
-        truncated = len(rows_roles) >= max_rows or len(rows_profiles) >= max_rows
-        warnings = []
-        if truncated:
-            warnings.append(f"A consulta atingiu o limite máximo de {max_rows} linhas.")
+        truncated = len(rows_roles) >= max_rows
 
         if callable(progress_logger):
             progress_logger("[AUTH RFC] Análise concluída com sucesso.")
@@ -429,7 +353,7 @@ def analyze_user_authorizations_rfc(
         return {
             "success": True,
             "code": "analysis_complete",
-            "message": "Análise de autorizações concluída com sucesso.",
+            "message": f"Leitura de USLA04 via RFC concluída com sucesso. Encontradas {len(deduped_roles)} funções.",
             "analysis_type": "authorizations",
             "source": "RFC_USLA04",
             "target_user": target_user,
@@ -444,11 +368,12 @@ def analyze_user_authorizations_rfc(
                 "system": system_name,
                 "client": system_client,
             },
-            "user_assigned_to_system": True,
+            "user_assigned_to_system": len(deduped_roles) > 0,
             "summary": summary,
+            "systems_summary": systems_summary,
             "roles": deduped_roles,
-            "profiles": deduped_profiles,
-            "warnings": warnings,
+            "profiles": [],
+            "warnings": [f"A consulta atingiu o limite máximo de {max_rows} linhas."] if truncated else [],
             "truncated": truncated,
             "queries": executed_queries,
             "data_source_verified": True,

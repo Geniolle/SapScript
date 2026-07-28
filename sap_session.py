@@ -214,8 +214,8 @@ def resolve_sap_target_from_env(
     *,
     env_values: dict[str, str] | None = None,
 ) -> SapTarget:
-    if env_values is None:
-        env_values = {}
+    if not env_values:
+        env_values = read_dotenv_values()
 
     def get_value(name: str, default: str = "") -> str:
         val = env_values.get(name)
@@ -234,43 +234,105 @@ def resolve_sap_target_from_env(
         if not sap_key:
             sap_key = "S4DCLNT100"
 
+    system_code = _derive_system_from_key(sap_key)
+
+    # Mapeamento de alias para busca de variáveis no .env
+    ALIAS_MAP = {
+        "DEV": ["DEV", "S4D", "S4DCLNT100"],
+        "S4D": ["S4D", "DEV", "S4DCLNT100"],
+        "S4DCLNT100": ["S4DCLNT100", "S4D", "DEV"],
+        "QAD": ["QAD", "S4Q", "S4QCLNT100"],
+        "S4Q": ["S4Q", "QAD", "S4QCLNT100"],
+        "S4QCLNT100": ["S4QCLNT100", "S4Q", "QAD"],
+        "PRD": ["PRD", "S4P", "S4PCLNT100"],
+        "S4P": ["S4P", "PRD", "S4PCLNT100"],
+        "S4PCLNT100": ["S4PCLNT100", "S4P", "PRD"],
+    }
+    
+    keys_to_try = [sap_key, f"{system_code}CLNT100"]
+    if sap_key in ALIAS_MAP:
+        for k in ALIAS_MAP[sap_key]:
+            if k not in keys_to_try:
+                keys_to_try.append(k)
+            k_clnt = f"{k}CLNT100"
+            if k_clnt not in keys_to_try:
+                keys_to_try.append(k_clnt)
+
     legacy_conn = ""
     if sap_key == "SPACLNT001":
         legacy_conn = get_value("CUA_SAP_CONNECTION")
-    connection_name = get_value(f"SAP_CONNECTION_{sap_key}") or legacy_conn
 
-    if explicit_key:
-        system_name = get_value(f"SAP_SYSTEM_{sap_key}") or _derive_system_from_key(sap_key)
-        client = get_value(f"SAP_CLIENT_{sap_key}") or derive_client_from_key(sap_key)
-    else:
+    connection_name = ""
+    for k in keys_to_try:
+        connection_name = get_value(f"SAP_CONNECTION_{k}")
+        if connection_name:
+            break
+    if not connection_name:
+        connection_name = legacy_conn or get_value("SAP_CONNECTION")
+
+    system_name = ""
+    for k in keys_to_try:
+        system_name = get_value(f"SAP_SYSTEM_{k}")
+        if system_name:
+            break
+    if not system_name:
         system_name = (
             get_value("WORKFLOW_SAP_SYSTEM")
-            or get_value(f"SAP_SYSTEM_{sap_key}")
             or _derive_system_from_key(sap_key)
         )
+
+    client = ""
+    for k in keys_to_try:
+        client = get_value(f"SAP_CLIENT_{k}")
+        if client:
+            break
+    if not client:
         client = (
             get_value("WORKFLOW_SAP_CLIENT")
-            or get_value(f"SAP_CLIENT_{sap_key}")
             or get_value("SAP_CLIENT")
             or derive_client_from_key(sap_key)
+            or "100"
         )
 
     legacy_user = ""
     if sap_key == "SPACLNT001":
         legacy_user = get_value("CUA_SAP_USER")
-    user = get_value(f"SAP_USER_{sap_key}") or legacy_user or get_value("SAP_USER")
+
+    user = ""
+    for k in keys_to_try:
+        user = get_value(f"SAP_USER_{k}")
+        if user:
+            break
+    if not user:
+        user = legacy_user or get_value("SAP_USER")
 
     legacy_pwd = ""
     if sap_key == "SPACLNT001":
         legacy_pwd = get_value("CUA_SAP_PASSWORD")
-    password = get_value(f"SAP_PASSWORD_{sap_key}") or legacy_pwd
+
+    password = ""
+    for k in keys_to_try:
+        password = get_value(f"SAP_PASSWORD_{k}")
+        if password:
+            break
+    if not password:
+        password = (
+            legacy_pwd
+            or get_value("SAP_PASSWD")
+            or get_value("SAP_PASSWORD")
+        )
 
     legacy_lang = ""
     if sap_key == "SPACLNT001":
         legacy_lang = get_value("SAP_CUA_LANGUAGE") or get_value("CUA_SAP_LANGUAGE")
-    language = get_value(f"SAP_LANGUAGE_{sap_key}") or legacy_lang or get_value("SAP_LANGUAGE", default="PT")
+
+    language = ""
+    for k in keys_to_try:
+        language = get_value(f"SAP_LANGUAGE_{k}")
+        if language:
+            break
     if not language:
-        language = "PT"
+        language = legacy_lang or get_value("SAP_LANGUAGE", default="PT") or "PT"
 
     saplogon_path = get_value("SAPLOGON_PATH", default=DEFAULT_SAPLOGON_PATH)
     if not saplogon_path:

@@ -167,6 +167,7 @@ def analyze_user_authorizations(
     target_system_key: str,
     max_rows: int = 5000,
     progress_logger: Any | None = None,
+    target_subsystem_key: str | None = None,
 ) -> dict[str, Any]:
     try:
         sys_name = str(session.Info.SystemName or "").strip().upper()
@@ -189,74 +190,28 @@ def analyze_user_authorizations(
             "profiles": []
         }
 
+    subsystem_to_match = str(target_subsystem_key or target_system_key).strip().upper()
+
     if callable(progress_logger):
         cua_sap_key = str(os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
         progress_logger(
-            f"[AUTH] Pedido recebido: utilizador={target_user}, sistema={target_system_key}, "
+            f"[AUTH] Pedido recebido: utilizador={target_user}, sistema={target_system_key}, subsystem={subsystem_to_match}, "
             f"tipo=authorizations, modo=CUA, execution_mode=CUA, cua_sap_key={cua_sap_key}."
         )
 
     executed_queries = []
 
-    # 1. USZBVSYS
+    # 1. USLA04 (Tabela principal e única necessária para funções CUA)
     try:
         if callable(progress_logger):
             progress_logger("[AUTH] A abrir sessão CUA...")
-            progress_logger("[AUTH] Sessão CUA validada. A consultar USZBVSYS...")
-        filters_sys = [
-            {"field": "BNAME", "value": target_user},
-            {"field": "SUBSYSTEM", "value": target_system_key}
-        ]
-        rows_sys = query_cua_table(session, "USZBVSYS", filters_sys, max_rows=max_rows)
-        executed_queries.append({
-            "table": "USZBVSYS",
-            "executed": True,
-            "filters_applied": True,
-            "row_count": len(rows_sys)
-        })
-    except Exception as exc:
-        err_msg = str(exc)
-        code = "table_read_failed"
-        if ":" in err_msg:
-            prefix, rest = err_msg.split(":", 1)
-            if prefix.strip() in {"table_not_authorized", "filter_not_applied"}:
-                code = prefix.strip()
-                err_msg = rest.strip()
-        return {
-            "success": False,
-            "code": code,
-            "message": err_msg,
-            "roles": [],
-            "profiles": []
-        }
-
-    if not rows_sys:
-        simple_sys = target_system_key
-        if "CLNT" in target_system_key:
-            simple_sys = target_system_key.split("CLNT", 1)[0]
-        if callable(progress_logger):
-            progress_logger("[AUTH] O utilizador não está associado ao sistema alvo no CUA.")
-        return {
-            "success": True,
-            "code": "user_not_assigned_to_system",
-            "message": f"Utilizador {target_user} não associado ao sistema {simple_sys} no CUA.",
-            "user_assigned_to_system": False,
-            "roles": [],
-            "profiles": [],
-            "queries": executed_queries,
-            "data_source_verified": True,
-            "execution_mode": "CUA",
-            "worker_feature_version": "authorization-tables-v1"
-        }
-
-    # 2. USLA04
-    try:
-        if callable(progress_logger):
-            progress_logger("[AUTH] Utilizador validado. A consultar USLA04...")
+            sub_msg = subsystem_to_match if subsystem_to_match and subsystem_to_match.upper() not in {"", "ALL", "TODOS", "SPA", "SPACLNT001"} else "todos os subsistemas"
+            progress_logger(f"[AUTH] A consultar tabela USLA04 para {target_user} ({sub_msg})...")
+        
         filters_roles = [
-            {"field": "BNAME", "value": target_user},
-            {"field": "SUBSYSTEM", "value": target_system_key}
+            {"field": "BNAME", "value": target_user}
         ]
+
         rows_roles = query_cua_table(session, "USLA04", filters_roles, max_rows=max_rows)
         executed_queries.append({
             "table": "USLA04",
@@ -275,38 +230,7 @@ def analyze_user_authorizations(
         return {
             "success": False,
             "code": code,
-            "message": err_msg,
-            "roles": [],
-            "profiles": []
-        }
-
-    # 3. USL04
-    try:
-        if callable(progress_logger):
-            progress_logger("[AUTH] A consultar USL04...")
-        filters_profiles = [
-            {"field": "BNAME", "value": target_user},
-            {"field": "SUBSYSTEM", "value": target_system_key}
-        ]
-        rows_profiles = query_cua_table(session, "USL04", filters_profiles, max_rows=max_rows)
-        executed_queries.append({
-            "table": "USL04",
-            "executed": True,
-            "filters_applied": True,
-            "row_count": len(rows_profiles)
-        })
-    except Exception as exc:
-        err_msg = str(exc)
-        code = "table_read_failed"
-        if ":" in err_msg:
-            prefix, rest = err_msg.split(":", 1)
-            if prefix.strip() in {"table_not_authorized", "filter_not_applied"}:
-                code = prefix.strip()
-                err_msg = rest.strip()
-        return {
-            "success": False,
-            "code": code,
-            "message": err_msg,
+            "message": f"Falha ao consultar USLA04 no CUA: {err_msg}",
             "roles": [],
             "profiles": []
         }
@@ -315,13 +239,75 @@ def analyze_user_authorizations(
     today_str = datetime.now().strftime("%Y-%m-%d")
     raw_roles = []
     for r in rows_roles:
-        role_name = str(r.get("AGR_NAME") or "").strip()
+        role_name = ""
+        # 1. Tentar chave exata ou variantes de cabeçalhos SAP GUI (PT/EN)
+        for key, val in r.items():
+            k_upper = str(key or "").strip().upper()
+            if k_upper in {
+                "AGR_NAME", "ROLE", "FUNÇÃO", "FUNCAO", "NOME DA FUNÇÃO", "NOME DA FUNCAO",
+                "AGRUPAD.PERFIS", "AGRUPAD. PERFIS", "AGRUPAMENTO DE PERFIS", "CONJ.PERFIS", "AGRUPAMENTO"
+            }:
+                role_name = str(val or "").strip()
+                if role_name:
+                    break
+
+        # 2. Fallback: procurar por valor textual que siga o formato de role SAP (ex: Z... ou Y...)
+        if not role_name:
+            for val in r.values():
+                v_str = str(val or "").strip()
+                if len(v_str) >= 3 and not re.match(r"^\d+$", v_str) and v_str not in {subsystem_to_match, target_system_key, target_user, "SPACLNT001"}:
+                    if re.match(r"^[A-Z0-9_/:\-]+$", v_str) and not re.match(r"^\d{4}-\d{2}-\d{2}$", v_str) and not re.match(r"^\d{8}$", v_str):
+                        role_name = v_str
+                        break
+
         if not role_name:
             continue
-        
-        valid_from_raw = normalize_sap_date(r.get("FROM_DAT", ""))
-        valid_to_raw = normalize_sap_date(r.get("TO_DAT", ""))
-        org_flag = str(r.get("ORG_FLAG") or "").strip()
+
+        row_subsystem = ""
+        for key, val in r.items():
+            k_upper = str(key or "").strip().upper()
+            if k_upper in {"SUBSYSTEM", "SUBSYS", "SISTEMA", "SUBSISTEMA", "SISTEMA ALVO", "SUBSYSTEMA"}:
+                row_subsystem = str(val or "").strip()
+                if row_subsystem:
+                    break
+        if not row_subsystem:
+            row_subsystem = str(r.get("SUBSYSTEM") or subsystem_to_match or "").strip()
+
+        if subsystem_to_match and subsystem_to_match.upper() not in {"", "ALL", "TODOS", "SPA", "SPACLNT001"}:
+            sub_target = subsystem_to_match.upper().split("CLNT")[0]
+            sub_row = row_subsystem.upper().split("CLNT")[0]
+            if sub_target != sub_row and subsystem_to_match.upper() != row_subsystem.upper():
+                continue
+
+        valid_from_raw = ""
+        for key, val in r.items():
+            k_upper = str(key or "").strip().upper()
+            if k_upper in {"FROM_DAT", "VÁLIDO DE", "VALIDO DE", "DE", "DATA INÍCIO", "DATA INICIO"}:
+                valid_from_raw = str(val or "").strip()
+                if valid_from_raw:
+                    break
+        if not valid_from_raw:
+            valid_from_raw = str(r.get("FROM_DAT") or "").strip()
+
+        valid_to_raw = ""
+        for key, val in r.items():
+            k_upper = str(key or "").strip().upper()
+            if k_upper in {"TO_DAT", "VÁLIDO ATÉ", "VALIDO ATE", "ATÉ", "ATE", "DATA FIM"}:
+                valid_to_raw = str(val or "").strip()
+                if valid_to_raw:
+                    break
+        if not valid_to_raw:
+            valid_to_raw = str(r.get("TO_DAT") or "").strip()
+
+        org_flag = ""
+        for key, val in r.items():
+            k_upper = str(key or "").strip().upper()
+            if k_upper in {"ORG_FLAG", "ORG", "FLAG", "ORIGEM", "TIPO"}:
+                org_flag = str(val or "").strip()
+                if org_flag:
+                    break
+        if not org_flag:
+            org_flag = str(r.get("ORG_FLAG") or "").strip()
 
         status_info = classify_validity(valid_from_raw, valid_to_raw, today_str)
         origin_info = classify_assignment_origin(org_flag)
@@ -329,7 +315,7 @@ def analyze_user_authorizations(
         raw_roles.append({
             "role": role_name,
             "description": "",
-            "subsystem": target_system_key,
+            "subsystem": row_subsystem,
             "valid_from": format_sap_date_display(valid_from_raw),
             "valid_to": format_sap_date_display(valid_to_raw),
             "validity_status": status_info,
@@ -339,31 +325,26 @@ def analyze_user_authorizations(
         })
 
     deduped_roles = deduplicate_roles(raw_roles)
-
-    # Processar Perfis
-    raw_profiles = []
-    for p in rows_profiles:
-        profile_name = str(p.get("PROFILE") or "").strip()
-        if not profile_name:
-            continue
-        raw_profiles.append({
-            "profile": profile_name,
-            "subsystem": target_system_key
-        })
-
-    # Deduplicar perfis
-    seen_profiles = set()
     deduped_profiles = []
-    for p in raw_profiles:
-        if p["profile"] not in seen_profiles:
-            seen_profiles.add(p["profile"])
-            deduped_profiles.append(p)
 
-    # Calcular resumo
+    # Calcular resumo global e agrupamento por sistema
     summary = build_authorization_summary(deduped_roles, deduped_profiles)
 
+    systems_summary_map = {}
+    for r_item in deduped_roles:
+        sys_key = r_item.get("subsystem") or "OUTROS"
+        if sys_key not in systems_summary_map:
+            sys_name = sys_key.split("CLNT", 1)[0] if "CLNT" in sys_key else sys_key
+            systems_summary_map[sys_key] = {
+                "subsystem": sys_key,
+                "system": sys_name,
+                "roles_count": 0
+            }
+        systems_summary_map[sys_key]["roles_count"] += 1
+    systems_summary = list(systems_summary_map.values())
+
     # Truncated check
-    truncated = len(rows_roles) >= max_rows or len(rows_profiles) >= max_rows
+    truncated = len(rows_roles) >= max_rows
     warnings = []
     if truncated:
         warnings.append(f"A consulta atingiu o limite máximo de {max_rows} linhas.")
@@ -374,7 +355,7 @@ def analyze_user_authorizations(
     return {
         "success": True,
         "code": "analysis_complete",
-        "message": "Análise de autorizações concluída com sucesso.",
+        "message": f"Leitura da tabela USLA04 concluída com sucesso. Encontradas {len(deduped_roles)} funções.",
         "analysis_type": "authorizations",
         "source": "CUA_USLA04",
         "target_user": target_user,
@@ -382,17 +363,18 @@ def analyze_user_authorizations(
         "execution_system": {
             "key": "SPACLNT001",
             "system": "SPA",
-            "client": "001"
+            "client": "001",
         },
         "target_system": {
-            "key": target_system_key,
-            "system": target_system_key.split("CLNT", 1)[0] if "CLNT" in target_system_key else target_system_key,
-            "client": target_system_key.split("CLNT", 1)[1] if "CLNT" in target_system_key else ""
+            "key": subsystem_to_match,
+            "system": subsystem_to_match.split("CLNT", 1)[0] if "CLNT" in subsystem_to_match else subsystem_to_match,
+            "client": subsystem_to_match.split("CLNT", 1)[1] if "CLNT" in subsystem_to_match else "",
         },
-        "user_assigned_to_system": True,
+        "user_assigned_to_system": len(deduped_roles) > 0,
         "summary": summary,
+        "systems_summary": systems_summary,
         "roles": deduped_roles,
-        "profiles": deduped_profiles,
+        "profiles": [],
         "warnings": warnings,
         "truncated": truncated,
         "queries": executed_queries,

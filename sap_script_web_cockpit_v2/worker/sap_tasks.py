@@ -28,8 +28,15 @@ WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKER_STATE_PATH = os.path.join(WORKER_DIR, ".sap_script_web_worker_state.json")
 
 
+def _get_project_dir() -> str:
+    p_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if not p_dir or not os.path.exists(p_dir):
+        p_dir = os.path.abspath(os.path.join(WORKER_DIR, "..", ".."))
+    return p_dir
+
+
 def _prepare_project_imports() -> None:
-    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    project_dir = _get_project_dir()
     if project_dir and project_dir not in sys.path:
         sys.path.insert(0, project_dir)
 
@@ -142,7 +149,7 @@ def select_excel_file_on_windows(params: dict[str, Any] | None = None) -> tuple[
     return selected_path, log
 
 
-def get_first_available_session() -> Any:
+def get_first_available_session(target_system: Optional[str] = None) -> Any:
     try:
         pythoncom.CoInitialize()
         sap_gui_auto = win32com.client.GetObject("SAPGUI")
@@ -153,17 +160,49 @@ def get_first_available_session() -> Any:
             "e se o SAP GUI Scripting esta ativo."
         ) from exc
 
+    candidates = []
     for connection_index in range(application.Children.Count):
         connection = application.Children(connection_index)
         for session_index in range(connection.Children.Count):
             session = connection.Children(session_index)
             try:
                 if not session.Busy:
-                    return session
+                    sys_name = (session.Info.SystemName or "").upper().strip()
+                    user = (session.Info.User or "").strip()
+                    candidates.append((sys_name, bool(user), session))
             except Exception:
                 continue
 
-    raise SapExecutionError("Nao existe nenhuma sessao SAP disponivel.")
+    if target_system:
+        target = target_system.upper().strip()
+        matching = [c for c in candidates if c[0] == target]
+        if matching:
+            logged = [c for c in matching if c[1]]
+            return logged[0][2] if logged else matching[0][2]
+        else:
+            # Tentar abrir e efetuar login automaticamente no sistema solicitado
+            try:
+                _prepare_project_imports()
+                from sap_session import ensure_sap_access_from_env
+                return ensure_sap_access_from_env(key=target, timeout_s=45)
+            except Exception as exc_auto:
+                open_systems = list(dict.fromkeys([c[0] for c in candidates if c[0]]))
+                sys_str = ", ".join(open_systems) if open_systems else "Nenhum"
+                raise SapExecutionError(
+                    f"Nenhuma sessão SAP aberta no sistema solicitado '{target}' e falha ao abrir automaticamente: {exc_auto}. "
+                    f"Sistema(s) atualmente aberto(s): {sys_str}."
+                )
+
+    if not candidates:
+        # Se nenhuma janela está aberta, tentar abrir o sistema padrão
+        try:
+            _prepare_project_imports()
+            from sap_session import ensure_sap_access_from_env
+            return ensure_sap_access_from_env(timeout_s=45)
+        except Exception as exc_auto:
+            raise SapExecutionError(f"Nenhuma sessão SAP disponível e falha ao abrir automaticamente: {exc_auto}")
+
+    return candidates[0][2]
 
 
 def get_any_session() -> Any:
@@ -248,7 +287,34 @@ def _run_sap_cockpit(params: dict[str, Any]) -> tuple[str, str]:
 
 def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
-    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    project_dir = _get_project_dir()
+    ambiente = str(params.get("ambiente") or "DEV").upper()
+    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+    sistema_desejado = mapa_sistema.get(ambiente, "S4D")
+
+    # 1. Tentar pesquisa 100% por RFC (sem abrir janela SAP GUI)
+    caminho_rfc = os.path.join(project_dir, "Processos", "pesquisar_request_rfc.py")
+    if os.path.exists(caminho_rfc):
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("pesquisar_request_rfc", caminho_rfc)
+            mod_rfc = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_rfc)
+            lista = mod_rfc.listar_requests(
+                system_name=sistema_desejado,
+                max_rows="5000",
+                include_requests=False,
+            )
+            if not lista:
+                return "[]", f"Pesquisa RFC concluída. Nenhuma request encontrada para o sistema {sistema_desejado}."
+            itens = [{"trkorr": item[0], "as4text": item[1]} for item in lista]
+            status_json = json.dumps(itens)
+            log = f"Pesquisa RFC concluída com sucesso. Encontradas {len(lista)} requests no sistema {sistema_desejado}."
+            return status_json, log
+        except Exception as exc_rfc:
+            print(f"⚠️ Pesquisa de requests via RFC falhou ({exc_rfc}). A tentar fallback via SAP GUI...")
+
+    # 2. Fallback: SAP GUI pesquisar_request.py
     caminho = os.path.join(project_dir, "Processos", "pesquisar_request.py")
     if not os.path.exists(caminho):
         raise SapExecutionError(f"Nao encontrei o ficheiro pesquisar_request.py no caminho: {caminho}")
@@ -261,15 +327,11 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     except Exception as exc:
         raise SapExecutionError(f"Falha ao carregar modulo pesquisar_request.py: {exc}")
         
-    ambiente = str(params.get("ambiente") or "DEV").upper()
-    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
-    sistema_desejado = mapa_sistema.get(ambiente, "S4D")
-    
     session = None
     try:
-        session = get_first_available_session()
-    except Exception:
-        pass
+        session = get_first_available_session(target_system=sistema_desejado)
+    except Exception as exc:
+        raise SapExecutionError(f"Falha ao obter sessão SAP para o sistema '{sistema_desejado}': {exc}")
 
     try:
         lista = mod.listar_requests(
@@ -290,7 +352,7 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     itens = [{"trkorr": item[0], "as4text": item[1]} for item in lista]
     status_json = json.dumps(itens)
     
-    log = f"Pesquisa concluida com sucesso. Encontradas {len(lista)} requests."
+    log = f"Pesquisa concluida com sucesso via SAP GUI. Encontradas {len(lista)} requests no sistema {sistema_desejado}."
     return status_json, log
 
 
@@ -483,12 +545,17 @@ def validate_completed_analysis(result: dict[str, Any]) -> None:
     source = str(result.get("source") or "").strip().upper()
     dev_flow = source == "RFC_AGR_USERS" or "AGR_USERS" in tables_executed
     master_flow = source in {"RFC_USER_MASTER", "CUA_USER_MASTER"} or "USR02" in tables_executed
+    cua_usla04_only = "USLA04" in tables_executed and "USZBVSYS" not in tables_executed
 
     if code == "analysis_complete":
         if master_flow:
             required = {"USR02", "USR21", "USR04", "AGR_USERS"}
+        elif cua_usla04_only:
+            required = {"USLA04"}
+        elif dev_flow:
+            required = {"AGR_USERS", "AGR_TCODES"}
         else:
-            required = {"AGR_USERS", "AGR_TCODES"} if dev_flow else {"USZBVSYS", "USLA04", "USL04"}
+            required = {"USZBVSYS", "USLA04", "USL04"}
         missing = required - tables_executed
         if missing:
             raise SapExecutionError(f"A consulta das tabelas obrigatórias está incompleta. Tabelas em falta: {', '.join(missing)}")
@@ -496,8 +563,12 @@ def validate_completed_analysis(result: dict[str, Any]) -> None:
     elif code in {"user_not_assigned_to_system", "user_not_found"}:
         if master_flow:
             required_table = "USR02"
+        elif cua_usla04_only:
+            required_table = "USLA04"
+        elif dev_flow:
+            required_table = "AGR_USERS"
         else:
-            required_table = "AGR_USERS" if dev_flow else "USZBVSYS"
+            required_table = "USZBVSYS"
         if required_table not in tables_executed:
             raise SapExecutionError(f"A tabela {required_table} não foi consultada para confirmar a associação ao sistema.")
 
@@ -506,7 +577,7 @@ def _authorization_uses_rfc(target_system_key: str) -> bool:
     system_key = str(target_system_key or "").strip().upper()
     if os.getenv("AUTHORIZATION_FORCE_RFC", "").strip().lower() in {"1", "true", "yes", "sim"}:
         return True
-    return system_key.startswith("S4")
+    return False
 
 
 def _make_job_progress_logger(job_id: str):
@@ -712,10 +783,12 @@ def _run_authorization_analyze_user(params: dict[str, Any], progress_logger: Any
         except ImportError:
             from authorization_table_analysis import analyze_user_authorizations
 
+        subsystem_filter = str(params.get("subsystem_filter") or "").strip().upper()
         result = analyze_user_authorizations(
             session=cua_session,
             target_user=target_user,
             target_system_key=target_system_key,
+            target_subsystem_key=subsystem_filter,
             progress_logger=progress_logger,
         )
 
@@ -759,9 +832,10 @@ def _run_authorization_analyze_user(params: dict[str, Any], progress_logger: Any
         if result.get("code") == "analysis_complete":
             q_roles = next((q for q in queries if q["table"] == "USLA04"), None)
             if q_roles:
+                sub_desc = subsystem_filter or "todos"
                 log_lines.append("[AUTH] Tabela USLA04 informada.")
-                log_lines.append("[AUTH] Filtros USLA04 aplicados.")
-                log_lines.append("[AUTH] Lista clássica USLA04 lida.")
+                log_lines.append(f"[AUTH] Filtros USLA04 aplicados (BNAME={target_user}, SUBSYSTEM={sub_desc}).")
+                log_lines.append(f"[AUTH] Lista clássica USLA04 lida para o subsistema {sub_desc}.")
 
             q_profs = next((q for q in queries if q["table"] == "USL04"), None)
             if q_profs:

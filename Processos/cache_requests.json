@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "system": "S4D",
+    "user": "CSILVA",
+    "generated_at": "2026-07-28 12:13:40",
+    "mode": "RFC"
+  },
+  "items": [
+    {
+      "idx": 1,
+      "TRKORR": "S4DK951696",
+      "AS4TEXT": "WS - S4DK951694"
+    },
+    {
+      "idx": 2,
+      "TRKORR": "S4DK952205",
+      "AS4TEXT": "IZ-53180 Criação de tipo de movimento no TRM"
+    },
+    {
+      "idx": 3,
+      "TRKORR": "S4DK952990",
+      "AS4TEXT": "Cadeia de pesquisa eliminar"
+    },
+    {
+      "idx": 4,
+      "TRKORR": "S4DK953051",
+      "AS4TEXT": "MID"
+    },
+    {
+      "idx": 5,
+      "TRKORR": "S4DK953541",
+      "AS4TEXT": "TESTE CTS WBO"
+    },
+    {
+      "idx": 6,
+      "TRKORR": "S4DK953552",
+      "AS4TEXT": "Projeto Perfil de autorização - Função Elsa"
+    }
+  ]
+}

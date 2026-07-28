@@ -359,28 +359,73 @@ def executar(
 
     roles_agrupadas.sort(key=lambda x: x["AGR_NAME"])
 
+    if not request_transporte:
+        env_req = os.getenv("SAP_REQUEST_NUMBER", "").strip().upper()
+        if env_req:
+            request_transporte = env_req
+            print(f"📦 Request de transporte carregada do ambiente: {request_transporte}")
+
     if not request_transporte and not modo_nao_interativo:
         print("\n============================================================")
         print("🚚 Opções de configuração de Transporte.\n")
         print("   1 - Escreva o número da Request")
+        print("   2 - Criar nova ordem de transporte via RFC")
+        print("   3 - Pesquisar suas requests criadas via RFC")
         print("   4 - Prima [Enter] vazio para NÃO transportar")
         print("============================================================")
 
         while True:
             req_input = input("\n👉 Opção: ").strip()
-            if req_input in ("1", "4", ""):
+            if req_input in ("1", "2", "3", "4", ""):
                 if req_input == "":
                     req_input = "4"
                 break
-            print("❌ Opção inválida. Use 1, 4 ou apenas pressione Enter.")
+            print("❌ Opção inválida. Use 1, 2, 3, 4 ou apenas pressione Enter.")
 
         if req_input == "1":
             request_transporte = input("🔢 Numero da Request (ex: S4QK900396): ").strip().upper()
+
+        elif req_input == "2":
+            try:
+                from criar_request_rfc import criar_nova_request_rfc
+                req_rfc, task_rfc = criar_nova_request_rfc(
+                    ambiente=ambiente_cockpit or "DEV",
+                    tipo="customizing",
+                    descricao="ROLES SIMPLES PFCG RFC"
+                )
+                request_transporte = req_rfc
+            except Exception as e_req:
+                print(f"❌ Erro ao criar request via RFC: {e_req}")
+
+        elif req_input == "3":
+            try:
+                import pesquisar_request_rfc
+                print("\n🔍 A pesquisar requests abertas via RFC...")
+                resultados_pesquisa = pesquisar_request_rfc.listar_requests(
+                    system_name=SISTEMA_ESPERADO,
+                    include_requests=True
+                )
+                if resultados_pesquisa:
+                    escolha = input("\n👉 Digite o número (N) da Request que deseja utilizar (ou Enter para cancelar): ").strip()
+                    if escolha.isdigit() and 1 <= int(escolha) <= len(resultados_pesquisa):
+                        request_transporte = resultados_pesquisa[int(escolha) - 1][0]
+                        print(f"✔️ Selecionou a Request: {request_transporte}")
+                    else:
+                        print("❌ Seleção cancelada. Não haverá transporte.")
+                else:
+                    print("⚠️ Não foram encontradas Requests abertas para o seu utilizador.")
+            except Exception as e:
+                print(f"❌ Erro ao pesquisar request: {e}")
 
         elif req_input == "4":
             print("⏭️  Nenhuma request selecionada (Transporte ignorado).")
             request_transporte = None
         print("============================================================")
+
+    if request_transporte:
+        print(f"📦 Request de Transporte ativa para gravação: {request_transporte}")
+    else:
+        print("ℹ️ Nenhuma Request de Transporte selecionada (alterações gravadas apenas localmente no SAP).")
 
     ambiente_up = str(ambiente_cockpit).upper().strip()
     ashost = (
@@ -469,58 +514,156 @@ def executar(
                 tcodes_param = [{"TCODE": tc} for tc in tcodes]
                 modo_operacao = None
 
-                # 2a. Tentar CRIAR a Role (PRGN_RFC_CREATE_ACTIVITY_GROUP)
-                print("  ├─ Chamando RFC para criar a role e associar TCODEs...")
-                try:
-                    res_create = conn.call(
-                        "PRGN_RFC_CREATE_ACTIVITY_GROUP",
-                        ACTIVITY_GROUP=nome,
-                        ACTIVITY_GROUP_TEXT=desc,
-                        TCODES=tcodes_param,
-                        REQUEST=request_transporte or ""
-                    )
-                    ret_create = res_create.get("RETURN", [])
-                    err_msgs = [row.get("MESSAGE", "") for row in ret_create if row.get("TYPE") == "E"]
-                    if err_msgs:
-                        raise RuntimeError("Erro ao criar role: " + " | ".join(err_msgs))
-                    modo_operacao = "CRIADA"
+                max_retries = 3
+                for tentativa in range(1, max_retries + 1):
+                    try:
+                        # 2a. Tentar CRIAR a Role (PRGN_RFC_CREATE_ACTIVITY_GROUP)
+                        print("  ├─ Chamando RFC para criar a role e associar TCODEs...")
+                        try:
+                            res_create = conn.call(
+                                "PRGN_RFC_CREATE_ACTIVITY_GROUP",
+                                ACTIVITY_GROUP=nome,
+                                ACTIVITY_GROUP_TEXT=desc,
+                                TCODES=tcodes_param,
+                                REQUEST=request_transporte or ""
+                            )
+                            ret_create = res_create.get("RETURN", [])
+                            err_msgs = [row.get("MESSAGE", "") for row in ret_create if row.get("TYPE") == "E"]
+                            if err_msgs:
+                                raise RuntimeError("Erro ao criar role: " + " | ".join(err_msgs))
+                            modo_operacao = "CRIADA"
 
-                except Exception as e_create:
-                    err_str = str(e_create)
-                    # 2b. Role já existe → usar RFC de actualização (PRGN_RFC_CHANGE_TRANSACTIONS)
-                    if "ACTIVITY_GROUP_ALREADY_EXISTS" in err_str:
-                        print("  ├─ Role já existe — a actualizar TCODEs via RFC (PRGN_RFC_CHANGE_TRANSACTIONS)...")
-                        res_upd = conn.call(
-                            "PRGN_RFC_CHANGE_TRANSACTIONS",
-                            ACTIVITY_GROUP=nome,
-                            TCODES=tcodes_param,
-                            NO_DIALOG="X",
-                            REQUEST=request_transporte or ""
-                        )
-                        ret_upd = res_upd.get("RETURN", [])
-                        err_upd_msgs = [row.get("MESSAGE", "") for row in ret_upd if row.get("TYPE") == "E"]
-                        if err_upd_msgs:
-                            raise RuntimeError("Erro ao actualizar TCODEs: " + " | ".join(err_upd_msgs))
-                        modo_operacao = "ATUALIZADA"
-                    else:
-                        # Erro genérico na criação → propagar
+                        except Exception as e_create:
+                            err_str = str(e_create)
+
+                            # Tratar TCODEs inválidas na criação
+                            if "ILLEGAL_TCODES" in err_str and len(tcodes_param) > 0:
+                                print(f"  ⚠️ TCODEs inválidas detetadas na role {nome}. A filtrar TCODEs inexistentes via TSTC...")
+                                validadas, invalidas = [], []
+                                for tc in tcodes:
+                                    try:
+                                        r_t = conn.call("RFC_READ_TABLE", QUERY_TABLE="TSTC", OPTIONS=[{"TEXT": f"TCODE = '{tc}'"}], FIELDS=[{"FIELDNAME": "TCODE"}], ROWCOUNT=1)
+                                        if r_t.get("DATA"):
+                                            validadas.append(tc)
+                                        else:
+                                            invalidas.append(tc)
+                                    except Exception:
+                                        validadas.append(tc)
+                                if invalidas:
+                                    print(f"  ⚠️ TCODEs inexistentes no SAP ignoradas: {invalidas}")
+                                    tcodes_param = [{"TCODE": tc} for tc in validadas]
+                                    res_create = conn.call(
+                                        "PRGN_RFC_CREATE_ACTIVITY_GROUP",
+                                        ACTIVITY_GROUP=nome,
+                                        ACTIVITY_GROUP_TEXT=desc,
+                                        TCODES=tcodes_param,
+                                        REQUEST=request_transporte or ""
+                                    )
+                                    modo_operacao = "CRIADA"
+                                else:
+                                    raise
+
+                            # 2b. Role já existe → verificar se as TCODEs mudaram antes de atualizar e transportar
+                            elif "ACTIVITY_GROUP_ALREADY_EXISTS" in err_str:
+                                tcodes_sap = []
+                                try:
+                                    res_read = conn.call("PRGN_RFC_READ_TRANSACTIONS", ACTIVITY_GROUP=nome)
+                                    tcodes_sap = [r.get("TCODE", "").strip().upper() for r in res_read.get("TCODES", []) if r.get("TCODE")]
+                                except Exception:
+                                    pass
+
+                                set_excel = set(t.upper() for t in tcodes)
+                                set_sap = set(tcodes_sap)
+
+                                if set_excel == set_sap and tcodes_sap:
+                                    print("  ├─ Role já contém as mesmas TCODEs no SAP — Sem alterações necessárias.")
+                                    modo_operacao = "SEM ALTERACOES"
+                                else:
+                                    print("  ├─ Alteração detetada nas TCODEs — a atualizar via RFC (PRGN_RFC_CHANGE_TRANSACTIONS)...")
+                                    try:
+                                        res_upd = conn.call(
+                                            "PRGN_RFC_CHANGE_TRANSACTIONS",
+                                            ACTIVITY_GROUP=nome,
+                                            TCODES=tcodes_param,
+                                            NO_DIALOG="X",
+                                            REQUEST=request_transporte or ""
+                                        )
+                                        ret_upd = res_upd.get("RETURN", [])
+                                        err_upd_msgs = [row.get("MESSAGE", "") for row in ret_upd if row.get("TYPE") == "E"]
+                                        if err_upd_msgs:
+                                            raise RuntimeError("Erro ao actualizar TCODEs: " + " | ".join(err_upd_msgs))
+                                        modo_operacao = "ATUALIZADA"
+                                    except Exception as e_upd:
+                                        if "ILLEGAL_TCODES" in str(e_upd) and len(tcodes_param) > 0:
+                                            print(f"  ⚠️ TCODEs inválidas detetadas na atualização da role {nome}. A filtrar TCODEs via TSTC...")
+                                            validadas, invalidas = [], []
+                                            for tc in tcodes:
+                                                try:
+                                                    r_t = conn.call("RFC_READ_TABLE", QUERY_TABLE="TSTC", OPTIONS=[{"TEXT": f"TCODE = '{tc}'"}], FIELDS=[{"FIELDNAME": "TCODE"}], ROWCOUNT=1)
+                                                    if r_t.get("DATA"):
+                                                        validadas.append(tc)
+                                                    else:
+                                                        invalidas.append(tc)
+                                                except Exception:
+                                                    validadas.append(tc)
+                                            if invalidas:
+                                                print(f"  ⚠️ TCODEs inexistentes no SAP ignoradas: {invalidas}")
+                                                tcodes_param = [{"TCODE": tc} for tc in validadas]
+                                                res_upd = conn.call(
+                                                    "PRGN_RFC_CHANGE_TRANSACTIONS",
+                                                    ACTIVITY_GROUP=nome,
+                                                    TCODES=tcodes_param,
+                                                    NO_DIALOG="X",
+                                                    REQUEST=request_transporte or ""
+                                                )
+                                                modo_operacao = "ATUALIZADA"
+                                            else:
+                                                raise
+                                        else:
+                                            raise
+                            else:
+                                raise
+
+                        if modo_operacao == "SEM ALTERACOES":
+                            print("  ├─ Perfil e Request ignorados (role não foi modificada).")
+                        else:
+                            # 3. Geração / Regeneração de Perfil de Autorizações
+                            print(f"  ├─ Chamando RFC para gerar/regenerar o perfil ({modo_operacao})...")
+                            res_gen = conn.call(
+                                "PRGN_AUTO_GENERATE_PROFILE_NEW",
+                                ACTIVITY_GROUP=nome,
+                                GENERATE_PROFILE="X",
+                                FILL_EMPTY_FIELDS_WITH_STAR="X",
+                                ORG_LEVELS_WITH_STAR="X",
+                                REQUEST=request_transporte or ""
+                            )
+
+                            ret_gen = res_gen.get("RETURN", [])
+                            err_gen_msgs = [row.get("MESSAGE", "") for row in ret_gen if row.get("TYPE") == "E"]
+                            if err_gen_msgs:
+                                raise RuntimeError("Erro ao gerar perfil: " + " | ".join(err_gen_msgs))
+
+                            # 4. Gravar objeto da role na Transport Request (E071) apenas se houve alteração/criação
+                            if request_transporte:
+                                try:
+                                    conn.call(
+                                        "TR_EXT_INSERT_IN_REQUEST",
+                                        IV_REQ_ID=request_transporte,
+                                        IT_OBJECTS=[{"PGMID": "R3TR", "OBJECT": "ACGR", "OBJ_NAME": nome}]
+                                    )
+                                    print(f"  ├─ Role {nome} gravada e associada com sucesso na Request {request_transporte} (E071)!")
+                                except Exception as e_tr:
+                                    print(f"  ⚠️ Aviso ao gravar objeto na Request {request_transporte}: {e_tr}")
+
+                        break  # Sucesso! Sair do loop de tentativas
+
+                    except Exception as e_attempt:
+                        err_str_attempt = str(e_attempt)
+                        if "ACTIVITY_GROUP_ENQUEUED" in err_str_attempt and tentativa < max_retries:
+                            print(f"  ⚠️ Role {nome} está bloqueada no SAP (ACTIVITY_GROUP_ENQUEUED). Aguardando 2s (tentativa {tentativa}/{max_retries})...")
+                            time.sleep(2)
+                            continue
                         raise
-
-                # 3. Geração / Regeneração de Perfil de Autorizações
-                print(f"  ├─ Chamando RFC para gerar/regenerar o perfil ({modo_operacao})...")
-                res_gen = conn.call(
-                    "PRGN_AUTO_GENERATE_PROFILE_NEW",
-                    ACTIVITY_GROUP=nome,
-                    GENERATE_PROFILE="X",
-                    FILL_EMPTY_FIELDS_WITH_STAR="X",
-                    ORG_LEVELS_WITH_STAR="X",
-                    REQUEST=request_transporte or ""
-                )
-
-                ret_gen = res_gen.get("RETURN", [])
-                err_gen_msgs = [row.get("MESSAGE", "") for row in ret_gen if row.get("TYPE") == "E"]
-                if err_gen_msgs:
-                    raise RuntimeError("Erro ao gerar perfil: " + " | ".join(err_gen_msgs))
 
                 tempo_decorrido_role = time.time() - tempo_inicio_role
                 str_tempo = formatar_tempo(tempo_decorrido_role)

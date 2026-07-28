@@ -491,9 +491,7 @@ def _select_radio_if_exists(session, sap_id: str) -> bool:
         return False
 
 
-def _criar_nova_request_no_sap(session) -> tuple[str, str, str]:
-    _ensure_se10(session)
-
+def _criar_nova_request_no_sap(session, ambiente=None) -> tuple[str, str, str]:
     linha()
     destaque("CRIAR NOVA REQUEST")
     print("\nTipo da ordem:")
@@ -510,6 +508,34 @@ def _criar_nova_request_no_sap(session) -> tuple[str, str, str]:
     if not desc:
         desc = "REQUEST CRIADA VIA SCRIPT"
     desc = desc[:60]
+    tipo_txt = "Customizing" if tipo == "1" else "Workbench"
+
+    # 1. Tentar criar via RFC primeiro (sem abrir janela SE10 no SAP GUI)
+    try:
+        dir_atual = os.path.dirname(os.path.abspath(__file__))
+        if dir_atual not in sys.path:
+            sys.path.insert(0, dir_atual)
+        caminho_proc = os.path.join(dir_atual, "Processos")
+        if caminho_proc not in sys.path:
+            sys.path.insert(0, caminho_proc)
+
+        from criar_request_rfc import criar_nova_request_rfc
+        trkorr, task = criar_nova_request_rfc(
+            ambiente=ambiente or "DEV",
+            tipo="customizing" if tipo == "1" else "workbench",
+            descricao=desc
+        )
+        if trkorr:
+            ok("Request criada com sucesso via RFC!")
+            info(f"Tipo: {tipo_txt}")
+            info(f"Descrição: {desc}")
+            info(f"Request: {trkorr} (Tarefa: {task})")
+            return trkorr, desc, tipo_txt
+    except Exception as exc_rfc:
+        warn(f"Falha ao criar request via RFC ({exc_rfc}). Recorrendo à transação SE10 no SAP GUI...")
+
+    # 2. Fallback: SAP GUI SE10
+    _ensure_se10(session)
 
     _press(session, "wnd[0]/tbar[1]/btn[6]")
 
@@ -526,8 +552,6 @@ def _criar_nova_request_no_sap(session) -> tuple[str, str, str]:
     if okcd:
         okcd.text = "/n"
         _send_vkey(session, 0)
-
-    tipo_txt = "Customizing" if tipo == "1" else "Workbench"
 
     ok("Request criada.")
     info(f"Tipo: {tipo_txt}")

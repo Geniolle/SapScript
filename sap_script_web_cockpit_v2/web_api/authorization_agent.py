@@ -39,7 +39,6 @@ def validate_analysis_selection(type_key: str) -> bool:
 
 
 def get_execution_mode_for_system_key(system_key: str) -> str:
-    cleaned = str(system_key or "").strip().upper()
-    if cleaned.startswith("S4"):
+    if os.getenv("AUTHORIZATION_FORCE_RFC", "").strip().lower() in {"1", "true", "yes", "sim"}:
         return "RFC"
     return "CUA"

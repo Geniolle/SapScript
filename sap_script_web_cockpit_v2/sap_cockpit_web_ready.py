@@ -577,9 +577,8 @@ def _criar_nova_request_no_sap(
     tipo: str | None = None,
     desc: str | None = None,
     interactive: bool = True,
+    ambiente: str = "DEV",
 ) -> tuple[str, str, str]:
-    _ensure_se10(session)
-
     if interactive:
         linha()
         destaque("CRIAR NOVA REQUEST")
@@ -605,6 +604,32 @@ def _criar_nova_request_no_sap(
     if not desc:
         desc = "REQUEST CRIADA VIA SCRIPT"
     desc = desc[:60]
+    tipo_txt = "Customizing" if tipo == "1" else "Workbench"
+
+    # 1. Tentar criar via RFC primeiro (sem abrir janela SE10 no SAP GUI)
+    try:
+        dir_atual = os.path.dirname(os.path.abspath(__file__))
+        dir_processos = os.path.join(os.path.dirname(dir_atual), "Processos")
+        if dir_processos not in sys.path:
+            sys.path.insert(0, dir_processos)
+
+        from criar_request_rfc import criar_nova_request_rfc
+        trkorr, task = criar_nova_request_rfc(
+            ambiente=ambiente or "DEV",
+            tipo="customizing" if tipo == "1" else "workbench",
+            descricao=desc
+        )
+        if trkorr:
+            ok("Request criada com sucesso via RFC!")
+            info(f"Tipo: {tipo_txt}")
+            info(f"Descricao: {desc}")
+            info(f"Request: {trkorr} (Tarefa: {task})")
+            return trkorr, desc, tipo_txt
+    except Exception as exc_rfc:
+        warn(f"Falha ao criar request via RFC ({exc_rfc}). Recorrendo ao SAP GUI...")
+
+    # 2. Fallback: SAP GUI SE10
+    _ensure_se10(session)
 
     _press(session, "wnd[0]/tbar[1]/btn[6]")
 
@@ -621,8 +646,6 @@ def _criar_nova_request_no_sap(
     if okcd:
         okcd.text = "/n"
         _send_vkey(session, 0)
-
-    tipo_txt = "Customizing" if tipo == "1" else "Workbench"
 
     ok("Request criada.")
     info(f"Tipo: {tipo_txt}")
@@ -1675,13 +1698,14 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
 
         caminho_processo = selecionar_pasta_processo(payload=payload, interactive=False)
 
-        # Verificar se o subprocess gere a sua própria sessão SAP
+        # Verificar se o subprocess gere a sua própria sessão SAP ou se é RFC
         subprocesso_payload = str(payload.get("subprocesso") or payload.get("script") or "").strip()
         web_config = _read_subprocess_web_config(caminho_processo, subprocesso_payload) if subprocesso_payload else {}
         manages_own_session = web_config.get("manages_own_session", False)
+        is_rfc_script = bool(subprocesso_payload and ("_RFC.py" in subprocesso_payload or "RFC" in subprocesso_payload.upper()))
 
-        if manages_own_session:
-            info("Subprocess gere a propria sessao SAP — a saltar obter_sessao_sap().")
+        if manages_own_session or is_rfc_script:
+            info("Subprocesso RFC / gestão própria de sessão SAP — a saltar obter_sessao_sap().")
             session = None
         else:
             session, _connection = obter_sessao_sap(ambiente_cockpit, interactive=False)

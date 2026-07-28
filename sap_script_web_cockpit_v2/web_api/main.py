@@ -8,7 +8,7 @@ import sys
 import requests
 
 from uuid import uuid4
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime
 import time
 
@@ -703,14 +703,16 @@ def startup() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
+    context = {
+        "request": request,
+        "ambientes": get_available_environments(),
+        "processos": get_available_processes(),
+        "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
+    }
     response = templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "ambientes": get_available_environments(),
-            "processos": get_available_processes(),
-            "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
-        },
+        request=request,
+        name="index.html",
+        context=context,
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -1135,10 +1137,48 @@ def api_get_authorizations_context() -> dict[str, Any]:
     }
 
 
+@app.get("/api/authorization/greeting")
+def api_authorization_greeting() -> dict[str, Any]:
+    """Gera uma saudação inicial dinâmica e abrangente para o Assistente SAP via Gemini (com fallback)."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        try:
+            import requests
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+            prompt = (
+                "És o Assistente Virtual SAP S/4HANA no Cockpit Web. "
+                "Gera uma frase curta, elegante e acolhedora de saudação inicial em Português de Portugal (1 frase). "
+                "Pergunta ao utilizador de forma aberta como o podes ajudar nos seus processos SAP hoje. "
+                "NÃO restrinjas a saudação a autorizações ou perfis. Mantém a pergunta completamente aberta para qualquer processo SAP."
+            )
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}]
+            }
+            res = requests.post(url, json=payload, timeout=6)
+            if res.status_code == 200:
+                data = res.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                    if text:
+                        return {"messages": [text]}
+        except Exception as e:
+            print(f"[AUTH GREETING] Aviso ao gerar saudação dinâmica via Gemini: {e}")
+
+    import random
+    fallbacks = [
+        ["Olá! Como posso ajudar nos seus processos SAP hoje?"],
+        ["Olá! Em que posso apoiar a gestão dos seus processos SAP?"],
+        ["Boas-vindas! De que forma posso apoiar as suas operações e processos no SAP hoje?"]
+    ]
+    return {"messages": random.choice(fallbacks)}
+
+
 class AuthorizationStartRequest(BaseModel):
     target_user: str
     target_system_key: str
     analysis_type: str
+    subsystem_filter: Optional[str] = None
 
 
 class AuthorizationRemoveRequest(BaseModel):
@@ -1161,8 +1201,26 @@ def is_any_worker_active() -> bool:
 @app.post("/api/authorizations/start")
 async def api_start_authorization_analysis(payload: AuthorizationStartRequest) -> dict[str, Any]:
     import re
+    cua_sap_key = os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001").strip().upper()
     target_user = payload.target_user.strip().upper()
-    target_system_key = payload.target_system_key.strip().upper()
+    requested_system = payload.target_system_key.strip().upper()
+    requested_subsystem = (payload.subsystem_filter or "").strip().upper()
+
+    execution_mode = get_execution_mode_for_system_key(requested_system)
+
+    # SEPARAR TOTALMENTE O SISTEMA DE LOGON DO MANDANTE DE PESQUISA (SUBSYSTEM)
+    if execution_mode == "CUA" or requested_system == cua_sap_key:
+        target_system_key = cua_sap_key
+        if requested_subsystem and requested_subsystem != cua_sap_key:
+            subsystem_filter = requested_subsystem
+        elif requested_system and requested_system != cua_sap_key:
+            subsystem_filter = requested_system
+        else:
+            subsystem_filter = "S4DCLNT100"
+    else:
+        target_system_key = requested_system
+        subsystem_filter = requested_subsystem or requested_system
+
     analysis_type = payload.analysis_type.strip().lower()
 
     if not target_user:
@@ -1224,6 +1282,7 @@ async def api_start_authorization_analysis(payload: AuthorizationStartRequest) -
     params = {
         "target_user": target_user,
         "target_system_key": target_system_key,
+        "subsystem_filter": subsystem_filter,
         "analysis_type": analysis_type,
         "cua_sap_key": cua_sap_key,
         "execution_mode": execution_mode,

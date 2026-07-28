@@ -400,72 +400,25 @@ def executar(
     except Exception:
         pass
 
-    def _criar_nova_request_no_sap_local(sess):
-        if not sess:
-            print("❌ Sessão SAP GUI não disponível para criar request.")
-            return None
+    def _criar_nova_request_no_sap_local(sess=None):
         try:
-            sess.findById("wnd[0]/tbar[0]/okcd").text = "/nSE10"
-            sess.findById("wnd[0]").sendVKey(0)
-            print("\nTipo da ordem:")
-            print("1 - Ordem customizing")
-            print("2 - Ordem workbench")
-            while True:
-                tipo = input("Digite a opção (1/2): ").strip()
-                if tipo in ("1", "2"):
-                    break
-                print("❌ Opção inválida.")
-
-            desc = input("Descrição da request (máx 60): ").strip()
-            desc = desc[:60] if desc else "REQUEST CRIADA VIA SCRIPT"
-
-            sess.findById("wnd[0]/tbar[1]/btn[6]").press()
-            time.sleep(1)
-
-            if tipo == "2":
-                try:
-                    sess.findById("wnd[1]/usr/radKO042-REQ_CONS_K").select()
-                except:
-                    pass
-
-            sess.findById("wnd[1]/tbar[0]/btn[0]").press()
-            time.sleep(1)
-
-            try:
-                sess.findById("wnd[1]/usr/txtKO013-AS4TEXT").text = desc
-            except:
-                pass
-
-            sess.findById("wnd[1]/tbar[0]/btn[0]").press()
-            time.sleep(1)
-
-            trkorr = None
-            for sap_id in ["wnd[0]/usr/lbl[20,9]", "wnd[0]/usr/lbl[1,1]"]:
-                try:
-                    txt = sess.findById(sap_id).Text
-                    match = re.search(r"\b[A-Z0-9]{3,4}K\d{6,}\b", txt)
-                    if match:
-                        trkorr = match.group(0)
-                except:
-                    pass
-                if trkorr:
-                    break
-
-            sess.findById("wnd[0]/tbar[0]/okcd").text = "/n"
-            sess.findById("wnd[0]").sendVKey(0)
-
-            tipo_txt = "Customizing" if tipo == "1" else "Workbench"
-            print("\n✔️ Request criada.")
-            print(f"Tipo: {tipo_txt} | Descrição: {desc}")
-            if not trkorr:
-                trkorr = input("Não consegui extrair a request automaticamente. Cole aqui: ").strip().upper()
-            print(f"Request: {trkorr}")
-            return trkorr
+            from criar_request_rfc import criar_nova_request_rfc
+            req, task = criar_nova_request_rfc(
+                ambiente=ambiente_cockpit or "DEV",
+                tipo="customizing",
+                descricao="ROLES COMPOSTAS PFCG RFC"
+            )
+            return req
         except Exception as err:
-            print(f"❌ Erro ao criar request no SAP GUI: {err}")
+            print(f"❌ Erro ao criar request via RFC: {err}")
             return None
 
     # --- Menu de Transporte ---
+    if not request_transporte:
+        env_req = os.getenv("SAP_REQUEST_NUMBER", "").strip().upper()
+        if env_req:
+            request_transporte = env_req
+
     if not request_transporte and not modo_nao_interativo:
         print("\n============================================================")
         print("🚚 Opções de configuração de Transporte.\n")
@@ -491,15 +444,11 @@ def executar(
 
         elif req_input == "3":
             try:
-                import pesquisar_request
-                print("\n🔍 A abrir nova sessão em segundo plano para pesquisar (SE16H)...")
-                resultados_pesquisa = pesquisar_request.listar_requests(
+                import pesquisar_request_rfc
+                print("\n🔍 A pesquisar requests abertas via RFC...")
+                resultados_pesquisa = pesquisar_request_rfc.listar_requests(
                     system_name=SISTEMA_ESPERADO,
-                    include_requests=True,
-                    use_new_mode=True,
-                    minimize=False,
-                    close_after=True,
-                    session=session
+                    include_requests=True
                 )
                 if resultados_pesquisa:
                     escolha = input("\n👉 Digite o número (N) da Request que deseja utilizar (ou Enter para cancelar): ").strip()
@@ -748,6 +697,23 @@ def executar(
                     print(f"  ├─ {len(componentes_para_inserir)} roles filhas adicionadas com sucesso.")
                 else:
                     print("  ├─ Etapa 4: Ignorada — sem roles filhas novas a adicionar.")
+
+                if componentes_para_inserir or modo_operacao == "CRIADA":
+                    if request_transporte:
+                        try:
+                            conn.call(
+                                "TR_EXT_INSERT_IN_REQUEST",
+                                IV_REQ_ID=request_transporte,
+                                IT_OBJECTS=[
+                                    {"PGMID": "R3TR", "OBJECT": "ACGR", "OBJ_NAME": nome},
+                                    {"PGMID": "R3TR", "OBJECT": "AGRS", "OBJ_NAME": nome}
+                                ]
+                            )
+                            print(f"  ├─ Role composta {nome} gravada e associada com sucesso na Request {request_transporte} (E071)!")
+                        except Exception as e_tr:
+                            print(f"  ⚠️ Aviso ao gravar objeto na Request {request_transporte}: {e_tr}")
+                else:
+                    print("  ├─ Role composta já possui todas as componentes no SAP — Request ignorada.")
 
                 tempo_decorrido_role = time.time() - tempo_inicio_role
                 str_tempo = formatar_tempo(tempo_decorrido_role)
