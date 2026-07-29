@@ -62,3 +62,10 @@ Then:
 - "Mostre as expiradas diretas" -> return only entries marked expired and direct.
 - "Quais as transações atribuídas à função Z_LOGISTIC_TEMP?" -> return only the transactions linked to that role.
 - "Quero a lista das funções" -> return a plain list of the functions/TCODEs from the analyzed result.
+
+## Post-Analysis Actions & CUA_ENDDATE
+
+- After displaying the analysis summary (`Análise de autorizações concluída via RFC`), prompt the user if they wish to perform any action on the analyzed functions.
+- If the user responds affirmatively (*"sim"*, *"quero"*, etc.), re-present the authorization profile action choices, using the selected/displayed functions list from the prior analysis.
+- If the user selects **`CUA_ENDDATE`**, execute the end-date assignment for the functions in that list using **yesterday's date (`hoje - 1 dia`)** as default.
+

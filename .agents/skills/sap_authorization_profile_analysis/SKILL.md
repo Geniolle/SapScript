@@ -61,3 +61,25 @@ Quando a `SE16` exibe os resultados num controlo **ALV Grid**, a extração util
 - **Nomes de Sistemas em Negrito:** Códigos de sistema (**`S4D`**, **`S4P`**, **`S4Q`**, **`SPA`**) usam `font-weight: 700`.
 - **Tipografia Compacta:** Pílulas e cartões usam fontes proporcionais (`0.82rem` / `0.86rem`) com `padding: 8px 12px`.
 - **Shell Responsiva:** O contentor do chat (`.auth-chat-shell`) preenche **100% da largura útil disponível** (`width: 100%; max-width: 100%`).
+
+---
+
+## 5. Fluxo de Ações Pós-Análise (Follow-up Actions & CUA_ENDDATE)
+
+- **Pergunta Pós-Resumo de Análise:**
+  Quando a pesquisa do processo de **Análise de Autorizações SAP** é concluída (ex: mensagem de resumo `"Análise de autorizações concluída via RFC"` ou CUA), o assistente/bot DEVE perguntar numa nova interação se o utilizador deseja **seguir com alguma ação** sobre o processo de Análise de Autorizações SAP.
+
+- **Reaproveitamento de Dados da Análise Anterior:**
+  Se o utilizador responder afirmativamente (ex.: *"sim"*, *"quero"*, *"seguir com ação"*, etc.):
+  1. O bot deve apresentar novamente as opções de processos de Perfil de Autorização (ex.: `CUA_ENDDATE`, `CUA_REMOVE`, etc.).
+  2. A nova ação deve reaproveitar automaticamente a lista de funções/roles selecionadas/exibidas na análise anterior (ex.: a lista de roles com colunas *Função / Início / Fim / Estado / Atribuição*).
+
+- **Execução do `CUA_ENDDATE` sobre a Lista:**
+  Se o utilizador selecionar a ação **`CUA_ENDDATE`**:
+  - O sistema executa o ajuste de data fim (`UPDATE_TO_DAT`) para cada uma das funções presentes na lista apresentada na análise anterior.
+  - A data fim colocada por defeito pelo processo `CUA_ENDDATE` é a **data de ontem (hoje - 1 dia)** no formato SAP (`DD.MM.YYYY`), a menos que o utilizador ou o ficheiro especifiquem outra data.
+
+- **Reabertura Contínua da Pergunta Pós-Ação:**
+  Sempre que um processo ou ação de autorizações (ex.: `CUA_ENDDATE`, `CUA_REMOVE`, etc.) for concluído com sucesso, o assistente DEVE apresentar novamente a pergunta pós-resumo: *"Deseja seguir com alguma ação sobre o processo de Análise de Autorizações SAP para este utilizador..."* para permitir encadear novas ações sem perder o contexto.
+
+

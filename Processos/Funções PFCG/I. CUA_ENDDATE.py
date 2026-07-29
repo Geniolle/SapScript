@@ -29,7 +29,7 @@ import tkinter as tk
 
 from tkinter import filedialog
 from openpyxl import load_workbook
-from datetime import datetime
+from datetime import datetime, timedelta
 
 ###################################################################################
 # BLOCO 2: NOME DO SCRIPT / SHEET, MAPA DE SISTEMAS
@@ -140,8 +140,8 @@ def obter_timempestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def obter_data_hoje_sap():
-    return datetime.now().strftime("%d.%m.%Y")
+def obter_data_ontem_sap():
+    return (datetime.now() - timedelta(days=1)).strftime("%d.%m.%Y")
 
 
 def juntar_textos(*partes):
@@ -194,13 +194,13 @@ def resolver_subsystem(valor_sistema):
 def resolver_data_fim(row):
     """
     Procura uma coluna opcional de data fim.
-    Se não existir/estiver vazia, usa a data de hoje.
+    Se não existir/estiver vazia, usa a data de ontem (hoje - 1 dia).
     """
     colunas_data = ["UPDATE_TO_DAT", "VALID_TO", "VALIDO_ATE", "DATA_FIM"]
     for c in colunas_data:
         if c in row and not valor_em_branco(row.get(c, "")):
             return str(row.get(c, "")).strip()
-    return obter_data_hoje_sap()
+    return obter_data_ontem_sap()
 
 ###################################################################################
 # BLOCO 4: LEITURA DO EXCEL
@@ -679,16 +679,14 @@ def abrir_su01_em_alteracao(session, utilizador):
     time.sleep(0.4)
 
 
-def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_fim):
+def atualizar_validade_roles_lote_su01(session, utilizador, subsystem, lista_items):
     """
-    Novo mapeamento:
-    - /nsu01
-    - abrir utilizador
-    - tab ACTG
-    - filtrar SUBSYSTEM
-    - filtrar AGR_NAME
-    - alterar UPDATE_TO_DAT
-    - guardar
+    Atualiza todas as roles do MESMO (utilizador, subsystem) numa única sessão da SU01:
+    1. Abre SU01 para o utilizador uma só vez
+    2. Entra no separador 'Roles' (ACTG)
+    3. Filtra SUBSYSTEM uma só vez
+    4. Para cada role: filtra AGR_NAME e altera UPDATE_TO_DAT no grid
+    5. Guarda (sendVKey 11) uma só vez no final
     """
     abrir_su01_em_alteracao(session, utilizador)
 
@@ -701,10 +699,10 @@ def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_
     if not aguardar_objeto(session, shell_id, timeout=10, intervalo=0.3):
         raise Exception("Grid de roles não carregou na SU01.")
 
-    print("\n[Etapa 3] Bloqueio / Data Fim")
+    print(f"\n[SU01 Lote] Utilizador={utilizador} | Subsystem={subsystem} | Roles a alterar={len(lista_items)}")
     shell = session.findById(shell_id)
 
-    # Filtro 1: SUBSYSTEM
+    # Filtro 1: SUBSYSTEM (uma única vez por utilizador/subsistema)
     aplicar_filtro_shell(
         session=session,
         shell=shell,
@@ -712,22 +710,63 @@ def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_
         valor_filtro=subsystem
     )
 
-    # Filtro 2: AGR_NAME
-    aplicar_filtro_shell(
-        session=session,
-        shell=shell,
-        coluna="AGR_NAME",
-        valor_filtro=agr_name
-    )
+    resultados_itens = []
 
-    # Alterar data final
-    shell.modifyCell(0, "UPDATE_TO_DAT", data_fim)
-    shell.currentCellColumn = "UPDATE_TO_DAT"
-    shell.pressEnter()
-    time.sleep(0.5)
+    for item in lista_items:
+        agr_name = item["agr_name"]
+        data_fim = item["data_fim"]
+
+        try:
+            # Filtro 2: AGR_NAME
+            aplicar_filtro_shell(
+                session=session,
+                shell=shell,
+                coluna="AGR_NAME",
+                valor_filtro=agr_name
+            )
+
+            # Alterar data final no grid
+            shell.modifyCell(0, "UPDATE_TO_DAT", data_fim)
+            shell.currentCellColumn = "UPDATE_TO_DAT"
+            shell.pressEnter()
+            time.sleep(0.3)
+
+            resultados_itens.append({
+                "idx": item["idx"],
+                "agr_name": agr_name,
+                "data_fim": data_fim,
+                "sucesso_grid": True,
+                "erro": None
+            })
+            print(f"  ✓ Grid atualizado: AGR_NAME={agr_name} | UPDATE_TO_DAT={data_fim}")
+
+        except Exception as e_role:
+            resultados_itens.append({
+                "idx": item["idx"],
+                "agr_name": agr_name,
+                "data_fim": data_fim,
+                "sucesso_grid": False,
+                "erro": str(e_role)
+            })
+            print(f"  ❌ Falha no grid: AGR_NAME={agr_name} -> {e_role}")
+
+    # Verificar se alguma role foi modificada com sucesso no grid
+    sucesso_count = sum(1 for r in resultados_itens if r["sucesso_grid"])
+    if sucesso_count == 0:
+        status_sap = obter_status_bar(session)
+        status_txt = status_sap["status"] or "E - Nenhuma role foi encontrada/alterada no grid"
+        return [
+            {
+                "idx": r["idx"],
+                "status": r["erro"] or status_txt,
+                "msg": juntar_textos(f"SUBSYSTEM: {subsystem}", f"UPDATE_TO_DAT: {r['data_fim']}", f"ERRO: {r['erro']}"),
+            }
+            for r in resultados_itens
+        ]
 
     status_antes_save = obter_status_bar(session)
 
+    # Guardar na SU01 (sendVKey 11) UMA ÚNICA VEZ para todas as roles do utilizador!
     session.findById("wnd[0]").sendVKey(11)
     time.sleep(0.5)
 
@@ -735,24 +774,44 @@ def atualizar_validade_role_su01(session, utilizador, subsystem, agr_name, data_
     time.sleep(0.3)
 
     status_final = obter_status_bar(session)
+    status_para_gravar = status_final["status"] or status_antes_save["status"] or "S - Validade atualizada na SU01"
 
-    return {
-        "status_antes_save": status_antes_save,
-        "status_final": status_final,
-        "popup_txt": popup_txt,
-    }
+    resultados_finais = []
+    for r in resultados_itens:
+        if r["sucesso_grid"]:
+            msg = juntar_textos(
+                f"SUBSYSTEM: {subsystem}",
+                f"UPDATE_TO_DAT: {r['data_fim']}",
+                f"ANTES_SAVE: {status_antes_save['status']}" if status_antes_save["status"] else "",
+                f"POPUP: {popup_txt}" if popup_txt else ""
+            )
+            resultados_finais.append({
+                "idx": r["idx"],
+                "status": status_para_gravar,
+                "msg": msg
+            })
+        else:
+            msg = juntar_textos(
+                f"SUBSYSTEM: {subsystem}",
+                f"UPDATE_TO_DAT: {r['data_fim']}",
+                f"ERRO_GRID: {r['erro']}"
+            )
+            resultados_finais.append({
+                "idx": r["idx"],
+                "status": f"E - {r['erro']}",
+                "msg": msg
+            })
+
+    return resultados_finais
 
 ###################################################################################
-# BLOCO 10: EXECUÇÃO (AJUSTAR UPDATE_TO_DAT NO SU01)
+# BLOCO 10: EXECUÇÃO (AJUSTAR UPDATE_TO_DAT NO SU01 EM LOTE)
 ###################################################################################
 
 def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
     """
-    Mantido o nome da função por compatibilidade com o chamador,
-    mas agora a lógica executa o novo mapeamento SU01:
-    - filtra SUBSYSTEM
-    - filtra AGR_NAME
-    - altera UPDATE_TO_DAT
+    Executa a atualização de validade das funções agrupando por (UTILIZADOR, SUBSYSTEM)
+    para abrir a SU01 apenas UMA vez por utilizador/subsistema e guardar todas as roles juntas.
     """
     df_proc = df_filtrado.copy()
 
@@ -765,71 +824,65 @@ def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
     total = len(df_proc)
     tempo_total_inicio = time.time()
 
-    resposta = input("Deseja atualizar a validade dessas funções no SAP? [S/N]: ").strip().upper()
-    if resposta != "S":
-        print("❌ Lançamento cancelado pelo utilizador.")
-        return df_proc
+    # Pre-validar linhas e agrupar pendentes por (UTILIZADOR, SUBSYSTEM)
+    grupos = {}
+    for idx, row in df_proc.iterrows():
+        erro_validacao = validar_linha(row)
+        if erro_validacao:
+            status_val = f"E - {erro_validacao}"
+            df_proc.at[idx, "STATUS"] = status_val
+            df_proc.at[idx, "MSG"] = "Validação da linha falhou antes da SU01."
+            df_proc.at[idx, "TIMESTEMP"] = obter_timempestamp()
+            print(f"❌ ID={row.get('ID', '')}: {status_val}")
+            continue
 
-    for i, (idx, row) in enumerate(df_proc.iterrows(), 1):
-        inicio = time.time()
-
-        linha_id = normalizar_id(row.get("ID", ""))
         utilizador = str(row.get("UTILIZADOR", "")).strip()
         sistema_excel = str(row.get("SISTEMA", "")).strip()
-        agr_name = str(row.get("AGR_NAME", "")).strip()
         subsystem = resolver_subsystem(sistema_excel)
+        agr_name = str(row.get("AGR_NAME", "")).strip()
         data_fim = resolver_data_fim(row)
 
-        print(
-            f"\n🔧 {i}/{total} | "
-            f"ID={linha_id} | UTILIZADOR={utilizador} | SISTEMA={sistema_excel} | "
-            f"SUBSYSTEM={subsystem} | AGR_NAME={agr_name} | UPDATE_TO_DAT={data_fim}"
-        )
+        chave = (utilizador, subsystem)
+        if chave not in grupos:
+            grupos[chave] = []
+
+        grupos[chave].append({
+            "idx": idx,
+            "id": normalizar_id(row.get("ID", "")),
+            "utilizador": utilizador,
+            "sistema_excel": sistema_excel,
+            "subsystem": subsystem,
+            "agr_name": agr_name,
+            "data_fim": data_fim
+        })
+
+    sistema_conectado = str(session.Info.SystemName).strip().upper()
+    if sistema_conectado != sistema_desejado:
+        print(f"❌ Sistema SAP incorreto: esperado {sistema_desejado}, conectado a {sistema_conectado}")
+        return df_proc
+
+    for (utilizador, subsystem), items in grupos.items():
+        inicio_grupo = time.time()
+        print(f"\n🔧 Processando lote: Utilizador={utilizador} | SUBSYSTEM={subsystem} ({len(items)} role(s))")
 
         try:
-            erro_validacao = validar_linha(row)
-            if erro_validacao:
-                status_validacao = f"E - {erro_validacao}"
-                df_proc.at[idx, "STATUS"] = status_validacao
-                df_proc.at[idx, "MSG"] = "Validação da linha falhou antes da SU01."
-                df_proc.at[idx, "TIMESTEMP"] = obter_timempestamp()
-                print(f"❌ {status_validacao}")
-                continue
-
-            sistema_conectado = str(session.Info.SystemName).strip().upper()
-            if sistema_conectado != sistema_desejado:
-                raise Exception(
-                    f"Sistema SAP incorreto: esperado {sistema_desejado}, conectado a {sistema_conectado}"
-                )
-
             reset_para_tela_inicial(session)
 
-            retorno = atualizar_validade_role_su01(
+            resultados = atualizar_validade_roles_lote_su01(
                 session=session,
                 utilizador=utilizador,
                 subsystem=subsystem,
-                agr_name=agr_name,
-                data_fim=data_fim
+                lista_items=items
             )
 
-            status_antes_save = retorno["status_antes_save"]
-            status_final = retorno["status_final"]
-            popup_txt = retorno["popup_txt"]
+            for res in resultados:
+                idx = res["idx"]
+                df_proc.at[idx, "STATUS"] = res["status"]
+                df_proc.at[idx, "MSG"] = res["msg"]
+                df_proc.at[idx, "TIMESTEMP"] = obter_timempestamp()
 
-            status_para_gravar = status_final["status"] or status_antes_save["status"] or "SEM STATUS SAP"
-            msg_para_gravar = juntar_textos(
-                f"SUBSYSTEM: {subsystem}",
-                f"UPDATE_TO_DAT: {data_fim}",
-                f"ANTES_SAVE: {status_antes_save['status']}" if status_antes_save["status"] else "",
-                f"POPUP: {popup_txt}" if popup_txt else ""
-            )
-
-            df_proc.at[idx, "STATUS"] = status_para_gravar
-            df_proc.at[idx, "MSG"] = msg_para_gravar
-            df_proc.at[idx, "TIMESTEMP"] = obter_timempestamp()
-
-            duracao = time.time() - inicio
-            print(f"✅ STATUS={status_para_gravar} | Tempo: {duracao:.1f}s")
+            duracao = time.time() - inicio_grupo
+            print(f"✅ Lote de {len(items)} role(s) concluído em {duracao:.1f}s")
 
             try:
                 session.findById("wnd[0]/tbar[0]/btn[3]").press()
@@ -848,21 +901,20 @@ def remover_funcao_usuario(df_filtrado, session, sistema_desejado):
 
             status_sap = obter_status_bar(session)
             status_para_gravar = status_sap["status"] or f"E - {str(e)}"
-            msg_para_gravar = juntar_textos(
-                f"SUBSYSTEM: {subsystem}",
-                f"UPDATE_TO_DAT: {data_fim}",
-                f"POPUP: {popup_txt}" if popup_txt else "",
-                f"EXCECAO: {str(e)}"
-            )
+            
+            for item in items:
+                idx = item["idx"]
+                msg_para_gravar = juntar_textos(
+                    f"SUBSYSTEM: {subsystem}",
+                    f"UPDATE_TO_DAT: {item['data_fim']}",
+                    f"POPUP: {popup_txt}" if popup_txt else "",
+                    f"EXCECAO: {str(e)}"
+                )
+                df_proc.at[idx, "STATUS"] = status_para_gravar
+                df_proc.at[idx, "MSG"] = msg_para_gravar
+                df_proc.at[idx, "TIMESTEMP"] = obter_timempestamp()
 
-            df_proc.at[idx, "STATUS"] = status_para_gravar
-            df_proc.at[idx, "MSG"] = msg_para_gravar
-            df_proc.at[idx, "TIMESTEMP"] = obter_timempestamp()
-
-            print(f"❌ STATUS={status_para_gravar}")
-            if msg_para_gravar:
-                print(f"   ↳ {msg_para_gravar}")
-
+            print(f"❌ STATUS LOTE={status_para_gravar} | Erro: {e}")
             reset_para_tela_inicial(session)
 
     tempo_total = time.time() - tempo_total_inicio

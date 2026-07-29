@@ -1411,6 +1411,111 @@ async def api_remove_authorization_roles(payload: AuthorizationRemoveRequest) ->
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+class AuthorizationEndDateRequest(BaseModel):
+    target_user: str
+    target_system_key: str
+    roles: list[Any]
+    valid_to: str = ""
+
+@app.post("/api/authorizations/enddate")
+async def api_authorizations_enddate(payload: AuthorizationEndDateRequest) -> dict[str, Any]:
+    target_user = str(payload.target_user or "").strip().upper()
+    target_system_key = str(payload.target_system_key or "").strip().upper()
+
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Utilizador alvo não foi informado.")
+
+    if not target_system_key:
+        raise HTTPException(status_code=400, detail="Sistema alvo não foi informado.")
+
+    roles: list[str] = []
+    for item in payload.roles or []:
+        if isinstance(item, str):
+            raw_role = item
+        elif isinstance(item, dict):
+            raw_role = item.get("role") or item.get("function") or item.get("agr_name") or item.get("AGR_NAME") or item.get("name") or ""
+        else:
+            raw_role = ""
+
+        role = str(raw_role or "").strip().upper()
+        if role:
+            roles.append(role)
+
+    roles = list(dict.fromkeys(roles))
+    if not roles:
+        raise HTTPException(status_code=400, detail="Nenhuma função válida foi informada para alteração de validade.")
+
+    cua_sap_key = os.getenv("CUA_SAP_KEY", "SPACLNT001").strip().upper()
+    env_path = _find_authorization_env_file()
+    if not env_path:
+        raise HTTPException(status_code=400, detail="Ficheiro .env não encontrado no contentor.")
+
+    env_data = _parse_env_file(env_path)
+    if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
+        raise HTTPException(status_code=400, detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env.")
+
+    require_worker_online(
+        "sap_cockpit",
+        message="O Worker Windows está desligado. Ligue o worker antes de iniciar a alteração de validade."
+    )
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    system_short = _authorization_system_short_name(target_system_key)
+    safe_name = _safe_upload_filename(f"CUA_ENDDATE_{target_user}_{target_system_key}.xlsx")
+    container_path = UPLOADS_DIR / safe_name
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "CUA_ENDDATE"
+    
+    headers = ["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME", "STATUS", "MSG", "TIMESTEMP"]
+    if payload.valid_to:
+        headers.insert(4, "UPDATE_TO_DAT")
+    sheet.append(headers)
+
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    for idx, role in enumerate(roles, start=1):
+        if payload.valid_to:
+            sheet.append([idx, target_user, target_system_key, role, payload.valid_to, "", "", now])
+        else:
+            sheet.append([idx, target_user, target_system_key, role, "", "", now])
+
+    workbook.save(container_path)
+
+    job_params: dict[str, Any] = {
+        "ambiente": "CUA",
+        "processo": "Funções PFCG",
+        "subprocesso": "I. CUA_ENDDATE.py",
+        "request_option": "4",
+        "request_number": "",
+        "request_desc": f"{target_user} | {target_system_key} | {len(roles)} funções a alterar validade",
+        "request_type": "1",
+        "caminho_ficheiro": _windows_upload_path(safe_name),
+        "transacao": "",
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "cua_sap_key": cua_sap_key,
+        "roles": roles,
+        "source": "authorization_follow_up",
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
+        return {
+            "success": True,
+            "job_id": job["id"],
+            "state": job["state"],
+            "message": f"Job CUA_ENDDATE criado com {len(roles)} funções.",
+            "caminho_ficheiro": _windows_upload_path(safe_name),
+            "ambiente": "CUA",
+            "system_short": system_short,
+            "roles_count": len(roles),
+            "cua_sap_key": cua_sap_key,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # ---------------------------------------------------------------------------
 # Auto-Trigger SAP endpoints
 # ---------------------------------------------------------------------------
@@ -2055,7 +2160,7 @@ def api_subprocesses(processo: str = "") -> dict[str, Any]:
 
 @app.post("/api/upload-file")
 async def api_upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
-    """
+    r"""
     Recebe ficheiro selecionado diretamente no browser.
 
     O ficheiro é guardado numa pasta montada no Windows:

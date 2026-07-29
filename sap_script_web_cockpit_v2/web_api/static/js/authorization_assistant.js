@@ -341,26 +341,30 @@ const AUTH_CHAT_STATES = {
       const summary = parseAuthorizationRemovalSummary(job);
       const fallbackContext = authorizationRemovalLastContext || {};
       const state = String(job?.state || '').trim().toLowerCase();
-      const stateLabel = state === 'succeeded_with_warnings' ? 'concluida com avisos' : state === 'succeeded' ? 'concluida com sucesso' : state || 'terminada';
+      const stateLabel = state === 'succeeded_with_warnings' ? 'concluída com avisos' : state === 'succeeded' ? 'concluída com sucesso' : state || 'terminada';
       const jobIdShort = String(job?.id || '').slice(0, 8);
       const pluralize = (value, singular, plural) => `${value} ${value === 1 ? singular : plural}`;
       const counts = [];
 
+      const script = String(job?.params?.subprocesso || job?.params?.processo || '').toUpperCase();
+      const isEndDate = script.includes('ENDDATE');
+      const actionName = isEndDate ? 'Alteração de validade' : 'Remoção';
+
       if (summary.processed !== null) counts.push(pluralize(summary.processed, 'linha processada', 'linhas processadas'));
-      if (summary.concluded !== null) counts.push(pluralize(summary.concluded, 'concluida', 'concluidas'));
+      if (summary.concluded !== null) counts.push(pluralize(summary.concluded, 'concluída', 'concluídas'));
       if (summary.warnings !== null) counts.push(pluralize(summary.warnings, 'aviso', 'avisos'));
       if (summary.errors !== null) counts.push(pluralize(summary.errors, 'erro', 'erros'));
-      if (summary.removed !== null) counts.push(pluralize(summary.removed, 'funcao eliminada', 'funcoes eliminadas'));
+      if (summary.removed !== null) counts.push(pluralize(summary.removed, isEndDate ? 'função alterada' : 'função eliminada', isEndDate ? 'funções alteradas' : 'funções eliminadas'));
 
-      const subjectUser = summary.user || String(fallbackContext.user || '').trim();
-      const subjectSystem = summary.system || String(fallbackContext.system || '').trim();
+      const subjectUser = summary.user || String(fallbackContext.user || job?.params?.target_user || '').trim();
+      const subjectSystem = summary.system || String(fallbackContext.system || job?.params?.target_system_key || '').trim();
       const subject = subjectUser && subjectSystem
         ? `${subjectUser} no sistema ${subjectSystem}`
         : subjectUser
           ? `o utilizador ${subjectUser}`
-          : 'a remocao';
+          : 'o processo';
 
-      let message = `Remocao ${stateLabel} para ${subject}`;
+      let message = `${actionName} ${stateLabel} para ${subject}`;
       if (jobIdShort) {
         message += ` (job #${jobIdShort})`;
       }
@@ -368,9 +372,9 @@ const AUTH_CHAT_STATES = {
         message += `: ${counts.join(', ')}.`;
       }
       if (summary.noMatches) {
-        message += ' O log indica que nao foram encontradas funcoes no sistema alvo.';
+        message += ' O log indica que não foram encontradas funções no sistema alvo.';
       } else if (summary.removed === 0) {
-        message += ' Sem funcoes eliminadas.';
+        message += isEndDate ? ' Sem funções alteradas.' : ' Sem funções eliminadas.';
       }
       return message;
     }
@@ -606,6 +610,10 @@ const AUTH_CHAT_STATES = {
           }
 
           appendAuthorizationMessage('assistant', buildAuthorizationRemovalFeedback(job));
+
+          window.setTimeout(() => {
+            renderPostAnalysisFollowUpQuestion();
+          }, 400);
         } catch (error) {
           if (requestId !== authorizationRemovalJobRequestId) {
             return;
@@ -616,6 +624,68 @@ const AUTH_CHAT_STATES = {
       }
 
       window.setTimeout(check, 1200);
+    }
+
+    function renderPostAnalysisFollowUpQuestion() {
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationAssistantMessage(
+        'Deseja seguir com alguma ação sobre o processo de **Análise de Autorizações SAP** para este utilizador (ex.: alterar validade CUA_ENDDATE, remover perfis, etc.)?'
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '8px';
+      grid.style.marginBottom = '14px';
+
+      const btnYes = document.createElement('button');
+      btnYes.type = 'button';
+      btnYes.className = 'auth-chat-system-card';
+      btnYes.style.flex = '0 0 auto';
+      btnYes.style.padding = '8px 16px';
+      btnYes.onclick = () => {
+        if (btnYes.parentElement) {
+          btnYes.parentElement.querySelectorAll('button').forEach(b => {
+            b.classList.remove('selected');
+            b.setAttribute('aria-pressed', 'false');
+          });
+        }
+        btnYes.classList.add('selected');
+        btnYes.setAttribute('aria-pressed', 'true');
+        appendAuthorizationMessage('user', 'Sim, pretendo realizar uma ação sobre esta análise');
+        showPfcgProcessExecutionOptions();
+      };
+      btnYes.innerHTML = '<span class="sys-code" style="font-size:0.84rem; font-weight:700; color:#10b981;">⚙️ Sim, pretendo realizar uma ação</span>';
+
+      const btnNo = document.createElement('button');
+      btnNo.type = 'button';
+      btnNo.className = 'auth-chat-system-card';
+      btnNo.style.flex = '0 0 auto';
+      btnNo.style.padding = '8px 16px';
+      btnNo.onclick = () => {
+        if (btnNo.parentElement) {
+          btnNo.parentElement.querySelectorAll('button').forEach(b => {
+            b.classList.remove('selected');
+            b.setAttribute('aria-pressed', 'false');
+          });
+        }
+        btnNo.classList.add('selected');
+        btnNo.setAttribute('aria-pressed', 'true');
+        appendAuthorizationMessage('user', 'Não, fazer nova análise');
+        resetAuthorizationChat();
+      };
+      btnNo.innerHTML = '<span class="sys-code" style="font-size:0.84rem; font-weight:700; color:var(--text-secondary);">🔄 Não, fazer nova análise</span>';
+
+      grid.appendChild(btnYes);
+      grid.appendChild(btnNo);
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
     }
 
     function handleAuthorizationFollowUp(rawQuery) {
@@ -631,6 +701,22 @@ const AUTH_CHAT_STATES = {
         queryNorm.includes('NOVA PESQUISA')
       ) {
         resetAuthorizationChat();
+        return;
+      }
+
+      // 0.1 Se o utilizador responder afirmativamente à pergunta pós-resumo
+      if (
+        queryNorm === 'SIM' ||
+        queryNorm === 'QUERO' ||
+        queryNorm.startsWith('SIM ') ||
+        queryNorm.startsWith('SIM,') ||
+        queryNorm.includes('SEGUIR COM ACAO') ||
+        queryNorm.includes('SEGUIR COM AÇÃO') ||
+        queryNorm.includes('REALIZAR ACAO') ||
+        queryNorm.includes('REALIZAR AÇÃO') ||
+        queryNorm.includes('PRETENDO REALIZAR')
+      ) {
+        showPfcgProcessExecutionOptions();
         return;
       }
 
@@ -1015,14 +1101,27 @@ const AUTH_CHAT_STATES = {
     }
 
     function startIndividualProcessFlow(processName, category, scriptName) {
+      const existingUser = authorizationLastStatusData?.target_user || authorizationTargetUser;
+      const existingSys = authorizationSelectedSystem;
+      const existingRoles = authorizationLastDisplayedRoles.length > 0 ? authorizationLastDisplayedRoles : (authorizationLastStatusData?.roles || []);
+
       authorizationIndividualContext = {
         processName,
         category,
         scriptName,
-        targetUser: '',
-        selectedSystem: authorizationSelectedSystem || null,
+        targetUser: existingUser || '',
+        selectedSystem: existingSys || null,
         parameters: {}
       };
+
+      if (existingUser && existingSys && existingRoles.length > 0) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationAssistantMessage(
+          `A utilizar a lista de autorizações da análise anterior para o utilizador **${escapeAuthorizationText(existingUser)}** no ambiente **${escapeAuthorizationText(existingSys.system || existingSys.key)}** (${escapeAuthorizationText(processName)}):`
+        );
+        renderIndividualUserRolesList(existingRoles, existingUser, existingSys);
+        return;
+      }
 
       authorizationTargetUser = '';
       authorizationChatState = AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER;
@@ -1685,7 +1784,7 @@ const AUTH_CHAT_STATES = {
       authorizationChatState = AUTH_CHAT_STATES.READY;
       updateAuthorizationComposer();
 
-      // Se for um processo de remoção (ex: CUA_REMOVE ou PFCG_DELETE), submeter a remoção via API automaticamente
+      // Submissão automática do job de acordo com o processo escolhido
       const script = (authorizationIndividualContext?.scriptName || procName || '').toUpperCase();
       if (script.includes('CUA_REMOVE') || script.includes('PFCG_DELETE') || procName.includes('CUA_REMOVE') || procName.includes('DELETE')) {
         authorizationPendingRemoval = {
@@ -1697,6 +1796,10 @@ const AUTH_CHAT_STATES = {
         };
         window.setTimeout(() => {
           confirmAuthorizationRemoval();
+        }, 400);
+      } else if (script.includes('CUA_ENDDATE') || procName.includes('CUA_ENDDATE') || procName.includes('ENDDATE')) {
+        window.setTimeout(() => {
+          confirmAuthorizationEndDate(targetUser, sys, roleList);
         }, 400);
       }
     }
@@ -1886,6 +1989,52 @@ const AUTH_CHAT_STATES = {
       authorizationPendingRemoval = null;
       authorizationRemovalLastContext = null;
       appendAuthorizationMessage('assistant', 'Pedido de remoção cancelado.');
+    }
+
+    async function confirmAuthorizationEndDate(targetUser, sys, roleList) {
+      const payload = {
+        target_user: targetUser,
+        target_system_key: sys.key || authorizationSelectedSystem?.key || '',
+        roles: roleList
+      };
+
+      if (!payload.target_user || !payload.target_system_key || payload.roles.length === 0) {
+        appendAuthorizationMessage('assistant', 'Não tenho dados suficientes para criar o pedido de CUA_ENDDATE.');
+        return;
+      }
+
+      appendAuthorizationMessage('assistant', 'A preparar o pedido de alteração de validade (CUA_ENDDATE) das funções selecionadas...');
+
+      try {
+        const response = await fetch('/api/authorizations/enddate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const detail = data.detail || data.message || '';
+          throw new Error(detail || `A API devolveu HTTP ${response.status}`);
+        }
+
+        appendAuthorizationMessage(
+          'assistant',
+          `Job CUA_ENDDATE criado com sucesso no CUA. Job #${String(data.job_id || '').slice(0, 8)} para alterar validade de ${data.roles_count || roleList.length} funções no sistema alvo.`
+        );
+        appendAuthorizationMessage(
+          'assistant',
+          'Vou acompanhar a execução do job no SAP GUI e mostrar o resultado final quando terminar.'
+        );
+        authorizationRemovalJobRequestId++;
+        showAuthorizationTypingIndicator(authorizationRemovalJobRequestId, 'A aguardar a execução do CUA_ENDDATE...');
+        pollAuthorizationRemovalJob(data.job_id, authorizationRemovalJobRequestId);
+      } catch (error) {
+        appendAuthorizationMessage(
+          'assistant',
+          `Não foi possível criar o pedido CUA_ENDDATE: ${error?.message || error}`
+        );
+      }
     }
 
     function removeAuthorizationTypingIndicator() {
@@ -3367,6 +3516,10 @@ const AUTH_CHAT_STATES = {
                 `;
 
                 appendAuthorizationMessage('assistant', resultHtml, true);
+
+                window.setTimeout(() => {
+                  renderPostAnalysisFollowUpQuestion();
+                }, 400);
               }
           } else if (job.state === 'failed' || job.state === 'cancelled') {
             let errorMsg = job.status || 'O job falhou ou foi cancelado.';
