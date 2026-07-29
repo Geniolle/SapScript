@@ -2369,18 +2369,18 @@
       <!-- Autorizações View -->
       <style>
         .auth-chat-shell {
-          max-width: 820px;
           width: 100%;
-          margin: 24px;
-          height: calc(100vh - 170px);
-          max-height: calc(100vh - 170px);
+          max-width: 100%;
+          margin: 0;
+          height: calc(100vh - 150px);
+          max-height: calc(100vh - 150px);
           background: var(--card-bg, #ffffff);
           border: 1px solid var(--border-color);
           border-radius: 16px;
           display: flex;
           flex-direction: column;
           box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-          align-self: flex-start;
+          align-self: stretch;
           overflow: hidden;
           font-family: inherit;
         }
@@ -2611,11 +2611,12 @@
           margin-top: 10px;
           width: 100%;
         }
-        .auth-chat-system-card {
-          border: 1px solid var(--border-color);
+        .auth-chat-system-card,
+        .auth-chat-analysis-card {
+          border: 1px solid var(--border-color, #e2e8f0);
           border-radius: 10px;
           padding: 12px 14px;
-          background: var(--card-bg, #ffffff);
+          background: #ffffff !important;
           cursor: pointer;
           transition: all 0.2s ease;
           display: flex;
@@ -2623,24 +2624,23 @@
           gap: 4px;
           text-align: left;
         }
-        .auth-chat-system-card:hover {
+        .auth-chat-system-card:hover,
+        .auth-chat-analysis-card:hover {
           border-color: #3b82f6;
-          background: rgba(59, 130, 246, 0.02);
+          background: rgba(59, 130, 246, 0.02) !important;
           transform: translateY(-1px);
         }
-        .auth-chat-system-card.selected {
-          border-color: #2563eb;
-          background: rgba(37, 99, 235, 0.05);
-          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-        }
-        .auth-chat-system-card:focus-visible {
-          outline: 2px solid #2563eb;
-          outline-offset: 2px;
+        .auth-chat-system-card.selected,
+        .auth-chat-analysis-card.selected {
+          border-color: #cbd5e1 !important;
+          background: #f1f5f9 !important;
+          box-shadow: 0 0 0 2px rgba(203, 213, 225, 0.6) !important;
         }
         .auth-chat-system-card .sys-code {
-          font-weight: 800;
-          font-size: 0.9rem;
-          color: var(--text-primary);
+          font-weight: 700 !important;
+          font-size: 0.86rem !important;
+          color: #0f172a !important;
+          letter-spacing: 0.01em;
         }
         .auth-chat-system-card .sys-client {
           font-size: 0.72rem;
@@ -2654,36 +2654,6 @@
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-        }
-
-        .auth-chat-analysis-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 12px;
-          margin-top: 10px;
-          width: 100%;
-        }
-        .auth-chat-analysis-card {
-          border: 1px solid var(--border-color);
-          border-radius: 10px;
-          padding: 12px 14px;
-          background: var(--card-bg, #ffffff);
-          cursor: pointer;
-          transition: all 0.2s ease;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          text-align: left;
-        }
-        .auth-chat-analysis-card:hover {
-          border-color: #3b82f6;
-          background: rgba(59, 130, 246, 0.02);
-          transform: translateY(-1px);
-        }
-        .auth-chat-analysis-card.selected {
-          border-color: #2563eb;
-          background: rgba(37, 99, 235, 0.05);
-          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
         }
         .auth-chat-analysis-card:focus-visible {
           outline: 2px solid #2563eb;

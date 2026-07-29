@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 AUTHORIZATION_EXECUTION_ENVIRONMENT = "RFC"

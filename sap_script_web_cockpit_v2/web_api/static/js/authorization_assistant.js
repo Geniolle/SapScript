@@ -873,6 +873,72 @@ const AUTH_CHAT_STATES = {
       );
     }
 
+    let authorizationAnalysisType = 'authorizations';
+
+    function showAnalysisTypeSelection() {
+      hideAuthorizationTypingIndicator();
+      appendAuthorizationMessage('assistant', 'Selecione qual o tipo de análise que pretende realizar para a **Análise de Autorizações SAP**:');
+
+      const grid = document.createElement('div');
+      grid.style.display = 'grid';
+      grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(240px, 1fr))';
+      grid.style.gap = '10px';
+
+      // Opção 1: Autorizações
+      const btnAuth = document.createElement('button');
+      btnAuth.type = 'button';
+      btnAuth.className = 'auth-chat-analysis-card';
+      btnAuth.style.padding = '12px 14px';
+      btnAuth.onclick = () => {
+        if (btnAuth.parentElement) {
+          btnAuth.parentElement.querySelectorAll('button').forEach(b => {
+            b.classList.remove('selected');
+            b.setAttribute('aria-pressed', 'false');
+          });
+        }
+        btnAuth.classList.add('selected');
+        btnAuth.setAttribute('aria-pressed', 'true');
+        appendAuthorizationMessage('user', '🔐 Autorizações');
+        authorizationAnalysisType = 'authorizations';
+        askTargetUserForAnalysis();
+      };
+      btnAuth.innerHTML = `
+        <span class="analysis-title">🔐 Autorizações</span>
+        <span class="analysis-desc">Análise detalhada de funções PFCG, perfis de autorização e acessos à USLA04.</span>
+      `;
+      grid.appendChild(btnAuth);
+
+      // Opção 2: Dados Mestre
+      const btnMaster = document.createElement('button');
+      btnMaster.type = 'button';
+      btnMaster.className = 'auth-chat-analysis-card';
+      btnMaster.style.padding = '12px 14px';
+      btnMaster.onclick = () => {
+        if (btnMaster.parentElement) {
+          btnMaster.parentElement.querySelectorAll('button').forEach(b => {
+            b.classList.remove('selected');
+            b.setAttribute('aria-pressed', 'false');
+          });
+        }
+        btnMaster.classList.add('selected');
+        btnMaster.setAttribute('aria-pressed', 'true');
+        appendAuthorizationMessage('user', '👤 Dados Mestre');
+        authorizationAnalysisType = 'master_data';
+        askTargetUserForAnalysis();
+      };
+      btnMaster.innerHTML = `
+        <span class="analysis-title">👤 Dados Mestre</span>
+        <span class="analysis-desc">Análise de conta de utilizador, estado de bloqueio (USR02), dados pessoais e e-mail.</span>
+      `;
+      grid.appendChild(btnMaster);
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (container) {
+        container.appendChild(grid);
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
     function askTargetUserForAnalysis() {
       authorizationTargetUser = '';
       authorizationSelectedSystem = null;
@@ -892,16 +958,6 @@ const AUTH_CHAT_STATES = {
 
       appendAuthorizationAssistantMessage(`Deseja efetuar a alteração para **${escapeAuthorizationText(processName)}** em lote (massiva) ou para um utilizador individual?`);
 
-      const wrapper = document.createElement('div');
-      wrapper.className = 'auth-chat-summary';
-
-      const title = document.createElement('div');
-      title.style.fontWeight = '700';
-      title.style.marginBottom = '10px';
-      title.style.color = '#2563eb';
-      title.textContent = `⚙️ Modalidade: ${escapeAuthorizationText(processName)}`;
-      wrapper.appendChild(title);
-
       const grid = document.createElement('div');
       grid.style.display = 'grid';
       grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(240px, 1fr))';
@@ -913,6 +969,14 @@ const AUTH_CHAT_STATES = {
       btnMassive.className = 'auth-chat-analysis-card';
       btnMassive.style.padding = '12px 14px';
       btnMassive.onclick = () => {
+        if (btnMassive.parentElement) {
+          btnMassive.parentElement.querySelectorAll('button').forEach(b => {
+            b.classList.remove('selected');
+            b.setAttribute('aria-pressed', 'false');
+          });
+        }
+        btnMassive.classList.add('selected');
+        btnMassive.setAttribute('aria-pressed', 'true');
         appendAuthorizationMessage('user', '📊 Alteração Massiva (Ficheiro Excel)');
         abrirSubprocessoModal(category, scriptName);
         appendAuthorizationMessage('assistant', `A abrir formulário de **Alteração Massiva (Job em lote)** para ${escapeAuthorizationText(processName)}...`);
@@ -929,6 +993,14 @@ const AUTH_CHAT_STATES = {
       btnIndividual.className = 'auth-chat-analysis-card';
       btnIndividual.style.padding = '12px 14px';
       btnIndividual.onclick = () => {
+        if (btnIndividual.parentElement) {
+          btnIndividual.parentElement.querySelectorAll('button').forEach(b => {
+            b.classList.remove('selected');
+            b.setAttribute('aria-pressed', 'false');
+          });
+        }
+        btnIndividual.classList.add('selected');
+        btnIndividual.setAttribute('aria-pressed', 'true');
         appendAuthorizationMessage('user', '👤 Alteração Individual (Chat Direto)');
         startIndividualProcessFlow(processName, category, scriptName);
       };
@@ -938,8 +1010,7 @@ const AUTH_CHAT_STATES = {
       `;
       grid.appendChild(btnIndividual);
 
-      wrapper.appendChild(grid);
-      container.appendChild(wrapper);
+      container.appendChild(grid);
       container.scrollTop = container.scrollHeight;
     }
 
@@ -1022,6 +1093,15 @@ const AUTH_CHAT_STATES = {
         }
 
         card.onclick = () => {
+          if (card.parentElement) {
+            card.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          card.classList.add('selected');
+          card.setAttribute('aria-pressed', 'true');
+
           if (typeof onSelectSystem === 'function') {
             onSelectSystem(sys);
           } else {
@@ -1084,7 +1164,7 @@ const AUTH_CHAT_STATES = {
           target_user: user,
           target_system_key: targetSysKey,
           subsystem_filter: sys.key,
-          analysis_type: 'authorizations'
+          analysis_type: authorizationAnalysisType || 'authorizations'
         };
 
         const response = await fetch('/api/authorizations/start', {
@@ -1126,14 +1206,20 @@ const AUTH_CHAT_STATES = {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const job = await response.json();
 
-          if (job.state === 'succeeded') {
+          if (job.state === 'succeeded' || job.state === 'succeeded_with_warnings') {
             hideAuthorizationTypingIndicator();
             let statusData = {};
-            try {
-              statusData = JSON.parse(job.status);
-            } catch (e) {}
+            if (typeof job.status === 'string') {
+              try {
+                statusData = JSON.parse(job.status);
+              } catch (e) {}
+            } else if (job.status && typeof job.status === 'object') {
+              statusData = job.status;
+            } else if (job.result && typeof job.result === 'object') {
+              statusData = job.result;
+            }
 
-            const roles = Array.isArray(statusData.roles) ? statusData.roles : [];
+            const roles = Array.isArray(statusData.roles) ? statusData.roles : (Array.isArray(job.result?.roles) ? job.result.roles : []);
             if (roles.length > 0) {
               renderIndividualUserRolesList(roles, targetUser, sys);
             } else {
@@ -1649,16 +1735,6 @@ const AUTH_CHAT_STATES = {
 
       appendAuthorizationAssistantMessage('Selecione qual das tarefas ou processos de **Funções PFCG & Autorizações** pretende realizar:');
 
-      const wrapper = document.createElement('div');
-      wrapper.className = 'auth-chat-summary';
-
-      const title = document.createElement('div');
-      title.style.fontWeight = '700';
-      title.style.marginBottom = '10px';
-      title.style.color = '#2563eb';
-      title.textContent = '⚙️ Processos PFCG & Gestão de Autorizações';
-      wrapper.appendChild(title);
-
       const grid = document.createElement('div');
       grid.style.display = 'grid';
       grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
@@ -1668,7 +1744,7 @@ const AUTH_CHAT_STATES = {
         {
           label: '🛡️ Análise de Autorizações SAP',
           desc: 'Análise detalhada de acessos, perfis e funções de um utilizador SAP',
-          action: () => askTargetUserForAnalysis()
+          action: () => showAnalysisTypeSelection()
         },
         {
           label: '🔨 PFCG_CREATE (RFC)',
@@ -1708,6 +1784,14 @@ const AUTH_CHAT_STATES = {
         btn.className = 'auth-chat-analysis-card';
         btn.style.padding = '10px 12px';
         btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
           appendAuthorizationMessage('user', item.label);
           item.action();
         };
@@ -1719,8 +1803,7 @@ const AUTH_CHAT_STATES = {
         grid.appendChild(btn);
       });
 
-      wrapper.appendChild(grid);
-      container.appendChild(wrapper);
+      container.appendChild(grid);
       container.scrollTop = container.scrollHeight;
     }
     async function confirmAuthorizationRemoval() {
@@ -2003,33 +2086,55 @@ const AUTH_CHAT_STATES = {
     }
 
     function renderRoutineSuggestionsForSystem(sys) {
+      hideAuthorizationTypingIndicator();
       const sysLabel = sys.label || sys.system || sys.key;
-      const html = `
-        <div style="margin-bottom: 6px; font-size:0.92rem; font-weight:600; color:var(--text-primary);">
-          Ambiente <b>${escapeAuthorizationText(sysLabel)}</b> registado. Em que processo ou rotina SAP pretende trabalhar neste ambiente?
-        </div>
-        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
-          Selecione uma das sugestões abaixo ou escreva a sua pesquisa no campo inferior:
-        </div>
-        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="handleInitialOptionSelect('Perfil de autorização')" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 8px 14px; border-radius: 20px; font-weight: 600; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.25); color: #1e40af; transition: all 0.15s ease;">
-            🛡️ Perfil de autorização
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="handleInitialOptionSelect('Códigos IVA')" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 8px 14px; border-radius: 20px; font-weight: 600; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.25); color: #1e40af; transition: all 0.15s ease;">
-            📋 Códigos IVA
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="handleInitialOptionSelect('Reverter documento')" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 8px 14px; border-radius: 20px; font-weight: 600; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.25); color: #1e40af; transition: all 0.15s ease;">
-            🔄 Reverter documento
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="handleInitialOptionSelect('Chave de banco')" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 8px 14px; border-radius: 20px; font-weight: 600; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.25); color: #1e40af; transition: all 0.15s ease;">
-            🏦 Chave de banco
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="handleInitialOptionSelect('Cadeias de pesquisa')" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 8px 14px; border-radius: 20px; font-weight: 600; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.25); color: #1e40af; transition: all 0.15s ease;">
-            🔍 Cadeias de pesquisa
-          </button>
-        </div>
-      `;
-      appendAuthorizationMessage('assistant', html, true);
+
+      appendAuthorizationMessage(
+        'assistant',
+        `Ambiente **${escapeAuthorizationText(sysLabel)}** registado. Em que processo ou rotina SAP pretende trabalhar neste ambiente?\nSelecione uma das sugestões abaixo ou escreva no campo inferior:`
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const items = [
+        { label: '🛡️ Perfil de autorização', val: 'Perfil de autorização' },
+        { label: '📋 Códigos IVA', val: 'Códigos IVA' },
+        { label: '🔄 Reverter documento', val: 'Reverter documento' },
+        { label: '🏦 Chave de banco', val: 'Chave de banco' },
+        { label: '🔍 Cadeias de pesquisa', val: 'Cadeias de pesquisa' }
+      ];
+
+      items.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 12px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          handleInitialOptionSelect(item.val);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
     }
 
     async function ensureAuthorizationInitialQuestion() {
@@ -3077,7 +3182,7 @@ const AUTH_CHAT_STATES = {
             }
           }
 
-          if (job.state === 'succeeded') {
+          if (job.state === 'succeeded' || job.state === 'succeeded_with_warnings') {
             let statusData = {};
             try {
               statusData = JSON.parse(job.status);
@@ -3113,7 +3218,9 @@ const AUTH_CHAT_STATES = {
             });
 
             const isMasterData = statusData.analysis_type === 'master_data';
-            const isDevFlow = isAuthorizationDevFlow() || Boolean(queryMap["AGR_USERS"]);
+            const isCuaFlow = Boolean(queryMap["USLA04"]);
+            const isDevFlow = Boolean(queryMap["AGR_USERS"]);
+
             if (isMasterData) {
               const requiredMasterTables = ["USR02", "USR21", "USR04", "AGR_USERS"];
               requiredMasterTables.forEach(table => {
@@ -3122,40 +3229,20 @@ const AUTH_CHAT_STATES = {
                   throw new Error(`A consulta na tabela ${table} não foi realizada ou os filtros não foram aplicados.`);
                 }
               });
+            } else if (isCuaFlow) {
+              const qRoles = queryMap["USLA04"];
+              if (!qRoles || qRoles.executed !== true || qRoles.filters_applied !== true) {
+                throw new Error('A consulta na tabela USLA04 não foi realizada ou os filtros não foram aplicados.');
+              }
             } else if (isDevFlow) {
               const qUsers = queryMap["AGR_USERS"];
               if (!qUsers || qUsers.executed !== true || qUsers.filters_applied !== true) {
                 throw new Error('A consulta na tabela AGR_USERS não foi realizada ou os filtros não foram aplicados.');
               }
-            } else {
-              const qSys = queryMap["USZBVSYS"];
-              if (!qSys || qSys.executed !== true || qSys.filters_applied !== true) {
-                throw new Error('A consulta na tabela USZBVSYS não foi realizada ou os filtros não foram aplicados.');
+              const qTcodes = queryMap["AGR_TCODES"];
+              if (!qTcodes || qTcodes.executed !== true || qTcodes.filters_applied !== true) {
+                throw new Error('A consulta na tabela AGR_TCODES não foi realizada ou os filtros não foram aplicados.');
               }
-            }
-
-            if (statusData.code === 'analysis_complete') {
-              if (isMasterData) {
-                // Já validado acima
-              } else if (isDevFlow) {
-                const qTcodes = queryMap["AGR_TCODES"];
-                if (!qTcodes || qTcodes.executed !== true || qTcodes.filters_applied !== true) {
-                  throw new Error('A consulta na tabela AGR_TCODES não foi realizada ou os filtros não foram aplicados.');
-                }
-              } else {
-                const qRoles = queryMap["USLA04"];
-                const qProfs = queryMap["USL04"];
-                  if (!qRoles || qRoles.executed !== true || qRoles.filters_applied !== true) {
-                    throw new Error('A consulta na tabela USLA04 não foi realizada ou os filtros não foram aplicados.');
-                  }
-                  if (!qProfs || qProfs.executed !== true || qProfs.filters_applied !== true) {
-                    throw new Error('A consulta na tabela USL04 não foi realizada ou os filtros não foram aplicados.');
-                  }
-                }
-            } else if (statusData.code === 'user_not_assigned_to_system' || statusData.code === 'user_not_found') {
-              // Já validamos a tabela base acima
-            } else {
-              throw new Error(`Código de resposta inválido: ${statusData.code}`);
             }
 
             authorizationChatState = AUTH_CHAT_STATES.ANALYSIS_COMPLETE;

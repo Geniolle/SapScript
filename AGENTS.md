@@ -106,6 +106,6 @@ Isto garante que progresso não se perde se o script for interrompido.
 
 ---
 
-## Skill de Referência
-Ver `.agents/skills/sap_rfc_automation/SKILL.md` para a documentação
-completa das RFCs SAP utilizadas e padrões de implementação.
+## Skills de Referência
+- Ver `.agents/skills/sap_rfc_automation/SKILL.md` para a documentação completa das RFCs SAP utilizadas e padrões de implementação.
+- Ver `.agents/skills/sap_authorization_profile_analysis/SKILL.md` para a documentação completa do processo de **Análise de Perfis de Autorização SAP (CUA USLA04 SE16 ALV Grid e Padrões de UI)**.

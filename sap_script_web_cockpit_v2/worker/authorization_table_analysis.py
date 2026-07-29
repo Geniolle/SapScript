@@ -211,6 +211,8 @@ def analyze_user_authorizations(
         filters_roles = [
             {"field": "BNAME", "value": target_user}
         ]
+        if subsystem_to_match and subsystem_to_match.upper() not in {"", "ALL", "TODOS", "SPA", "SPACLNT001"}:
+            filters_roles.append({"field": "SUBSYSTEM", "value": subsystem_to_match})
 
         rows_roles = query_cua_table(session, "USLA04", filters_roles, max_rows=max_rows)
         executed_queries.append({

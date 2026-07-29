@@ -2,7 +2,7 @@
   "meta": {
     "system": "S4D",
     "user": "CSILVA",
-    "generated_at": "2026-07-28 12:13:40",
+    "generated_at": "2026-07-29 10:30:27",
     "mode": "RFC"
   },
   "items": [
@@ -30,11 +30,6 @@
       "idx": 5,
       "TRKORR": "S4DK953541",
       "AS4TEXT": "TESTE CTS WBO"
-    },
-    {
-      "idx": 6,
-      "TRKORR": "S4DK953552",
-      "AS4TEXT": "Projeto Perfil de autorização - Função Elsa"
     }
   ]
 }

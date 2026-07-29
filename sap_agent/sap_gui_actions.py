@@ -356,51 +356,57 @@ def se16n_query(
     )
 
 
-def _read_alv_grid(session, max_rows: int = 50) -> list[dict[str, str]]:
-    """Tenta ler os dados do ALV Grid na janela actual da SE16N."""
+def _read_alv_grid(session: Any, max_rows: int = 5000, grid_obj: Any = None) -> list[dict[str, str]]:
+    """Tenta ler os dados do ALV Grid na janela actual da SE16/SE16N."""
     rows: list[dict[str, str]] = []
 
     try:
-        # Procurar GridViewCtrl ou shell no wnd[0]/usr
-        grid = None
-        try:
-            grid = session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
-        except Exception:
-            pass
-
+        grid = grid_obj
         if grid is None:
-            try:
-                grid = session.findById("wnd[0]/usr/cntlALV_GRID/shellcont/shell")
-            except Exception:
-                pass
+            for path in (
+                "wnd[0]/usr/cntlGRID1/shellcont/shell",
+                "wnd[0]/usr/cntlALV_GRID/shellcont/shell",
+                "wnd[0]/usr/cntlCONTAINER/shellcont/shell",
+                "wnd[0]/usr/cntlGRID/shellcont/shell"
+            ):
+                try:
+                    grid = session.findById(path)
+                    if grid:
+                        break
+                except Exception:
+                    pass
 
         if grid is None:
             return rows
 
-        col_count = int(grid.ColumnCount)
-        row_count = min(int(grid.RowCount), max_rows)
+        col_count = int(getattr(grid, "ColumnCount", 0))
+        row_count = min(int(getattr(grid, "RowCount", 0)), max_rows)
 
-        # Obter nomes das colunas
         col_names: list[str] = []
-        for ci in range(col_count):
-            try:
-                col_names.append(str(grid.GetColumnKey(ci)).strip())
-            except Exception:
-                col_names.append(f"COL{ci}")
+        try:
+            column_order = grid.ColumnOrder
+            for col_key in column_order:
+                col_names.append(str(col_key).strip().upper())
+        except Exception:
+            for ci in range(col_count):
+                try:
+                    col_names.append(str(grid.GetColumnKey(ci)).strip().upper())
+                except Exception:
+                    col_names.append(f"COL{ci}")
 
-        # Ler cada linha
         for ri in range(row_count):
             row: dict[str, str] = {}
-            for ci, col in enumerate(col_names):
+            for col in col_names:
                 try:
                     val = str(grid.GetCellValue(ri, col)).strip()
                     row[col] = val
                 except Exception:
                     row[col] = ""
-            rows.append(row)
+            if any(row.values()):
+                rows.append(row)
 
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[SE16][ALV] Erro ao ler ALV Grid: {exc}")
 
     return rows
 
@@ -1167,15 +1173,77 @@ def _find_grid_view(container) -> Any:
     return None
 
 
+def _read_alv_grid(session, max_rows: int = 5000, grid_obj: Any = None) -> list[dict[str, str]]:
+    grid = grid_obj or _find_grid_view(session)
+    if not grid:
+        return []
+
+    try:
+        row_count = int(grid.RowCount)
+    except Exception:
+        row_count = 0
+
+    if row_count == 0:
+        return []
+
+    col_names = []
+    try:
+        column_order = grid.ColumnOrder
+        for i in range(column_order.Count):
+            col_names.append(str(column_order.Item(i)))
+    except Exception:
+        try:
+            col_obj = grid.Columns
+            for i in range(col_obj.Count):
+                col_names.append(str(col_obj.Item(i).Name))
+        except Exception:
+            col_names = ["MANDT", "BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT", "ORG_FLAG"]
+
+    header_map_norm = {
+        "UTILIZADOR": "BNAME", "USER": "BNAME", "NOME UTILIZADOR": "BNAME",
+        "SISTEMA": "SUBSYSTEM", "SUBSISTEMA": "SUBSYSTEM", "SISTEMA RECETOR": "SUBSYSTEM", "SISTEMA RECEPTOR": "SUBSYSTEM",
+        "FUNÇÃO": "AGR_NAME", "FUNCAO": "AGR_NAME", "ROLE": "AGR_NAME",
+        "AGRUPAD.PERFIS": "AGR_NAME", "AGRUPAD. PERFIS": "AGR_NAME", "AGRUPAMENTO DE PERFIS": "AGR_NAME", "AGRUPAMENTO": "AGR_NAME",
+        "VÁLIDO DE": "FROM_DAT", "VALIDO DE": "FROM_DAT", "DATA INÍCIO": "FROM_DAT", "DATA INICIO": "FROM_DAT",
+        "VÁLIDO ATÉ": "TO_DAT", "VALIDO ATE": "TO_DAT", "DATA FIM": "TO_DAT",
+        "ORIGEM": "ORG_FLAG", "TIPO": "ORG_FLAG"
+    }
+
+    rows = []
+    limit = min(row_count, max_rows)
+    for r in range(limit):
+        row_data = {}
+        for col in col_names:
+            val = ""
+            try:
+                val = str(grid.GetCellValue(r, col)).strip()
+            except Exception:
+                try:
+                    val = str(grid.GetCellText(r, col)).strip()
+                except Exception:
+                    val = ""
+            
+            col_upper = col.upper()
+            tech_key = header_map_norm.get(col_upper, col_upper)
+            row_data[tech_key] = val
+            if tech_key != col_upper:
+                row_data[col_upper] = val
+
+        if any(row_data.values()):
+            rows.append(row_data)
+
+    return rows
+
+
 import re
 
 def _read_se16_output(session, max_rows: int = 5000) -> list[dict[str, str]]:
     usr = session.findById("wnd[0]/usr")
     
-    # 1. Fallback: Se for uma GridView (ALV), usar a rotina existente
+    # 1. Fallback: Se for uma GridView (ALV), usar a rotina de leitura ALV Grid
     grid_view = _find_grid_view(session)
     if grid_view:
-        return _read_alv_grid(session, max_rows)
+        return _read_alv_grid(session, max_rows=max_rows, grid_obj=grid_view)
         
     # 2. Caso contrário, tratar como lista clássica ABAP
     cells = []
@@ -1227,7 +1295,12 @@ def _read_se16_output(session, max_rows: int = 5000) -> list[dict[str, str]]:
         return []
 
     header_row_idx = -1
-    known_headers = {"MANDT", "BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT", "ORG_FLAG", "PROFILE"}
+    known_headers = {
+        "MANDT", "BNAME", "SUBSYSTEM", "AGR_NAME", "FROM_DAT", "TO_DAT", "ORG_FLAG", "PROFILE",
+        "UTILIZADOR", "USER", "SISTEMA", "SUBSISTEMA", "FUNÇÃO", "FUNCAO", "ROLE",
+        "NOME DA FUNÇÃO", "NOME DA FUNCAO", "AGRUPAD.PERFIS", "AGRUPAD. PERFIS",
+        "AGRUPAMENTO", "CONJ.PERFIS", "VÁLIDO DE", "VALIDO DE", "VÁLIDO ATÉ", "VALIDO ATE"
+    }
     
     for idx, row in enumerate(cleaned_rows):
         row_texts = [c["text"].upper() for c in row]
@@ -1237,6 +1310,16 @@ def _read_se16_output(session, max_rows: int = 5000) -> list[dict[str, str]]:
 
     if header_row_idx == -1:
         header_row_idx = 0
+
+    header_map_norm = {
+        "UTILIZADOR": "BNAME", "USER": "BNAME", "NOME UTILIZADOR": "BNAME",
+        "SISTEMA": "SUBSYSTEM", "SUBSISTEMA": "SUBSYSTEM", "SISTEMA RECETOR": "SUBSYSTEM", "SISTEMA RECEPTOR": "SUBSYSTEM",
+        "FUNÇÃO": "AGR_NAME", "FUNCAO": "AGR_NAME", "ROLE": "AGR_NAME",
+        "AGRUPAD.PERFIS": "AGR_NAME", "AGRUPAD. PERFIS": "AGR_NAME", "AGRUPAMENTO DE PERFIS": "AGR_NAME", "AGRUPAMENTO": "AGR_NAME",
+        "VÁLIDO DE": "FROM_DAT", "VALIDO DE": "FROM_DAT", "DATA INÍCIO": "FROM_DAT", "DATA INICIO": "FROM_DAT",
+        "VÁLIDO ATÉ": "TO_DAT", "VALIDO ATE": "TO_DAT", "DATA FIM": "TO_DAT",
+        "ORIGEM": "ORG_FLAG", "TIPO": "ORG_FLAG"
+    }
 
     parsed_rows = []
     for row in cleaned_rows[header_row_idx + 1:]:
@@ -1251,7 +1334,11 @@ def _read_se16_output(session, max_rows: int = 5000) -> list[dict[str, str]]:
                     min_dist = dist
                     best_header = h_cell["text"].upper()
             if best_header:
-                row_data[best_header] = c["text"]
+                tech_header = header_map_norm.get(best_header, best_header)
+                row_data[tech_header] = c["text"]
+                # Guardar também a chave original para máxima compatibilidade
+                if tech_header != best_header:
+                    row_data[best_header] = c["text"]
         
         if row_data:
             parsed_rows.append(row_data)
