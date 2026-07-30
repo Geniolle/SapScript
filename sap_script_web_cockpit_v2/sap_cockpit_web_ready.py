@@ -284,6 +284,15 @@ def selecionar_ambiente(payload: dict[str, Any] | None = None, interactive: bool
     payload = payload or {}
     ambiente_payload = str(payload.get("ambiente") or "").strip().upper()
     if ambiente_payload:
+        alias_map = {
+            "S4DCLNT100": "DEV", "S4D": "DEV", "DEV": "DEV",
+            "S4QCLNT100": "QAD", "S4Q": "QAD", "QAD": "QAD",
+            "S4PCLNT100": "PRD", "S4P": "PRD", "PRD": "PRD",
+            "SPACLNT001": "CUA", "SPA": "CUA", "CUA": "CUA",
+        }
+        if ambiente_payload in alias_map:
+            ambiente_payload = alias_map[ambiente_payload]
+
         if ambiente_payload in MAPA_SISTEMA:
             return ambiente_payload
         raise SapCockpitError(f"Ambiente '{ambiente_payload}' invalido recebido pela web.")
@@ -316,6 +325,21 @@ def _resolve_processo_path(processo: str) -> str:
     if not processo:
         raise SapCockpitError("Processo/pasta nao informado no payload.")
 
+    # Mapeamento de aliases e categorias técnicas para as pastas físicas em Processos/
+    MAPA_ALIAS_PASTA = {
+        "CUA_CRIAR_USER": "Funções PFCG",
+        "CUA_ADICIONAR": "Funções PFCG",
+        "CUA_ENDDATE": "Funções PFCG",
+        "CUA_REMOVE": "Funções PFCG",
+        "PFCG_CREATE": "Funções PFCG",
+        "PFCG_DELETE": "Funções PFCG",
+        "PFCG_COMPOSTA": "Funções PFCG",
+        "PFCG_AUTHORITY": "Funções PFCG",
+    }
+
+    if processo in MAPA_ALIAS_PASTA:
+        processo = MAPA_ALIAS_PASTA[processo]
+
     if os.path.isabs(processo):
         caminho = processo
     else:
@@ -328,6 +352,14 @@ def _resolve_processo_path(processo: str) -> str:
         raise SapCockpitError("Processo fora da pasta PROCESSOS_DIR nao e permitido.")
 
     if not os.path.isdir(caminho):
+        # Fallback: procurar se o nome do processo corresponde a um script dentro de alguma subpasta
+        for p in os.listdir(PROCESSOS_DIR):
+            p_path = os.path.join(PROCESSOS_DIR, p)
+            if os.path.isdir(p_path) and p != "__pycache__":
+                for f in os.listdir(p_path):
+                    if f.upper().startswith(processo.upper()):
+                        return os.path.abspath(p_path)
+
         raise SapCockpitError(f"Pasta de processo nao encontrada: {caminho}")
 
     return caminho
@@ -959,6 +991,13 @@ def _build_exec_kwargs(
             if raw is not None and str(raw).strip():
                 kwargs[p.name] = raw
 
+        # Se a função aceita **kwargs, repassar também todas as chaves adicionais do payload
+        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in info_exec["params"])
+        if has_var_kw:
+            for k, v in payload.items():
+                if k not in skip_names and k not in kwargs and v is not None and str(v).strip():
+                    kwargs[k] = v
+
     info(
         f"Subprocesso: {processo_escolhido} | "
         f"Parâmetro posicional: {primeiro_param_posicional or 'não detetado'} | "
@@ -1022,13 +1061,16 @@ def _executar_um_script(
     modulo = _load_process_module(caminho_script)
 
     info(f"Subprocesso carregado de: {os.path.abspath(getattr(modulo, '__file__', caminho_script))}")
-    info(f"Assinatura executar carregada: {inspect.signature(modulo.executar)}")
     info(f"Opção de processamento recebida: {payload.get('opcao_processamento', 'não informada') if payload else 'não informada'}")
 
-    if not hasattr(modulo, "executar"):
-        raise SapCockpitError(f"O ficheiro '{processo_escolhido}' nao contem a funcao executar().")
+    if hasattr(modulo, "executar"):
+        exec_fn = modulo.executar
+    elif hasattr(modulo, "main"):
+        exec_fn = modulo.main
+    else:
+        raise SapCockpitError(f"O ficheiro '{processo_escolhido}' nao contem a funcao executar() nem main().")
 
-    exec_fn = modulo.executar
+    info(f"Assinatura da função carregada: {inspect.signature(exec_fn)}")
     kwargs = _build_exec_kwargs(
         processo_escolhido=processo_escolhido,
         exec_fn=exec_fn,

@@ -32,6 +32,7 @@ Cada subpasta corresponde a um menu no Cockpit. Os scripts são descobertos auto
 | `H. CUA_ADICIONAR.py` | GUI | Adicionar utilizadores CUA |
 | `I. CUA_ENDDATE.py` | GUI | Alterar data de fim de roles CUA |
 | `J. CUA_REMOVE.py` | GUI | Remover roles de utilizadores CUA |
+| `L. CUA_CRIAR_USER.py` | GUI | Criar utilizadores CUA (por cópia ou criação direta SU01) |
 
 ---
 

@@ -4,6 +4,12 @@ const AUTH_CHAT_STATES = {
       WAITING_SYSTEM: 'waiting_system',
       WAITING_ANALYSIS_TYPE: 'waiting_analysis_type',
       WAITING_INDIVIDUAL_USER: 'waiting_individual_user',
+      WAITING_HR_SEARCH_QUERY: 'waiting_hr_search_query',
+      WAITING_COPY_REFERENCE_USER: 'waiting_copy_reference_user',
+      WAITING_CUA_USER_DETAILS: 'waiting_cua_user_details',
+      WAITING_CUA_FUNCTION: 'waiting_cua_function',
+      WAITING_CUA_DEPARTMENT: 'waiting_cua_department',
+      WAITING_CUA_MOB_NUMBER: 'waiting_cua_mob_number',
       WAITING_INDIVIDUAL_SYSTEM: 'waiting_individual_system',
       WAITING_INDIVIDUAL_PARAMS: 'waiting_individual_params',
       READY: 'ready',
@@ -85,6 +91,18 @@ const AUTH_CHAT_STATES = {
         .replace(/'/g, "&#039;");
     }
 
+    function formatSapUserId(rawUser) {
+      if (!rawUser) return '';
+      let clean = String(rawUser).trim().toUpperCase();
+      if (!clean) return '';
+      if (clean.startsWith('S')) return clean;
+      if (/^\d+$/.test(clean)) {
+        clean = clean.replace(/^0+/, '');
+        return 'S' + clean;
+      }
+      return clean;
+    }
+
     function updateAuthorizationStatus(stateKey, customText) {
       const badge = document.getElementById('auth-chat-status') || document.querySelector('.auth-chat-status');
       if (!badge) return;
@@ -126,7 +144,13 @@ const AUTH_CHAT_STATES = {
       const waitingForUser =
         authorizationChatState === AUTH_CHAT_STATES.WAITING_USER ||
         authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER ||
-        authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_PARAMS;
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_PARAMS ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_COPY_REFERENCE_USER ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_USER_DETAILS ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_FUNCTION ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_DEPARTMENT ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_MOB_NUMBER;
       const followUpReady =
         authorizationChatState === AUTH_CHAT_STATES.READY ||
         authorizationChatState === AUTH_CHAT_STATES.ANALYSIS_COMPLETE;
@@ -140,6 +164,16 @@ const AUTH_CHAT_STATES = {
         input.placeholder = 'Escreva a sua mensagem ou utilizador SAP...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER) {
         input.placeholder = 'Escreva o utilizador SAP alvo (ex: CSILVA)...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY) {
+        input.placeholder = 'Escreva o PERNR, Nome ou Utilizador para pesquisa no RH...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_COPY_REFERENCE_USER) {
+        input.placeholder = 'Escreva o utilizador SAP de referência (ex: JSILVA)...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_FUNCTION) {
+        input.placeholder = 'Escreva a Função (FUNCTION) do utilizador no CUA...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_DEPARTMENT) {
+        input.placeholder = 'Escreva o Departamento (DEPARTMENT) do utilizador no CUA...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_MOB_NUMBER) {
+        input.placeholder = 'Escreva o Telefone (MOB_NUMBER) do utilizador no CUA...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_SYSTEM || authorizationChatState === AUTH_CHAT_STATES.WAITING_SYSTEM) {
         input.placeholder = 'Selecione um sistema/ambiente acima...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_PARAMS) {
@@ -630,7 +664,7 @@ const AUTH_CHAT_STATES = {
       hideAuthorizationTypingIndicator();
 
       appendAuthorizationAssistantMessage(
-        'Deseja seguir com alguma ação sobre o processo de **Análise de Autorizações SAP** para este utilizador (ex.: alterar validade CUA_ENDDATE, remover perfis, etc.)?'
+        'Deseja seguir com alguma ação sobre o processo de **Análise de Autorizações SAP** para este utilizador?'
       );
 
       const container = document.getElementById('authorization-chat-messages');
@@ -643,46 +677,61 @@ const AUTH_CHAT_STATES = {
       grid.style.marginTop = '8px';
       grid.style.marginBottom = '14px';
 
-      const btnYes = document.createElement('button');
-      btnYes.type = 'button';
-      btnYes.className = 'auth-chat-system-card';
-      btnYes.style.flex = '0 0 auto';
-      btnYes.style.padding = '8px 16px';
-      btnYes.onclick = () => {
-        if (btnYes.parentElement) {
-          btnYes.parentElement.querySelectorAll('button').forEach(b => {
-            b.classList.remove('selected');
-            b.setAttribute('aria-pressed', 'false');
-          });
+      const actions = [
+        {
+          label: '✅ Listar funções ativas',
+          val: 'Listar funções ativas',
+          action: () => {
+            appendAuthorizationMessage('user', 'Listar funções ativas');
+            handleContextualRolesQuery('Listar funções ativas', 'ATIVAS');
+          }
+        },
+        {
+          label: '❌ Listar funções expiradas',
+          val: 'Listar funções expiradas',
+          action: () => {
+            appendAuthorizationMessage('user', 'Listar funções expiradas');
+            handleContextualRolesQuery('Listar funções expiradas', 'EXPIRADAS');
+          }
+        },
+        {
+          label: '🔄 Nova análise',
+          val: 'Nova análise',
+          action: () => {
+            appendAuthorizationMessage('user', 'Nova análise');
+            resetAuthorizationChat();
+          }
+        },
+        {
+          label: '⚙️ Seguir com ação',
+          val: 'Seguir com ação',
+          action: () => {
+            appendAuthorizationMessage('user', 'Seguir com ação sobre esta análise');
+            showPfcgProcessExecutionOptions();
+          }
         }
-        btnYes.classList.add('selected');
-        btnYes.setAttribute('aria-pressed', 'true');
-        appendAuthorizationMessage('user', 'Sim, pretendo realizar uma ação sobre esta análise');
-        showPfcgProcessExecutionOptions();
-      };
-      btnYes.innerHTML = '<span class="sys-code" style="font-size:0.84rem; font-weight:700; color:#10b981;">⚙️ Sim, pretendo realizar uma ação</span>';
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
 
-      const btnNo = document.createElement('button');
-      btnNo.type = 'button';
-      btnNo.className = 'auth-chat-system-card';
-      btnNo.style.flex = '0 0 auto';
-      btnNo.style.padding = '8px 16px';
-      btnNo.onclick = () => {
-        if (btnNo.parentElement) {
-          btnNo.parentElement.querySelectorAll('button').forEach(b => {
-            b.classList.remove('selected');
-            b.setAttribute('aria-pressed', 'false');
-          });
-        }
-        btnNo.classList.add('selected');
-        btnNo.setAttribute('aria-pressed', 'true');
-        appendAuthorizationMessage('user', 'Não, fazer nova análise');
-        resetAuthorizationChat();
-      };
-      btnNo.innerHTML = '<span class="sys-code" style="font-size:0.84rem; font-weight:700; color:var(--text-secondary);">🔄 Não, fazer nova análise</span>';
-
-      grid.appendChild(btnYes);
-      grid.appendChild(btnNo);
+      actions.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 14px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          item.action();
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
 
       container.appendChild(grid);
       container.scrollTop = container.scrollHeight;
@@ -1114,6 +1163,105 @@ const AUTH_CHAT_STATES = {
         parameters: {}
       };
 
+      const isCreateUserProc = category === 'CUA_CRIAR_USER' || category === 'CUA_ADICIONAR' || String(scriptName || '').includes('CUA_CRIAR_USER') || String(scriptName || '').includes('CUA_ADICIONAR') || String(processName || '').includes('Criar utilizador');
+
+      if (isCreateUserProc) {
+        authorizationTargetUser = '';
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage(
+          'assistant',
+          `Como pretende efetuar a **Criar utilizador** (${escapeAuthorizationText(processName)}) em modo individual?`
+        );
+
+        const container = document.getElementById('authorization-chat-messages');
+        if (!container) return;
+
+        const grid = document.createElement('div');
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(240px, 1fr))';
+        grid.style.gap = '10px';
+        grid.style.marginTop = '6px';
+        grid.style.marginBottom = '10px';
+
+        // Card 1: Novo
+        const btnNew = document.createElement('button');
+        btnNew.type = 'button';
+        btnNew.className = 'auth-chat-analysis-card';
+        btnNew.style.padding = '12px 14px';
+        btnNew.onclick = () => {
+          if (btnNew.parentElement) {
+            btnNew.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btnNew.classList.add('selected');
+          btnNew.setAttribute('aria-pressed', 'true');
+          appendAuthorizationMessage('user', '🆕 Novo');
+          authorizationIndividualContext.creationType = 'NEW';
+          promptHrSearchForNewUser(processName);
+        };
+        btnNew.innerHTML = `
+          <span class="analysis-title">🆕 Novo</span>
+          <span class="analysis-desc">Criar um utilizador novo selecionando os dados do RH no sistema produtivo (S4P).</span>
+        `;
+        grid.appendChild(btnNew);
+
+        // Card 2: Por cópia
+        const btnCopy = document.createElement('button');
+        btnCopy.type = 'button';
+        btnCopy.className = 'auth-chat-analysis-card';
+        btnCopy.style.padding = '12px 14px';
+        btnCopy.onclick = () => {
+          if (btnCopy.parentElement) {
+            btnCopy.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btnCopy.classList.add('selected');
+          btnCopy.setAttribute('aria-pressed', 'true');
+          appendAuthorizationMessage('user', '📋 Por cópia');
+          authorizationIndividualContext.creationType = 'COPY';
+          promptCopyReferenceUser(processName);
+        };
+        btnCopy.innerHTML = `
+          <span class="analysis-title">📋 Por cópia</span>
+          <span class="analysis-desc">Criar um utilizador copiando autorizações/dados de um utilizador SAP de referência.</span>
+        `;
+        grid.appendChild(btnCopy);
+
+        container.appendChild(grid);
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+
+    function promptHrSearchForNewUser(processName) {
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
+      hideAuthorizationTypingIndicator();
+      appendAuthorizationMessage(
+        'assistant',
+        `Para a criação de um utilizador **Novo** (${escapeAuthorizationText(processName)}), vamos selecionar os dados do colaborador na **tabela do RH no Sistema Produtivo (S4P)** para obter o Nome, Email e Equipa.\n\nPor favor, introduza o **N.º Mecanográfico (PERNR)**, **Nome** ou **Utilizador SAP** do colaborador.`
+      );
+      updateAuthorizationComposer();
+
+      const inputEl = document.getElementById('authorization-chat-input');
+      if (inputEl) inputEl.focus();
+    }
+
+    function promptCopyReferenceUser(processName) {
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_COPY_REFERENCE_USER;
+      hideAuthorizationTypingIndicator();
+      appendAuthorizationMessage(
+        'assistant',
+        `Para a criação de um utilizador **Por cópia** (${escapeAuthorizationText(processName)}), por favor indique qual é o **Utilizador SAP de referência** a partir do qual pretende copiar as autorizações/dados.`
+      );
+      updateAuthorizationComposer();
+
+      const inputEl = document.getElementById('authorization-chat-input');
+      if (inputEl) inputEl.focus();
+    }
+
       if (existingUser && existingSys && existingRoles.length > 0) {
         hideAuthorizationTypingIndicator();
         appendAuthorizationAssistantMessage(
@@ -1129,12 +1277,264 @@ const AUTH_CHAT_STATES = {
       hideAuthorizationTypingIndicator();
       appendAuthorizationMessage(
         'assistant',
-        `Para a **Alteração Individual** do processo **${escapeAuthorizationText(processName)}**, por favor indique qual é o utilizador SAP sobre o qual pretende efetuar a alteração (ex: CSILVA ou U1234):`
+        `Para a **Alteração Individual** do processo **${escapeAuthorizationText(processName)}**, por favor indique qual é o utilizador SAP sobre o qual pretende efetuar a alteração.`
       );
       updateAuthorizationComposer();
 
       const inputEl = document.getElementById('authorization-chat-input');
       if (inputEl) inputEl.focus();
+    }
+
+    async function performHrUserSearch(queryVal) {
+      hideAuthorizationTypingIndicator();
+      showAuthorizationTypingIndicator(null, `A pesquisar colaborador "${escapeAuthorizationText(queryVal)}" na tabela do RH no sistema produtivo (S4P)...`);
+
+      try {
+        const response = await fetch('/api/authorizations/hr-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: queryVal, target_system_key: 'S4PCLNT100', max_results: 5 })
+        });
+
+        hideAuthorizationTypingIndicator();
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data || data.success !== true || !Array.isArray(data.data) || data.data.length === 0) {
+          appendAuthorizationMessage(
+            'assistant',
+            `⚠️ Nenhum registo de RH foi encontrado no sistema produtivo (S4P) para **"${escapeAuthorizationText(queryVal)}"**.\n\nPode introduzir outro termo de pesquisa (N.º Mecanográfico, Nome ou Utilizador) ou escrever diretamente o ID do utilizador.`
+          );
+          authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
+          updateAuthorizationComposer();
+          return;
+        }
+
+        if (data.data.length === 1) {
+          selectHrUserForCreation(data.data[0]);
+          return;
+        }
+
+        appendAuthorizationMessage(
+          'assistant',
+          `Foram encontrados **${data.data.length}** registo(s) na tabela do RH no sistema produtivo (**S4P**). Por favor, selecione o colaborador para criar o utilizador:`
+        );
+
+        renderHrResultsCards(data.data);
+      } catch (err) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage(
+          'assistant',
+          `❌ Ocorreu um erro ao consultar a tabela do RH em Produtivo (S4P): ${escapeAuthorizationText(err.message || err)}.\n\nPretende tentar novamente ou introduzir o utilizador manualmente?`
+        );
+        authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
+        updateAuthorizationComposer();
+      }
+    }
+
+    function renderHrResultsCards(items) {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'grid';
+      grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '8px';
+      grid.style.marginBottom = '12px';
+
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'auth-chat-analysis-card';
+        card.style.padding = '12px 14px';
+        card.style.cursor = 'pointer';
+
+        const formattedUser = formatSapUserId(item.user_id || item.pernr);
+
+        card.innerHTML = `
+          <div style="font-weight:700; font-size:0.92rem; color:var(--text-primary); margin-bottom:4px;">👤 ${escapeAuthorizationText(item.full_name || 'N/D')}</div>
+          <div style="font-size:0.82rem; color:var(--text-secondary); display:grid; gap:3px;">
+            <div><b>• Primeiro Nome (NAME_FIRST):</b> ${escapeAuthorizationText(item.first_name || 'N/D')} <span style="font-size:0.75rem; color:var(--text-tertiary);">(PA0002-VORNA)</span></div>
+            <div><b>• Apelido (NAME_LAST):</b> ${escapeAuthorizationText(item.last_name || 'N/D')} <span style="font-size:0.75rem; color:var(--text-tertiary);">(PA0002-NACHN)</span></div>
+            <div><b>• Email (SMTP_ADDR):</b> ${escapeAuthorizationText(item.email || 'Não registado')} <span style="font-size:0.75rem; color:var(--text-tertiary);">(PA0002/PA0105-USRID_LONG)</span></div>
+            <div><b>• Equipa:</b> ${escapeAuthorizationText(item.team || 'Geral')}</div>
+            <div><b>• ID/PERNR:</b> ${escapeAuthorizationText(item.pernr)} | <b>Utilizador CUA:</b> ${escapeAuthorizationText(formattedUser)}</div>
+            <div style="font-size:0.75rem; color:#10b981; margin-top:4px;">Sistema Produtivo S4P</div>
+          </div>
+          <button type="button" class="auth-chat-system-card selected" style="margin-top:10px; width:100%; justify-content:center; font-weight:700; padding:6px 10px;">
+            ✅ Selecionar e Criar Utilizador (${escapeAuthorizationText(formattedUser)})
+          </button>
+        `;
+
+        const selectBtn = card.querySelector('button');
+        selectBtn.onclick = (e) => {
+          e.stopPropagation();
+          selectHrUserForCreation(item);
+        };
+        card.onclick = () => selectHrUserForCreation(item);
+
+        grid.appendChild(card);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function selectHrUserForCreation(item) {
+      const rawUser = item.user_id || item.pernr || '';
+      const selectedUser = formatSapUserId(rawUser);
+      authorizationTargetUser = selectedUser;
+      if (authorizationIndividualContext) {
+        authorizationIndividualContext.targetUser = selectedUser;
+        authorizationIndividualContext.hrData = item;
+      }
+
+      appendAuthorizationMessage('user', `Selecionado: ${item.full_name} (${selectedUser})`);
+      appendAuthorizationMessage(
+        'assistant',
+        `
+          <div class="auth-chat-summary">
+            <div style="font-weight:700; margin-bottom:8px; color:#10b981; font-size:0.92rem;">✅ Colaborador Selecionado do RH (S4P)</div>
+            <div style="display:grid; gap:4px; font-size:0.84rem; margin-bottom:10px;">
+              <div><b>• CUA-NAME_FIRST:</b> ${escapeAuthorizationText(item.first_name || 'N/D')} <span style="font-size:0.75rem; color:var(--text-secondary);">(PA0002-VORNA)</span></div>
+              <div><b>• CUA-NAME_LAST:</b> ${escapeAuthorizationText(item.last_name || 'N/D')} <span style="font-size:0.75rem; color:var(--text-secondary);">(PA0002-NACHN)</span></div>
+              <div><b>• CUA-SMTP_ADDR:</b> ${escapeAuthorizationText(item.email || 'N/D')} <span style="font-size:0.75rem; color:var(--text-secondary);">(PA0002/PA0105-USRID_LONG)</span></div>
+              <div><b>• Equipa / Org:</b> ${escapeAuthorizationText(item.team || 'N/D')}</div>
+              <div><b>• Utilizador Alvo CUA:</b> ${escapeAuthorizationText(selectedUser)}</div>
+            </div>
+          </div>
+        `,
+        true
+      );
+
+      promptCuaUserDetails(item);
+    }
+
+    function promptCuaUserDetails(item) {
+      const defaultFirstName = item?.first_name || '';
+      const defaultLastName = item?.last_name || '';
+      const defaultEmail = item?.email || '';
+      // Função (FUNCTION), Departamento (DEPARTMENT) e Telefone (MOB_NUMBER) não existem na tabela de RH e têm de ser explicitamente solicitados
+      const defaultFunc = '';
+      const defaultDept = '';
+      const defaultMob = '';
+
+      hideAuthorizationTypingIndicator();
+      appendAuthorizationMessage(
+        'assistant',
+        'Por favor, preencha ou confirme os **6 dados para criação da conta no CUA** (Nota: **Função**, **Departamento** e **Telefone** não existem na tabela do RH e têm de ser solicitados e preenchidos):'
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const card = document.createElement('div');
+      card.className = 'auth-chat-summary';
+      card.style.display = 'grid';
+      card.style.gap = '10px';
+      card.style.marginTop = '6px';
+      card.style.marginBottom = '10px';
+      card.style.maxWidth = '480px';
+
+      card.innerHTML = `
+        <div style="font-weight:700; font-size:0.92rem; color:var(--text-primary); border-bottom:1px solid var(--border-color, #e2e8f0); padding-bottom:6px;">
+          📝 Dados de Utilizador CUA (6 Campos Obrigatórios)
+        </div>
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div style="display:grid; gap:3px;">
+            <label style="font-size:0.78rem; font-weight:700; color:var(--text-secondary);">• Nome (NAME_FIRST):</label>
+            <input type="text" id="cua-field-first-name" class="form-control form-control-sm" value="${escapeAuthorizationText(defaultFirstName)}" placeholder="Primeiro Nome" style="padding:6px 10px; font-size:0.84rem; border-radius:6px; border:1px solid var(--border-color, #cbd5e1);">
+          </div>
+          <div style="display:grid; gap:3px;">
+            <label style="font-size:0.78rem; font-weight:700; color:var(--text-secondary);">• Sobrenome (NAME_LAST):</label>
+            <input type="text" id="cua-field-last-name" class="form-control form-control-sm" value="${escapeAuthorizationText(defaultLastName)}" placeholder="Apelido / Sobrenome" style="padding:6px 10px; font-size:0.84rem; border-radius:6px; border:1px solid var(--border-color, #cbd5e1);">
+          </div>
+        </div>
+
+        <div style="display:grid; gap:3px;">
+          <label style="font-size:0.78rem; font-weight:700; color:var(--text-secondary);">• Email (SMTP_ADDR):</label>
+          <input type="email" id="cua-field-email" class="form-control form-control-sm" value="${escapeAuthorizationText(defaultEmail)}" placeholder="email@empresa.com" style="padding:6px 10px; font-size:0.84rem; border-radius:6px; border:1px solid var(--border-color, #cbd5e1);">
+        </div>
+
+        <div style="display:grid; gap:3px;">
+          <label style="font-size:0.78rem; font-weight:700; color:#d97706;">• Função (FUNCTION) * (Solicitar):</label>
+          <input type="text" id="cua-field-function" class="form-control form-control-sm" value="" placeholder="Escreva a Função (ex: Analista de Sistemas)" style="padding:6px 10px; font-size:0.84rem; border-radius:6px; border:1px solid #f59e0b;">
+        </div>
+
+        <div style="display:grid; gap:3px;">
+          <label style="font-size:0.78rem; font-weight:700; color:#d97706;">• Departamento (DEPARTMENT) * (Solicitar):</label>
+          <input type="text" id="cua-field-department" class="form-control form-control-sm" value="" placeholder="Escreva o Departamento (ex: SI/TI)" style="padding:6px 10px; font-size:0.84rem; border-radius:6px; border:1px solid #f59e0b;">
+        </div>
+
+        <div style="display:grid; gap:3px;">
+          <label style="font-size:0.78rem; font-weight:700; color:#d97706;">• Telefone (MOB_NUMBER) * (Solicitar):</label>
+          <input type="text" id="cua-field-mob-number" class="form-control form-control-sm" value="" placeholder="Escreva o Telefone (ex: +351 912345678)" style="padding:6px 10px; font-size:0.84rem; border-radius:6px; border:1px solid #f59e0b;">
+        </div>
+
+        <button type="button" id="cua-fields-submit-btn" class="btn btn-primary btn-sm" style="margin-top:6px; font-weight:700; padding:8px 14px; border-radius:6px; width:100%; justify-content:center;">
+          ✅ Guardar os 6 Campos CUA e Continuar ➔
+        </button>
+      `;
+
+      container.appendChild(card);
+      container.scrollTop = container.scrollHeight;
+
+      const submitBtn = card.querySelector('#cua-fields-submit-btn');
+      submitBtn.onclick = () => {
+        const firstNameVal = (card.querySelector('#cua-field-first-name')?.value || '').trim();
+        const lastNameVal = (card.querySelector('#cua-field-last-name')?.value || '').trim();
+        const emailVal = (card.querySelector('#cua-field-email')?.value || '').trim();
+        const funcVal = (card.querySelector('#cua-field-function')?.value || '').trim();
+        const deptVal = (card.querySelector('#cua-field-department')?.value || '').trim();
+        const mobVal = (card.querySelector('#cua-field-mob-number')?.value || '').trim();
+
+        saveCuaUserDetails(firstNameVal, lastNameVal, emailVal, funcVal, deptVal, mobVal);
+      };
+
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_CUA_FUNCTION;
+      updateAuthorizationComposer();
+    }
+
+    function saveCuaUserDetails(firstNameVal, lastNameVal, emailVal, funcVal, deptVal, mobVal) {
+      if (!authorizationIndividualContext) {
+        authorizationIndividualContext = {};
+      }
+      if (!authorizationIndividualContext.parameters) {
+        authorizationIndividualContext.parameters = {};
+      }
+
+      authorizationIndividualContext.parameters.NAME_FIRST = firstNameVal;
+      authorizationIndividualContext.parameters.NAME_LAST = lastNameVal;
+      authorizationIndividualContext.parameters.SMTP_ADDR = emailVal;
+      authorizationIndividualContext.parameters.FUNCTION = funcVal;
+      authorizationIndividualContext.parameters.DEPARTMENT = deptVal;
+      authorizationIndividualContext.parameters.MOB_NUMBER = mobVal;
+
+      appendAuthorizationMessage(
+        'assistant',
+        `
+          <div class="auth-chat-summary">
+            <div style="font-weight:700; margin-bottom:8px; color:#10b981; font-size:0.92rem;">✅ Dados dos 6 Campos CUA Registados</div>
+            <div style="display:grid; gap:4px; font-size:0.84rem;">
+              <div><b>• Nome (NAME_FIRST):</b> ${escapeAuthorizationText(firstNameVal || 'Não preenchido')}</div>
+              <div><b>• Sobrenome (NAME_LAST):</b> ${escapeAuthorizationText(lastNameVal || 'Não preenchido')}</div>
+              <div><b>• Email (SMTP_ADDR):</b> ${escapeAuthorizationText(emailVal || 'Não preenchido')}</div>
+              <div><b>• Função (FUNCTION):</b> ${escapeAuthorizationText(funcVal || 'Não preenchido')}</div>
+              <div><b>• Departamento (DEPARTMENT):</b> ${escapeAuthorizationText(deptVal || 'Não preenchido')}</div>
+              <div><b>• Telefone (MOB_NUMBER):</b> ${escapeAuthorizationText(mobVal || 'Não preenchido')}</div>
+            </div>
+          </div>
+          Em que sistema/ambiente SAP pretende efetuar a criação da conta CUA?
+        `,
+        true
+      );
+
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_INDIVIDUAL_SYSTEM;
+      showIndividualSystemOptions();
     }
 
     function showIndividualSystemOptions(onSelectSystem = null) {
@@ -1217,16 +1617,12 @@ const AUTH_CHAT_STATES = {
 
     function promptInitialSystemSelection(categoryName = 'Perfil de autorização') {
       hideAuthorizationTypingIndicator();
-      appendAuthorizationAssistantMessage(`Registado o interesse em **${escapeAuthorizationText(categoryName)}**. Em que sistema/ambiente pretende trabalhar?`);
+      appendAuthorizationAssistantMessage(`Selecionada a rotina **${escapeAuthorizationText(categoryName)}**. Em que sistema/ambiente SAP pretende efetuar a execução?`);
       showIndividualSystemOptions((sys) => {
         authorizationSelectedSystem = sys;
         const sysLabel = sys.label || sys.system || sys.key;
         appendAuthorizationMessage('user', sysLabel);
-        appendAuthorizationMessage(
-          'assistant',
-          `Ambiente **${escapeAuthorizationText(sysLabel)}** registado. Selecione qual das tarefas ou processos de **Funções PFCG & Autorizações** pretende realizar:`
-        );
-        showPfcgProcessExecutionOptions();
+        renderRoutineSuggestionsForSystem(sys);
       });
     }
 
@@ -1244,6 +1640,161 @@ const AUTH_CHAT_STATES = {
         'assistant',
         `Perfeito. Registado o ambiente **${escapeAuthorizationText(sysLabel)}** para a alteração individual do utilizador **${escapeAuthorizationText(user)}** (${escapeAuthorizationText(proc)}).`
       );
+
+      const scriptName = authorizationIndividualContext.scriptName;
+      if (scriptName) {
+        hideAuthorizationTypingIndicator();
+        showAuthorizationTypingIndicator(
+          null,
+          `A criar job de execução do script **${escapeAuthorizationText(scriptName)}** (${escapeAuthorizationText(proc)}) para o utilizador **${escapeAuthorizationText(user)}**...`
+        );
+        try {
+          const isCuaScript = scriptName.includes('CUA') || scriptName.includes('su01_reset') || (authorizationIndividualContext.category || '').includes('CUA');
+          let executionAmb = isCuaScript ? 'CUA' : (sys.system || sys.key || 'PRD').toUpperCase();
+          let targetSysKey = sys.key || sys.system || 'S4PCLNT100';
+
+          const targetFolder = (scriptName && scriptName.includes('su01_reset')) ? 'CUA Login' : 'Funções PFCG';
+          const formData = new FormData();
+          formData.append('task', 'sap_cockpit');
+          formData.append('ambiente', executionAmb);
+          formData.append('processo', targetFolder);
+          formData.append('subprocesso', scriptName);
+          formData.append('target_user', user);
+          formData.append('target_system', targetSysKey);
+          formData.append('target_env', targetSysKey);
+          formData.append('subsystem_filter', targetSysKey);
+          formData.append('opcao_processamento', '1');
+
+          if (authorizationIndividualContext.referenceUser) {
+            formData.append('reference_user', authorizationIndividualContext.referenceUser);
+            formData.append('target_user_ref', authorizationIndividualContext.referenceUser);
+          }
+
+          if (authorizationIndividualContext.parameters) {
+            if (authorizationIndividualContext.parameters.NAME_FIRST) {
+              formData.append('first_name', authorizationIndividualContext.parameters.NAME_FIRST);
+            }
+            if (authorizationIndividualContext.parameters.NAME_LAST) {
+              formData.append('last_name', authorizationIndividualContext.parameters.NAME_LAST);
+            }
+            if (authorizationIndividualContext.parameters.SMTP_ADDR) {
+              formData.append('email', authorizationIndividualContext.parameters.SMTP_ADDR);
+            }
+            if (authorizationIndividualContext.parameters.FUNCTION) {
+              formData.append('function', authorizationIndividualContext.parameters.FUNCTION);
+            }
+            if (authorizationIndividualContext.parameters.DEPARTMENT) {
+              formData.append('department', authorizationIndividualContext.parameters.DEPARTMENT);
+            }
+            if (authorizationIndividualContext.parameters.MOB_NUMBER) {
+              formData.append('mob_number', authorizationIndividualContext.parameters.MOB_NUMBER);
+            }
+            formData.append('parameters', JSON.stringify(authorizationIndividualContext.parameters));
+          }
+
+          const response = await fetch('/jobs', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || `HTTP ${response.status}`);
+          }
+
+          const data = await response.json();
+          const processLabel = authorizationIndividualContext.processName || proc;
+          const techCategory = authorizationIndividualContext.category || 'CUA_CRIAR_USER';
+          const displayProcess = (processLabel && processLabel !== techCategory)
+            ? `${processLabel} (${techCategory})`
+            : techCategory;
+
+          hideAuthorizationTypingIndicator();
+          appendAuthorizationMessage(
+            'assistant',
+            `
+              <div class="auth-chat-summary">
+                <div style="font-weight:700; margin-bottom:8px; color:#10b981; font-size:0.92rem;">✅ Job de Execução Criado no SAP Cockpit!</div>
+                <div style="display:grid; gap:4px; font-size:0.84rem; margin-bottom:10px;">
+                  <div><b>• Script:</b> ${escapeAuthorizationText(scriptName)}</div>
+                  <div><b>• Processo:</b> ${escapeAuthorizationText(displayProcess)}</div>
+                  <div><b>• Utilizador Alvo:</b> ${escapeAuthorizationText(user)}</div>
+                  <div><b>• Ambiente SAP:</b> ${escapeAuthorizationText(sys.system || sys.key)}</div>
+                  <div><b>• Job ID:</b> #${escapeAuthorizationText(String(data.job_id || data.id || '').slice(0, 8))}</div>
+                </div>
+                <div style="font-size:0.8rem; color:var(--text-secondary);">O worker SAP foi notificado e iniciou a execução da rotina <b>${escapeAuthorizationText(scriptName)}</b> no ambiente SAP.</div>
+              </div>
+            `,
+            true
+          );
+          showNextActionsPrompt('O job foi submetido com sucesso para execução no SAP! Pretende efetuar mais alguma ação?');
+          authorizationChatState = AUTH_CHAT_STATES.READY;
+          updateAuthorizationComposer();
+          return;
+        } catch (jobErr) {
+          hideAuthorizationTypingIndicator();
+          appendAuthorizationMessage('assistant', `❌ Não foi possível criar o job para ${escapeAuthorizationText(scriptName)}: ${jobErr.message || jobErr}`);
+          showNextActionsPrompt('Ocorreu um erro ao submeter o job. Pretende tentar novamente ou escolher outro processo?');
+          return;
+        }
+      }
+
+    function showNextActionsPrompt(messageText = 'O processo foi concluído. Deseja efetuar mais alguma ação?') {
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationMessage('assistant', messageText);
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '8px';
+      grid.style.marginBottom = '10px';
+
+      const actions = [
+        {
+          label: '🔄 Executar outro processo',
+          action: () => {
+            appendAuthorizationMessage('user', 'Executar outro processo');
+            renderRoutineSuggestionsInitial();
+          }
+        },
+        {
+          label: '🔑 Alterar outra senha',
+          action: () => {
+            appendAuthorizationMessage('user', 'Alterar outra senha');
+            selectUserDataSubroutine({ label: '🔑 Alterar Senha', val: 'Alterar Senha', scriptName: 'su01_reset_password.py', category: 'CUA Login' });
+          }
+        }
+      ];
+
+      actions.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 14px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          item.action();
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
 
       const script = (authorizationIndividualContext.scriptName || proc || '').toUpperCase();
       const isCuaProcess = script.includes('CUA') || proc.includes('CUA');
@@ -1909,25 +2460,25 @@ const AUTH_CHAT_STATES = {
       container.appendChild(grid);
       container.scrollTop = container.scrollHeight;
     }
-    async function confirmAuthorizationRemoval() {
-      if (!authorizationPendingRemoval) {
-        appendAuthorizationMessage('assistant', 'Não tenho funções pendentes para remover.');
-        return;
-      }
+    async function confirmAuthorizationRemoval(targetUser, sys, roleList) {
+      const user = targetUser || authorizationPendingRemoval?.targetUser || authorizationTargetUser;
+      const systemKey = (sys && (sys.key || sys.system)) || authorizationPendingRemoval?.targetSystemKey || authorizationSelectedSystem?.key || '';
+      const rawRoles = Array.isArray(roleList) ? roleList : (Array.isArray(authorizationPendingRemoval?.roles) ? authorizationPendingRemoval.roles : []);
 
-      const pending = authorizationPendingRemoval;
-      const roles = Array.isArray(pending.roles) ? pending.roles : [];
+      const roles = rawRoles.map(item => {
+        if (typeof item === 'string') return { role: item };
+        return { role: item.role || item.function || item.agr_name || item.AGR_NAME || item.name || '' };
+      }).filter(r => Boolean(r.role));
+
       const payload = {
-        target_user: pending.targetUser || authorizationTargetUser,
-        target_system_key: pending.targetSystemKey || authorizationSelectedSystem?.key || '',
-        roles: roles.map(item => ({
-          role: item.role || item.function || item.agr_name || item.AGR_NAME || item.name || ''
-        })),
+        target_user: user,
+        target_system_key: systemKey,
+        roles: roles,
         opcao_processamento: 'sistema_user'
       };
 
       if (!payload.target_user || !payload.target_system_key || payload.roles.length === 0) {
-        appendAuthorizationMessage('assistant', 'Não tenho dados suficientes para criar o pedido de remoção.');
+        appendAuthorizationMessage('assistant', 'Não tenho funções pendentes para remover.');
         return;
       }
 
@@ -1992,10 +2543,19 @@ const AUTH_CHAT_STATES = {
     }
 
     async function confirmAuthorizationEndDate(targetUser, sys, roleList) {
+      const user = targetUser || authorizationPendingRemoval?.targetUser || authorizationTargetUser;
+      const systemKey = (sys && (sys.key || sys.system)) || authorizationPendingRemoval?.targetSystemKey || authorizationSelectedSystem?.key || '';
+      const rawRoles = Array.isArray(roleList) ? roleList : (Array.isArray(authorizationPendingRemoval?.roles) ? authorizationPendingRemoval.roles : []);
+
+      const roles = rawRoles.map(item => {
+        if (typeof item === 'string') return { role: item };
+        return { role: item.role || item.function || item.agr_name || item.AGR_NAME || item.name || '' };
+      }).filter(r => Boolean(r.role));
+
       const payload = {
-        target_user: targetUser,
-        target_system_key: sys.key || authorizationSelectedSystem?.key || '',
-        roles: roleList
+        target_user: user,
+        target_system_key: systemKey,
+        roles: roles
       };
 
       if (!payload.target_user || !payload.target_system_key || payload.roles.length === 0) {
@@ -2240,7 +2800,20 @@ const AUTH_CHAT_STATES = {
 
       appendAuthorizationMessage(
         'assistant',
-        `Ambiente **${escapeAuthorizationText(sysLabel)}** registado. Em que processo ou rotina SAP pretende trabalhar neste ambiente?\nSelecione uma das sugestões abaixo ou escreva no campo inferior:`
+        `Ambiente **${escapeAuthorizationText(sysLabel)}** registado. Qual é o utilizador SAP que pretende analisar?`
+      );
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+      updateAuthorizationComposer();
+    }
+
+    function renderRoutineSuggestionsInitial() {
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationMessage(
+        'assistant',
+        'Olá! Que processo ou rotina SAP pretende executar hoje?\nSelecione uma das sugestões abaixo ou escreva no campo inferior:',
+        false,
+        { key: 'authorization-initial-question' }
       );
 
       const container = document.getElementById('authorization-chat-messages');
@@ -2254,12 +2827,13 @@ const AUTH_CHAT_STATES = {
       grid.style.marginBottom = '8px';
 
       const items = [
-        { label: '🛡️ Perfil de autorização', val: 'Perfil de autorização' },
-        { label: '📋 Códigos IVA', val: 'Códigos IVA' },
-        { label: '🔄 Reverter documento', val: 'Reverter documento' },
+        { label: '🔍 Cadeias de pesquisa', val: 'Cadeias de pesquisa' },
         { label: '🏦 Chave de banco', val: 'Chave de banco' },
-        { label: '🔍 Cadeias de pesquisa', val: 'Cadeias de pesquisa' }
-      ];
+        { label: '📋 Códigos IVA', val: 'Códigos IVA' },
+        { label: '👤 Dados de utilizador', val: 'Dados de utilizador' },
+        { label: '🛡️ Perfil de autorização', val: 'Perfil de autorização' },
+        { label: '🔄 Reverter documento', val: 'Reverter documento' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
 
       items.forEach(item => {
         const btn = document.createElement('button');
@@ -2286,23 +2860,139 @@ const AUTH_CHAT_STATES = {
       container.scrollTop = container.scrollHeight;
     }
 
+    function showAuthorizationProfileSubroutineOptions() {
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationMessage(
+        'assistant',
+        'Perfeito. Selecionou a rotina **Perfil de autorização**.\nQual sub-rotina ou ação pretende executar?'
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const items = [
+        { label: '🔍 Analisar autorizações', val: 'Analisar autorizações', type: 'ANALYSIS' },
+        { label: '➕ Criar role composta', val: 'Criar role composta', scriptName: 'D. PFCG_COMPOSTA_RFC.py', category: 'Funções PFCG' },
+        { label: '➕ Criar role simples', val: 'Criar role simples', scriptName: 'A. PFCG_CREATE_RFC.py', category: 'Funções PFCG' },
+        { label: '❌ Eliminar role', val: 'Eliminar role', scriptName: 'B. PFCG_DELETE_RFC.py', category: 'Funções PFCG' },
+        { label: '🛡️ Gerir objetos de autorização', val: 'Gerir objetos de autorização', scriptName: 'C. PFCG_AUTHORITY.py', category: 'Funções PFCG' },
+        { label: '➖ Remover role de utilizador', val: 'Remover role de utilizador', scriptName: 'J. CUA_REMOVE.py', category: 'Funções PFCG' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      items.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 12px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          selectAuthorizationProfileSubroutine(item);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function selectAuthorizationProfileSubroutine(item) {
+      appendAuthorizationMessage('user', item.val);
+
+      if (item.type === 'ANALYSIS' || item.val.includes('Analisar')) {
+        authorizationIndividualContext = null;
+        showAuthorizationTypingIndicator(null, 'A preparar o ambiente de análise de autorizações...');
+        setTimeout(() => {
+          hideAuthorizationTypingIndicator();
+          appendAuthorizationMessage(
+            'assistant',
+            'Qual é o utilizador SAP que pretende analisar?'
+          );
+          authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+          updateAuthorizationComposer();
+        }, 300);
+        return;
+      }
+
+      selectUserDataSubroutine(item);
+    }
+
+    function showUserDataSubroutineOptions() {
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationMessage(
+        'assistant',
+        'Perfeito. Selecionou a rotina **Dados de utilizador**.\nQual sub-rotina pretende executar?'
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const items = [
+        { label: '🔑 Alterar Senha', val: 'Alterar Senha', scriptName: 'su01_reset_password.py', category: 'CUA Login' },
+        { label: '➕ Criar utilizador', val: 'Criar utilizador', scriptName: 'L. CUA_CRIAR_USER.py', category: 'CUA_CRIAR_USER' },
+        { label: '📅 Delimitar data fim', val: 'Delimitar data fim', scriptName: 'I. CUA_ENDDATE.py', category: 'CUA_ENDDATE' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      items.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 12px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          selectUserDataSubroutine(item);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function selectUserDataSubroutine(item) {
+      appendAuthorizationMessage('user', item.val);
+      promptProcessMode(item.val, item.category, item.scriptName, item.label);
+    }
+
     async function ensureAuthorizationInitialQuestion() {
       const container = document.getElementById('authorization-chat-messages');
       if (!container) return;
 
       if (!container.querySelector('[data-message-key="authorization-initial-question"]')) {
-        appendAuthorizationMessage(
-          'assistant',
-          'Olá! Em que sistema/ambiente SAP pretende trabalhar hoje?',
-          false,
-          { key: 'authorization-initial-question' }
-        );
-        showIndividualSystemOptions((sys) => {
-          authorizationSelectedSystem = sys;
-          const sysLabel = sys.label || sys.system || sys.key;
-          appendAuthorizationMessage('user', sysLabel);
-          renderRoutineSuggestionsForSystem(sys);
-        });
+        renderRoutineSuggestionsInitial();
       }
     }
 
@@ -2565,8 +3255,222 @@ const AUTH_CHAT_STATES = {
       'REVERTER', 'ESTORNO', 'DOCUMENTO', 'DOCUMENTOS', 'CHAVE', 'BANCO', 'BANCOS',
       'CADEIA', 'CADEIAS', 'PESQUISA', 'PESQUISAS', 'PROCESSO', 'PROCESSOS', 'SKILL', 'SKILLS',
       'AJUDA', 'SOBRE', 'MENU', 'OPCAO', 'OPÇÃO', 'OPCOES', 'OPÇÕES', 'LISTA', 'LISTAR', 'VER', 'OBTER',
-      'USER', 'USERS', 'UTILIZADOR', 'UTILIZADORES', 'CONTA', 'ID', 'SESSAO', 'SESSÃO'
+      'USER', 'USERS', 'UTILIZADOR', 'UTILIZADORES', 'CONTA', 'ID', 'SESSAO', 'SESSÃO',
+      'UMA', 'UM', 'DAS', 'DOS', 'DE', 'DO', 'DA', 'FUNCAO', 'FUNCOES', 'FUNÇÕES',
+      'EXPIRADA', 'EXPIRADAS', 'EXPIRADO', 'EXPIRADOS', 'VENCIDA', 'VENCIDAS',
+      'ATIVA', 'ATIVAS', 'ATIVO', 'ATIVOS', 'DIRETA', 'DIRETAS', 'COMPOSTA', 'COMPOSTAS',
+      'MOSTRA', 'MOSTRAR', 'EXIBIR', 'FILTRAR', 'SO', 'SÓ', 'APENAS'
     ]);
+
+    function renderRolesTableInChat(roles) {
+      if (!Array.isArray(roles)) roles = [];
+
+      let rowsHtml = '';
+      roles.forEach((r, idx) => {
+        const validityFrom = r.valid_from || r.validity_from || '(aberta)';
+        const validityTo = r.valid_to || r.validity_to || '(aberta)';
+
+        let statusBadge = '';
+        if (r.validity_status === 'active' || r.isActive || r.status === 'ATIVA' || String(r.status || '').toUpperCase().includes('ATIV')) {
+          statusBadge = '<span class="badge badge-success" style="background:#dcfce7; color:#15803d; font-size:0.75rem; font-weight:700; padding:2px 6px; border-radius:4px;">ATIVA</span>';
+        } else if (r.validity_status === 'expired' || r.isExpired || r.status === 'EXPIRADA' || String(r.status || '').toUpperCase().includes('EXPIRAD')) {
+          statusBadge = '<span class="badge badge-danger" style="background:#fee2e2; color:#b91c1c; font-size:0.75rem; font-weight:700; padding:2px 6px; border-radius:4px;">EXPIRADA</span>';
+        } else if (r.validity_status === 'future') {
+          statusBadge = '<span class="badge badge-warning" style="background:#fef3c7; color:#b45309; font-size:0.75rem; font-weight:700; padding:2px 6px; border-radius:4px;">FUTURA</span>';
+        } else {
+          statusBadge = '<span class="badge" style="font-size:0.75rem; font-weight:600;">INDETERMINADA</span>';
+        }
+
+        const isHidden = idx >= 15 ? 'class="auth-row-hidden" style="display:none;"' : '';
+        const roleName = r.role || r.AGR_NAME || r.name || '';
+        const originLabel = r.assignment_origin_label || r.assignment_origin || r.origin || r.atribuicao || 'Direta';
+
+        rowsHtml += `
+          <tr ${isHidden}>
+            <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9;"><strong>${escapeAuthorizationText(roleName)}</strong></td>
+            <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9;">${escapeAuthorizationText(validityFrom)}</td>
+            <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9;">${escapeAuthorizationText(validityTo)}</td>
+            <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9;">${statusBadge}</td>
+            <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9;">${escapeAuthorizationText(originLabel)}</td>
+          </tr>
+        `;
+      });
+
+      if (roles.length === 0) {
+        rowsHtml = `<tr><td colspan="5" style="text-align: center; padding:12px; color: var(--text-muted);">Nenhuma role encontrada para os critérios selecionados.</td></tr>`;
+      }
+
+      let verTodasBtn = '';
+      if (roles.length > 15) {
+        verTodasBtn = `
+          <button class="auth-ver-todas-btn" style="margin-top:8px; cursor:pointer; background:none; border:none; color:#2563eb; font-weight:600; font-size:0.82rem;" onclick="
+            const table = this.closest('.auth-table-wrapper');
+            table.querySelectorAll('.auth-row-hidden').forEach(row => row.style.display = '');
+            this.style.display = 'none';
+          ">Ver todas (${roles.length - 15} mais)</button>
+        `;
+      }
+
+      const tableHtml = `
+        <div class="auth-table-wrapper" style="margin-top:8px; margin-bottom:8px; width:100%; overflow-x:auto;">
+          <table class="auth-roles-table" style="width:100%; border-collapse:collapse; font-size:0.84rem;">
+            <thead>
+              <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0; text-align:left;">
+                <th style="padding:8px 10px;">Função / Role</th>
+                <th style="padding:8px 10px;">Início Validade</th>
+                <th style="padding:8px 10px;">Fim Validade</th>
+                <th style="padding:8px 10px;">Estado</th>
+                <th style="padding:8px 10px;">Atribuição</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+          ${verTodasBtn}
+        </div>
+      `;
+
+      appendAuthorizationMessage('assistant', tableHtml, true);
+    }
+
+    function handleContextualRolesQuery(rawVal, normVal) {
+      if (!Array.isArray(authorizationLastDisplayedRoles) || authorizationLastDisplayedRoles.length === 0) {
+        return false;
+      }
+
+      const isQueryExpired = normVal.includes('EXPIRAD') || normVal.includes('VENCID');
+      const isQueryActive = normVal.includes('ATIV') || normVal.includes('VALID');
+      const isQueryDirect = normVal.includes('DIRET');
+      const isQueryComposta = normVal.includes('COMPOST');
+      const isQueryCount = normVal.includes('QUANT') || normVal.includes('CONTAGEM') || normVal.includes('TOTAL');
+
+      if (!isQueryExpired && !isQueryActive && !isQueryDirect && !isQueryComposta && !isQueryCount) {
+        return false;
+      }
+
+      hideAuthorizationTypingIndicator();
+
+      let filteredRoles = [...authorizationLastDisplayedRoles];
+      let titleMsg = '';
+
+      if (isQueryExpired) {
+        filteredRoles = filteredRoles.filter(r => r.isExpired || r.validity_status === 'expired' || String(r.status || '').toUpperCase().includes('EXPIRAD'));
+        titleMsg = `📋 **Lista de Funções Expiradas (${filteredRoles.length}) para o utilizador ${escapeAuthorizationText(authorizationTargetUser || '')}:**`;
+      } else if (isQueryActive) {
+        filteredRoles = filteredRoles.filter(r => r.isActive || r.validity_status === 'active' || String(r.status || '').toUpperCase().includes('ATIV'));
+        titleMsg = `📋 **Lista de Funções Ativas (${filteredRoles.length}) para o utilizador ${escapeAuthorizationText(authorizationTargetUser || '')}:**`;
+      } else if (isQueryDirect) {
+        filteredRoles = filteredRoles.filter(r => (r.origin || r.atribuicao || r.assignment_origin_label || '').toLowerCase().includes('diret'));
+        titleMsg = `📋 **Lista de Atribuições Diretas (${filteredRoles.length}) para o utilizador ${escapeAuthorizationText(authorizationTargetUser || '')}:**`;
+      } else if (isQueryComposta) {
+        filteredRoles = filteredRoles.filter(r => (r.origin || r.atribuicao || r.assignment_origin_label || '').toLowerCase().includes('compost'));
+        titleMsg = `📋 **Lista de Roles Compostas (${filteredRoles.length}) para o utilizador ${escapeAuthorizationText(authorizationTargetUser || '')}:**`;
+      } else if (isQueryCount) {
+        const expiredCount = authorizationLastDisplayedRoles.filter(r => r.isExpired || r.validity_status === 'expired' || String(r.status || '').toUpperCase().includes('EXPIRAD')).length;
+        const activeCount = authorizationLastDisplayedRoles.filter(r => r.isActive || r.validity_status === 'active' || String(r.status || '').toUpperCase().includes('ATIV')).length;
+        appendAuthorizationMessage(
+          'assistant',
+          `📊 **Resumo de Funções para ${escapeAuthorizationText(authorizationTargetUser || '')}:**\n` +
+          `• Total de funções: **${authorizationLastDisplayedRoles.length}**\n` +
+          `• Funções Ativas: **${activeCount}**\n` +
+          `• Funções Expiradas: **${expiredCount}**`
+        );
+        showNextActionsPrompt('Deseja efetuar mais alguma ação ou filtrar outra lista?');
+        return true;
+      }
+
+      if (filteredRoles.length === 0) {
+        appendAuthorizationMessage(
+          'assistant',
+          `ℹ️ Não foram encontradas funções correspondentes aos critérios pesquisados para o utilizador **${escapeAuthorizationText(authorizationTargetUser || '')}**.`
+        );
+        showNextActionsPrompt('Deseja fazer nova pesquisa ou escolher outra rotina?');
+      } else {
+        appendAuthorizationMessage('assistant', titleMsg);
+        renderRolesTableInChat(filteredRoles);
+        showFilteredRolesActionsPrompt(filteredRoles, titleMsg);
+      }
+      return true;
+    }
+
+    function showFilteredRolesActionsPrompt(filteredRoles, filterTypeLabel) {
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationMessage(
+        'assistant',
+        `Pretende efetuar alguma ação (como **CUA_ENDDATE** ou **CUA_REMOVE**) sobre as **${filteredRoles.length}** funções de **${escapeAuthorizationText(authorizationTargetUser || '')}** apresentadas na lista acima?`
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '8px';
+      grid.style.marginBottom = '14px';
+
+      const actions = [
+        {
+          label: '📅 Delimitar data fim (CUA_ENDDATE)',
+          val: 'Delimitar data fim (CUA_ENDDATE)',
+          action: () => {
+            appendAuthorizationMessage('user', 'Delimitar data fim (CUA_ENDDATE)');
+            confirmAuthorizationEndDate(
+              authorizationTargetUser,
+              authorizationSelectedSystem || { key: 'S4PCLNT100', system: 'S4P' },
+              filteredRoles
+            );
+          }
+        },
+        {
+          label: '➖ Remover funções (CUA_REMOVE)',
+          val: 'Remover funções (CUA_REMOVE)',
+          action: () => {
+            appendAuthorizationMessage('user', 'Remover funções (CUA_REMOVE)');
+            confirmAuthorizationRemoval(
+              authorizationTargetUser,
+              authorizationSelectedSystem || { key: 'S4PCLNT100', system: 'S4P' },
+              filteredRoles
+            );
+          }
+        },
+        {
+          label: '🔄 Nova análise',
+          val: 'Nova análise',
+          action: () => {
+            appendAuthorizationMessage('user', 'Nova análise');
+            resetAuthorizationChat();
+          }
+        }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      actions.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 14px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          item.action();
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
 
     function extractAuthorizationParamsFromText(text) {
       const norm = normalizeAuthorizationSearchText(text);
@@ -2643,6 +3547,83 @@ const AUTH_CHAT_STATES = {
         return;
       }
 
+      // Se o utilizador fizer uma pergunta sobre a tabela de roles exibida no ecra (expiradas, ativas, contagem):
+      if (handleContextualRolesQuery(rawVal, normVal)) {
+        return;
+      }
+
+      // Se estivermos no fluxo de alteração individual à espera do utilizador de referência (Por cópia):
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_COPY_REFERENCE_USER) {
+        const refUserVal = rawVal.trim().toUpperCase();
+        if (authorizationIndividualContext) {
+          authorizationIndividualContext.referenceUser = refUserVal;
+        }
+        appendAuthorizationMessage(
+          'assistant',
+          `Registado o utilizador de referência **${escapeAuthorizationText(refUserVal)}**.\n\nAgora, vamos selecionar os dados do **novo colaborador** na **tabela do RH no Sistema Produtivo (S4P)** para obter o Nome, Email e Equipa.\n\nPor favor, introduza o **N.º Mecanográfico (PERNR)**, **Nome** ou **Utilizador SAP** do novo colaborador.`
+        );
+        authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
+        updateAuthorizationComposer();
+        return;
+      }
+
+      // Se estivermos no fluxo de pesquisa no RH Produtivo:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY) {
+        performHrUserSearch(rawVal.trim());
+        return;
+      }
+
+      // Se estivermos a recolher o campo FUNCTION no chat:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_FUNCTION) {
+        const funcVal = rawVal.trim();
+        if (!authorizationIndividualContext) authorizationIndividualContext = {};
+        if (!authorizationIndividualContext.parameters) authorizationIndividualContext.parameters = {};
+        authorizationIndividualContext.parameters.FUNCTION = funcVal;
+
+        authorizationChatState = AUTH_CHAT_STATES.WAITING_CUA_DEPARTMENT;
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage(
+          'assistant',
+          `Registada a Função: **${escapeAuthorizationText(funcVal)}**.\n\nAgora, indique o **Departamento (DEPARTMENT)** do utilizador no CUA:`
+        );
+        updateAuthorizationComposer();
+        return;
+      }
+
+      // Se estivermos a recolher o campo DEPARTMENT no chat:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_DEPARTMENT) {
+        const deptVal = rawVal.trim();
+        if (!authorizationIndividualContext) authorizationIndividualContext = {};
+        if (!authorizationIndividualContext.parameters) authorizationIndividualContext.parameters = {};
+        authorizationIndividualContext.parameters.DEPARTMENT = deptVal;
+
+        authorizationChatState = AUTH_CHAT_STATES.WAITING_CUA_MOB_NUMBER;
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage(
+          'assistant',
+          `Registado o Departamento: **${escapeAuthorizationText(deptVal)}**.\n\nPor fim, indique o **Telefone / Telemóvel (MOB_NUMBER)** do utilizador no CUA:`
+        );
+        updateAuthorizationComposer();
+        return;
+      }
+
+      // Se estivermos a recolher o campo MOB_NUMBER no chat:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_CUA_MOB_NUMBER) {
+        const mobVal = rawVal.trim();
+        if (!authorizationIndividualContext) authorizationIndividualContext = {};
+        if (!authorizationIndividualContext.parameters) authorizationIndividualContext.parameters = {};
+        authorizationIndividualContext.parameters.MOB_NUMBER = mobVal;
+
+        const firstNameVal = authorizationIndividualContext.parameters.NAME_FIRST || authorizationIndividualContext.hrData?.first_name || '';
+        const lastNameVal = authorizationIndividualContext.parameters.NAME_LAST || authorizationIndividualContext.hrData?.last_name || '';
+        const emailVal = authorizationIndividualContext.parameters.SMTP_ADDR || authorizationIndividualContext.hrData?.email || '';
+        const funcVal = authorizationIndividualContext.parameters.FUNCTION || 'N/D';
+        const deptVal = authorizationIndividualContext.parameters.DEPARTMENT || 'N/D';
+
+        saveCuaUserDetails(firstNameVal, lastNameVal, emailVal, funcVal, deptVal, mobVal);
+        return;
+      }
+
       // Se estivermos no fluxo de alteração individual à espera do utilizador alvo:
       if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER) {
         const userVal = rawVal.trim().toUpperCase();
@@ -2704,7 +3685,36 @@ const AUTH_CHAT_STATES = {
         normVal === 'PFCG' ||
         normVal === 'CUA'
       ) {
-        showPfcgProcessExecutionOptions();
+        showAuthorizationProfileSubroutineOptions();
+        return;
+      }
+
+      // Se for seleção da opção 'Dados de utilizador' ou 'Dados mestres'
+      if (
+        normVal.includes('DADOS DE UTILIZADOR') ||
+        normVal.includes('DADOS DO UTILIZADOR') ||
+        normVal.includes('DADOS UTILIZADOR') ||
+        normVal.includes('DADOS DE USER') ||
+        normVal.includes('DADOS MESTRES') ||
+        normVal.includes('DADOS MESTRE')
+      ) {
+        showUserDataSubroutineOptions();
+        return;
+      }
+
+      // Se for seleção de uma sub-rotina específica de Dados de Utilizador
+      if (normVal.includes('CRIAR UTILIZADOR') || normVal.includes('ADICIONAR UTILIZADOR') || normVal.includes('CRIAR USER')) {
+        selectUserDataSubroutine({ label: '➕ Criar utilizador', val: 'Criar utilizador', scriptName: 'L. CUA_CRIAR_USER.py', category: 'CUA_CRIAR_USER' });
+        return;
+      }
+
+      if (normVal.includes('ALTERAR SENHA') || normVal.includes('RESET PASSWORD') || normVal.includes('MUDAR SENHA') || normVal.includes('ALTERAR PASSWORD')) {
+        selectUserDataSubroutine({ label: '🔑 Alterar Senha', val: 'Alterar Senha', scriptName: 'su01_reset_password.py', category: 'CUA Login' });
+        return;
+      }
+
+      if (normVal.includes('DELIMITAR DATA FIM') || normVal.includes('DELIMITAR DATA') || normVal.includes('DATA FIM') || normVal.includes('ENDDATE')) {
+        selectUserDataSubroutine({ label: '📅 Delimitar data fim', val: 'Delimitar data fim', scriptName: 'I. CUA_ENDDATE.py', category: 'CUA_ENDDATE' });
         return;
       }
 
@@ -2892,10 +3902,32 @@ const AUTH_CHAT_STATES = {
       showAuthorizationTypingIndicator();
 
       setTimeout(() => {
+        if (authorizationIndividualContext && authorizationIndividualContext.processName) {
+          const ctx = authorizationIndividualContext;
+          ctx.selectedSystem = sysInfo;
+          if (!ctx.targetUser && !authorizationTargetUser) {
+            authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+            hideAuthorizationTypingIndicator();
+            appendAuthorizationMessage(
+              'assistant',
+              `Qual é o utilizador SAP que pretende processar na sub-rotina **${escapeAuthorizationText(ctx.processName)}** no ambiente **${escapeAuthorizationText(sysInfo.system || sysInfo.key)}** (ex: CSILVA)?`
+            );
+            updateAuthorizationComposer();
+            const inputEl = document.getElementById('authorization-chat-input');
+            if (inputEl) {
+              inputEl.placeholder = 'Introduza o utilizador SAP (ex: CSILVA)...';
+              inputEl.focus();
+            }
+          } else {
+            promptIndividualProcessParameters();
+          }
+          return;
+        }
+
         if (!authorizationTargetUser) {
           authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
           hideAuthorizationTypingIndicator();
-          appendAuthorizationMessage('assistant', 'Qual o utilizador SAP que pretende analisar?');
+          appendAuthorizationMessage('assistant', 'Qual o utilizador SAP que pretende analisar (ex: CSILVA)?');
           updateAuthorizationComposer();
           const inputEl = document.getElementById('authorization-chat-input');
           if (inputEl) {

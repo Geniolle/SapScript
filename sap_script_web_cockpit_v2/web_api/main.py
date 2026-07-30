@@ -50,6 +50,7 @@ def update_worker_ping_for_job(job_id: str) -> None:
 WORKER_REQUIRED_TASKS = {
     "authorization_open_cua",
     "authorization_analyze_user",
+    "authorization_hr_search",
     "sap_cockpit",
     "sap_agent_analysis",
     "sap_gui_chat_action",
@@ -1186,6 +1187,103 @@ class AuthorizationRemoveRequest(BaseModel):
     target_system_key: str
     roles: list[Any] = Field(default_factory=list)
     opcao_processamento: str = "sistema_user"
+
+
+class HrSearchRequest(BaseModel):
+    query: str
+    target_system_key: Optional[str] = "S4PCLNT100"
+    max_results: Optional[int] = 10
+
+
+@app.post("/api/authorizations/hr-search")
+async def api_search_hr_user_data(payload: HrSearchRequest) -> dict[str, Any]:
+    query_text = (payload.query or "").strip()
+    if not query_text:
+        raise HTTPException(status_code=400, detail="Termo de pesquisa de RH não informado.")
+
+    system_key = (payload.target_system_key or "S4PCLNT100").strip().upper()
+    max_res = payload.max_results or 10
+
+    # 1. Tentar executar localmente (se o pyrfc estiver instalado no ambiente)
+    loop = asyncio.get_event_loop()
+
+    def _try_local_search():
+        try:
+            try:
+                from worker.hr_data_analysis import search_hr_user_data_rfc
+            except ImportError:
+                from hr_data_analysis import search_hr_user_data_rfc
+
+            res = search_hr_user_data_rfc(query=query_text, target_system_key=system_key, max_results=max_res)
+            return res
+        except Exception as exc:
+            return {"_failed_local": True, "error": str(exc)}
+
+    local_res = await loop.run_in_executor(None, _try_local_search)
+    if isinstance(local_res, dict) and not local_res.get("_failed_local") and local_res.get("success"):
+        return local_res
+
+    # 2. Se falhar localmente (ex: pyrfc indisponível dentro do contentor Linux Docker), delegar ao Worker Windows
+    require_worker_online(
+        "authorization_hr_search",
+        message="O Worker Windows está desligado. Ligue o worker para consultar a tabela de RH via RFC."
+    )
+
+    job_params = {
+        "query": query_text,
+        "target_system_key": system_key,
+        "max_results": max_res,
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "authorization_hr_search", job_params)
+        job_id = job["id"]
+
+        start_time = time.time()
+        while time.time() - start_time < 15.0:
+            await asyncio.sleep(0.5)
+            j_state = await asyncio.to_thread(get_job, job_id)
+            if not j_state:
+                continue
+
+            st = str(j_state.get("state") or "").lower()
+            if st in ("succeeded", "succeeded_with_warnings", "failed"):
+                raw_log = str(j_state.get("log") or "")
+                for line in reversed(raw_log.splitlines()):
+                    line_clean = line.strip()
+                    if line_clean.startswith("{") and line_clean.endswith("}"):
+                        try:
+                            parsed = json.loads(line_clean)
+                            if isinstance(parsed, dict) and "success" in parsed:
+                                return parsed
+                        except Exception:
+                            pass
+
+                if st == "failed":
+                    return {
+                        "success": False,
+                        "message": "A pesquisa no RH falhou no Worker Windows.",
+                        "data": [],
+                        "query": query_text,
+                        "total": 0,
+                    }
+
+        return {
+            "success": False,
+            "message": "Tempo limite excedido a aguardar resposta do Worker Windows.",
+            "data": [],
+            "query": query_text,
+            "total": 0,
+        }
+
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": f"Erro na pesquisa de RH: {exc}",
+            "data": [],
+            "query": query_text,
+            "total": 0,
+        }
 
 
 def is_any_worker_active() -> bool:

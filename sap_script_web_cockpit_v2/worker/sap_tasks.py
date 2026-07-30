@@ -845,9 +845,33 @@ def _run_authorization_analyze_user(params: dict[str, Any], progress_logger: Any
 
     log_lines.append("[AUTH] Análise concluída com sucesso.")
 
-    safe_log = "\n".join(log_lines)
-
     return json.dumps(result, ensure_ascii=False), safe_log
+
+
+def _run_authorization_hr_search(params: dict[str, Any]) -> tuple[str, str]:
+    query = str(params.get("query") or "").strip()
+    system_key = str(params.get("target_system_key") or "S4PCLNT100").strip()
+    max_results = int(params.get("max_results") or 10)
+
+    try:
+        try:
+            from .hr_data_analysis import search_hr_user_data_rfc
+        except ImportError:
+            from hr_data_analysis import search_hr_user_data_rfc
+
+        res = search_hr_user_data_rfc(query=query, target_system_key=system_key, max_results=max_results)
+        log_json = json.dumps(res, ensure_ascii=False)
+        status = "succeeded" if res.get("success") else "failed"
+        return status, log_json
+    except Exception as exc:
+        err_res = {
+            "success": False,
+            "message": f"Erro ao executar a consulta de RH no Worker: {exc}",
+            "data": [],
+            "query": query,
+            "total": 0,
+        }
+        return "failed", json.dumps(err_res, ensure_ascii=False)
 
 
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
@@ -872,6 +896,10 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     params = job.get("params", {}) or {}
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
     try:
+        if task == "authorization_hr_search":
+            status, log = _run_authorization_hr_search(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
         if task == "authorization_analyze_user":
             os.environ["SAP_JOB_ID"] = str(job["id"])
             os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")

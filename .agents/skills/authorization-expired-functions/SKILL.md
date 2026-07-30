@@ -27,6 +27,7 @@ Use this skill after an authorization analysis has finished and the user asks fo
 - Treat `31/12/9999` as active.
 - If the list already contains a status like `Expirada` or `Ativa`, prefer that status.
 - If the user asks for expired functions, return only the expired entries.
+- **Contextual In-Memory Filtering (Frontend & Assistant):** When a roles table is already displayed in the chat, any natural language question (ex: *"Quero uma lista das funções expiradas"*, *"Mostra só as ativas"*, *"Quantas estão expiradas?"*) MUST filter the currently loaded roles array (`authorizationLastDisplayedRoles`) directly in memory and render the filtered subset table immediately in the chat without re-triggering a new SAP job or misidentifying words (like "UMA") as user IDs.
 
 ## Output Rules
 
