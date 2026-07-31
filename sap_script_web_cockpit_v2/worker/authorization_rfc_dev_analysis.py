@@ -63,25 +63,59 @@ def _read_agr_users_rows(connection: Any, target_user: str, max_rows: int) -> tu
     return [], "UNAME"
 
 
-def _collect_tcodes_for_role(
+def _collect_tcodes_for_roles_batch(
     connection: Any,
-    role_name: str,
+    role_names: list[str],
     progress_logger: Callable[[str], None] | None = None,
-) -> list[str]:
-    _emit(progress_logger, f"[AUTH RFC] A consultar AGR_TCODES para a role {role_name}...")
-    rows = _read_rfc_table(
-        connection,
-        "AGR_TCODES",
-        ["AGR_NAME", "TCODE"],
-        [{"field": "AGR_NAME", "value": role_name}],
-        max_rows=5000,
-    )
-    tcodes: list[str] = []
-    for row in rows:
-        tcode = str(row.get("TCODE") or "").strip().upper()
-        if tcode and tcode not in tcodes:
-            tcodes.append(tcode)
-    return tcodes
+) -> dict[str, list[str]]:
+    _emit(progress_logger, f"[AUTH RFC] A consultar AGR_TCODES em lote para {len(role_names)} roles...")
+    role_functions: dict[str, list[str]] = {role: [] for role in role_names}
+    if not role_names:
+        return role_functions
+
+    chunk_size = 15
+    for i in range(0, len(role_names), chunk_size):
+        chunk = role_names[i:i + chunk_size]
+        options = []
+        for idx, r_name in enumerate(chunk):
+            prefix = "" if idx == 0 else "OR "
+            options.append({"TEXT": f"{prefix}AGR_NAME = '{r_name}'"})
+
+        try:
+            res = connection.call(
+                "RFC_READ_TABLE",
+                QUERY_TABLE="AGR_TCODES",
+                DELIMITER="|",
+                FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "TCODE"}],
+                OPTIONS=options,
+                ROWCOUNT=5000,
+            )
+            raw_rows = res.get("DATA") or []
+            for raw in raw_rows:
+                wa = str(raw.get("WA") or "")
+                parts = wa.split("|")
+                if len(parts) >= 2:
+                    r_name = parts[0].strip()
+                    tcode = parts[1].strip().upper()
+                    if r_name in role_functions and tcode and tcode not in role_functions[r_name]:
+                        role_functions[r_name].append(tcode)
+        except Exception as exc:
+            for r_name in chunk:
+                rows = _read_rfc_table(
+                    connection,
+                    "AGR_TCODES",
+                    ["AGR_NAME", "TCODE"],
+                    [{"field": "AGR_NAME", "value": r_name}],
+                    max_rows=5000,
+                )
+                tcodes = []
+                for row in rows:
+                    tcode = str(row.get("TCODE") or "").strip().upper()
+                    if tcode and tcode not in tcodes:
+                        tcodes.append(tcode)
+                role_functions[r_name] = tcodes
+
+    return role_functions
 
 
 def analyze_user_authorizations_rfc_dev(
@@ -185,13 +219,13 @@ def analyze_user_authorizations_rfc_dev(
             })
 
         roles = deduplicate_roles(raw_roles)
-        _emit(progress_logger, f"[AUTH RFC] Encontradas {len(roles)} roles. A consultar AGR_TCODES...")
+        _emit(progress_logger, f"[AUTH RFC] Encontradas {len(roles)} roles. A consultar AGR_TCODES em lote...")
 
-        role_functions: dict[str, list[str]] = {}
+        role_names = [role["role"] for role in roles]
+        role_functions = _collect_tcodes_for_roles_batch(connection, role_names, progress_logger=progress_logger)
         for role in roles:
             role_name = role["role"]
-            tcodes = _collect_tcodes_for_role(connection, role_name, progress_logger=progress_logger)
-            role_functions[role_name] = tcodes
+            tcodes = role_functions.get(role_name, [])
             role["functions"] = tcodes
 
         executed_queries.append({

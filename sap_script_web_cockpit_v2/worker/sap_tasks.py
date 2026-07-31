@@ -573,11 +573,22 @@ def validate_completed_analysis(result: dict[str, Any]) -> None:
             raise SapExecutionError(f"A tabela {required_table} não foi consultada para confirmar a associação ao sistema.")
 
 
-def _authorization_uses_rfc(target_system_key: str) -> bool:
-    system_key = str(target_system_key or "").strip().upper()
+def _authorization_uses_rfc(target_system_key: str, requested_execution_mode: str = "") -> bool:
     if os.getenv("AUTHORIZATION_FORCE_RFC", "").strip().lower() in {"1", "true", "yes", "sim"}:
         return True
-    return False
+    req_mode = str(requested_execution_mode or "").strip().upper()
+    if req_mode == "RFC":
+        return True
+    if req_mode == "CUA":
+        return False
+
+    cua_key = str(os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+    system_key = str(target_system_key or "").strip().upper()
+    if system_key in {cua_key, "CUA", "SPA", "SPACLNT001"}:
+        return False
+
+    return True
+
 
 
 def _make_job_progress_logger(job_id: str):
@@ -620,14 +631,14 @@ def _run_authorization_analyze_user_rfc(params: dict[str, Any], progress_logger:
     try:
         if analysis_type == "master_data":
             from .user_master_data_analysis import analyze_user_master_data_rfc
-        elif target_system_key.startswith(("S4D", "S4P")):
+        elif target_system_key.startswith(("S4D", "S4P", "S4Q", "DEV", "QAD", "PRD")):
             from .authorization_rfc_dev_analysis import analyze_user_authorizations_rfc_dev
         else:
             from .authorization_rfc_analysis import analyze_user_authorizations_rfc
     except ImportError:
         if analysis_type == "master_data":
             from user_master_data_analysis import analyze_user_master_data_rfc
-        elif target_system_key.startswith(("S4D", "S4P")):
+        elif target_system_key.startswith(("S4D", "S4P", "S4Q", "DEV", "QAD", "PRD")):
             from authorization_rfc_dev_analysis import analyze_user_authorizations_rfc_dev
         else:
             from authorization_rfc_analysis import analyze_user_authorizations_rfc
@@ -639,7 +650,7 @@ def _run_authorization_analyze_user_rfc(params: dict[str, Any], progress_logger:
             progress_logger=progress_logger,
             connection_params=params.get("rfc_connection") if isinstance(params.get("rfc_connection"), dict) else None,
         )
-    elif target_system_key.startswith(("S4D", "S4P")):
+    elif target_system_key.startswith(("S4D", "S4P", "S4Q", "DEV", "QAD", "PRD")):
         result = analyze_user_authorizations_rfc_dev(
             target_user=target_user,
             target_system_key=target_system_key,
@@ -728,6 +739,7 @@ def _run_authorization_analyze_user(params: dict[str, Any], progress_logger: Any
     target_system_key = str(params.get("target_system_key") or "").strip().upper()
     analysis_type = str(params.get("analysis_type") or "").strip().lower()
     cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+    subsystem_filter = str(params.get("subsystem_filter") or "").strip().upper()
 
     if not target_user:
         raise SapExecutionError("Utilizador a analisar não foi informado.")
@@ -844,6 +856,7 @@ def _run_authorization_analyze_user(params: dict[str, Any], progress_logger: Any
                 log_lines.append("[AUTH] Resultado USL04 lido.")
 
     log_lines.append("[AUTH] Análise concluída com sucesso.")
+    safe_log = "\n".join(log_lines)
 
     return json.dumps(result, ensure_ascii=False), safe_log
 
@@ -902,14 +915,15 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             return status, "\n".join(log_lines)
         if task == "authorization_analyze_user":
             os.environ["SAP_JOB_ID"] = str(job["id"])
-            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8010").rstrip("/")
             os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
             progress_logger = _make_job_progress_logger(str(job["id"]))
             target_user = str(params.get("target_user") or "").strip().upper()
             target_system_key = str(params.get("target_system_key") or "").strip().upper()
             analysis_type = str(params.get("analysis_type") or "").strip().lower()
             requested_execution_mode = str(params.get("execution_mode") or "").strip().upper()
-            execution_mode = "RFC" if _authorization_uses_rfc(target_system_key) else "CUA"
+            uses_rfc = _authorization_uses_rfc(target_system_key, requested_execution_mode)
+            execution_mode = "RFC" if uses_rfc else "CUA"
             cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
             modo_label = f"modo={execution_mode}"
             if requested_execution_mode and requested_execution_mode != execution_mode:
@@ -924,10 +938,10 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             )
             progress_logger(
                 f"[AUTH] A iniciar a análise no sistema {target_system_key}."
-                if not _authorization_uses_rfc(target_system_key)
+                if not uses_rfc
                 else f"[AUTH RFC] A iniciar a ligação RFC ao sistema {target_system_key}."
             )
-            if _authorization_uses_rfc(target_system_key):
+            if uses_rfc:
                 status, log = _run_authorization_analyze_user_rfc(params, progress_logger=progress_logger)
             else:
                 status, log = _run_authorization_analyze_user(params, progress_logger=progress_logger)
@@ -972,7 +986,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "sap_cockpit":
             os.environ["SAP_JOB_ID"] = str(job["id"])
-            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8010").rstrip("/")
             os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
 
             main_thread_id = threading.get_ident()

@@ -1,4 +1,8 @@
-from __future__ import annotations
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import os
 import socket
@@ -11,7 +15,7 @@ import requests
 
 from sap_tasks import run_sap_task, JobCancelledException
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8010").rstrip("/")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 WORKER_NAME = os.getenv("WORKER_NAME", socket.gethostname())
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "3"))
@@ -92,7 +96,14 @@ def process_job(job: dict[str, Any]) -> None:
     log = ""
     state = "failed"
     try:
-        run_res = run_sap_task(job)
+        import importlib
+        import sap_tasks
+        try:
+            importlib.reload(sap_tasks)
+        except Exception as reload_err:
+            print(f"[WORKER] Aviso ao recarregar sap_tasks: {reload_err}")
+
+        run_res = sap_tasks.run_sap_task(job)
         if isinstance(run_res, tuple) and len(run_res) == 3:
             status, log, success_val = run_res
         else:

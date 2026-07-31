@@ -23,6 +23,7 @@ const AUTH_CHAT_STATES = {
 
     let authorizationChatState = AUTH_CHAT_STATES.LOADING;
     let authorizationTargetUser = '';
+    let authorizationTargetUserDisplayName = '';
     let authorizationSelectedSystem = null;
     let authorizationAvailableSystems = [];
     let authorizationTechnicalUser = '';
@@ -1565,6 +1566,7 @@ const AUTH_CHAT_STATES = {
         card.className = 'auth-chat-system-card';
         card.setAttribute('aria-pressed', 'false');
         card.setAttribute('data-key', sys.key);
+        card.setAttribute('data-system', sys.system || sys.key);
 
         const codeSpan = document.createElement('span');
         codeSpan.className = 'sys-code';
@@ -2621,15 +2623,11 @@ const AUTH_CHAT_STATES = {
       
       const existing = container.querySelector('[data-authorization-typing="true"]');
       if (existing) {
-        const labelSpan = existing.querySelector('.auth-chat-typing-label');
-        if (labelSpan) {
-          labelSpan.textContent = label;
-          if (requestId !== null) {
-            existing.dataset.requestId = requestId;
-          }
-          container.scrollTop = container.scrollHeight;
-          return;
+        if (requestId !== null) {
+          existing.dataset.requestId = requestId;
         }
+        container.scrollTop = container.scrollHeight;
+        return;
       }
 
       removeAuthorizationTypingIndicator();
@@ -2641,7 +2639,6 @@ const AUTH_CHAT_STATES = {
         typingDiv.dataset.requestId = requestId;
       }
       typingDiv.innerHTML = `
-        <span class="auth-chat-typing-label">${escapeAuthorizationText(label)}</span>
         <span class="auth-chat-typing-dot"></span>
         <span class="auth-chat-typing-dot"></span>
         <span class="auth-chat-typing-dot"></span>
@@ -2652,6 +2649,18 @@ const AUTH_CHAT_STATES = {
 
     function hideAuthorizationTypingIndicator() {
       removeAuthorizationTypingIndicator();
+    }
+
+    function parseSimpleAuthorizationMarkdown(text) {
+      if (!text) return '';
+      let html = String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/\n/g, '<br>');
+      return html;
     }
 
     function appendAuthorizationMessage(sender, text, isHtml = false, options = {}) {
@@ -2676,7 +2685,7 @@ const AUTH_CHAT_STATES = {
         if (isHtml) {
           contentSpan.innerHTML = text;
         } else {
-          contentSpan.textContent = text;
+          contentSpan.innerHTML = parseSimpleAuthorizationMarkdown(text);
         }
         msgDiv.appendChild(contentSpan);
       } else {
@@ -2913,9 +2922,8 @@ const AUTH_CHAT_STATES = {
     }
 
     function selectAuthorizationProfileSubroutine(item) {
-      appendAuthorizationMessage('user', item.val);
-
       if (item.type === 'ANALYSIS' || item.val.includes('Analisar')) {
+        appendAuthorizationMessage('user', item.val);
         authorizationIndividualContext = null;
         showAuthorizationTypingIndicator(null, 'A preparar o ambiente de análise de autorizações...');
         setTimeout(() => {
@@ -3520,7 +3528,61 @@ const AUTH_CHAT_STATES = {
       return { extractedUser, extractedSystem, extractedType };
     }
 
-    function handleAuthorizationChatSubmit(event) {
+    async function processIndividualUserSubmit(rawVal) {
+      let userVal = rawVal.trim().toUpperCase();
+      if (/^\d+$/.test(userVal)) {
+        userVal = 'S' + userVal.replace(/^0+/, '');
+      }
+
+      showAuthorizationTypingIndicator(null, `A pesquisar o nome do utilizador ${escapeAuthorizationText(userVal)} via RFC em PRD...`);
+
+      let userFullName = '';
+      try {
+        const resp = await fetch('/api/authorizations/hr-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: userVal, target_system_key: 'S4PCLNT100', max_results: 5 })
+        });
+        if (resp.ok) {
+          const hrRes = await resp.json();
+          if (hrRes && hrRes.success && Array.isArray(hrRes.data) && hrRes.data.length > 0) {
+            const matched = hrRes.data.find(d => {
+              const u = String(d.user_id || d.sap_user || '').trim().toUpperCase();
+              const p = String(d.pernr || '').trim();
+              return u === userVal || ('S' + p.replace(/^0+/, '')) === userVal;
+            }) || hrRes.data[0];
+
+            userFullName = (matched.full_name || `${matched.first_name || ''} ${matched.last_name || ''}`).trim();
+          }
+        }
+      } catch (err) {
+        console.warn('[HR SEARCH RFC] Não foi possível obter o nome do utilizador:', err);
+      }
+
+      const userDisplay = userFullName ? `${userVal} - ${userFullName}` : userVal;
+
+      if (authorizationIndividualContext) {
+        authorizationIndividualContext.targetUser = userVal;
+        authorizationIndividualContext.userDisplayName = userDisplay;
+        authorizationIndividualContext.userFullName = userFullName;
+      }
+      authorizationTargetUser = userVal;
+
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_INDIVIDUAL_SYSTEM;
+      hideAuthorizationTypingIndicator();
+
+      const procName = authorizationIndividualContext?.processName || 'Processo';
+      const msgHtml = `Registado o utilizador <b>${escapeAuthorizationText(userDisplay)}</b> para <b>${escapeAuthorizationText(procName)}</b>.<br><br>Em que sistema/ambiente pretende efetuar a alteração?`;
+
+      appendAuthorizationMessage(
+        'assistant',
+        msgHtml,
+        true
+      );
+      showIndividualSystemOptions();
+    }
+
+    async function handleAuthorizationChatSubmit(event) {
       if (event) event.preventDefault();
       
       const input = document.getElementById('authorization-chat-input');
@@ -3626,19 +3688,7 @@ const AUTH_CHAT_STATES = {
 
       // Se estivermos no fluxo de alteração individual à espera do utilizador alvo:
       if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER) {
-        const userVal = rawVal.trim().toUpperCase();
-        if (authorizationIndividualContext) {
-          authorizationIndividualContext.targetUser = userVal;
-        }
-        authorizationTargetUser = userVal;
-
-        authorizationChatState = AUTH_CHAT_STATES.WAITING_INDIVIDUAL_SYSTEM;
-        hideAuthorizationTypingIndicator();
-        appendAuthorizationMessage(
-          'assistant',
-          `Registado o utilizador **${escapeAuthorizationText(userVal)}** para a alteração em **${escapeAuthorizationText(authorizationIndividualContext?.processName || 'Processo')}**.\n\nEm que sistema/ambiente pretende efetuar a alteração?`
-        );
-        showIndividualSystemOptions();
+        await processIndividualUserSubmit(rawVal);
         return;
       }
 
@@ -3647,7 +3697,7 @@ const AUTH_CHAT_STATES = {
         const detailsVal = rawVal.trim();
         const ctx = authorizationIndividualContext || {};
         const procName = ctx.processName || 'Processo';
-        const user = ctx.targetUser || authorizationTargetUser || 'N/D';
+        const user = ctx.userDisplayName || ctx.targetUser || authorizationTargetUser || 'N/D';
         const sysLabel = ctx.selectedSystem?.label || ctx.selectedSystem?.system || authorizationSelectedSystem?.system || 'N/D';
 
         hideAuthorizationTypingIndicator();
@@ -3739,33 +3789,70 @@ const AUTH_CHAT_STATES = {
         return;
       }
 
+    async function processAnalysisUserSubmit(userRaw, extractedSystem, extractedType) {
+      let userCode = userRaw.trim().toUpperCase();
+      if (/^\d+$/.test(userCode)) {
+        userCode = 'S' + userCode.replace(/^0+/, '');
+      }
+
+      showAuthorizationTypingIndicator(null, `A pesquisar o nome do utilizador ${escapeAuthorizationText(userCode)} via RFC em PRD...`);
+
+      let userFullName = '';
+      try {
+        const resp = await fetch('/api/authorizations/hr-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: userCode, target_system_key: 'S4PCLNT100', max_results: 5 })
+        });
+        if (resp.ok) {
+          const hrRes = await resp.json();
+          if (hrRes && hrRes.success && Array.isArray(hrRes.data) && hrRes.data.length > 0) {
+            const matched = hrRes.data.find(d => {
+              const u = String(d.user_id || d.sap_user || '').trim().toUpperCase();
+              const p = String(d.pernr || '').trim();
+              return u === userCode || ('S' + p.replace(/^0+/, '')) === userCode;
+            }) || hrRes.data[0];
+
+            userFullName = (matched.full_name || `${matched.first_name || ''} ${matched.last_name || ''}`).trim();
+          }
+        }
+      } catch (err) {
+        console.warn('[HR SEARCH RFC] Não foi possível obter o nome do utilizador:', err);
+      }
+
+      const userDisplay = userFullName ? `${userCode} - ${userFullName}` : userCode;
+      authorizationTargetUser = userCode;
+      authorizationTargetUserDisplayName = userDisplay;
+
+      if (extractedSystem) authorizationSelectedSystem = extractedSystem;
+      if (extractedType) authorizationSelectedAnalysisType = extractedType;
+
+      if (!authorizationSelectedAnalysisType && authorizationAnalysisTypes.length > 0) {
+        authorizationSelectedAnalysisType = authorizationAnalysisTypes.find(t => t.id === 'authorizations') || authorizationAnalysisTypes[0];
+      }
+
+      hideAuthorizationTypingIndicator();
+
+      if (authorizationSelectedSystem) {
+        authorizationChatState = AUTH_CHAT_STATES.LOADING;
+        showAuthorizationTypingIndicator();
+        setTimeout(() => {
+          appendAuthorizationMessage('assistant', `Perfeito. Registado o utilizador <b>${escapeAuthorizationText(userDisplay)}</b>.`, true);
+          showAuthorizationSummary();
+        }, 400);
+      } else {
+        authorizationChatState = AUTH_CHAT_STATES.WAITING_SYSTEM;
+        appendAuthorizationMessage('assistant', `Perfeito. Registado o utilizador <b>${escapeAuthorizationText(userDisplay)}</b>.<br><br>Em que sistema pretende fazer a análise?`, true);
+        showAuthorizationSystemOptions();
+      }
+    }
+
       // Se a mensagem contiver a indicação de um utilizador SAP para analisar (ex: "Quero analisar o user S5441")
       const { extractedUser, extractedSystem, extractedType } = extractAuthorizationParamsFromText(rawVal);
 
       if (extractedUser) {
-        authorizationTargetUser = extractedUser;
-        if (extractedSystem) authorizationSelectedSystem = extractedSystem;
-        if (extractedType) authorizationSelectedAnalysisType = extractedType;
-
-        if (!authorizationSelectedAnalysisType && authorizationAnalysisTypes.length > 0) {
-          authorizationSelectedAnalysisType = authorizationAnalysisTypes.find(t => t.id === 'authorizations') || authorizationAnalysisTypes[0];
-        }
-
-        if (authorizationSelectedSystem) {
-          authorizationChatState = AUTH_CHAT_STATES.LOADING;
-          showAuthorizationTypingIndicator();
-          setTimeout(() => {
-            appendAuthorizationMessage('assistant', `Perfeito. Registado o utilizador ${escapeAuthorizationText(authorizationTargetUser)}.`);
-            showAuthorizationSummary();
-          }, 400);
-          return;
-        } else {
-          authorizationChatState = AUTH_CHAT_STATES.WAITING_SYSTEM;
-          hideAuthorizationTypingIndicator();
-          appendAuthorizationMessage('assistant', `Perfeito. Registado o utilizador ${escapeAuthorizationText(authorizationTargetUser)}. Em que sistema pretende fazer a análise?`);
-          showAuthorizationSystemOptions();
-          return;
-        }
+        await processAnalysisUserSubmit(extractedUser, extractedSystem, extractedType);
+        return;
       }
 
       // Se ainda não temos uma análise concluída ou se estamos na fase de recolha de parâmetros:
@@ -3781,17 +3868,14 @@ const AUTH_CHAT_STATES = {
           authorizationChatState = AUTH_CHAT_STATES.LOADING;
           showAuthorizationTypingIndicator();
           setTimeout(() => {
-            appendAuthorizationMessage('assistant', `Perfeito. Registado o utilizador ${escapeAuthorizationText(authorizationTargetUser)}.`);
+            appendAuthorizationMessage('assistant', `Perfeito. Registado o utilizador <b>${escapeAuthorizationText(authorizationTargetUserDisplayName || authorizationTargetUser)}</b>.`, true);
             showAuthorizationSummary();
           }, 400);
           return;
         }
 
         if (!authorizationTargetUser) {
-          authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
-          hideAuthorizationTypingIndicator();
-          appendAuthorizationMessage('assistant', 'Qual o utilizador SAP que pretende analisar?');
-          updateAuthorizationComposer();
+          await processAnalysisUserSubmit(rawVal.trim(), extractedSystem, extractedType);
           return;
         }
 
@@ -3836,6 +3920,7 @@ const AUTH_CHAT_STATES = {
         card.className = 'auth-chat-system-card';
         card.setAttribute('aria-pressed', 'false');
         card.setAttribute('data-key', sys.key);
+        card.setAttribute('data-system', sys.system || sys.key);
 
         const codeSpan = document.createElement('span');
         codeSpan.className = 'sys-code';
@@ -4133,12 +4218,22 @@ const AUTH_CHAT_STATES = {
       const isDevFlow = isAuthorizationDevFlow();
       const isRfcFlow = executionMode === 'RFC' || isDevFlow;
       const selectedSystemLabel = authorizationSelectedSystem?.system || 'sistema selecionado';
-      appendAuthorizationMessage(
-        'assistant',
-        isRfcFlow
-          ? `A iniciar a ligação RFC ao sistema ${escapeAuthorizationText(selectedSystemLabel)}...`
-          : `A iniciar a análise no sistema ${escapeAuthorizationText(selectedSystemLabel)}...`
-      );
+      const userDisplay = authorizationTargetUserDisplayName || authorizationTargetUser;
+      const analysisTypeLabel = authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : 'Autorizações';
+      const modeText = isRfcFlow ? 'RFC Direta (pyrfc)' : 'SAP GUI';
+
+      const statusMsgHtml = `
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="font-weight:700; color:var(--text-primary);">A iniciar a análise no sistema <b>${escapeAuthorizationText(selectedSystemLabel)}</b>...</div>
+          <div style="font-size:0.83rem; color:var(--text-secondary); line-height:1.5; margin-top:2px;">
+            <b>• Utilizador:</b> ${escapeAuthorizationText(userDisplay)}<br>
+            <b>• Tipo de análise:</b> ${escapeAuthorizationText(analysisTypeLabel)}<br>
+            <b>• Modo de execução:</b> ${escapeAuthorizationText(modeText)}
+          </div>
+        </div>
+      `;
+
+      appendAuthorizationMessage('assistant', statusMsgHtml, true);
       showAuthorizationTypingIndicator();
 
       const payload = {
@@ -4550,7 +4645,9 @@ const AUTH_CHAT_STATES = {
                 appendAuthorizationMessage('assistant', resultHtml, true);
 
                 window.setTimeout(() => {
-                  renderPostAnalysisFollowUpQuestion();
+                  if (typeof renderPostAnalysisFollowUpQuestion === 'function') {
+                    renderPostAnalysisFollowUpQuestion();
+                  }
                 }, 400);
               }
           } else if (job.state === 'failed' || job.state === 'cancelled') {
@@ -4572,21 +4669,20 @@ const AUTH_CHAT_STATES = {
               throw new Error('Tempo limite da análise esgotado.');
             }
 
-            // Verificar se o worker ficou offline durante a execução do job
-            const statusRes = await fetch('/api/worker/status', { cache: 'no-store' });
-            let workerOnline = true;
-            if (statusRes.ok) {
-              const statusData = await statusRes.json();
-              updateSidebarWorkerStatus(statusData);
-              workerOnline = statusData.online === true;
-            } else {
-              const offlineData = { online: false, state: 'offline', status: 'offline' };
-              updateSidebarWorkerStatus(offlineData);
-              workerOnline = false;
-            }
-
-            if (!workerOnline) {
-              throw { isWorkerOfflineDuringExecution: true };
+            // Verificar status do worker apenas para atualizar a barra lateral
+            try {
+              const statusRes = await fetch('/api/worker/status', { cache: 'no-store' });
+              if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                updateSidebarWorkerStatus(statusData);
+                if (job.state === 'pending' && statusData.online === false && statusData.last_seen_seconds > 20) {
+                  throw { isWorkerOfflineDuringExecution: true };
+                }
+              }
+            } catch (statusErr) {
+              if (statusErr && statusErr.isWorkerOfflineDuringExecution) {
+                throw statusErr;
+              }
             }
 
             setTimeout(check, 1200);
@@ -4652,47 +4748,14 @@ const AUTH_CHAT_STATES = {
     }
 
     function showAuthorizationSummary() {
-      const container = document.getElementById('authorization-chat-messages');
-      if (!container) return;
-
       hideAuthorizationTypingIndicator();
       authorizationChatState = AUTH_CHAT_STATES.READY;
       updateAuthorizationComposer();
 
-      const summaryDiv = document.createElement('div');
-      summaryDiv.className = 'auth-chat-summary';
-
-      const fields = [
-        { label: 'Utilizador analisado', val: authorizationTargetUser },
-        { label: 'Tipo de análise', val: authorizationSelectedAnalysisType ? authorizationSelectedAnalysisType.label : 'N/D' },
-        { label: 'Modo de execução', val: getAuthorizationExecutionMode() || 'N/D' },
-        { label: 'Sistema', val: authorizationSelectedSystem ? authorizationSelectedSystem.system : 'N/D' }
-      ];
-
-      fields.forEach(f => {
-        const row = document.createElement('div');
-        row.className = 'auth-chat-summary-row';
-
-        const lSpan = document.createElement('span');
-        lSpan.className = 'auth-chat-summary-label';
-        lSpan.textContent = f.label;
-
-        const vSpan = document.createElement('span');
-        vSpan.className = 'auth-chat-summary-value';
-        vSpan.textContent = f.val;
-
-        row.appendChild(lSpan);
-        row.appendChild(vSpan);
-        summaryDiv.appendChild(row);
-      });
-
-      container.appendChild(summaryDiv);
-      container.scrollTop = container.scrollHeight;
-
-      // Executar a análise automaticamente sem necessidade de confirmação manual
+      // Executar a análise diretamente incorporando os detalhes no balão de resposta
       setTimeout(() => {
         startAuthorizationAnalysis();
-      }, 300);
+      }, 200);
     }
 
     function handleAuthorizationChatInput(event) {

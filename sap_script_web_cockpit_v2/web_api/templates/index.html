@@ -2550,101 +2550,151 @@
         .auth-actions-row {
           display: flex;
           justify-content: flex-end;
-          margin-top: 8px;
+          margin-top: 10px;
         }
         .auth-chat-bubble {
-          max-width: 95%;
-          padding: 12px 16px;
-          border-radius: 12px;
-          font-size: 0.85rem;
-          line-height: 1.5;
+          max-width: 90%;
+          padding: 13px 18px;
+          border-radius: 14px;
+          font-size: 0.86rem;
+          line-height: 1.55;
           animation: authChatSlideIn 0.25s ease-out;
         }
         .auth-chat-bubble-assistant {
           align-self: flex-start;
-          background: var(--card-bg, #ffffff);
-          border: 1px solid var(--border-color);
-          color: var(--text-primary);
-          border-top-left-radius: 2px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-left: 3px solid #3b82f6;
+          color: var(--text-primary, #1e293b);
+          border-top-left-radius: 3px;
           display: flex;
-          gap: 10px;
-          width: 100%;
+          gap: 12px;
+          width: fit-content;
+          max-width: 95%;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+          margin-top: 12px;
+          margin-bottom: 2px;
         }
         .auth-chat-bubble-assistant-icon {
-          font-size: 14px;
-          margin-top: 2px;
-          color: #3b82f6;
+          font-size: 15px;
+          margin-top: 1px;
+          color: #2563eb;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 26px;
+          height: 26px;
+          background: rgba(37, 99, 235, 0.08);
+          border-radius: 8px;
+          flex-shrink: 0;
         }
         .auth-chat-bubble-user {
           align-self: flex-end;
           background: linear-gradient(135deg, #2563eb, #1d4ed8);
           color: white;
-          border-top-right-radius: 2px;
-          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+          border-top-right-radius: 3px;
+          box-shadow: 0 3px 10px rgba(37, 99, 235, 0.22);
+          margin-top: 18px;
+          margin-bottom: 6px;
         }
         .auth-chat-typing {
           align-self: flex-start;
           display: flex;
           align-items: center;
-          gap: 4px;
-          padding: 12px 18px;
-          background: var(--card-bg, #ffffff);
-          border: 1px solid var(--border-color);
-          border-radius: 12px;
-          border-top-left-radius: 2px;
+          gap: 6px;
+          padding: 8px 4px;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          margin: 6px 0;
+        }
+        .auth-chat-typing-label {
+          display: none !important;
         }
         .auth-chat-typing-dot {
-          width: 6px;
-          height: 6px;
+          width: 8px;
+          height: 8px;
           border-radius: 50%;
-          background: var(--text-secondary);
-          opacity: 0.4;
-          animation: authChatBounce 1.4s infinite both;
+          background: #3b82f6;
+          opacity: 0.7;
+          animation: authChatBounce 1.4s infinite ease-in-out both;
         }
-        .auth-chat-typing-dot:nth-child(2) { animation-delay: .2s; }
-        .auth-chat-typing-dot:nth-child(3) { animation-delay: .4s; }
+        .auth-chat-typing-dot:nth-child(1),
+        .auth-chat-typing-dot:nth-of-type(1) { animation-delay: 0s; }
+        .auth-chat-typing-dot:nth-child(2),
+        .auth-chat-typing-dot:nth-of-type(2) { animation-delay: 0.2s; }
+        .auth-chat-typing-dot:nth-child(3),
+        .auth-chat-typing-dot:nth-of-type(3) { animation-delay: 0.4s; }
+
+        @keyframes authChatBounce {
+          0%, 80%, 100% {
+            transform: scale(0.6);
+            opacity: 0.35;
+          }
+          40% {
+            transform: scale(1.15);
+            opacity: 1;
+          }
+        }
         
         .auth-chat-system-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 12px;
-          margin-top: 10px;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 14px;
+          margin-top: 14px;
+          margin-bottom: 10px;
           width: 100%;
         }
         .auth-chat-system-card,
         .auth-chat-analysis-card {
           border: 1px solid var(--border-color, #e2e8f0);
-          border-radius: 10px;
-          padding: 12px 14px;
+          border-radius: 12px;
+          padding: 14px 16px;
           background: #ffffff !important;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          gap: 5px;
           text-align: left;
+          box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
+          position: relative;
+          overflow: hidden;
         }
         .auth-chat-system-card:hover,
         .auth-chat-analysis-card:hover {
           border-color: #3b82f6;
-          background: rgba(59, 130, 246, 0.02) !important;
-          transform: translateY(-1px);
+          background: #ffffff !important;
+          box-shadow: 0 6px 16px rgba(59, 130, 246, 0.14);
+          transform: translateY(-2px);
         }
         .auth-chat-system-card.selected,
         .auth-chat-analysis-card.selected {
-          border-color: #cbd5e1 !important;
-          background: #f1f5f9 !important;
-          box-shadow: 0 0 0 2px rgba(203, 213, 225, 0.6) !important;
+          border-color: #2563eb !important;
+          background: #eff6ff !important;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2) !important;
         }
         .auth-chat-system-card .sys-code {
-          font-weight: 700 !important;
-          font-size: 0.86rem !important;
-          color: #0f172a !important;
-          letter-spacing: 0.01em;
+          font-weight: 800 !important;
+          font-size: 0.95rem;
+          letter-spacing: 0.02em;
         }
+        .auth-chat-system-card[data-key*="S4D"] .sys-code,
+        .auth-chat-system-card[data-system="S4D"] .sys-code { color: #1d4ed8; }
+
+        .auth-chat-system-card[data-key*="S4P"] .sys-code,
+        .auth-chat-system-card[data-system="S4P"] .sys-code { color: #047857; }
+
+        .auth-chat-system-card[data-key*="S4Q"] .sys-code,
+        .auth-chat-system-card[data-system="S4Q"] .sys-code { color: #b45309; }
+
+        .auth-chat-system-card[data-key*="SPA"] .sys-code,
+        .auth-chat-system-card[data-key*="CUA"] .sys-code,
+        .auth-chat-system-card[data-system="SPA"] .sys-code { color: #6d28d9; }
+
         .auth-chat-system-card .sys-client {
-          font-size: 0.72rem;
-          color: var(--text-secondary);
+          font-size: 0.78rem;
+          color: var(--text-secondary, #64748b);
           font-weight: 600;
         }
         .auth-chat-system-card .sys-conn {
@@ -5733,13 +5783,24 @@
         }
     }
 
+    function closeAllJobMenus() {
+      const allMenus = document.querySelectorAll('.job-options-menu');
+      allMenus.forEach(menu => {
+        if (menu) menu.style.display = 'none';
+      });
+    }
+
     window.deleteJobState = window.deleteJobState || {
       pendingJobId: null,
+      isAll: false,
       deleting: false
     };
 
     window.deleteJob = function(jobId) {
+      closeAllJobMenus();
       const modal = document.getElementById('delete-job-modal');
+      const titleEl = document.getElementById('delete-job-modal-title');
+      const textEl = document.getElementById('delete-job-modal-text');
       const errorBox = document.getElementById('delete-job-modal-error');
       const confirmBtn = document.getElementById('delete-job-modal-confirm');
       const cancelBtn = document.getElementById('delete-job-modal-cancel');
@@ -5750,9 +5811,14 @@
       }
 
       window.deleteJobState.pendingJobId = jobId;
+      window.deleteJobState.isAll = false;
       window.deleteJobState.deleting = false;
 
       modal.dataset.jobId = jobId || '';
+      modal.dataset.isAll = 'false';
+
+      if (titleEl) titleEl.textContent = 'Eliminar job?';
+      if (textEl) textEl.textContent = 'Tem a certeza que quer eliminar este job permanentemente? Esta ação não pode ser desfeita.';
 
       if (errorBox) {
         errorBox.hidden = true;
@@ -5768,7 +5834,9 @@
         cancelBtn.disabled = false;
       }
 
+      modal.removeAttribute('hidden');
       modal.hidden = false;
+      modal.style.display = 'flex';
     };
 
     window.closeDeleteJobModal = function() {
@@ -5778,11 +5846,15 @@
       const cancelBtn = document.getElementById('delete-job-modal-cancel');
 
       window.deleteJobState.pendingJobId = null;
+      window.deleteJobState.isAll = false;
       window.deleteJobState.deleting = false;
 
       if (modal) {
         delete modal.dataset.jobId;
+        delete modal.dataset.isAll;
+        modal.setAttribute('hidden', '');
         modal.hidden = true;
+        modal.style.display = 'none';
       }
 
       if (errorBox) {
@@ -5815,17 +5887,7 @@
       const confirmBtn = document.getElementById('delete-job-modal-confirm');
       const cancelBtn = document.getElementById('delete-job-modal-cancel');
 
-      const jobId = modal?.dataset?.jobId || window.deleteJobState.pendingJobId;
-
-      console.log('[deleteJob] Confirm clicked:', jobId);
-
-      if (!jobId) {
-        if (errorBox) {
-          errorBox.textContent = 'Nenhum job selecionado para eliminar.';
-          errorBox.hidden = false;
-        }
-        return;
-      }
+      const isAll = (modal?.dataset?.isAll === 'true') || window.deleteJobState.isAll;
 
       window.deleteJobState.deleting = true;
 
@@ -5836,6 +5898,73 @@
 
       if (cancelBtn) {
         cancelBtn.disabled = true;
+      }
+
+      if (isAll) {
+        const jobIds = (typeof allJobs !== 'undefined' ? allJobs : []).map(job => job.id).filter(Boolean);
+        try {
+          const res = await fetch('/api/jobs/delete-all', { method: 'POST' });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || 'Falha ao eliminar todos os jobs.');
+          }
+          window.closeDeleteJobModal();
+          activeJobId = null;
+          if (typeof loadJobs === 'function') await loadJobs();
+          if (typeof loadHistoryJobs === 'function') await loadHistoryJobs();
+          if (typeof showToast === 'function') showToast('Todos os jobs foram eliminados', 'success');
+        } catch (err) {
+          console.warn('Falha no endpoint de eliminação em massa, a usar eliminação individual:', err);
+          let removed = 0;
+          const failures = [];
+
+          for (const jobId of jobIds) {
+            try {
+              const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+              if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Falha ao eliminar job.');
+              }
+              removed += 1;
+            } catch (deleteErr) {
+              failures.push({ jobId, error: deleteErr });
+            }
+          }
+
+          window.closeDeleteJobModal();
+          activeJobId = null;
+          if (typeof loadJobs === 'function') await loadJobs();
+          if (typeof loadHistoryJobs === 'function') await loadHistoryJobs();
+
+          if (typeof showToast === 'function') {
+            if (failures.length === 0) {
+              showToast(`Todos os jobs foram eliminados (${removed})`, 'success');
+            } else if (removed > 0) {
+              showToast(`Eliminar todos os jobs concluído parcialmente (${removed}/${jobIds.length})`, 'warning');
+            } else {
+              showToast('Não foi possível eliminar todos os jobs', 'error');
+            }
+          }
+        }
+        return;
+      }
+
+      const jobId = modal?.dataset?.jobId || window.deleteJobState.pendingJobId;
+
+      if (!jobId) {
+        if (errorBox) {
+          errorBox.textContent = 'Nenhum job selecionado para eliminar.';
+          errorBox.hidden = false;
+        }
+        if (confirmBtn) {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Eliminar definitivamente';
+        }
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+        }
+        window.deleteJobState.deleting = false;
+        return;
       }
 
       try {
@@ -5863,6 +5992,7 @@
         if (typeof loadHistoryJobs === 'function') {
           await loadHistoryJobs();
         }
+        if (typeof showToast === 'function') showToast('Job eliminado com sucesso', 'success');
       } catch (err) {
         window.deleteJobState.deleting = false;
 
@@ -5884,72 +6014,54 @@
       }
     };
 
-    function copyJobLog(jobId) {
-        const job = allJobs.find(j => j.id === jobId);
-        if (job) {
-            navigator.clipboard.writeText(job.log || '');
-            showToast('Log foi copiado', 'success');
-        }
-    }
+    window.deleteAllJobs = function() {
+      closeAllJobMenus();
+      const modal = document.getElementById('delete-job-modal');
+      const titleEl = document.getElementById('delete-job-modal-title');
+      const textEl = document.getElementById('delete-job-modal-text');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
 
-    function closeAllMenus() {
-        const allMenus = document.querySelectorAll('.job-options-menu');
-        allMenus.forEach(menu => {
-            menu.style.display = 'none';
-        });
-    }
+      if (!modal) {
+        console.error('[deleteAllJobs] Modal delete-job-modal não encontrado.');
+        return;
+      }
 
-    async function deleteAllJobs() {
-        const confirmed = window.confirm('Tem a certeza que quer eliminar todos os jobs? Esta ação não pode ser desfeita.');
-        if (!confirmed) return;
+      const jobIds = (typeof allJobs !== 'undefined' ? allJobs : []).map(job => job.id).filter(Boolean);
+      if (jobIds.length === 0) {
+        if (typeof showToast === 'function') showToast('Não existem jobs para eliminar', 'info');
+        return;
+      }
 
-        const jobIds = (allJobs || []).map(job => job.id).filter(Boolean);
-        if (jobIds.length === 0) {
-            showToast('Não existem jobs para eliminar', 'info');
-            return;
-        }
+      window.deleteJobState.pendingJobId = null;
+      window.deleteJobState.isAll = true;
+      window.deleteJobState.deleting = false;
 
-        try {
-            const res = await fetch('/api/jobs/delete-all', { method: 'POST' });
-            if (!res.ok) {
-                const text = await res.text();
-                throw new Error(text || 'Falha ao eliminar todos os jobs.');
-            }
-            closeAllMenus();
-            activeJobId = null;
-            await loadJobs();
-            showToast('Todos os jobs foram eliminados', 'success');
-        } catch (err) {
-            console.warn('Falha no endpoint de eliminação em massa, a usar eliminação individual:', err);
-            let removed = 0;
-            const failures = [];
+      modal.dataset.jobId = '';
+      modal.dataset.isAll = 'true';
 
-            for (const jobId of jobIds) {
-                try {
-                    const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
-                    if (!res.ok) {
-                        const text = await res.text();
-                        throw new Error(text || 'Falha ao eliminar job.');
-                    }
-                    removed += 1;
-                } catch (deleteErr) {
-                    failures.push({ jobId, error: deleteErr });
-                }
-            }
+      if (titleEl) titleEl.textContent = 'Eliminar todos os jobs?';
+      if (textEl) textEl.textContent = 'Tem a certeza que quer eliminar todos os jobs permanentemente? Esta ação não pode ser desfeita.';
 
-            closeAllMenus();
-            activeJobId = null;
-            await loadJobs();
+      if (errorBox) {
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+      }
 
-            if (failures.length === 0) {
-                showToast(`Todos os jobs foram eliminados (${removed})`, 'success');
-            } else if (removed > 0) {
-                showToast(`Eliminar todos os jobs concluído parcialmente (${removed}/${jobIds.length})`, 'warning');
-            } else {
-                showToast('Não foi possível eliminar todos os jobs', 'error');
-            }
-        }
-    }
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Eliminar definitivamente';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+      }
+
+      modal.removeAttribute('hidden');
+      modal.hidden = false;
+      modal.style.display = 'flex';
+    };
 
     function toggleJobOptionsDropdown(event, jobId) {
         event.stopPropagation();
@@ -9956,7 +10068,7 @@
 
       <h3 id="delete-job-modal-title">Eliminar job?</h3>
 
-      <p class="delete-job-modal-text">
+      <p id="delete-job-modal-text" class="delete-job-modal-text">
         Tem a certeza que quer eliminar este job permanentemente?
         Esta ação não pode ser desfeita.
       </p>
