@@ -79,49 +79,251 @@ def search_hr_user_data_rfc(
         }
 
     try:
+        raw_query = str(query or "").strip()
+        is_email = "@" in raw_query
+
+        # 0. Se for um endereço de e-mail (contém @), pesquisar diretamente no PA0105 e ADR6
+        if is_email:
+            lower_email = raw_query.lower()
+            upper_email = raw_query.upper()
+
+            if callable(progress_logger):
+                progress_logger(f"[RH RFC] A pesquisar por email '{raw_query}' no Infotipo PA0105 (Comunicação)...")
+
+            # A: Pesquisar na tabela PA0105 (Infotipo 0105 - SUBTY 0010 Email)
+            try:
+                opts_email = [
+                    {"TEXT": f"USRID_LONG LIKE '%{lower_email}%'"},
+                    {"TEXT": f"OR USRID_LONG LIKE '%{upper_email}%'"},
+                ]
+                res_105 = conn.call(
+                    "RFC_READ_TABLE",
+                    QUERY_TABLE="PA0105",
+                    DELIMITER="|",
+                    FIELDS=[{"FIELDNAME": f} for f in ["PERNR", "SUBTY", "USRID_LONG"]],
+                    OPTIONS=opts_email,
+                    ROWCOUNT=max_results,
+                )
+                raw_105 = res_105.get("DATA") or []
+                for r105 in raw_105:
+                    wa105 = str(r105.get("WA") or "")
+                    parts105 = wa105.split("|")
+                    pernr = parts105[0].strip() if len(parts105) > 0 else ""
+                    email_val = parts105[2].strip() if len(parts105) > 2 else raw_query
+
+                    if pernr:
+                        # Buscar nome na PA0002
+                        vorna = ""
+                        nachn = ""
+                        cname = f"Colaborador {pernr}"
+                        try:
+                            res_p2 = conn.call(
+                                "RFC_READ_TABLE",
+                                QUERY_TABLE="PA0002",
+                                DELIMITER="|",
+                                FIELDS=[{"FIELDNAME": f} for f in ["PERNR", "VORNA", "NACHN", "CNAME"]],
+                                OPTIONS=[{"TEXT": f"PERNR = '{pernr.zfill(8)}'"}],
+                                ROWCOUNT=1,
+                            )
+                            for r2 in res_p2.get("DATA") or []:
+                                wa2 = str(r2.get("WA") or "")
+                                parts2 = wa2.split("|")
+                                vorna = parts2[1].strip() if len(parts2) > 1 else ""
+                                nachn = parts2[2].strip() if len(parts2) > 2 else ""
+                                cname = parts2[3].strip() if len(parts2) > 3 else f"{vorna} {nachn}".strip()
+                        except Exception:
+                            pass
+
+                        # Buscar equipa na PA0001
+                        team_val = "Recursos Humanos / Operacional"
+                        try:
+                            res_p1 = conn.call(
+                                "RFC_READ_TABLE",
+                                QUERY_TABLE="PA0001",
+                                DELIMITER="|",
+                                FIELDS=[{"FIELDNAME": f} for f in ["PERNR", "ORGEH", "PLSTX"]],
+                                OPTIONS=[{"TEXT": f"PERNR = '{pernr.zfill(8)}'"}],
+                                ROWCOUNT=1,
+                            )
+                            for r1 in res_p1.get("DATA") or []:
+                                wa1 = str(r1.get("WA") or "")
+                                parts1 = wa1.split("|")
+                                team_val = parts1[2].strip() or parts1[1].strip() or team_val
+                        except Exception:
+                            pass
+
+                        results.append({
+                            "pernr": pernr,
+                            "user_id": format_sap_user_id(f"S{pernr.lstrip('0')}"),
+                            "full_name": cname,
+                            "first_name": vorna,
+                            "last_name": nachn,
+                            "email": email_val,
+                            "team": team_val,
+                            "system": "S4P",
+                            "source": "PA0105_EMAIL",
+                        })
+            except Exception as exc_email:
+                if callable(progress_logger):
+                    progress_logger(f"[RH RFC] Aviso na consulta PA0105 por email: {exc_email}")
+
+            # B: Pesquisar na tabela central de emails ADR6 caso PA0105 não devolva registos
+            if not results:
+                if callable(progress_logger):
+                    progress_logger(f"[RH RFC] A pesquisar por email '{raw_query}' na tabela central de emails ADR6...")
+                try:
+                    opts_adr6 = [
+                        {"TEXT": f"SMTP_ADDR LIKE '%{lower_email}%'"},
+                        {"TEXT": f"OR SMTP_ADDR LIKE '%{upper_email}%'"},
+                    ]
+                    res_adr6 = conn.call(
+                        "RFC_READ_TABLE",
+                        QUERY_TABLE="ADR6",
+                        DELIMITER="|",
+                        FIELDS=[{"FIELDNAME": f} for f in ["ADDRNUMBER", "PERSNUMBER", "SMTP_ADDR"]],
+                        OPTIONS=opts_adr6,
+                        ROWCOUNT=max_results,
+                    )
+                    for r_adr in res_adr6.get("DATA") or []:
+                        wa_adr = str(r_adr.get("WA") or "")
+                        parts_adr = wa_adr.split("|")
+                        addrnum = parts_adr[0].strip() if len(parts_adr) > 0 else ""
+                        persnum = parts_adr[1].strip() if len(parts_adr) > 1 else ""
+                        email_val = parts_adr[2].strip() if len(parts_adr) > 2 else raw_query
+
+                        bname = ""
+                        if persnum or addrnum:
+                            opts_u21 = [{"TEXT": f"PERSNUMBER = '{persnum}'"}] if persnum else [{"TEXT": f"ADDRNUMBER = '{addrnum}'"}]
+                            try:
+                                res_u21 = conn.call(
+                                    "RFC_READ_TABLE",
+                                    QUERY_TABLE="USR21",
+                                    DELIMITER="|",
+                                    FIELDS=[{"FIELDNAME": f} for f in ["BNAME", "PERSNUMBER", "ADDRNUMBER"]],
+                                    OPTIONS=opts_u21,
+                                    ROWCOUNT=1,
+                                )
+                                for ru in res_u21.get("DATA") or []:
+                                    bname = str(ru.get("WA") or "").split("|")[0].strip()
+                            except Exception:
+                                pass
+
+                        first_name = ""
+                        last_name = ""
+                        full_name = bname or raw_query
+                        if persnum:
+                            try:
+                                res_adrp = conn.call(
+                                    "RFC_READ_TABLE",
+                                    QUERY_TABLE="ADRP",
+                                    DELIMITER="|",
+                                    FIELDS=[{"FIELDNAME": f} for f in ["PERSNUMBER", "NAME_FIRST", "NAME_LAST"]],
+                                    OPTIONS=[{"TEXT": f"PERSNUMBER = '{persnum}'"}],
+                                    ROWCOUNT=1,
+                                )
+                                for rp in res_adrp.get("DATA") or []:
+                                    wp = str(rp.get("WA") or "").split("|")
+                                    first_name = wp[1].strip() if len(wp) > 1 else ""
+                                    last_name = wp[2].strip() if len(wp) > 2 else ""
+                                    full_name = f"{first_name} {last_name}".strip() or full_name
+                            except Exception:
+                                pass
+
+                        results.append({
+                            "pernr": persnum or bname,
+                            "user_id": format_sap_user_id(bname or persnum),
+                            "full_name": full_name,
+                            "first_name": first_name,
+                            "last_name": last_name,
+                            "email": email_val,
+                            "team": "Geral",
+                            "system": "S4P",
+                            "source": "ADR6_EMAIL",
+                        })
+                except Exception as exc_adr6:
+                    if callable(progress_logger):
+                        progress_logger(f"[RH RFC] Aviso na consulta ADR6 por email: {exc_adr6}")
+
+            if results:
+                return {
+                    "success": True,
+                    "message": f"Consulta RH concluída. Encontrados {len(results)} registo(s).",
+                    "data": results,
+                    "query": query,
+                    "total": len(results),
+                }
+
         # Tratar utilizadores com prefixo S (ex: S80001996 -> 80001996)
-        clean_pernr = clean_query[1:].lstrip("0") if (clean_query.startswith("S") and clean_query[1:].isdigit()) else clean_query.lstrip("0")
+        clean_pernr = raw_query[1:].lstrip("0") if (raw_query.startswith("S") and raw_query[1:].isdigit()) else raw_query.lstrip("0")
         is_numeric = clean_pernr.isdigit()
-        pa0002_filters = []
-        if is_numeric:
-            padded_pernr = clean_pernr.zfill(8)
-            pa0002_filters.append({"field": "PERNR", "value": padded_pernr})
         
         if callable(progress_logger):
             progress_logger("[RH RFC] A consultar tabela de RH PA0002...")
 
         rows_pa0002: list[dict[str, str]] = []
         try:
-            # DE/PARA Mapeado pelo utilizador:
-            # CUA-NAME_FIRST -> PA0002-VORNA
-            # CUA-NAME_LAST  -> PA0002-NACHN
-            # CUA-SMTP_ADDR  -> PA0002-USRID_LONG / PA0105-USRID_LONG
-            rows_pa0002 = _read_rfc_table(
-                conn,
-                "PA0002",
-                ["PERNR", "VORNA", "NACHN", "CNAME"],
-                pa0002_filters,
-                max_rows=max_results,
+            options = []
+            if is_numeric:
+                padded_pernr = clean_pernr.zfill(8)
+                options.append({"TEXT": f"PERNR = '{padded_pernr}'"})
+            else:
+                words = [w for w in raw_query.split() if len(w) > 1]
+                if not words:
+                    words = [raw_query]
+                    
+                w0_title = words[0].capitalize()
+                if len(words) > 1:
+                    w1_title = words[1].capitalize()
+                    clause = f"VORNA LIKE '%{w0_title}%' OR NACHN LIKE '%{w1_title}%' OR CNAME LIKE '%{w1_title}%'"
+                else:
+                    clause = f"VORNA LIKE '%{w0_title}%' OR NACHN LIKE '%{w0_title}%' OR CNAME LIKE '%{w0_title}%'"
+
+                if len(clause) > 72:
+                    clause = clause[:72]
+                options = [{"TEXT": clause}]
+
+            res_table = conn.call(
+                "RFC_READ_TABLE",
+                QUERY_TABLE="PA0002",
+                DELIMITER="|",
+                FIELDS=[{"FIELDNAME": f} for f in ["PERNR", "VORNA", "NACHN", "CNAME"]],
+                OPTIONS=options,
+                ROWCOUNT=300 if not is_numeric else max_results,
             )
-        except Exception:
+            raw_rows = res_table.get("DATA") or []
+            for r in raw_rows:
+                wa = str(r.get("WA") or "")
+                parts = wa.split("|")
+                rows_pa0002.append({
+                    "PERNR": parts[0].strip() if len(parts) > 0 else "",
+                    "VORNA": parts[1].strip() if len(parts) > 1 else "",
+                    "NACHN": parts[2].strip() if len(parts) > 2 else "",
+                    "CNAME": parts[3].strip() if len(parts) > 3 else "",
+                    "USRID_LONG": parts[4].strip() if len(parts) > 4 else "",
+                })
+        except Exception as exc_pa:
+            if callable(progress_logger):
+                progress_logger(f"[RH RFC] Aviso na consulta PA0002: {exc_pa}")
             rows_pa0002 = []
 
-        # Se encontrou no PA0002 por PERNR ou filtrando no cliente
+        # Se encontrou no PA0002 por PERNR ou filtrando no cliente por tokens
         matching_pa0002 = []
+        query_tokens = [w.lower() for w in raw_query.split() if w.strip()]
+        seen_pernrs = set()
+
         for r in rows_pa0002:
             pernr = _clean_str(r.get("PERNR"))
-            vorna = _clean_str(r.get("VORNA"))  # CUA-NAME_FIRST
-            nachn = _clean_str(r.get("NACHN"))  # CUA-NAME_LAST
-            cname = _clean_str(r.get("CNAME")) or f"{vorna} {nachn}".strip()
-            usrid_long_pa2 = _clean_str(r.get("USRID_LONG"))  # CUA-SMTP_ADDR (PA0002)
+            if not pernr or pernr in seen_pernrs:
+                continue
 
-            if (
-                is_numeric
-                or clean_query in pernr
-                or clean_query in vorna.upper()
-                or clean_query in nachn.upper()
-                or clean_query in cname.upper()
-            ):
+            vorna = _clean_str(r.get("VORNA"))
+            nachn = _clean_str(r.get("NACHN"))
+            cname = _clean_str(r.get("CNAME")) or f"{vorna} {nachn}".strip()
+            usrid_long_pa2 = _clean_str(r.get("USRID_LONG"))
+
+            full_searchable = f"{pernr} {vorna} {nachn} {cname} {usrid_long_pa2}".lower()
+            if is_numeric or all(token in full_searchable for token in query_tokens):
+                seen_pernrs.add(pernr)
                 matching_pa0002.append({
                     "pernr": pernr,
                     "first_name": vorna,

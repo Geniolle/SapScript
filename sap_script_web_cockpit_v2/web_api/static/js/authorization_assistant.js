@@ -1,5 +1,12 @@
 const AUTH_CHAT_STATES = {
       LOADING: 'loading',
+      WAITING_INITIAL_CHOICE: 'waiting_initial_choice',
+      WAITING_JIRA_TEAM: 'waiting_jira_team',
+      WAITING_JIRA_ASSIGNEE: 'waiting_jira_assignee',
+      WAITING_JIRA_FILTER_MODE: 'waiting_jira_filter_mode',
+      WAITING_JIRA_PROCESS: 'waiting_jira_process',
+      WAITING_JIRA_TICKET: 'waiting_jira_ticket',
+      WAITING_TICKET_ACTION: 'waiting_ticket_action',
       WAITING_USER: 'waiting_user',
       WAITING_SYSTEM: 'waiting_system',
       WAITING_ANALYSIS_TYPE: 'waiting_analysis_type',
@@ -39,6 +46,12 @@ const AUTH_CHAT_STATES = {
     let authorizationActiveJobId = null;
     let authorizationJobRequestId = 0;
     let authorizationRemovalJobRequestId = 0;
+
+    let authorizationSelectedJiraTeam = null;
+    let authorizationSelectedJiraAssignee = null;
+    let authorizationSelectedJiraProcess = null;
+    let authorizationSelectedJiraTicket = null;
+    let authorizationCachedJiraTickets = null;
 
     let authorizationLoadRequestId = 0;
     let authorizationChatLoading = false;
@@ -143,6 +156,13 @@ const AUTH_CHAT_STATES = {
       }
 
       const waitingForUser =
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_INITIAL_CHOICE ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_TEAM ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_ASSIGNEE ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_FILTER_MODE ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_PROCESS ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_TICKET ||
+        authorizationChatState === AUTH_CHAT_STATES.WAITING_TICKET_ACTION ||
         authorizationChatState === AUTH_CHAT_STATES.WAITING_USER ||
         authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER ||
         authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_PARAMS ||
@@ -161,6 +181,20 @@ const AUTH_CHAT_STATES = {
 
       if (authorizationChatState === AUTH_CHAT_STATES.LOADING) {
         input.placeholder = 'A carregar configuração SAP...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INITIAL_CHOICE) {
+        input.placeholder = 'Selecione "Ticket" ou "Processo" ou escreva no campo...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_TEAM) {
+        input.placeholder = 'Selecione uma equipa Jira acima ou escreva o nome...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_ASSIGNEE) {
+        input.placeholder = 'Selecione um responsável acima ou escreva o nome...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_FILTER_MODE) {
+        input.placeholder = 'Selecione "Todos os tickets" ou "Filtrar por processo"...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_PROCESS) {
+        input.placeholder = 'Selecione um processo acima ou escreva o nome...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_TICKET) {
+        input.placeholder = 'Selecione um ticket acima ou escreva a chave (ex: SD-1234)...';
+      } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_TICKET_ACTION) {
+        input.placeholder = 'Selecione uma ação para o ticket acima...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_USER) {
         input.placeholder = 'Escreva a sua mensagem ou utilizador SAP...';
       } else if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER) {
@@ -1237,6 +1271,29 @@ const AUTH_CHAT_STATES = {
         return;
       }
 
+      if (existingUser && existingSys && existingRoles.length > 0) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationAssistantMessage(
+          `A utilizar a lista de autorizações da análise anterior para o utilizador **${escapeAuthorizationText(existingUser)}** no ambiente **${escapeAuthorizationText(existingSys.system || existingSys.key)}** (${escapeAuthorizationText(processName)}):`
+        );
+        renderIndividualUserRolesList(existingRoles, existingUser, existingSys);
+        return;
+      }
+
+      authorizationTargetUser = '';
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER;
+
+      hideAuthorizationTypingIndicator();
+      appendAuthorizationMessage(
+        'assistant',
+        `Para a **Alteração Individual** do processo **${escapeAuthorizationText(processName)}**, por favor indique qual é o utilizador SAP sobre o qual pretende efetuar a alteração.`
+      );
+      updateAuthorizationComposer();
+
+      const inputEl = document.getElementById('authorization-chat-input');
+      if (inputEl) inputEl.focus();
+    }
+
     function promptHrSearchForNewUser(processName) {
       authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
       hideAuthorizationTypingIndicator();
@@ -1255,7 +1312,7 @@ const AUTH_CHAT_STATES = {
       hideAuthorizationTypingIndicator();
       appendAuthorizationMessage(
         'assistant',
-        `Para a criação de um utilizador **Por cópia** (${escapeAuthorizationText(processName)}), por favor indique qual é o **Utilizador SAP de referência** a partir do qual pretende copiar as autorizações/dados.`
+        `Para a criação de um utilizador **Por cópia** (${escapeAuthorizationText(processName)}), por favor indique qual é o **Utilizador SAP de referência** a partir do qual pretende copiar as autorizações/dados.\n\nIntroduza o **N.º Mecanográfico (PERNR)**, **Nome** ou **Utilizador SAP** do utilizador de referência para pesquisa na tabela do RH em Produtivo (S4P):`
       );
       updateAuthorizationComposer();
 
@@ -1263,23 +1320,154 @@ const AUTH_CHAT_STATES = {
       if (inputEl) inputEl.focus();
     }
 
-      if (existingUser && existingSys && existingRoles.length > 0) {
-        hideAuthorizationTypingIndicator();
-        appendAuthorizationAssistantMessage(
-          `A utilizar a lista de autorizações da análise anterior para o utilizador **${escapeAuthorizationText(existingUser)}** no ambiente **${escapeAuthorizationText(existingSys.system || existingSys.key)}** (${escapeAuthorizationText(processName)}):`
-        );
-        renderIndividualUserRolesList(existingRoles, existingUser, existingSys);
-        return;
-      }
-
-      authorizationTargetUser = '';
-      authorizationChatState = AUTH_CHAT_STATES.WAITING_INDIVIDUAL_USER;
-
+    async function performHrReferenceUserSearch(queryVal) {
       hideAuthorizationTypingIndicator();
+      showAuthorizationTypingIndicator(null, `A pesquisar utilizador de referência "${escapeAuthorizationText(queryVal)}" na tabela do RH no sistema produtivo (S4P)...`);
+
+      try {
+        const response = await fetch('/api/authorizations/hr-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: queryVal, target_system_key: 'S4PCLNT100', max_results: 10 })
+        });
+
+        hideAuthorizationTypingIndicator();
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data || data.success !== true || !Array.isArray(data.data) || data.data.length === 0) {
+          const fallbackUser = formatSapUserId(queryVal);
+          appendAuthorizationMessage(
+            'assistant',
+            `⚠️ Nenhum registo de RH foi encontrado no sistema produtivo (S4P) para **"${escapeAuthorizationText(queryVal)}"**.\n\nDeseja utilizar **"${escapeAuthorizationText(fallbackUser)}"** diretamente como Utilizador de Referência ou efetuar outra pesquisa?`
+          );
+
+          const container = document.getElementById('authorization-chat-messages');
+          if (!container) return;
+
+          const grid = document.createElement('div');
+          grid.style.display = 'flex';
+          grid.style.flexWrap = 'wrap';
+          grid.style.gap = '10px';
+          grid.style.marginTop = '8px';
+          grid.style.marginBottom = '12px';
+
+          const btnUseDirect = document.createElement('button');
+          btnUseDirect.type = 'button';
+          btnUseDirect.className = 'auth-chat-system-card selected';
+          btnUseDirect.style.padding = '8px 14px';
+          btnUseDirect.onclick = () => {
+            selectHrReferenceUserForCreation({ user_id: fallbackUser, full_name: fallbackUser, pernr: queryVal, team: 'N/D' });
+          };
+          btnUseDirect.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">✅ Utilizar "${escapeAuthorizationText(fallbackUser)}" como Referência</span>`;
+          grid.appendChild(btnUseDirect);
+
+          const btnRetry = document.createElement('button');
+          btnRetry.type = 'button';
+          btnRetry.className = 'auth-chat-system-card';
+          btnRetry.style.padding = '8px 14px';
+          btnRetry.onclick = () => {
+            promptCopyReferenceUser(authorizationIndividualContext?.processName || 'Criar utilizador');
+          };
+          btnRetry.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">🔍 Pesquisar outro nome / PERNR</span>`;
+          grid.appendChild(btnRetry);
+
+          container.appendChild(grid);
+          window.setTimeout(() => {
+            container.scrollTop = container.scrollHeight;
+          }, 50);
+          return;
+        }
+
+        if (data.data.length === 1) {
+          selectHrReferenceUserForCreation(data.data[0]);
+          return;
+        }
+
+        appendAuthorizationMessage(
+          'assistant',
+          `Foram encontrados **${data.data.length}** registo(s) na tabela do RH no sistema produtivo (**S4P**). Por favor, selecione o **utilizador de referência**:`
+        );
+
+        renderHrReferenceResultsCards(data.data);
+      } catch (err) {
+        hideAuthorizationTypingIndicator();
+        console.warn('[HR REF SEARCH] Erro na pesquisa RH:', err);
+        const fallbackUser = formatSapUserId(queryVal);
+        selectHrReferenceUserForCreation({ user_id: fallbackUser, full_name: fallbackUser, pernr: queryVal, team: 'N/D' });
+      }
+    }
+
+    function renderHrReferenceResultsCards(items) {
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'grid';
+      grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '8px';
+      grid.style.marginBottom = '12px';
+
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'auth-chat-analysis-card';
+        card.style.padding = '12px 14px';
+        card.style.cursor = 'pointer';
+
+        const formattedUser = formatSapUserId(item.user_id || item.pernr);
+
+        card.innerHTML = `
+          <div style="font-weight:700; font-size:0.92rem; color:var(--text-primary); margin-bottom:4px;">👤 ${escapeAuthorizationText(item.full_name || 'N/D')}</div>
+          <div style="font-size:0.82rem; color:var(--text-secondary); display:grid; gap:3px;">
+            <div><b>• N.º Colaborador (PERNR):</b> ${escapeAuthorizationText(item.pernr)}</div>
+            <div><b>• Utilizador SAP:</b> ${escapeAuthorizationText(formattedUser)}</div>
+            <div><b>• Email:</b> ${escapeAuthorizationText(item.email || 'Não registado')}</div>
+            <div><b>• Equipa:</b> ${escapeAuthorizationText(item.team || 'Geral')}</div>
+            <div style="font-size:0.75rem; color:#10b981; margin-top:4px;">Sistema Produtivo S4P</div>
+          </div>
+          <button type="button" class="auth-chat-system-card selected" style="margin-top:10px; width:100%; justify-content:center; font-weight:700; padding:6px 10px;">
+            ✅ Selecionar como Utilizador de Referência (${escapeAuthorizationText(formattedUser)})
+          </button>
+        `;
+
+        const selectBtn = card.querySelector('button');
+        selectBtn.onclick = (e) => {
+          e.stopPropagation();
+          selectHrReferenceUserForCreation(item);
+        };
+        card.onclick = () => selectHrReferenceUserForCreation(item);
+
+        grid.appendChild(card);
+      });
+
+      container.appendChild(grid);
+      window.setTimeout(() => {
+        container.scrollTop = container.scrollHeight;
+      }, 50);
+    }
+
+    function selectHrReferenceUserForCreation(item) {
+      const rawUser = item.user_id || item.pernr || '';
+      const refUser = formatSapUserId(rawUser);
+      if (!authorizationIndividualContext) {
+        authorizationIndividualContext = {};
+      }
+      authorizationIndividualContext.referenceUser = refUser;
+      authorizationIndividualContext.referenceHrData = item;
+
+      const nameLabel = item.full_name && item.full_name !== refUser ? ` (${item.full_name})` : '';
+
+      appendAuthorizationMessage('user', `Utilizador de referência: ${refUser}${nameLabel}`);
       appendAuthorizationMessage(
         'assistant',
-        `Para a **Alteração Individual** do processo **${escapeAuthorizationText(processName)}**, por favor indique qual é o utilizador SAP sobre o qual pretende efetuar a alteração.`
+        `Registado o utilizador de referência **${escapeAuthorizationText(refUser)}**${escapeAuthorizationText(nameLabel)}.\n\nAgora, vamos selecionar os dados do **novo colaborador** na **tabela do RH no Sistema Produtivo (S4P)** para obter o Nome, Email e Equipa.\n\nPor favor, introduza o **N.º Mecanográfico (PERNR)**, **Nome** ou **Utilizador SAP** do novo colaborador.`
       );
+
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
       updateAuthorizationComposer();
 
       const inputEl = document.getElementById('authorization-chat-input');
@@ -1305,10 +1493,52 @@ const AUTH_CHAT_STATES = {
 
         const data = await response.json();
         if (!data || data.success !== true || !Array.isArray(data.data) || data.data.length === 0) {
+          const fallbackUser = formatSapUserId(queryVal);
           appendAuthorizationMessage(
             'assistant',
-            `⚠️ Nenhum registo de RH foi encontrado no sistema produtivo (S4P) para **"${escapeAuthorizationText(queryVal)}"**.\n\nPode introduzir outro termo de pesquisa (N.º Mecanográfico, Nome ou Utilizador) ou escrever diretamente o ID do utilizador.`
+            `⚠️ Nenhum registo de RH foi encontrado no sistema produtivo (S4P) para **"${escapeAuthorizationText(queryVal)}"**.\n\nDeseja utilizar **"${escapeAuthorizationText(fallbackUser)}"** diretamente para criação do utilizador ou efetuar outra pesquisa?`
           );
+
+          const container = document.getElementById('authorization-chat-messages');
+          if (!container) return;
+
+          const grid = document.createElement('div');
+          grid.style.display = 'flex';
+          grid.style.flexWrap = 'wrap';
+          grid.style.gap = '10px';
+          grid.style.marginTop = '8px';
+          grid.style.marginBottom = '12px';
+
+          const btnUseDirect = document.createElement('button');
+          btnUseDirect.type = 'button';
+          btnUseDirect.className = 'auth-chat-system-card selected';
+          btnUseDirect.style.padding = '8px 14px';
+          btnUseDirect.onclick = () => {
+            selectHrUserForCreation({
+              user_id: fallbackUser,
+              full_name: queryVal,
+              pernr: queryVal,
+              email: queryVal.includes('@') ? queryVal : '',
+              team: 'Geral'
+            });
+          };
+          btnUseDirect.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">✅ Prosseguir com "${escapeAuthorizationText(fallbackUser)}"</span>`;
+          grid.appendChild(btnUseDirect);
+
+          const btnRetry = document.createElement('button');
+          btnRetry.type = 'button';
+          btnRetry.className = 'auth-chat-system-card';
+          btnRetry.style.padding = '8px 14px';
+          btnRetry.onclick = () => {
+            promptHrSearchForNewUser(authorizationIndividualContext?.processName || 'Criar utilizador');
+          };
+          btnRetry.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">🔍 Pesquisar outro nome / PERNR / e-mail</span>`;
+          grid.appendChild(btnRetry);
+
+          container.appendChild(grid);
+          window.setTimeout(() => {
+            container.scrollTop = container.scrollHeight;
+          }, 50);
           authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
           updateAuthorizationComposer();
           return;
@@ -2815,14 +3045,718 @@ const AUTH_CHAT_STATES = {
       updateAuthorizationComposer();
     }
 
+    function renderAuthorizationInitialChoice() {
+      hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_INITIAL_CHOICE;
+      updateAuthorizationComposer();
+
+      appendAuthorizationMessage(
+        'assistant',
+        'Olá! O que pretende fazer hoje?\nSelecione uma das opções abaixo ou escreva no campo inferior:',
+        false,
+        { key: 'authorization-initial-question' }
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const choices = [
+        { label: '🎫 Analisar ticket', val: 'Ticket' },
+        { label: '⚙️ Executar processo', val: 'Processo' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      choices.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '10px 16px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          handleInitialChoiceSelect(item.val);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.86rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function handleInitialChoiceSelect(choiceVal, skipUserMsg = false) {
+      const normChoice = String(choiceVal || '').trim().toLowerCase();
+      if (normChoice.includes('ticket')) {
+        if (!skipUserMsg) appendAuthorizationMessage('user', 'Analisar ticket');
+        showJiraTeamOptions();
+      } else {
+        if (!skipUserMsg) appendAuthorizationMessage('user', 'Executar processo');
+        renderRoutineSuggestionsInitial();
+      }
+    }
+
+    function showJiraTeamOptions() {
+      hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_JIRA_TEAM;
+      updateAuthorizationComposer();
+
+      appendAuthorizationMessage(
+        'assistant',
+        'De qual Equipa é o ticket que pretende analisar?'
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const predefinedTeams = [
+        { label: '🏢 Business Intelligence', val: 'Business Intelligence' },
+        { label: '⚙️ Core Systems', val: 'Core Systems' },
+        { label: '💻 Development', val: 'Development' },
+        { label: '🌐 Digital', val: 'Digital' },
+        { label: '🎧 Helpdesk', val: 'Helpdesk' },
+        { label: '🛍️ Retail Systems', val: 'Retail Systems' },
+        { label: '🖥️ Systems Administration and Network', val: 'Systems Administration and Network' },
+        { label: '🌐 Todas as Equipas', val: 'Todas as Equipas' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      predefinedTeams.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 12px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          selectJiraTeam(item.val);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function selectJiraTeam(teamName, skipUserMsg = false) {
+      showJiraAssigneeOptions(teamName, skipUserMsg);
+    }
+
+    function getAssigneesForTeam(teamName, tickets) {
+      const isAllTeams = teamName.toLowerCase().includes('todas');
+      const teamTickets = isAllTeams
+        ? tickets
+        : tickets.filter(t => {
+            const tTeam = (t.team || '').trim().toLowerCase();
+            const sTeam = teamName.trim().toLowerCase();
+            return tTeam === sTeam || tTeam.includes(sTeam) || sTeam.includes(tTeam);
+          });
+
+      const assigneeSet = new Set();
+      const TEAM_MEMBERS_MAP = {
+        "Core Systems": ["Clayton Lopes", "Rita Rodrigues", "Filipe Galego", "Paula Silva", "José Pereira"],
+        "Helpdesk": ["Filipe Abreu", "Miguel Ribeiro", "Alexandre Rodrigues"],
+        "Retail Systems": ["Vitor.Pereira", "Marisa Moreira", "Sandra Gomes"],
+        "Digital": ["Sandra Gomes", "Vitor Silva", "Diogo Oliveira"],
+        "Systems Administration and Network": ["Alexandre Rodrigues"],
+        "Business Intelligence": ["Mariana Pinto"],
+        "Development": ["Joao.Pinheiro", "Pedro Silva"]
+      };
+
+      if (TEAM_MEMBERS_MAP[teamName]) {
+        TEAM_MEMBERS_MAP[teamName].forEach(m => assigneeSet.add(m.trim()));
+      }
+
+      teamTickets.forEach(t => {
+        if (t.assignee && typeof t.assignee === 'string' && t.assignee.trim() && t.assignee.trim() !== 'Sem responsável') {
+          assigneeSet.add(t.assignee.trim());
+        }
+      });
+
+      const list = Array.from(assigneeSet)
+        .map(name => ({ label: `👤 ${name}`, val: name }))
+        .sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      list.push({ label: '🌐 Todos os responsáveis', val: 'Todos os responsáveis' });
+      return list;
+    }
+
+    async function showJiraAssigneeOptions(teamName, skipUserMsg = false) {
+      if (!skipUserMsg) {
+        appendAuthorizationMessage('user', teamName);
+      }
+      authorizationSelectedJiraTeam = teamName;
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_JIRA_ASSIGNEE;
+      updateAuthorizationComposer();
+
+      showAuthorizationTypingIndicator(null, `A carregar responsáveis da equipa ${escapeAuthorizationText(teamName)}...`);
+
+      try {
+        let tickets = authorizationCachedJiraTickets;
+        if (!tickets) {
+          const res = await fetch('/api/jira/tickets?limit=50000&exclude_closed=true');
+          if (res.ok) {
+            const data = await res.json();
+            tickets = data.tickets || [];
+            authorizationCachedJiraTickets = tickets;
+          } else {
+            tickets = [];
+          }
+        }
+
+        hideAuthorizationTypingIndicator();
+
+        const assigneeItems = getAssigneesForTeam(teamName, tickets);
+
+        appendAuthorizationMessage(
+          'assistant',
+          `De qual responsável da equipa **${escapeAuthorizationText(teamName)}** pretende ver os tickets?`
+        );
+
+        const container = document.getElementById('authorization-chat-messages');
+        if (!container) return;
+
+        const grid = document.createElement('div');
+        grid.style.display = 'flex';
+        grid.style.flexWrap = 'wrap';
+        grid.style.gap = '10px';
+        grid.style.marginTop = '6px';
+        grid.style.marginBottom = '8px';
+
+        assigneeItems.forEach(item => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'auth-chat-system-card';
+          btn.style.flex = '0 0 auto';
+          btn.style.padding = '8px 12px';
+          btn.onclick = () => {
+            if (btn.parentElement) {
+              btn.parentElement.querySelectorAll('button').forEach(b => {
+                b.classList.remove('selected');
+                b.setAttribute('aria-pressed', 'false');
+              });
+            }
+            btn.classList.add('selected');
+            btn.setAttribute('aria-pressed', 'true');
+            selectJiraAssignee(item.val);
+          };
+          btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+          grid.appendChild(btn);
+        });
+
+        container.appendChild(grid);
+        container.scrollTop = container.scrollHeight;
+      } catch (err) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage('assistant', `⚠️ Erro ao obter dados do Jira: ${escapeAuthorizationText(err.message)}`);
+      }
+    }
+
+    async function selectJiraAssignee(assigneeName, skipUserMsg = false) {
+      if (!skipUserMsg) {
+        appendAuthorizationMessage('user', assigneeName);
+      }
+      authorizationSelectedJiraAssignee = assigneeName;
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_JIRA_FILTER_MODE;
+      updateAuthorizationComposer();
+
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationMessage(
+        'assistant',
+        `Pretende listar todos os tickets de **${escapeAuthorizationText(assigneeName)}** ou filtrar por Processo?`
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const filterChoices = [
+        { label: '📋 Todos os tickets', val: 'Todos os tickets' },
+        { label: '⚙️ Filtrar por processo', val: 'Filtrar por processo' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      filterChoices.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 14px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          handleFilterModeSelect(item.val);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.84rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function handleFilterModeSelect(modeVal, skipUserMsg = false) {
+      const normMode = String(modeVal || '').trim().toLowerCase();
+      if (normMode.includes('processo')) {
+        if (!skipUserMsg) appendAuthorizationMessage('user', 'Filtrar por processo');
+        showJiraProcessOptions(authorizationSelectedJiraTeam, authorizationSelectedJiraAssignee, true);
+      } else {
+        if (!skipUserMsg) appendAuthorizationMessage('user', 'Todos os tickets');
+        authorizationSelectedJiraProcess = null;
+        renderJiraTicketsList({
+          teamName: authorizationSelectedJiraTeam,
+          assigneeName: authorizationSelectedJiraAssignee,
+          processName: null
+        });
+      }
+    }
+
+    function getProcessesForAssignee(teamName, assigneeName, tickets) {
+      const isAllTeams = !teamName || teamName.toLowerCase().includes('todas');
+      const isAllAssignees = !assigneeName || assigneeName.toLowerCase().includes('todos');
+
+      const filtered = tickets.filter(t => {
+        const matchTeam = isAllTeams || (t.team && (t.team.trim().toLowerCase() === teamName.trim().toLowerCase() || t.team.trim().toLowerCase().includes(teamName.trim().toLowerCase())));
+        const matchAssignee = isAllAssignees || (t.assignee && (t.assignee.trim().toLowerCase() === assigneeName.trim().toLowerCase() || t.assignee.trim().toLowerCase().includes(assigneeName.trim().toLowerCase())));
+        return matchTeam && matchAssignee;
+      });
+
+      const processSet = new Set();
+      filtered.forEach(t => {
+        if (t.process && typeof t.process === 'string' && t.process.trim()) {
+          processSet.add(t.process.trim());
+        }
+        if (t.ticket_type && typeof t.ticket_type === 'string' && t.ticket_type.trim()) {
+          processSet.add(t.ticket_type.trim());
+        }
+      });
+
+      // Default processes as fallback/options
+      const defaultProcesses = [
+        'Cadeias de pesquisa',
+        'Chave de banco',
+        'Códigos IVA',
+        'Dados de utilizador',
+        'Perfil de autorização',
+        'Reverter documento'
+      ];
+      defaultProcesses.forEach(p => processSet.add(p));
+
+      const list = Array.from(processSet)
+        .map(proc => ({ label: `⚙️ ${proc}`, val: proc }))
+        .sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      list.push({ label: '🌐 Todos os processos', val: 'Todos os processos' });
+      return list;
+    }
+
+    async function showJiraProcessOptions(teamName, assigneeName, skipUserMsg = false) {
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_JIRA_PROCESS;
+      updateAuthorizationComposer();
+
+      showAuthorizationTypingIndicator(null, `A carregar processos de ${escapeAuthorizationText(assigneeName || teamName)}...`);
+
+      try {
+        let tickets = authorizationCachedJiraTickets;
+        if (!tickets) {
+          const res = await fetch('/api/jira/tickets?limit=50000&exclude_closed=true');
+          if (res.ok) {
+            const data = await res.json();
+            tickets = data.tickets || [];
+            authorizationCachedJiraTickets = tickets;
+          } else {
+            tickets = [];
+          }
+        }
+
+        hideAuthorizationTypingIndicator();
+
+        const processItems = getProcessesForAssignee(teamName, assigneeName, tickets);
+
+        appendAuthorizationMessage(
+          'assistant',
+          `Qual é o Processo que pretende filtrar para **${escapeAuthorizationText(assigneeName || 'a equipa')}**?`
+        );
+
+        const container = document.getElementById('authorization-chat-messages');
+        if (!container) return;
+
+        const grid = document.createElement('div');
+        grid.style.display = 'flex';
+        grid.style.flexWrap = 'wrap';
+        grid.style.gap = '10px';
+        grid.style.marginTop = '6px';
+        grid.style.marginBottom = '8px';
+
+        processItems.forEach(item => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'auth-chat-system-card';
+          btn.style.flex = '0 0 auto';
+          btn.style.padding = '8px 12px';
+          btn.onclick = () => {
+            if (btn.parentElement) {
+              btn.parentElement.querySelectorAll('button').forEach(b => {
+                b.classList.remove('selected');
+                b.setAttribute('aria-pressed', 'false');
+              });
+            }
+            btn.classList.add('selected');
+            btn.setAttribute('aria-pressed', 'true');
+            selectJiraProcess(item.val);
+          };
+          btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+          grid.appendChild(btn);
+        });
+
+        container.appendChild(grid);
+        container.scrollTop = container.scrollHeight;
+      } catch (err) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage('assistant', `⚠️ Erro ao obter os processos do Jira: ${escapeAuthorizationText(err.message)}`);
+      }
+    }
+
+    function selectJiraProcess(processName, skipUserMsg = false) {
+      if (!skipUserMsg) {
+        appendAuthorizationMessage('user', processName);
+      }
+      authorizationSelectedJiraProcess = processName;
+      renderJiraTicketsList({
+        teamName: authorizationSelectedJiraTeam,
+        assigneeName: authorizationSelectedJiraAssignee,
+        processName: processName
+      });
+    }
+
+    async function renderJiraTicketsList({ teamName, assigneeName, processName }) {
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_JIRA_TICKET;
+      updateAuthorizationComposer();
+
+      const displayAssignee = assigneeName || 'Responsável';
+      showAuthorizationTypingIndicator(null, `A filtrar tickets de ${escapeAuthorizationText(displayAssignee)}...`);
+
+      try {
+        let tickets = authorizationCachedJiraTickets;
+        if (!tickets) {
+          const res = await fetch('/api/jira/tickets?limit=50000&exclude_closed=true');
+          if (res.ok) {
+            const data = await res.json();
+            tickets = data.tickets || [];
+            authorizationCachedJiraTickets = tickets;
+          } else {
+            tickets = [];
+          }
+        }
+
+        hideAuthorizationTypingIndicator();
+
+        const normalizeText = str => String(str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        const isAllTeams = !teamName || teamName.toLowerCase().includes('todas');
+        const isAllAssignees = !assigneeName || assigneeName.toLowerCase().includes('todos');
+        const isAllProcesses = !processName || processName.toLowerCase().includes('todos');
+
+        const filtered = tickets.filter(t => {
+          const matchTeam = isAllTeams || (t.team && (normalizeText(t.team) === normalizeText(teamName) || normalizeText(t.team).includes(normalizeText(teamName))));
+          const matchAssignee = isAllAssignees || (t.assignee && (normalizeText(t.assignee) === normalizeText(assigneeName) || normalizeText(t.assignee).includes(normalizeText(assigneeName))));
+          
+          let matchProcess = true;
+          if (!isAllProcesses) {
+            const procNorm = normalizeText(processName);
+            const tProc = normalizeText(t.process);
+            const tType = normalizeText(t.ticket_type);
+            const tSum = normalizeText(t.summary);
+            matchProcess = tProc.includes(procNorm) || procNorm.includes(tProc) || tType.includes(procNorm) || procNorm.includes(tType) || tSum.includes(procNorm);
+          }
+          return matchTeam && matchAssignee && matchProcess;
+        });
+
+        const container = document.getElementById('authorization-chat-messages');
+        if (!container) return;
+
+        if (filtered.length === 0) {
+          const processLabel = !isAllProcesses ? ` no processo **${escapeAuthorizationText(processName)}**` : '';
+          const assigneeLabel = !isAllAssignees ? ` para **${escapeAuthorizationText(assigneeName)}**` : ` para a equipa **${escapeAuthorizationText(teamName)}**`;
+          appendAuthorizationMessage(
+            'assistant',
+            `Não foram encontrados tickets abertos${assigneeLabel}${processLabel}.\n\nDeseja alterar o filtro ou ver outros responsáveis?`
+          );
+
+          const grid = document.createElement('div');
+          grid.style.display = 'flex';
+          grid.style.flexWrap = 'wrap';
+          grid.style.gap = '10px';
+          grid.style.marginTop = '6px';
+          grid.style.marginBottom = '8px';
+
+          const recoveryOptions = [
+            { label: '⚙️ Ver outros processos', val: 'Ver processos' },
+            { label: '👤 Ver responsáveis', val: 'Ver responsáveis' },
+            { label: '🌐 Ver equipas Jira', val: 'Equipas Jira' }
+          ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+          recoveryOptions.forEach(opt => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'auth-chat-system-card';
+            btn.style.flex = '0 0 auto';
+            btn.style.padding = '8px 12px';
+            btn.onclick = () => {
+              if (opt.val === 'Ver processos') {
+                showJiraProcessOptions(teamName, assigneeName, true);
+              } else if (opt.val === 'Ver responsáveis') {
+                showJiraAssigneeOptions(teamName, true);
+              } else {
+                appendAuthorizationMessage('user', 'Ver equipas Jira');
+                showJiraTeamOptions();
+              }
+            };
+            btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(opt.label)}</span>`;
+            grid.appendChild(btn);
+          });
+          container.appendChild(grid);
+          container.scrollTop = container.scrollHeight;
+          return;
+        }
+
+        const processLabelText = (!isAllProcesses && processName) ? ` no processo **${escapeAuthorizationText(processName)}**` : '';
+        const assigneeLabelText = (!isAllAssignees && assigneeName) ? `para **${escapeAuthorizationText(assigneeName)}**` : `para a equipa **${escapeAuthorizationText(teamName)}**`;
+
+        appendAuthorizationMessage(
+          'assistant',
+          `Encontrei **${filtered.length}** ticket(s) ${assigneeLabelText}${processLabelText}.\nSelecione um dos tickets abaixo para analisar:`
+        );
+
+        const grid = document.createElement('div');
+        grid.style.display = 'flex';
+        grid.style.flexDirection = 'column';
+        grid.style.gap = '8px';
+        grid.style.marginTop = '8px';
+        grid.style.marginBottom = '12px';
+        grid.style.width = '100%';
+
+        const displayTickets = filtered.slice(0, 25);
+
+        displayTickets.forEach(t => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'auth-chat-system-card';
+          btn.style.width = '100%';
+          btn.style.textAlign = 'left';
+          btn.style.padding = '10px 14px';
+          btn.style.display = 'flex';
+          btn.style.alignItems = 'center';
+          btn.style.justifyContent = 'space-between';
+          btn.style.background = '#ffffff';
+          btn.style.border = '1px solid #cbd5e1';
+          btn.style.borderRadius = '8px';
+          btn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+          btn.style.cursor = 'pointer';
+          btn.onclick = () => {
+            if (btn.parentElement) {
+              btn.parentElement.querySelectorAll('button').forEach(b => {
+                b.classList.remove('selected');
+                b.setAttribute('aria-pressed', 'false');
+              });
+            }
+            btn.classList.add('selected');
+            btn.setAttribute('aria-pressed', 'true');
+            selectJiraTicket(t);
+          };
+
+          const summaryText = t.summary ? (t.summary.length > 60 ? t.summary.substring(0, 57) + '...' : t.summary) : 'Sem resumo';
+          const assigneeText = t.assignee || 'Sem responsável';
+          const keyText = t.key || 'TICKET';
+
+          btn.innerHTML = `
+            <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
+              <span class="sys-code" style="font-size:0.84rem; font-weight:700; color:var(--primary, #3b82f6);">🎫 ${escapeAuthorizationText(keyText)} — ${escapeAuthorizationText(summaryText)}</span>
+              <span style="font-size:0.76rem; color:var(--text-secondary, #64748b);">Responsável: ${escapeAuthorizationText(assigneeText)} | Estado: ${escapeAuthorizationText(t.status || 'Aberto')}</span>
+            </div>
+            <span style="font-size:0.8rem; font-weight:600; color:#3b82f6; white-space:nowrap; margin-left:8px;">Ver ➔</span>
+          `;
+          grid.appendChild(btn);
+        });
+
+        container.appendChild(grid);
+        window.setTimeout(() => {
+          container.scrollTop = container.scrollHeight;
+        }, 50);
+      } catch (err) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage('assistant', `⚠️ Erro ao obter os tickets do Jira: ${escapeAuthorizationText(err.message)}`);
+      }
+    }
+
+    async function selectJiraTicket(ticketObj, skipUserMsg = false) {
+      authorizationSelectedJiraTicket = ticketObj;
+      authorizationChatState = AUTH_CHAT_STATES.WAITING_TICKET_ACTION;
+      updateAuthorizationComposer();
+
+      const key = ticketObj.key || 'Ticket';
+      const summary = ticketObj.summary || '';
+      if (!skipUserMsg) {
+        appendAuthorizationMessage('user', `🎫 ${key}: ${summary}`);
+      }
+
+      showAuthorizationTypingIndicator(null, `A obter descrição do ticket ${escapeAuthorizationText(key)}...`);
+
+      let descriptionText = ticketObj.description || '';
+      let detailsObj = ticketObj;
+
+      try {
+        const res = await fetch(`/api/jira/tickets/${encodeURIComponent(key)}/details`, { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.description) {
+            descriptionText = data.description;
+          }
+          detailsObj = { ...ticketObj, ...data };
+          authorizationSelectedJiraTicket = detailsObj;
+        }
+      } catch (err) {
+        console.warn('[TICKET DETAILS] Não foi possível carregar a descrição:', err);
+      }
+
+      hideAuthorizationTypingIndicator();
+
+      const cleanDescription = descriptionText ? escapeAuthorizationText(descriptionText).replace(/\n/g, '<br>') : '<i>Sem descrição disponível</i>';
+
+      appendAuthorizationMessage(
+        'assistant',
+        `
+          <div class="auth-chat-summary">
+            <div style="font-weight:700; margin-bottom:8px; color:var(--primary, #3b82f6); font-size:0.92rem;">
+              🎫 Ticket ${escapeAuthorizationText(key)} Selecionado
+            </div>
+            <div style="display:grid; gap:6px; font-size:0.84rem; margin-bottom:12px;">
+              <div><b>• Resumo:</b> ${escapeAuthorizationText(summary)}</div>
+              <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:3px solid #3b82f6; border-radius:6px; padding:8px 10px; margin:4px 0;">
+                <b style="color:#1e293b;">• Descrição / Erro:</b><br>
+                <span style="color:#334155; display:block; margin-top:4px; max-height:180px; overflow-y:auto; font-size:0.82rem; line-height:1.4;">${cleanDescription}</span>
+              </div>
+              <div><b>• Responsável:</b> ${escapeAuthorizationText(detailsObj.assignee || 'Sem responsável')}</div>
+              <div><b>• Estado:</b> ${escapeAuthorizationText(detailsObj.status || 'Aberto')}</div>
+              ${detailsObj.team ? `<div><b>• Equipa:</b> ${escapeAuthorizationText(detailsObj.team)}</div>` : ''}
+              ${detailsObj.ticket_type ? `<div><b>• Tipo de Ticket:</b> ${escapeAuthorizationText(detailsObj.ticket_type)}</div>` : ''}
+            </div>
+            <div style="font-size:0.82rem; color:var(--text-secondary);">
+              Selecione uma das opções de ação abaixo para este ticket:
+            </div>
+          </div>
+        `,
+        true
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const actions = [
+        { label: '🔍 Analisar autorizações de utilizador', val: 'Analisar autorizações' },
+        { label: '👤 Dados de utilizador', val: 'Dados de utilizador' },
+        { label: '🛡️ Perfil de autorização', val: 'Perfil de autorização' },
+        { label: '🔄 Executar outro processo', val: 'Processo' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      actions.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 12px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          handleTicketActionSelect(item.val, detailsObj);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      window.setTimeout(() => {
+        container.scrollTop = container.scrollHeight;
+      }, 50);
+    }
+
+    function handleTicketActionSelect(actionVal, ticketObj) {
+      if (actionVal === 'Analisar autorizações') {
+        appendAuthorizationMessage('user', 'Analisar autorizações');
+        authorizationChatState = AUTH_CHAT_STATES.WAITING_USER;
+        updateAuthorizationComposer();
+        appendAuthorizationMessage(
+          'assistant',
+          `Ação selecionada para o ticket **${escapeAuthorizationText(ticketObj?.key || '')}**.\nQual é o utilizador SAP que pretende analisar?`
+        );
+      } else if (actionVal === 'Dados de utilizador') {
+        appendAuthorizationMessage('user', 'Dados de utilizador');
+        showUserDataSubroutineOptions();
+      } else if (actionVal === 'Perfil de autorização') {
+        appendAuthorizationMessage('user', 'Perfil de autorização');
+        showAuthorizationProfileSubroutineOptions();
+      } else {
+        appendAuthorizationMessage('user', 'Executar outro processo');
+        renderAuthorizationInitialChoice();
+      }
+    }
+
     function renderRoutineSuggestionsInitial() {
       hideAuthorizationTypingIndicator();
 
       appendAuthorizationMessage(
         'assistant',
-        'Olá! Que processo ou rotina SAP pretende executar hoje?\nSelecione uma das sugestões abaixo ou escreva no campo inferior:',
-        false,
-        { key: 'authorization-initial-question' }
+        'Que processo ou rotina SAP pretende executar hoje?\nSelecione uma das sugestões abaixo ou escreva no campo inferior:'
       );
 
       const container = document.getElementById('authorization-chat-messages');
@@ -3000,7 +3934,7 @@ const AUTH_CHAT_STATES = {
       if (!container) return;
 
       if (!container.querySelector('[data-message-key="authorization-initial-question"]')) {
-        renderRoutineSuggestionsInitial();
+        renderAuthorizationInitialChoice();
       }
     }
 
@@ -3013,6 +3947,10 @@ const AUTH_CHAT_STATES = {
       authorizationPendingRemoval = null;
       authorizationRemovalLastContext = null;
       authorizationActiveJobId = null;
+      authorizationSelectedJiraTeam = null;
+      authorizationSelectedJiraAssignee = null;
+      authorizationSelectedJiraProcess = null;
+      authorizationSelectedJiraTicket = null;
 
       const container = document.getElementById('authorization-chat-messages');
       const input = document.getElementById('authorization-chat-input');
@@ -3020,7 +3958,7 @@ const AUTH_CHAT_STATES = {
       if (input) input.value = '';
 
       removeAuthorizationTypingIndicator();
-      setAuthorizationChatState(AUTH_CHAT_STATES.WAITING_USER);
+      setAuthorizationChatState(AUTH_CHAT_STATES.WAITING_INITIAL_CHOICE);
       ensureAuthorizationInitialQuestion();
     }
 
@@ -3609,6 +4547,85 @@ const AUTH_CHAT_STATES = {
         return;
       }
 
+      // Se estivermos na escolha inicial (Ticket vs Processo):
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_INITIAL_CHOICE) {
+        if (normVal.includes('TICKET') || normVal === 'TICKET') {
+          handleInitialChoiceSelect('Ticket', true);
+        } else {
+          handleInitialChoiceSelect('Processo', true);
+        }
+        return;
+      }
+
+      // Se estivermos a aguardar a seleção de equipa Jira:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_TEAM) {
+        if (normVal.includes('PROCESSO')) {
+          renderRoutineSuggestionsInitial();
+        } else {
+          showJiraAssigneeOptions(rawVal.trim(), true);
+        }
+        return;
+      }
+
+      // Se estivermos a aguardar a escolha do modo de filtro (Todos os tickets vs Processo):
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_FILTER_MODE) {
+        handleFilterModeSelect(rawVal.trim(), true);
+        return;
+      }
+
+      // Se estivermos a aguardar a seleção de processo Jira:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_PROCESS) {
+        if (normVal.includes('RESPONSAVEL') || normVal.includes('RESPONSÁVEL')) {
+          showJiraAssigneeOptions(authorizationSelectedJiraTeam, true);
+        } else if (normVal.includes('EQUIPA')) {
+          showJiraTeamOptions();
+        } else {
+          selectJiraProcess(rawVal.trim(), true);
+        }
+        return;
+      }
+
+      // Se estivermos a aguardar a seleção de ticket Jira:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_JIRA_TICKET) {
+        if (normVal.includes('EQUIPA') || normVal.includes('TROCAR EQUIPA')) {
+          showJiraTeamOptions();
+          return;
+        }
+        if (normVal.includes('PROCESSO')) {
+          renderRoutineSuggestionsInitial();
+          return;
+        }
+        let matched = null;
+        if (Array.isArray(authorizationCachedJiraTickets)) {
+          const cleanRaw = rawVal.trim().toUpperCase();
+          matched = authorizationCachedJiraTickets.find(t =>
+            t.key.toUpperCase() === cleanRaw ||
+            cleanRaw.includes(t.key.toUpperCase()) ||
+            (t.summary && t.summary.toUpperCase().includes(cleanRaw))
+          );
+        }
+        if (matched) {
+          selectJiraTicket(matched, true);
+        } else {
+          selectJiraTicket({ key: rawVal.trim().toUpperCase(), summary: rawVal.trim() }, true);
+        }
+        return;
+      }
+
+      // Se estivermos a aguardar a ação do ticket Jira:
+      if (authorizationChatState === AUTH_CHAT_STATES.WAITING_TICKET_ACTION) {
+        if (normVal.includes('ANALISAR') || normVal.includes('AUTORIZACAO') || normVal.includes('AUTORIZAÇÃO')) {
+          handleTicketActionSelect('Analisar autorizações', authorizationSelectedJiraTicket);
+        } else if (normVal.includes('DADOS DE UTILIZADOR') || normVal.includes('UTILIZADOR')) {
+          handleTicketActionSelect('Dados de utilizador', authorizationSelectedJiraTicket);
+        } else if (normVal.includes('PERFIL')) {
+          handleTicketActionSelect('Perfil de autorização', authorizationSelectedJiraTicket);
+        } else {
+          handleTicketActionSelect('Processo', authorizationSelectedJiraTicket);
+        }
+        return;
+      }
+
       // Se o utilizador fizer uma pergunta sobre a tabela de roles exibida no ecra (expiradas, ativas, contagem):
       if (handleContextualRolesQuery(rawVal, normVal)) {
         return;
@@ -3616,16 +4633,7 @@ const AUTH_CHAT_STATES = {
 
       // Se estivermos no fluxo de alteração individual à espera do utilizador de referência (Por cópia):
       if (authorizationChatState === AUTH_CHAT_STATES.WAITING_COPY_REFERENCE_USER) {
-        const refUserVal = rawVal.trim().toUpperCase();
-        if (authorizationIndividualContext) {
-          authorizationIndividualContext.referenceUser = refUserVal;
-        }
-        appendAuthorizationMessage(
-          'assistant',
-          `Registado o utilizador de referência **${escapeAuthorizationText(refUserVal)}**.\n\nAgora, vamos selecionar os dados do **novo colaborador** na **tabela do RH no Sistema Produtivo (S4P)** para obter o Nome, Email e Equipa.\n\nPor favor, introduza o **N.º Mecanográfico (PERNR)**, **Nome** ou **Utilizador SAP** do novo colaborador.`
-        );
-        authorizationChatState = AUTH_CHAT_STATES.WAITING_HR_SEARCH_QUERY;
-        updateAuthorizationComposer();
+        performHrReferenceUserSearch(rawVal.trim());
         return;
       }
 

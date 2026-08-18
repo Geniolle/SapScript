@@ -5,6 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: jira-sheet-daemon
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       JIRA_DADOS_COMP_HASH: ${JIRA_DADOS_COMP_HASH}
       JIRA_DADOS_HASH: ${JIRA_DADOS_HASH:-rest/api/3}
@@ -29,6 +34,11 @@ services:
     container_name: teams-unassigned-alert
     restart: unless-stopped
     command: ["python", "teams_unassigned_alert.py"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       JIRA_DADOS_COMP_HASH: ${JIRA_DADOS_COMP_HASH}
       JIRA_DADOS_HASH: ${JIRA_DADOS_HASH:-rest/api/3}
