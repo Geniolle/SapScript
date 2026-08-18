@@ -666,6 +666,158 @@ CONSULTAS = [
             "CV_RULE",
         ],
     },
+
+    # =========================================================================
+    # 22 - DDIC DA TABELA PRINCIPAL DMEE_TREE
+    # =========================================================================
+    #
+    # Objetivo:
+    # descobrir como o SAP guarda:
+    # - árvore;
+    # - versão ativa;
+    # - status;
+    # - outras referências da árvore.
+    #
+    # =========================================================================
+    {
+        "nome": "DMEEX - DDIC da tabela principal DMEE_TREE",
+        "tabela": "DD03L",
+        "filtros": [
+            {
+                "campo": "TABNAME",
+                "valor": "DMEE_TREE",
+                "opcao": "EQ",
+            },
+        ],
+        "campos_saida": [],
+    },
+
+
+    # =========================================================================
+    # 23 - REGISTO PRINCIPAL DE PAYM / Z_CGI_CT
+    # =========================================================================
+    #
+    # Não restringimos campos ainda.
+    # Queremos ver tudo o que DMEE_TREE guarda para esta árvore.
+    #
+    # =========================================================================
+    {
+        "nome": "DMEEX - definição principal da árvore PAYM Z_CGI_CT",
+        "tabela": "DMEE_TREE",
+        "filtros": [
+            {
+                "campo": "TREE_TYPE",
+                "valor": "PAYM",
+                "opcao": "EQ",
+            },
+            {
+                "campo": "TREE_ID",
+                "valor": FORMATO_ATUAL,
+                "opcao": "EQ",
+            },
+        ],
+        "campos_saida": [],
+    },
+
+
+    # =========================================================================
+    # 24 - NÓS COMPLETOS DA VERSÃO 000
+    # =========================================================================
+    {
+        "nome": "DMEEX - nós completos Z_CGI_CT versão 000",
+        "tabela": "DMEE_TREE_NODE",
+        "filtros": [
+            {
+                "campo": "TREE_TYPE",
+                "valor": "PAYM",
+                "opcao": "EQ",
+            },
+            {
+                "campo": "TREE_ID",
+                "valor": FORMATO_ATUAL,
+                "opcao": "EQ",
+            },
+            {
+                "campo": "VERSION",
+                "valor": "000",
+                "opcao": "EQ",
+            },
+        ],
+        "campos_saida": [
+            "TREE_TYPE",
+            "TREE_ID",
+            "VERSION",
+            "NODE_ID",
+            "TECH_NAME",
+            "REF_NAME",
+            "PARENT_ID",
+            "BROTHER_ID",
+            "FIRSTCHILD_ID",
+            "NODE_TYPE",
+            "DATA_TYPE",
+            "EX_STATUS",
+            "LEV",
+            "LENGTH",
+            "MP_SC_TAB",
+            "MP_SC_FLD",
+            "MP_SC_NODE",
+            "MP_SC_REF_NAME",
+            "MP_CONST",
+            "MP_EXIT_FUNC",
+            "MP_SELECTION",
+            "CV_RULE",
+        ],
+    },
+
+
+    # =========================================================================
+    # 25 - NÓS COMPLETOS DA VERSÃO 001
+    # =========================================================================
+    {
+        "nome": "DMEEX - nós completos Z_CGI_CT versão 001",
+        "tabela": "DMEE_TREE_NODE",
+        "filtros": [
+            {
+                "campo": "TREE_TYPE",
+                "valor": "PAYM",
+                "opcao": "EQ",
+            },
+            {
+                "campo": "TREE_ID",
+                "valor": FORMATO_ATUAL,
+                "opcao": "EQ",
+            },
+            {
+                "campo": "VERSION",
+                "valor": "001",
+                "opcao": "EQ",
+            },
+        ],
+        "campos_saida": [
+            "TREE_TYPE",
+            "TREE_ID",
+            "VERSION",
+            "NODE_ID",
+            "TECH_NAME",
+            "REF_NAME",
+            "PARENT_ID",
+            "BROTHER_ID",
+            "FIRSTCHILD_ID",
+            "NODE_TYPE",
+            "DATA_TYPE",
+            "EX_STATUS",
+            "LEV",
+            "LENGTH",
+            "MP_SC_TAB",
+            "MP_SC_FLD",
+            "MP_SC_NODE",
+            "MP_SC_REF_NAME",
+            "MP_CONST",
+            "MP_EXIT_FUNC",
+            "MP_SELECTION",
+            "CV_RULE",
+        ],
+    },
 ]
 
 # =============================================================================
