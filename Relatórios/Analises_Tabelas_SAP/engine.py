@@ -541,16 +541,29 @@ def _print_query_header(cfg: dict[str, Any]) -> None:
     print("=" * 100)
 
 
-def _print_rows(rows: list[dict[str, str]]) -> None:
+def _print_rows(rows: list[dict[str, str]], max_preview: int = 25) -> None:
     if not rows:
         print("📭 Nenhum registo devolvido.")
         return
     headers = list(rows[0].keys())
     print(f"✅ {len(rows)} registo(s) devolvido(s).")
-    print(" | ".join(headers))
-    print("-" * min(180, max(80, len(" | ".join(headers)))))
-    for idx, row in enumerate(rows, start=1):
-        print(f"{idx:>4} | " + " | ".join(str(row.get(header, "")) for header in headers))
+
+    header_str = " | ".join(headers)
+    if len(header_str) > 160:
+        header_str = header_str[:157] + "..."
+    print(header_str)
+    print("-" * min(160, max(40, len(header_str))))
+
+    preview_rows = rows[:max_preview]
+    for idx, row in enumerate(preview_rows, start=1):
+        line = " | ".join(str(row.get(h, "")) for h in headers)
+        if len(line) > 160:
+            line = line[:157] + "..."
+        print(f"{idx:>4} | {line}")
+
+    if len(rows) > max_preview:
+        print(f"   ... e mais {len(rows) - max_preview} registo(s) (guardados no JSON/CSV).")
+
 
 
 def _cache_dir(runtime: RuntimeConfig) -> Path:
