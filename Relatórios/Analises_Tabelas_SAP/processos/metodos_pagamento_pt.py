@@ -49,3 +49,16 @@ PROCESSO = {
     "gerar_csv": GERAR_CSV,
     "consultas": CONSULTAS,
 }
+
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+
+    _base_dir = Path(__file__).resolve().parent.parent
+    if str(_base_dir) not in sys.path:
+        sys.path.insert(0, str(_base_dir))
+
+    from engine import executar_processo
+
+    sys.exit(executar_processo(PROCESSO))
+
