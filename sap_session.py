@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -137,36 +138,267 @@ def load_dotenv_manual() -> Optional[str]:
     return None
 
 
+def read_dotenv_values() -> dict[str, str]:
+    candidates = []
+    
+    # 1. SAP_AUTH_ENV_FILE
+    auth_env = os.getenv("SAP_AUTH_ENV_FILE")
+    if auth_env:
+        candidates.append(Path(auth_env))
+        
+    # 2. SAP_SCRIPT_PROJECT_DIR/.env
+    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR")
+    if project_dir:
+        candidates.append(Path(project_dir) / ".env")
+        
+    # 3. current directory
+    candidates.append(Path.cwd() / ".env")
+    
+    # 4. directory of sap_session.py
+    session_dir = Path(__file__).resolve().parent
+    candidates.append(session_dir / ".env")
+    
+    # 5. parent directories of sap_session.py
+    for parent in session_dir.parents:
+        candidates.append(parent / ".env")
+        
+    env_file_path = None
+    for path in candidates:
+        if path.exists() and path.is_file():
+            env_file_path = path
+            break
+            
+    values = {}
+    if env_file_path:
+        with open(env_file_path, "r", encoding="utf-8-sig") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if not k:
+                    continue
+                if len(v) >= 2 and (
+                    (v.startswith('"') and v.endswith('"')) or
+                    (v.startswith("'") and v.endswith("'"))
+                ):
+                    v = v[1:-1]
+                values[k] = v
+    return values
+
+
+def derive_client_from_key(key: str) -> str:
+    upper = str(key or "").strip().upper()
+    pattern = r"^(?P<system>[A-Z0-9_]+)CLNT(?P<client>[0-9]+)$"
+    match = re.match(pattern, upper)
+    if match:
+        return match.group("client")
+    return ""
+
+
 def _derive_system_from_key(key: str) -> str:
     upper = str(key or "").strip().upper()
+    pattern = r"^(?P<system>[A-Z0-9_]+)CLNT(?P<client>[0-9]+)$"
+    match = re.match(pattern, upper)
+    if match:
+        return match.group("system")
     if "CLNT" in upper:
         return upper.split("CLNT", 1)[0].strip().upper()
     return upper
 
 
-def resolve_sap_target_from_env(key: str | None = None) -> SapTarget:
-    workflow_key = (key or os.getenv("WORKFLOW_SAP_KEY", "S4DCLNT100")).strip().upper()
-    if not workflow_key:
-        workflow_key = "S4DCLNT100"
+def resolve_sap_target_from_env(
+    key: str | None = None,
+    *,
+    env_values: dict[str, str] | None = None,
+) -> SapTarget:
+    if not env_values:
+        env_values = read_dotenv_values()
 
-    system_name = os.getenv("WORKFLOW_SAP_SYSTEM", "").strip().upper()
+    def get_value(name: str, default: str = "") -> str:
+        val = env_values.get(name)
+        if val is None:
+            val = os.environ.get(name)
+        if val is None:
+            return default
+        return val.strip()
+
+    explicit_key = bool(str(key or "").strip())
+    
+    if explicit_key:
+        sap_key = str(key).strip().upper()
+    else:
+        sap_key = get_value("WORKFLOW_SAP_KEY", default="S4DCLNT100").upper()
+        if not sap_key:
+            sap_key = "S4DCLNT100"
+
+    system_code = _derive_system_from_key(sap_key)
+
+    # Mapeamento de alias para busca de variáveis no .env
+    ALIAS_MAP = {
+        "DEV": ["DEV", "S4D", "S4DCLNT100"],
+        "S4D": ["S4D", "DEV", "S4DCLNT100"],
+        "S4DCLNT100": ["S4DCLNT100", "S4D", "DEV"],
+        "QAD": ["QAD", "S4Q", "S4QCLNT100"],
+        "S4Q": ["S4Q", "QAD", "S4QCLNT100"],
+        "S4QCLNT100": ["S4QCLNT100", "S4Q", "QAD"],
+        "PRD": ["PRD", "S4P", "S4PCLNT100"],
+        "S4P": ["S4P", "PRD", "S4PCLNT100"],
+        "S4PCLNT100": ["S4PCLNT100", "S4P", "PRD"],
+    }
+    
+    keys_to_try = [sap_key, f"{system_code}CLNT100"]
+    if sap_key in ALIAS_MAP:
+        for k in ALIAS_MAP[sap_key]:
+            if k not in keys_to_try:
+                keys_to_try.append(k)
+            k_clnt = f"{k}CLNT100"
+            if k_clnt not in keys_to_try:
+                keys_to_try.append(k_clnt)
+
+    legacy_conn = ""
+    if sap_key == "SPACLNT001":
+        legacy_conn = get_value("CUA_SAP_CONNECTION")
+
+    connection_name = ""
+    for k in keys_to_try:
+        connection_name = get_value(f"SAP_CONNECTION_{k}")
+        if connection_name:
+            break
+    if not connection_name:
+        connection_name = legacy_conn or get_value("SAP_CONNECTION")
+
+    system_name = ""
+    for k in keys_to_try:
+        system_name = get_value(f"SAP_SYSTEM_{k}")
+        if system_name:
+            break
     if not system_name:
-        system_name = _derive_system_from_key(workflow_key)
+        system_name = (
+            get_value("WORKFLOW_SAP_SYSTEM")
+            or _derive_system_from_key(sap_key)
+        )
 
-    connection_name = os.getenv(f"SAP_CONNECTION_{workflow_key}", "").strip()
-    client = os.getenv("WORKFLOW_SAP_CLIENT", "").strip()
+    client = ""
+    for k in keys_to_try:
+        client = get_value(f"SAP_CLIENT_{k}")
+        if client:
+            break
     if not client:
-        client = os.getenv(f"SAP_CLIENT_{workflow_key}", "").strip()
-    if not client:
-        client = os.getenv("SAP_CLIENT", "").strip()
+        client = (
+            get_value("WORKFLOW_SAP_CLIENT")
+            or get_value("SAP_CLIENT")
+            or derive_client_from_key(sap_key)
+            or "100"
+        )
 
-    user = os.getenv("SAP_USER", "").strip()
-    password = os.getenv(f"SAP_PASSWORD_{workflow_key}", "").strip()
-    language = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
-    saplogon_path = os.getenv("SAPLOGON_PATH", DEFAULT_SAPLOGON_PATH).strip() or DEFAULT_SAPLOGON_PATH
+    legacy_user = ""
+    if sap_key == "SPACLNT001":
+        legacy_user = get_value("CUA_SAP_USER")
+
+    user = ""
+    for k in keys_to_try:
+        user = get_value(f"SAP_USER_{k}")
+        if user:
+            break
+    if not user:
+        user = legacy_user or get_value("SAP_USER")
+
+    legacy_pwd = ""
+    if sap_key == "SPACLNT001":
+        legacy_pwd = get_value("CUA_SAP_PASSWORD")
+
+    password = ""
+    for k in keys_to_try:
+        password = get_value(f"SAP_PASSWORD_{k}")
+        if password:
+            break
+    if not password:
+        password = (
+            legacy_pwd
+            or get_value("SAP_PASSWD")
+            or get_value("SAP_PASSWORD")
+        )
+
+    legacy_lang = ""
+    if sap_key == "SPACLNT001":
+        legacy_lang = get_value("SAP_CUA_LANGUAGE") or get_value("CUA_SAP_LANGUAGE")
+
+    language = ""
+    for k in keys_to_try:
+        language = get_value(f"SAP_LANGUAGE_{k}")
+        if language:
+            break
+    if not language:
+        language = legacy_lang or get_value("SAP_LANGUAGE", default="PT") or "PT"
+
+    saplogon_path = get_value("SAPLOGON_PATH", default=DEFAULT_SAPLOGON_PATH)
+    if not saplogon_path:
+        saplogon_path = DEFAULT_SAPLOGON_PATH
+
+    # Diagnostic logs
+    print(f"[CUA CONFIG] Chave: {sap_key}")
+    if get_value(f"SAP_CONNECTION_{sap_key}"):
+        print(f"[CUA CONFIG] Ligação: SAP_CONNECTION_{sap_key}")
+    elif legacy_conn:
+        print("[CUA CONFIG] Ligação: CUA_SAP_CONNECTION (legado)")
+    else:
+        print("[CUA CONFIG] Ligação: não encontrada")
+
+    if get_value(f"SAP_SYSTEM_{sap_key}"):
+        print(f"[CUA CONFIG] Sistema: SAP_SYSTEM_{sap_key}")
+    elif explicit_key:
+        print("[CUA CONFIG] Sistema: derivado da chave")
+    else:
+        if get_value("WORKFLOW_SAP_SYSTEM"):
+            print("[CUA CONFIG] Sistema: WORKFLOW_SAP_SYSTEM")
+        else:
+            print("[CUA CONFIG] Sistema: derivado da chave")
+
+    if get_value(f"SAP_CLIENT_{sap_key}"):
+        print(f"[CUA CONFIG] Cliente: SAP_CLIENT_{sap_key}")
+    elif explicit_key:
+        print("[CUA CONFIG] Cliente: derivado da chave")
+    else:
+        if get_value("WORKFLOW_SAP_CLIENT"):
+            print("[CUA CONFIG] Cliente: WORKFLOW_SAP_CLIENT")
+        elif get_value("SAP_CLIENT"):
+            print("[CUA CONFIG] Cliente: SAP_CLIENT")
+        else:
+            print("[CUA CONFIG] Cliente: derivado da chave")
+
+    if get_value(f"SAP_USER_{sap_key}"):
+        print(f"[CUA CONFIG] Utilizador: SAP_USER_{sap_key}")
+    elif legacy_user:
+        print("[CUA CONFIG] Utilizador: CUA_SAP_USER (legado)")
+    elif get_value("SAP_USER"):
+        print("[CUA CONFIG] Utilizador: SAP_USER")
+    else:
+        print("[CUA CONFIG] Utilizador: não encontrado")
+
+    has_pwd = "sim" if password else "não"
+    if get_value(f"SAP_PASSWORD_{sap_key}"):
+        print(f"[CUA CONFIG] Password configurada: {has_pwd} (via SAP_PASSWORD_{sap_key})")
+    elif legacy_pwd:
+        print(f"[CUA CONFIG] Password configurada: {has_pwd} (via CUA_SAP_PASSWORD legado)")
+    else:
+        print(f"[CUA CONFIG] Password configurada: {has_pwd}")
+
+    if get_value(f"SAP_LANGUAGE_{sap_key}"):
+        print(f"[CUA CONFIG] Idioma: SAP_LANGUAGE_{sap_key}")
+    elif legacy_lang:
+        print("[CUA CONFIG] Idioma: CUA/SAP_CUA_LANGUAGE (legado)")
+    elif get_value("SAP_LANGUAGE"):
+        print("[CUA CONFIG] Idioma: SAP_LANGUAGE")
+    else:
+        print("[CUA CONFIG] Idioma: padrão (PT)")
+
+    print("[CUA CONFIG] Ficheiro .env relido: sim")
 
     return SapTarget(
-        key=workflow_key,
+        key=sap_key,
         system_name=system_name,
         connection_name=connection_name,
         client=client,
@@ -219,12 +451,25 @@ def _find_logged_session(application, *, system_name: str, client: str):
     return None
 
 
-def _find_login_session(application):
-    for _conn, sess in _iter_sessions(application):
+def _find_login_session(application, target: SapTarget):
+    expected_system = str(target.system_name or "").strip().upper()
+    expected_conn = str(target.connection_name or "").strip()
+
+    for conn, sess in _iter_sessions(application):
         try:
             sess.findById("wnd[0]/usr/txtRSYST-BNAME")
             sess.findById("wnd[0]/usr/pwdRSYST-BCODE")
             sess.findById("wnd[0]/usr/txtRSYST-MANDT")
+
+            # Check if this login screen belongs to another system or connection
+            sess_system = str(sess.Info.SystemName or "").strip().upper()
+            conn_desc = str(getattr(conn, "Description", "") or "").strip()
+
+            if expected_system and sess_system and sess_system != expected_system:
+                continue
+            if expected_conn and conn_desc and conn_desc != expected_conn:
+                continue
+
             return sess
         except Exception:
             continue
@@ -248,6 +493,13 @@ def _dismiss_popup_if_any(session) -> None:
         session.findById("wnd[1]")
     except Exception:
         return
+
+    for rad_id in ("wnd[1]/usr/radMULTI_LOGON_OPT2", "wnd[1]/usr/radMULTI_LOGON_OPT3"):
+        try:
+            session.findById(rad_id).select()
+            break
+        except Exception:
+            pass
 
     for btn in ("wnd[1]/tbar[0]/btn[0]", "wnd[1]/tbar[0]/btn[11]", "wnd[1]/tbar[0]/btn[12]"):
         try:
@@ -344,7 +596,20 @@ def _submit_login(session, target: SapTarget) -> None:
     session.findById("wnd[0]/usr/txtRSYST-LANGU").text = target.language
     session.findById("wnd[0]").sendVKey(0)
     time.sleep(SECOND_ENTER_DELAY_S)
-    session.findById("wnd[0]").sendVKey(0)
+
+    # Check status bar for error before sending second Enter
+    try:
+        sbar = session.findById("wnd[0]/sbar")
+        msg_type = str(getattr(sbar, "MessageType", "") or "").strip().upper()
+        if msg_type in ("E", "A"):
+            return
+    except Exception:
+        pass
+
+    try:
+        session.findById("wnd[0]").sendVKey(0)
+    except Exception:
+        pass
 
 
 def _validate_target(target: SapTarget) -> None:
@@ -352,13 +617,28 @@ def _validate_target(target: SapTarget) -> None:
     if not target.connection_name:
         missing.append(f"SAP_CONNECTION_{target.key}")
     if not target.client:
-        missing.append(f"SAP_CLIENT_{target.key} (ou SAP_CLIENT)")
+        missing.append(f"SAP_CLIENT_{target.key}")
     if not target.user:
-        missing.append("SAP_USER")
+        missing.append(f"SAP_USER_{target.key} (ou SAP_USER)")
     if not target.password:
         missing.append(f"SAP_PASSWORD_{target.key}")
+    if not target.language:
+        missing.append(f"SAP_LANGUAGE_{target.key} (ou SAP_LANGUAGE)")
+
+    if target.key == "SPACLNT001":
+        if target.system_name != "SPA":
+            missing.append("system_name (deve ser SPA)")
+        if target.client != "001":
+            missing.append("client (deve ser 001)")
+
     if missing:
-        raise RuntimeError("Variaveis de ambiente em falta: " + ", ".join(missing))
+        if target.key == "SPACLNT001":
+            raise RuntimeError(
+                "Configuração SAP CUA incompleta. Verifique as variáveis específicas de SPACLNT001 no .env.\n"
+                f"Variáveis ausentes/incorretas: {', '.join(missing)}"
+            )
+        else:
+            raise RuntimeError(f"Variaveis de ambiente em falta para {target.key}: " + ", ".join(missing))
 
 
 def _get_scripting_engine(target: SapTarget, win32_client):
@@ -369,8 +649,19 @@ def _get_scripting_engine(target: SapTarget, win32_client):
         if not saplogon.exists():
             raise RuntimeError(f"SAP Logon nao encontrado em: {target.saplogon_path}")
         subprocess.Popen([str(saplogon)], shell=False)
-        time.sleep(5)
-        sap = win32_client.GetObject("SAPGUI")
+        
+        # Espera progressiva ate 15 segundos para o SAP Logon iniciar e registar no ROT
+        sap = None
+        for _ in range(15):
+            time.sleep(1)
+            try:
+                sap = win32_client.GetObject("SAPGUI")
+                if sap:
+                    break
+            except Exception:
+                pass
+        if not sap:
+            sap = win32_client.GetObject("SAPGUI")
 
     _try_minimize_saplogon_windows()
     application = sap.GetScriptingEngine
@@ -404,7 +695,7 @@ def ensure_sap_access(target: SapTarget, timeout_s: int = 40):
         apply_window_mode(already)
         return already
 
-    login_session = _find_login_session(application)
+    login_session = _find_login_session(application, target)
     if not login_session:
         connection = application.OpenConnection(target.connection_name, True)
         _try_minimize_saplogon_windows()
@@ -427,9 +718,8 @@ def ensure_sap_access_from_env(
     timeout_s: int = 40,
     load_env: bool = True,
 ):
-    if load_env:
-        load_dotenv_manual()
-    target = resolve_sap_target_from_env(key=key)
+    env_values = read_dotenv_values() if load_env else {}
+    target = resolve_sap_target_from_env(key=key, env_values=env_values)
     return ensure_sap_access(target=target, timeout_s=timeout_s)
 
 

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "bash": "allow",
+    "edit": "allow",
+    "write": "allow",
+    "read": "allow"
+  },
+  "skipDependencyValidation": true
+}

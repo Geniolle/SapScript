@@ -400,6 +400,88 @@
     .activity-log-scroll {
       scroll-behavior: smooth;
     }
+
+    /* Role Group Accordion */
+    .role-group {
+      border: 1px solid #e1e4e8;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: box-shadow 0.2s ease;
+    }
+    .role-group:last-child { margin-bottom: 0; }
+    .role-group.role-running {
+      border-color: rgba(59, 130, 246, 0.35);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.06);
+    }
+    .role-group.role-error {
+      border-color: rgba(239, 68, 68, 0.35);
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.06);
+    }
+    .role-group.role-warning {
+      border-color: rgba(245, 158, 11, 0.35);
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.06);
+    }
+    .role-group.role-succeeded {
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+    .role-group-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: #f6f8fa;
+      border-bottom: 1px solid #e1e4e8;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+    .role-group-header:hover { background: #edf0f3; }
+    .role-group.role-running .role-group-header { background: rgba(59, 130, 246, 0.04); }
+    .role-group.role-error .role-group-header { background: rgba(239, 68, 68, 0.04); }
+    .role-group.role-warning .role-group-header { background: rgba(245, 158, 11, 0.04); }
+    .role-group.role-succeeded .role-group-header { background: rgba(16, 185, 129, 0.03); }
+    .role-group-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+      border: 2px solid #ffffff; box-shadow: 0 0 0 1px rgba(27,31,35,0.15);
+    }
+    .role-group-title {
+      font-size: 13px; font-weight: 700; color: var(--text-primary); flex: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .role-group-meta {
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    }
+    .role-group-badge {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 2px 7px; border-radius: 20px; border: 1px solid currentColor; opacity: 0.85;
+    }
+    .role-group-badge.badge-running  { color: #3b82f6; }
+    .role-group-badge.badge-succeeded { color: #10b981; }
+    .role-group-badge.badge-error    { color: #ef4444; }
+    .role-group-badge.badge-warning  { color: #f59e0b; }
+    .role-group-badge.badge-pending  { color: #8c959f; }
+    .role-group-chevron {
+      color: #8c959f; flex-shrink: 0; transition: transform 0.25s ease;
+      font-size: 12px; line-height: 1;
+    }
+    .role-group-body {
+      padding: 16px 14px 8px 14px;
+    }
+    .role-group-init {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      margin-bottom: 4px;
+    }
+    .role-group-init .role-group-header {
+      background: transparent;
+      border-bottom: 1px dashed #e1e4e8;
+      padding-left: 0;
+    }
+    .role-group-init .role-group-title { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .role-group-diag .role-group-header { background: rgba(245, 158, 11, 0.04); border-color: rgba(245, 158, 11, 0.25); }
+    .role-group-diag { border-color: rgba(245, 158, 11, 0.25); }
     .task-log-row {
       display: flex;
       align-items: flex-start;
@@ -557,10 +639,34 @@
       .filters-grid {
         grid-template-columns: repeat(2, 1fr) !important;
       }
+      .auth-chat-shell {
+        height: calc(100vh - 120px);
+        max-height: calc(100vh - 120px);
+        margin: 16px 12px;
+      }
+      #view-autorizacoes {
+        padding-bottom: 16px !important;
+      }
+      .auth-chat-messages {
+        padding: 18px;
+      }
     }
     @media (max-width: 480px) {
       .filters-grid {
         grid-template-columns: 1fr !important;
+      }
+      .auth-chat-shell {
+        height: calc(100vh - 104px);
+        max-height: calc(100vh - 104px);
+        margin: 12px 10px;
+      }
+      .auth-chat-header,
+      .auth-chat-composer {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      .auth-chat-messages {
+        padding: 14px;
       }
     }
     .premium-select {
@@ -1001,6 +1107,141 @@
     .terminal-scroll::-webkit-scrollbar-thumb:hover {
       background: rgba(255, 255, 255, 0.3);
     }
+
+    /* Modal Eliminação de Job Customizado */
+    .delete-job-modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(15, 23, 42, 0.58);
+      backdrop-filter: blur(6px);
+    }
+
+    .delete-job-modal-overlay[hidden] {
+      display: none !important;
+    }
+
+    .delete-job-modal-card {
+      width: min(460px, 100%);
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 28px;
+      position: relative;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      animation: deleteJobModalIn 0.2s ease-out;
+    }
+
+    @keyframes deleteJobModalIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .delete-job-modal-close {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      border: none;
+      background: transparent;
+      font-size: 24px;
+      line-height: 1;
+      color: #64748b;
+      cursor: pointer;
+    }
+
+    .delete-job-modal-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 16px;
+      background: #fee2e2;
+      color: #dc2626;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 16px;
+    }
+
+    .delete-job-modal-card h3 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .delete-job-modal-text {
+      margin: 0 0 18px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .delete-job-modal-summary {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 12px;
+      color: #334155;
+      margin-bottom: 16px;
+    }
+
+    .delete-job-modal-error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+
+    .delete-job-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+      color: #fff;
+      border: 1px solid #dc2626;
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+      border-color: #b91c1c;
+    }
+
+    .btn-danger:disabled,
+    .btn-secondary:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    #selected-process-display-input {
+      background-color: #f9fafb !important;
+      color: #374151 !important;
+      cursor: default !important;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #selected-process-display-field[hidden] {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -1049,8 +1290,7 @@
             </div>
           </div>
         </div>
-        <a class="nav-item" onclick="switchView('visao-geral')">Requests</a>
-        <a class="nav-item" onclick="switchView('visao-geral')">Ficheiros</a>
+        <a class="nav-item" id="nav-item-autorizacoes" onclick="switchView('autorizacoes')">Autorizações</a>
         <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
         <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')">⚙️ Definições</a>
       </nav>
@@ -1091,79 +1331,13 @@
               <span id="jira-last-sync-text">Nunca sincronizado</span>
             </span>
           </div>
-          <button type="button" id="refresh-button" class="btn btn-secondary" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
-          <button type="button" id="new-job-btn" class="btn btn-primary">+ Novo job</button>
         </div>
       </header>
 
       <!-- Visão Geral View -->
       <div id="view-visao-geral" style="flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <!-- KPIs -->
-        <section class="kpi-grid">
-          <div class="kpi-card" onclick="openKpiJobsModal('running')">
-            <div class="kpi-icon-wrapper blue">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Jobs em execução</div>
-              <div class="kpi-value"><span id="kpi-running">0</span> <span class="kpi-sub" id="kpi-running-sub">Sistema livre</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" onclick="openKpiJobsModal('pending')">
-            <div class="kpi-icon-wrapper yellow">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Pendentes</div>
-              <div class="kpi-value"><span id="kpi-pending">0</span> <span class="kpi-sub">A processar na fila</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" onclick="openKpiJobsModal('success')">
-            <div class="kpi-icon-wrapper green">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Concluídos hoje</div>
-              <div class="kpi-value"><span id="kpi-success">0</span> <span class="kpi-sub" id="kpi-success-rate">0% sem erro</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" onclick="openKpiJobsModal('failed')">
-            <div class="kpi-icon-wrapper red">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Erros</div>
-              <div class="kpi-value"><span id="kpi-failed">0</span> <span class="kpi-sub">Requer validação</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" style="cursor: default;">
-            <div class="kpi-icon-wrapper blue">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Tempo médio</div>
-              <div class="kpi-value"><span id="kpi-avg-time">0s</span> <span class="kpi-sub">De concluídos</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" style="cursor: default;">
-            <div class="kpi-icon-wrapper green">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Taxa de sucesso</div>
-              <div class="kpi-value"><span id="kpi-success-rate-general">100%</span> <span class="kpi-sub">Geral dos jobs</span></div>
-            </div>
-          </div>
-          <div class="kpi-card" style="cursor: default;">
-            <div class="kpi-icon-wrapper yellow">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-            </div>
-            <div class="kpi-data">
-              <div class="kpi-title">Última execução</div>
-              <div class="kpi-value"><span id="kpi-latest-time" style="font-size: 0.95rem;">---</span> <span class="kpi-sub">Data do último job</span></div>
-            </div>
-          </div>
-        </section>
+        {% include "components/dashboard_kpis.html" %}
 
         <!-- Main Grid -->
         <section class="dashboard-grid">
@@ -2192,6 +2366,507 @@
         </div>
       </div>
 
+      <!-- Autorizações View -->
+      <style>
+        .auth-chat-shell {
+          width: 100%;
+          max-width: 100%;
+          margin: 0;
+          height: calc(100vh - 150px);
+          max-height: calc(100vh - 150px);
+          background: var(--card-bg, #ffffff);
+          border: 1px solid var(--border-color);
+          border-radius: 16px;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+          align-self: stretch;
+          overflow: hidden;
+          font-family: inherit;
+        }
+        .auth-chat-header {
+          padding: 16px 24px;
+          border-bottom: 1px solid var(--border-color);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: rgba(0, 0, 0, 0.01);
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        .auth-chat-header-left {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .auth-chat-header-icon {
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          font-size: 20px;
+          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+        .auth-chat-header-titles h3 {
+          margin: 0;
+          font-size: 1rem;
+          font-weight: 800;
+          color: var(--text-primary);
+        }
+        .auth-chat-header-titles p {
+          margin: 2px 0 0 0;
+          font-size: 0.78rem;
+          color: var(--text-secondary);
+        }
+        .auth-chat-status {
+          font-size: 11px;
+          font-weight: 700;
+          padding: 6px 12px;
+          border-radius: 20px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: rgba(0, 0, 0, 0.03);
+          color: var(--text-secondary);
+          transition: all 0.25s ease;
+        }
+        .auth-chat-status.connected {
+          color: #10b981;
+          background: rgba(16, 185, 129, 0.1);
+        }
+        .auth-chat-status.connecting {
+          color: #f59e0b;
+          background: rgba(245, 158, 11, 0.1);
+        }
+        .auth-chat-status.error {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+        .auth-chat-status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: currentColor;
+        }
+        .auth-chat-messages {
+          padding: 24px;
+          flex: 1;
+          min-height: 0;
+          max-height: none;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          background: rgba(0, 0, 0, 0.005);
+        }
+        /* Estilos adicionais para a tabela e resumo de autorizações */
+        .auth-analysis-result {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          width: 100%;
+          margin-top: 8px;
+        }
+        .auth-summary-card {
+          background: var(--card-bg, #ffffff);
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          padding: 16px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        .auth-summary-header {
+          font-weight: 700;
+          font-size: 1rem;
+          margin-bottom: 12px;
+          color: var(--text-primary);
+          border-bottom: 2px solid var(--border-color);
+          padding-bottom: 6px;
+        }
+        .auth-summary-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 10px;
+        }
+        .auth-summary-item {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.85rem;
+        }
+        .auth-summary-item span {
+          font-weight: 600;
+        }
+        .auth-summary-item .badge {
+          padding: 2px 8px;
+          border-radius: 6px;
+          font-size: 0.75rem;
+        }
+        .badge-success { background-color: #d1fae5; color: #065f46; }
+        .badge-danger { background-color: #fee2e2; color: #991b1b; }
+        .badge-warning { background-color: #fef3c7; color: #92400e; }
+        
+        .auth-table-wrapper {
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
+          overflow: hidden;
+          background: var(--card-bg, #ffffff);
+        }
+        .auth-result-table {
+          width: 100%;
+          border-collapse: collapse;
+          text-align: left;
+          font-size: 0.8rem;
+        }
+        .auth-result-table th, .auth-result-table td {
+          padding: 8px 12px;
+          border-bottom: 1px solid var(--border-color);
+        }
+        .auth-result-table th {
+          background: rgba(0, 0, 0, 0.02);
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+        .auth-row-hidden {
+          display: none;
+        }
+        .auth-ver-todas-btn {
+          width: 100%;
+          padding: 10px;
+          border: none;
+          background: rgba(0, 0, 0, 0.01);
+          border-top: 1px solid var(--border-color);
+          cursor: pointer;
+          color: #3b82f6;
+          font-weight: 600;
+          font-size: 0.8rem;
+          transition: background 0.2s;
+        }
+        .auth-ver-todas-btn:hover {
+          background: rgba(0, 0, 0, 0.03);
+        }
+        .auth-actions-row {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 10px;
+        }
+        .auth-chat-bubble {
+          max-width: 90%;
+          padding: 13px 18px;
+          border-radius: 14px;
+          font-size: 0.86rem;
+          line-height: 1.55;
+          animation: authChatSlideIn 0.25s ease-out;
+        }
+        .auth-chat-bubble-assistant {
+          align-self: flex-start;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-left: 3px solid #3b82f6;
+          color: var(--text-primary, #1e293b);
+          border-top-left-radius: 3px;
+          display: flex;
+          gap: 12px;
+          width: fit-content;
+          max-width: 95%;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+          margin-top: 12px;
+          margin-bottom: 2px;
+        }
+        .auth-chat-bubble-assistant-icon {
+          font-size: 15px;
+          margin-top: 1px;
+          color: #2563eb;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 26px;
+          height: 26px;
+          background: rgba(37, 99, 235, 0.08);
+          border-radius: 8px;
+          flex-shrink: 0;
+        }
+        .auth-chat-bubble-user {
+          align-self: flex-end;
+          background: linear-gradient(135deg, #2563eb, #1d4ed8);
+          color: white;
+          border-top-right-radius: 3px;
+          box-shadow: 0 3px 10px rgba(37, 99, 235, 0.22);
+          margin-top: 18px;
+          margin-bottom: 6px;
+        }
+        .auth-chat-typing {
+          align-self: flex-start;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 4px;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          margin: 6px 0;
+        }
+        .auth-chat-typing-label {
+          display: none !important;
+        }
+        .auth-chat-typing-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #3b82f6;
+          opacity: 0.7;
+          animation: authChatBounce 1.4s infinite ease-in-out both;
+        }
+        .auth-chat-typing-dot:nth-child(1),
+        .auth-chat-typing-dot:nth-of-type(1) { animation-delay: 0s; }
+        .auth-chat-typing-dot:nth-child(2),
+        .auth-chat-typing-dot:nth-of-type(2) { animation-delay: 0.2s; }
+        .auth-chat-typing-dot:nth-child(3),
+        .auth-chat-typing-dot:nth-of-type(3) { animation-delay: 0.4s; }
+
+        @keyframes authChatBounce {
+          0%, 80%, 100% {
+            transform: scale(0.6);
+            opacity: 0.35;
+          }
+          40% {
+            transform: scale(1.15);
+            opacity: 1;
+          }
+        }
+        
+        .auth-chat-system-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 14px;
+          margin-top: 14px;
+          margin-bottom: 10px;
+          width: 100%;
+        }
+        .auth-chat-system-card,
+        .auth-chat-analysis-card {
+          border: 1px solid var(--border-color, #e2e8f0);
+          border-radius: 12px;
+          padding: 14px 16px;
+          background: #ffffff !important;
+          cursor: pointer;
+          transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          text-align: left;
+          box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
+          position: relative;
+          overflow: hidden;
+        }
+        .auth-chat-system-card:hover,
+        .auth-chat-analysis-card:hover {
+          border-color: #3b82f6;
+          background: #ffffff !important;
+          box-shadow: 0 6px 16px rgba(59, 130, 246, 0.14);
+          transform: translateY(-2px);
+        }
+        .auth-chat-system-card.selected,
+        .auth-chat-analysis-card.selected {
+          border-color: #2563eb !important;
+          background: #eff6ff !important;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2) !important;
+        }
+        .auth-chat-system-card .sys-code {
+          font-weight: 800 !important;
+          font-size: 0.95rem;
+          letter-spacing: 0.02em;
+        }
+        .auth-chat-system-card[data-key*="S4D"] .sys-code,
+        .auth-chat-system-card[data-system="S4D"] .sys-code { color: #1d4ed8; }
+
+        .auth-chat-system-card[data-key*="S4P"] .sys-code,
+        .auth-chat-system-card[data-system="S4P"] .sys-code { color: #047857; }
+
+        .auth-chat-system-card[data-key*="S4Q"] .sys-code,
+        .auth-chat-system-card[data-system="S4Q"] .sys-code { color: #b45309; }
+
+        .auth-chat-system-card[data-key*="SPA"] .sys-code,
+        .auth-chat-system-card[data-key*="CUA"] .sys-code,
+        .auth-chat-system-card[data-system="SPA"] .sys-code { color: #6d28d9; }
+
+        .auth-chat-system-card .sys-client {
+          font-size: 0.78rem;
+          color: var(--text-secondary, #64748b);
+          font-weight: 600;
+        }
+        .auth-chat-system-card .sys-conn {
+          font-size: 0.72rem;
+          color: var(--text-secondary);
+          opacity: 0.8;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .auth-chat-analysis-card:focus-visible {
+          outline: 2px solid #2563eb;
+          outline-offset: 2px;
+        }
+        .auth-chat-analysis-card .analysis-title {
+          font-weight: 800;
+          font-size: 0.90rem;
+          color: var(--text-primary);
+        }
+        .auth-chat-analysis-card .analysis-desc {
+          font-size: 0.72rem;
+          color: var(--text-secondary);
+          line-height: 1.35;
+        }
+        
+        .auth-chat-summary {
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          background: rgba(0, 0, 0, 0.01);
+          padding: 16px;
+          margin-top: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .auth-chat-summary-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.8rem;
+          border-bottom: 1px dashed var(--border-color);
+          padding-bottom: 6px;
+        }
+        .auth-chat-summary-row:last-child {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+        .auth-chat-summary-label {
+          color: var(--text-secondary);
+          font-weight: 600;
+        }
+        .auth-chat-summary-value {
+          color: var(--text-primary);
+          font-weight: 700;
+        }
+        .auth-chat-summary-actions {
+          display: flex;
+          gap: 10px;
+          margin-top: 10px;
+        }
+        
+        .auth-chat-composer {
+          padding: 16px 24px;
+          border-top: 1px solid var(--border-color);
+          background: rgba(0, 0, 0, 0.01);
+          flex-shrink: 0;
+        }
+        .auth-chat-composer-form {
+          display: flex;
+          gap: 12px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .auth-chat-composer-input {
+          flex: 1;
+          padding: 12px 16px;
+          border: 1px solid var(--border-color);
+          border-radius: 10px;
+          font-size: 0.85rem;
+          color: var(--text-primary);
+          background: var(--card-bg, #ffffff);
+          outline: none;
+          transition: all 0.2s ease;
+        }
+        .auth-chat-composer-input:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+        }
+        .auth-chat-composer-send {
+          padding: 0 20px;
+          border: none;
+          border-radius: 10px;
+          background: linear-gradient(135deg, #2563eb, #1d4ed8);
+          color: white;
+          font-size: 0.82rem;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+        }
+        .auth-chat-composer-send:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+        .auth-chat-composer-send:disabled {
+          background: #cbd5e1;
+          color: #94a3b8;
+          cursor: not-allowed;
+          box-shadow: none;
+          transform: none;
+        }
+        
+        @keyframes authChatSlideIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes authChatBounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
+        }
+      </style>
+
+      <div id="view-autorizacoes" style="display: none; flex: 1; min-height: 0; overflow: hidden; padding-bottom: 32px; flex-direction: column;">
+        <div class="auth-chat-shell">
+          <div class="auth-chat-header">
+            <div class="auth-chat-header-left">
+              <div class="auth-chat-header-icon">🛡️</div>
+              <div class="auth-chat-header-titles">
+                <h3>Assistente de Autorizações SAP</h3>
+                <p>Análise inteligente de utilizadores, perfis e acessos SAP.</p>
+              </div>
+            </div>
+            <div id="auth-chat-status" class="auth-chat-status connecting">
+              <span class="auth-chat-status-dot"></span>
+              <span id="auth-chat-status-text">A carregar...</span>
+            </div>
+          </div>
+          
+          <div id="authorization-chat-messages" class="auth-chat-messages" aria-live="polite">
+            <!-- As bubbles de conversa serão injetadas dinamicamente aqui -->
+          </div>
+          
+          <div class="auth-chat-composer">
+            <form id="authorization-chat-form" class="auth-chat-composer-form">
+              <input 
+                type="text" 
+                id="authorization-chat-input" 
+                class="auth-chat-composer-input" 
+                placeholder="A carregar configuração SAP..." 
+                autocomplete="off" 
+                spellcheck="false" 
+                maxlength="200"
+                aria-label="Introduza o utilizador SAP para analisar"
+                disabled
+              >
+              <button 
+                type="submit" 
+                id="authorization-chat-send" 
+                class="auth-chat-composer-send" 
+                disabled
+              >
+                Enviar
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+
       <!-- Histórico View -->
 
       <div id="view-historico" style="display: none;">
@@ -2253,6 +2928,17 @@
               <option value="{{ ambiente.codigo }}">{{ ambiente.label }}</option>
             {% endfor %}
           </select>
+        </label>
+
+        <label id="selected-process-display-field" hidden>
+          Processo a executar
+          <input
+            id="selected-process-display-input"
+            type="text"
+            readonly
+            tabindex="-1"
+            autocomplete="off"
+          >
         </label>
 
         <label>
@@ -2378,14 +3064,14 @@
         <button class="btn-close" id="close-sap-requests-btn">&times;</button>
       </div>
       <div id="sap-requests-subtitle" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; margin-top: -12px;">
-        Consultando a tabela E070 no SAP GUI do worker Windows...
+        Consultando as tabelas E070/E07T via RFC no SAP...
       </div>
       
       <!-- Loading State -->
       <div id="sap-requests-loading" style="display: none; text-align: center; padding: 40px 20px;">
         <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; margin-bottom: 12px;">⏳</div>
-        <p style="font-weight: 600; color: var(--text-primary); margin: 0;">A ligar ao SAP...</p>
-        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">O worker Windows está a executar o processo pesquisar_request.py.</p>
+        <p style="font-weight: 600; color: var(--text-primary); margin: 0;">A ligar ao SAP via RFC...</p>
+        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">O worker está a pesquisar as requests em segundo plano via RFC (sem abrir SAP GUI).</p>
       </div>
       
       <!-- Results State -->
@@ -2415,6 +3101,7 @@
     </div>
   </div>
 
+  <script src="/static/js/dashboard-kpis.js?v=6"></script>
   <script>
     // ── SAP AGENT filter sidebar state (declared at top for global scope) ──
     let saAllTickets = [];
@@ -2547,6 +3234,71 @@
     let isConnectingWorker = false;
     let connectingTimeout = null;
 
+    function updateSidebarWorkerStatus(sData) {
+      const ind = document.getElementById('worker-status-indicator');
+      const txt = document.getElementById('worker-status-text');
+      const btn = document.getElementById('start-worker-btn');
+      if (!ind || !txt) return;
+
+      const isOnline = sData.online === true || sData.status === 'online' || sData.state === 'online';
+      if (isOnline) {
+        isConnectingWorker = false;
+        if (connectingTimeout) {
+            clearTimeout(connectingTimeout);
+            connectingTimeout = null;
+        }
+        ind.style.background = 'var(--success)';
+        txt.textContent = 'Online';
+        if (btn) {
+          btn.style.display = 'none';
+          btn.disabled = false;
+          btn.innerHTML = '<span class="server-icon">🖥️</span><span>Ligar Worker</span>';
+          btn.style.opacity = '1';
+        }
+      } else {
+        if (!isConnectingWorker) {
+          ind.style.background = 'var(--danger)';
+          txt.textContent = 'Offline';
+          if (btn) {
+            btn.style.display = 'flex';
+            btn.disabled = false;
+            btn.innerHTML = '<span class="server-icon">🖥️</span><span>Ligar Worker</span>';
+            btn.style.opacity = '1';
+          }
+        }
+      }
+    }
+
+    async function ensureWorkerOnlineForAction() {
+      try {
+        const res = await fetch('/api/worker/status', { cache: 'no-store' });
+        if (!res.ok) {
+          const offlineData = { online: false, state: 'offline', status: 'offline' };
+          updateSidebarWorkerStatus(offlineData);
+          return false;
+        }
+        const data = await res.json();
+        updateSidebarWorkerStatus(data);
+        return data.online === true;
+      } catch (err) {
+        console.error('Erro ao verificar status do worker:', err);
+        const offlineData = { online: false, state: 'offline', status: 'offline' };
+        updateSidebarWorkerStatus(offlineData);
+        return false;
+      }
+    }
+
+    async function requireOnlineWorker({ context, onOffline }) {
+      const isOnline = await ensureWorkerOnlineForAction();
+      if (!isOnline) {
+        if (typeof onOffline === 'function') {
+          onOffline({ context });
+        }
+        return false;
+      }
+      return true;
+    }
+
     // --- Sidebar: SAP Dropdown ---
     let sapMenuOpen = false;
 
@@ -2676,10 +3428,12 @@
       } catch (e) {
         // Em caso de falha, mostrar formulário genérico normal
       }
+      setSelectedProcessDisplay(processo, subprocesso);
       modal.classList.add('active');
     }
 
     function _applyWebParamsToModal(params, config) {
+      requestOptionsAllowedByConfig = true;
       const fileSec   = document.getElementById('file-picker-section');
       const reqSec    = document.getElementById('request-options-section');
       const ambSel    = document.getElementById('ambiente-select');
@@ -2689,6 +3443,7 @@
       if (config) {
         if (config.show_file_picker === false && fileSec) fileSec.hidden = true;
         if (config.show_request_options === false && reqSec) reqSec.hidden = true;
+        requestOptionsAllowedByConfig = false;
         if (config.ambiente && ambSel) {
           ambSel.value = config.ambiente;
           const ambLabel = ambSel.closest('label');
@@ -2706,6 +3461,7 @@
       }
 
       // Renderizar WEB_PARAMS
+      updateRequestOptionsVisibilityByEnvironment();
       if (!params || !params.length || !container) return;
       const html = params.map(p => {
         const req = p.required ? ' <span style="color:#ef4444">*</span>' : '';
@@ -2751,12 +3507,12 @@
     }
 
     function _resetWebParams() {
+      requestOptionsAllowedByConfig = true;
       const container = document.getElementById('web-params-container');
       if (container) container.innerHTML = '';
       const fileSec = document.getElementById('file-picker-section');
       if (fileSec) fileSec.hidden = false;
       const reqSec = document.getElementById('request-options-section');
-      if (reqSec) reqSec.hidden = false;
       const ambSel = document.getElementById('ambiente-select');
       if (ambSel) {
         const ambLabel = ambSel.closest('label');
@@ -2764,6 +3520,37 @@
       }
       const badge = document.getElementById('lock-badge-ambiente-select');
       if (badge) badge.remove();
+      updateRequestOptionsVisibilityByEnvironment();
+    }
+
+    function cleanSubprocessName(value) {
+      return String(value || '')
+        .trim()
+        .replace(/^[A-Z]\.\s*/i, '')
+        .replace(/\.py$/i, '');
+    }
+
+    function setSelectedProcessDisplay(processo, subprocesso) {
+      const field = document.getElementById('selected-process-display-field');
+      const input = document.getElementById('selected-process-display-input');
+
+      if (!field || !input) return;
+
+      const proc = String(processo || '').trim();
+      const sub = cleanSubprocessName(subprocesso);
+
+      const displayValue = sub ? `${proc} / ${sub}` : proc;
+
+      input.value = displayValue;
+      field.hidden = !displayValue;
+    }
+
+    function clearSelectedProcessDisplay() {
+      const field = document.getElementById('selected-process-display-field');
+      const input = document.getElementById('selected-process-display-input');
+
+      if (input) input.value = '';
+      if (field) field.hidden = true;
     }
 
     function _lockModalMenuFields() {
@@ -2802,30 +3589,19 @@
         if (badge) badge.remove();
       });
       _resetWebParams();
+      clearSelectedProcessDisplay();
     }
 
     let currentTab = 'running';
     let activeJobId = null;
     let activeJobDetailsExpanded = true;
     let expandedJobs = {};
-    let activeLogQuery = '';
-    let activeLogLevel = 'ALL';
-    let activeLogState = 'ALL';
-    let activeLogTime = 'ALL';
     let expandedLogItems = {};
 
     // Elementos DOM
     const modal = document.getElementById('modal-novo-job');
-    const btnNewJob = document.getElementById('new-job-btn');
     const btnCloseModal = document.getElementById('close-modal-btn');
     const btnCancelModal = document.getElementById('cancel-modal-btn');
-    btnNewJob.onclick = () => {
-        resetModalLock();
-        form.reset();
-        requestOptionSelect.dispatchEvent(new Event('change'));
-        processoSelect.dispatchEvent(new Event('change'));
-        modal.classList.add('active');
-    };
     btnCloseModal.onclick = () => {
         modal.classList.remove('active');
         resetModalLock();
@@ -2904,6 +3680,7 @@
     const sapRequestsSubtitle = document.getElementById('sap-requests-subtitle');
     
     let searchPollInterval = null;
+    let requestOptionsAllowedByConfig = true;
     
     btnCloseSapRequests.onclick = () => {
         closeSapRequestsModal();
@@ -2928,7 +3705,7 @@
         }
         
         const envLabel = ambienteSelect.options[ambienteSelect.selectedIndex].text;
-        sapRequestsSubtitle.textContent = `Consultando a tabela E070 no SAP GUI para o ambiente: ${envLabel}...`;
+        sapRequestsSubtitle.textContent = `Consultando a tabela E070 via RFC para o ambiente: ${envLabel}...`;
         
         // Show modal and loading state
         modalSapRequests.classList.add('active');
@@ -3020,6 +3797,7 @@
 
     ambienteSelect.addEventListener('change', () => {
        envDisplay.textContent = ambienteSelect.options[ambienteSelect.selectedIndex].text || '---';
+       updateRequestOptionsVisibilityByEnvironment();
     });
 
     restoreLastExcelPath();
@@ -3060,9 +3838,38 @@
 
       requestDescField.hidden = opt !== '2';
       requestDescInput.disabled = opt !== '2';
+      requestDescInput.required = false;
       
       requestTypeField.hidden = opt !== '2';
       requestTypeSelect.disabled = opt !== '2';
+      requestTypeSelect.required = opt === "2";
+    }
+
+    function updateRequestOptionsVisibilityByEnvironment() {
+      const reqSec = document.getElementById('request-options-section');
+      if (!reqSec) return;
+
+      const ambiente = String(ambienteSelect.value || '').trim().toUpperCase();
+      const shouldShow = ambiente === 'DEV' && requestOptionsAllowedByConfig;
+
+      if (!shouldShow) {
+        reqSec.hidden = true;
+        requestOptionSelect.disabled = true;
+        requestOptionSelect.value = '4';
+        requestNumberInput.value = '';
+        requestNumberInput.disabled = true;
+        requestDescInput.value = '';
+        requestDescInput.disabled = true;
+        requestTypeSelect.value = '1';
+        requestTypeSelect.disabled = true;
+        requestNumberField.hidden = true;
+        requestDescField.hidden = true;
+        requestTypeField.hidden = true;
+      } else {
+        reqSec.hidden = false;
+        requestOptionSelect.disabled = false;
+        updateRequestFieldsVisibility();
+      }
     }
 
     function setExcelPath(path) {
@@ -3116,23 +3923,11 @@
         formMessage.textContent = 'Criado com sucesso!';
         setTimeout(() => modal.classList.remove('active'), 1000);
         await loadJobs();
+        switchView('visao-geral');
       } catch (err) {
         formMessage.textContent = 'Falha ao criar.';
       }
       document.getElementById('submit-job-btn').disabled = false;
-    });
-
-    document.getElementById('refresh-button').addEventListener('click', async () => {
-      const btn = document.getElementById('refresh-button');
-      if (btn.disabled) return;
-      btn.disabled = true;
-      btn.innerHTML = '<span style="display:inline-block; animation: spin 0.7s linear infinite;">↻</span>&nbsp;A atualizar...';
-      try {
-        await loadJobs();
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '↻ Atualizar';
-      }
     });
 
     // Gestão de Abas da Queue
@@ -3156,127 +3951,16 @@
         if (jobsRes.ok) {
           const data = await jobsRes.json();
           allJobs = data.jobs || [];
-          calculateKPIs();
           renderQueue();
         }
 
         if (statusRes.ok) {
           const sData = await statusRes.json();
-          const ind = document.getElementById('worker-status-indicator');
-          const txt = document.getElementById('worker-status-text');
-          const btn = document.getElementById('start-worker-btn');
-          
-          if (sData.status === 'online') {
-            isConnectingWorker = false;
-            if (connectingTimeout) {
-                clearTimeout(connectingTimeout);
-                connectingTimeout = null;
-            }
-            ind.style.background = 'var(--success)';
-            txt.textContent = 'Online';
-            if (btn) {
-              btn.style.display = 'none';
-              btn.disabled = false;
-              btn.innerHTML = '<span class="server-icon">🖥️</span><span>Ligar Worker</span>';
-              btn.style.opacity = '1';
-            }
-          } else {
-            if (!isConnectingWorker) {
-              ind.style.background = 'var(--danger)';
-              txt.textContent = 'Offline';
-              if (btn) {
-                btn.style.display = 'flex';
-                btn.disabled = false;
-                btn.innerHTML = '<span class="server-icon">🖥️</span><span>Ligar Worker</span>';
-                btn.style.opacity = '1';
-              }
-            }
-          }
+          updateSidebarWorkerStatus(sData);
         }
       } catch(e) {}
     }
 
-    function calculateKPIs() {
-      const now = new Date();
-      let running = 0, pending = 0, successToday = 0, errorToday = 0;
-      let latestRunningProcess = '';
-      
-      let totalCompletedAllTime = 0;
-      let successAllTime = 0;
-      let totalDurationMs = 0;
-      let latestJobTime = null;
-
-      allJobs.forEach(job => {
-        const isToday = new Date(job.created_at).toDateString() === now.toDateString();
-        
-        // Track latest job timestamp
-        const jobDate = new Date(job.created_at);
-        if (!latestJobTime || jobDate > latestJobTime) {
-            latestJobTime = jobDate;
-        }
-
-        if (job.state === 'running') {
-            running++;
-            if (!latestRunningProcess) latestRunningProcess = job.params?.subprocesso || job.task;
-        }
-        if (job.state === 'pending') pending++;
-        
-        if (isToday && job.state === 'succeeded') successToday++;
-        if (isToday && job.state === 'failed') errorToday++;
-        
-        // General stats for all-time rates
-        if (job.state === 'succeeded') {
-            successAllTime++;
-            totalCompletedAllTime++;
-            
-            // Calculate duration
-            const duration = new Date(job.updated_at) - new Date(job.created_at);
-            if (duration > 0) {
-                totalDurationMs += duration;
-            }
-        } else if (job.state === 'failed') {
-            totalCompletedAllTime++;
-        }
-      });
-
-      document.getElementById('kpi-running').textContent = running;
-      document.getElementById('kpi-running-sub').textContent = running > 0 ? '+ ' + latestRunningProcess : 'Sistema livre';
-      
-      document.getElementById('kpi-pending').textContent = pending;
-      
-      document.getElementById('kpi-success').textContent = successToday;
-      const totalCompletedToday = successToday + errorToday;
-      const todayRate = totalCompletedToday > 0 ? Math.round((successToday / totalCompletedToday) * 100) : 100;
-      document.getElementById('kpi-success-rate').textContent = `${todayRate}% sem erro`;
-
-      document.getElementById('kpi-failed').textContent = errorToday;
-      
-      // Calculate avg duration
-      let avgDurationStr = '0s';
-      if (successAllTime > 0) {
-          const avgMs = totalDurationMs / successAllTime;
-          const avgSecs = Math.round(avgMs / 1000);
-          if (avgSecs < 60) {
-              avgDurationStr = `${avgSecs}s`;
-          } else {
-              const mins = Math.floor(avgSecs / 60);
-              const secs = avgSecs % 60;
-              avgDurationStr = `${mins}m ${secs}s`;
-          }
-      }
-      document.getElementById('kpi-avg-time').textContent = avgDurationStr;
-      
-      // General success rate
-      const generalRate = totalCompletedAllTime > 0 ? Math.round((successAllTime / totalCompletedAllTime) * 100) : 100;
-      document.getElementById('kpi-success-rate-general').textContent = `${generalRate}%`;
-      
-      // Latest time
-      let latestTimeStr = '---';
-      if (latestJobTime) {
-          latestTimeStr = latestJobTime.toLocaleDateString('pt-PT') + ' ' + latestJobTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      }
-      document.getElementById('kpi-latest-time').textContent = latestTimeStr;
-    }
 
     function renderQueue() {
       const qContainer = document.getElementById('queue-list-container');
@@ -3298,14 +3982,14 @@
               }
           }
       } else {
-          filtered = allJobs.filter(j => j.state === 'succeeded' || j.state === 'failed');
+          filtered = allJobs.filter(j => j.state === 'succeeded' || j.state === 'succeeded_with_warnings' || j.state === 'failed');
       }
 
       if (!filtered.length) {
          qContainer.innerHTML = '<div class="empty-state" style="padding: 20px;">Lista vazia</div>';
          if (!activeJobId && allJobs.length > 0 && currentTab === 'running') {
              // Try to select first history job if nothing running
-             activeJobId = allJobs.find(j => j.state === 'succeeded' || j.state === 'failed')?.id || null;
+             activeJobId = allJobs.find(j => j.state === 'succeeded' || j.state === 'succeeded_with_warnings' || j.state === 'failed')?.id || null;
          }
       }
 
@@ -3319,6 +4003,7 @@
           if (job.state === 'running') { badgeClass = 'badge-running'; badgeText = 'running'; }
           else if (job.state === 'pending') { badgeClass = 'badge-pending'; badgeText = 'pending'; }
           else if (job.state === 'succeeded') { badgeClass = 'badge-success'; badgeText = 'sucesso'; }
+          else if (job.state === 'succeeded_with_warnings') { badgeClass = 'badge-pending'; badgeText = 'alertas'; }
           else if (job.state === 'failed') { badgeClass = 'badge-error'; badgeText = 'erro'; }
           
           let proc = job.params ? (job.params.subprocesso || job.params.processo || job.task) : job.task;
@@ -3351,7 +4036,24 @@
       renderActiveJob();
     }
 
+    window.logAccordionStates = window.logAccordionStates || {};
+
+    function getLogAccordionState(jobId) {
+        if (!window.logAccordionStates[jobId]) {
+            window.logAccordionStates[jobId] = {
+                jobId: jobId,
+                activeStageKey: null,
+                previousActiveStageKey: null,
+                terminalCollapseApplied: false,
+                manuallyExpanded: new Set(),
+                manuallyCollapsed: new Set(),
+            };
+        }
+        return window.logAccordionStates[jobId];
+    }
+
     function renderActiveJob() {
+        try {
         const container = document.getElementById('active-jobs-container');
         const logContainer = document.getElementById('realtime-log-container');
         if (!container) return;
@@ -3393,16 +4095,20 @@
             }
         }
 
-        // If no jobs at all to display
+                // If no jobs at all to display
         if (jobsToRender.length === 0) {
-           container.innerHTML = `
-              <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
-                 <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
-              </div>
-           `;
-           if (logContainer) logContainer.innerHTML = 'Nenhum log disponível...';
-           return;
-       }
+            container.innerHTML = `
+               <div class="card" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                  <div class="empty-state">Nenhum job em execução ou pendente no momento.</div>
+               </div>
+            `;
+            if (logContainer) logContainer.innerHTML = 'Nenhum log disponível...';
+            DashboardKpis.updateFocusedJob(null);
+            return;
+        }
+
+        const focusedJob = allJobs.find(j => j.id === activeJobId);
+        DashboardKpis.updateFocusedJob(focusedJob);
 
         // Clear children that are not in the new jobsToRender list or empty state
         const activeIds = jobsToRender.map(j => `card-job-${j.id}`);
@@ -3493,6 +4199,7 @@
           let roleMetadata = {};
           let sapSbarText = '';
           let errorCount = 0;
+          let docFuncionalPath = '';
 
           // Parse and scan logs for roles, progress, and status
           lines.forEach(line => {
@@ -3621,19 +4328,27 @@
                   }
               }
 
-              // Parse SAP status bar message if present
-              if (tr.includes('[SAP_SBAR]')) {
-                  const sVal = tr.split('[SAP_SBAR]')[1].trim();
-                  if (sVal) {
-                      sapSbarText = sVal;
-                  }
-              } else if (tr.toUpperCase().startsWith('STATUS:')) {
-                  const sVal = tr.substring(7).trim();
-                  if (sVal) {
-                      sapSbarText = sVal;
-                  }
-              }
-          });
+               // Parse SAP status bar message if present
+               if (tr.includes('[SAP_SBAR]')) {
+                   const sVal = tr.split('[SAP_SBAR]')[1].trim();
+                   if (sVal) {
+                       sapSbarText = sVal;
+                   }
+               } else if (tr.toUpperCase().startsWith('STATUS:')) {
+                   const sVal = tr.substring(7).trim();
+                   if (sVal) {
+                       sapSbarText = sVal;
+                   }
+               }
+
+               // Parse functional doc path if generated
+               if (tr.includes('[DOC] Documento funcional gerado:')) {
+                   const parts = tr.split('[DOC] Documento funcional gerado:');
+                   if (parts[1]) {
+                       docFuncionalPath = parts[1].trim();
+                   }
+               }
+           });
           if (totalRoles === 0 && rolesFromLogs.length > 0) {
               totalRoles = rolesFromLogs.length;
           }
@@ -3686,111 +4401,14 @@
 
           let roleHistoryHtml = '';
           let totalActions = 0;
+          const allRolesParam = (p.roles && p.roles.length > 0) ? p.roles : rolesFromLogs;
           if (totalRoles > 0) {
-              let rows = '';
-              const allRolesParam = (p.roles && p.roles.length > 0) ? p.roles : rolesFromLogs;
-              allRolesParam.forEach((r, idx) => {
-                  const isConcluida = completedRolesList.includes(r.name) || (job.state === 'succeeded');
-                  const isActive = (job.state === 'running' && r.name === currentRoleName);
-                  let statusBadge = '';
-                  
-                  if (isCadeiaProcess) {
-                      const meta = roleMetadata[r.name] || {};
-                      if (meta.success === true) {
-                          statusBadge = '<span class="role-table-badge success">✓ ENCONTRADA</span>';
-                      } else if (meta.success === false) {
-                          statusBadge = '<span class="role-table-badge failed">✗ NÃO ENCONTRADA</span>';
-                      } else {
-                          statusBadge = '<span class="role-table-badge pending">PENDENTE</span>';
-                      }
-                  } else {
-                      if (isConcluida) {
-                          statusBadge = '<span class="role-table-badge success">✓ CONCLUÍDA</span>';
-                      } else if (isActive) {
-                          statusBadge = '<span class="role-table-badge active">⚙️ PROCESSANDO</span>';
-                      } else {
-                          statusBadge = '<span class="role-table-badge pending">PENDENTE</span>';
-                      }
-                  }
+              allRolesParam.forEach((r) => {
                   const meta = roleMetadata[r.name] || {};
-                  const actionsCount = meta.actions || 0;
-                  totalActions += actionsCount;
-                  
-                  let completedTimeStr = '---';
-                  const isProcessed = isConcluida || (isCadeiaProcess && meta.success !== undefined);
-                  if (isProcessed) {
-                      let compLineIdx = -1;
-                      for (let i = 0; i < lines.length; i++) {
-                          const tr = lines[i].trim();
-                          if (isCadeiaProcess) {
-                              if (tr.includes(r.name.split(' - ')[0])) {
-                                  compLineIdx = i;
-                                  break;
-                              }
-                          } else {
-                              if ((tr.includes('🟢 SUCESSO') || tr.includes('Role concluida:') || tr.includes('Role concluída:')) && tr.includes(r.name)) {
-                                  compLineIdx = i;
-                                  break;
-                              }
-                          }
-                      }
-                      if (compLineIdx !== -1) {
-                          const ts = getTimestampForLine(job, compLineIdx, lines.length);
-                          const startDay = new Date(job.created_at).toLocaleDateString('pt-PT');
-                          completedTimeStr = `${startDay}, ${ts}`;
-                      } else {
-                          const dateObj = new Date(job.updated_at);
-                          completedTimeStr = `${dateObj.toLocaleDateString('pt-PT')}, ${formatTimeOnly(dateObj)}`;
-                      }
-                  } else if (isActive) {
-                      completedTimeStr = 'A processar...';
-                  }
-                  
-                  if (!isCadeiaProcess) {
-                      rows += `
-                         <tr class="role-history-table-row ${isActive ? 'active-row' : ''}">
-                            <td style="padding: 8px; font-weight: bold; color: var(--text-secondary); width: 60px;">${String(idx+1).padStart(2, '0')}</td>
-                            <td style="padding: 8px; font-weight: 600; color: ${isActive ? 'var(--primary)' : 'var(--text-primary)'};">${escapeHtml(r.name)}</td>
-                            <td style="padding: 8px; font-family: monospace; color: var(--text-secondary);">${actionsCount}</td>
-                            <td style="padding: 8px;">${statusBadge}</td>
-                            <td style="padding: 8px; color: var(--text-secondary); font-size: 11px;">${completedTimeStr}</td>
-                         </tr>
-                      `;
-                  }
+                  totalActions += meta.actions || 0;
               });
-              
-              if (!isCadeiaProcess) {
-                  roleHistoryHtml = `
-                     <div style="flex: 1.2; min-width: 320px;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:12px; align-items: center;">
-                           <span style="font-weight:bold; color:var(--text-primary); font-size:14px;">Histórico de Execução das Roles</span>
-                           <span style="font-size:11px; font-weight:bold; color:var(--success);">${concludedRoles}/${totalRoles} Concluídas</span>
-                        </div>
-                        <div class="role-history-scroll custom-scroll" style="max-height:320px; overflow-y:auto; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(0,0,0,0.01);">
-                           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
-                              <thead>
-                                 <tr style="background: rgba(0,0,0,0.02); border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-secondary);">
-                                    <th style="padding: 8px; width: 60px;">Ordem</th>
-                                    <th style="padding: 8px;">Role</th>
-                                    <th style="padding: 8px; width: 60px;">Ações</th>
-                                    <th style="padding: 8px; width: 110px;">Status</th>
-                                    <th style="padding: 8px; width: 140px;">Concluído em</th>
-                                 </tr>
-                              </thead>
-                              <tbody>
-                                 ${rows}
-                              </tbody>
-                           </table>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 11px; color: var(--text-secondary);">
-                           <span>Exibindo ${allRolesParam.length} de ${allRolesParam.length} roles</span>
-                           <a href="#" style="color: var(--primary); text-decoration: none; font-weight: 600;" onclick="event.preventDefault();">Ver todas as roles &rarr;</a>
-                        </div>
-                     </div>
-                  `;
-              }
           }
-          let stageLabels = ['Inicialização e Logon SAP', 'Abertura e Verificação de Tela', 'Processamento Principal / Ações GUI', 'Conclusão / Geração de Logs'];
+                    let stageLabels = ['Inicialização e Logon SAP', 'Abertura e Verificação de Tela', 'Processamento Principal / Ações GUI', 'Conclusão / Geração de Logs'];
           const subLower = sub.toLowerCase();
           if (subLower.includes('pfcg_composta') || (subLower.includes('pfcg') && subLower.includes('composta'))) {
               stageLabels = ['Preparação e Dados', 'Atribuir Roles', 'Ordem de Transporte'];
@@ -3801,24 +4419,35 @@
           } else if (subLower.includes('pfcg_authority') || (subLower.includes('pfcg') && subLower.includes('authority'))) {
               stageLabels = ['Validação da Role', 'Inserção MASSVAL', 'Ordem de Transporte'];
           } else if (subLower.includes('cua_adicionar') || subLower.includes('adicionar')) {
-              stageLabels = ['Leitura do Excel', 'Pesquisa de Utilizadores', 'Atribuição no SAP CUA', 'Gravação de Resultados'];
+              stageLabels = ['Leitura do Excel', 'Pré-validação CUA', 'Processamento dos Utilizadores', 'Gravação de Resultados'];
           } else if (subLower.includes('cua_enddate') || subLower.includes('enddate') || subLower.includes('validade')) {
               stageLabels = ['Leitura do Excel', 'Acesso ao SAP CUA', 'Bloqueio / Data Fim', 'Gravação de Resultados'];
           } else if (subLower.includes('cua_remove') || subLower.includes('remove')) {
               stageLabels = ['Leitura do Excel', 'Acesso ao SAP CUA', 'Remoção de Perfis', 'Gravação de Resultados'];
           }
+          const updatedStages = new Set();
+          const isCuaAdicionar = subLower.includes('cua_adicionar') || subLower.includes('adicionar');
           lines.forEach(line => {
-              for (let s = 1; s <= 10; s++) {
-                  const tag = `[Etapa ${s}]`;
-                  if (line.includes(tag)) {
-                      const idx = line.indexOf(tag);
-                      const labelText = line.substring(idx + tag.length).trim();
-                      if (labelText && labelText.length < 60) {
-                          while (stageLabels.length < s) {
-                              stageLabels.push(`Etapa ${stageLabels.length + 1}`);
-                          }
-                          stageLabels[s - 1] = labelText;
+              let stageNum = null;
+              let labelText = '';
+              let m = line.match(/\[Fase\s+(\d+)\]/i);
+              if (m) {
+                  stageNum = parseInt(m[1]);
+                  labelText = line.substring(line.indexOf(m[0]) + m[0].length).trim();
+              } else {
+                  m = line.match(/\[Etapa\s+(\d+)\]/i);
+                  if (m) {
+                      stageNum = parseInt(m[1]);
+                      labelText = line.substring(line.indexOf(m[0]) + m[0].length).trim();
+                  }
+              }
+              if (stageNum && stageNum <= 10 && !updatedStages.has(stageNum)) {
+                  if (!isCuaAdicionar && labelText && labelText.length < 60) {
+                      while (stageLabels.length < stageNum) {
+                          stageLabels.push(`Etapa ${stageLabels.length + 1}`);
                       }
+                      stageLabels[stageNum - 1] = labelText;
+                      updatedStages.add(stageNum);
                   }
               }
           });
@@ -3837,16 +4466,28 @@
           } else {
               currentRoleLogs = lines;
           }
+                    function getActiveSubstepFromLine(line, totalStages) {
+              let m = line.match(/\[Fase\s+(\d+)\]/i);
+              if (m) return parseInt(m[1]);
+              m = line.match(/\[Etapa\s+(\d+)\]/i);
+              if (m) return parseInt(m[1]);
+              m = line.match(/\[Subetapa\s+(\d+)(?:\.\d+)?\]/i);
+              if (m) return parseInt(m[1]);
+              if (/\[Utilizador\s+\d+\/\d+\]/i.test(line)) {
+                  return 3;
+              }
+              return null;
+          }
+
           if (job.state === 'running') {
               let activeSubstep = 0;
               let currentRoleHasError = false;
               let currentRoleHasSuccess = false;
               
               currentRoleLogs.forEach(line => {
-                  for (let s = 1; s <= numStages; s++) {
-                      if (line.includes(`[Etapa ${s}]`)) {
-                          activeSubstep = s;
-                      }
+                  const s = getActiveSubstepFromLine(line, numStages);
+                  if (s && s <= numStages) {
+                      activeSubstep = s;
                   }
                   
                   if (line.includes('🔴 ERRO') || line.includes('❌ SAP Erro:') || line.includes('❌ Erro') || line.includes('❌ Falha')) {
@@ -3886,15 +4527,14 @@
                       stepClasses[0] = 'active';
                   }
               }
-          } else if (job.state === 'succeeded') {
+          } else if (job.state === 'succeeded' || job.state === 'succeeded_with_warnings') {
               for (let s = 0; s < numStages; s++) stepClasses[s] = 'completed';
-          } else if (job.state === 'failed') {
+                    } else if (job.state === 'failed') {
               let activeSubstep = 0;
               lines.forEach(line => {
-                  for (let s = 1; s <= numStages; s++) {
-                      if (line.includes(`[Etapa ${s}]`)) {
-                          activeSubstep = s;
-                      }
+                  const s = getActiveSubstepFromLine(line, numStages);
+                  if (s && s <= numStages) {
+                      activeSubstep = s;
                   }
               });
               for (let s = 0; s < numStages; s++) {
@@ -3911,9 +4551,30 @@
               }
           }
           // Group lines into steps
-          let taskLogCount = 0;
           let steps = [];
           let currentStep = null;
+
+          function formatGroupTitle(cleanLine) {
+              const match = cleanLine.match(/^\[(Fase|Etapa|Subetapa|Utilizador)\s+([^\]]+)\]\s*(.*)$/i);
+              if (match) {
+                  const type = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+                  const num = match[2].trim();
+                  const desc = match[3].trim();
+                  return desc ? `${type} ${num} — ${desc}` : `${type} ${num}`;
+              }
+              return cleanLine.trim();
+          }
+
+           function formatGroupTitle(cleanLine) {
+               const match = cleanLine.match(/^\[(Fase|Etapa|Subetapa|Utilizador)\s+([^\]]+)\]\s*(.*)$/i);
+               if (match) {
+                   const type = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+                   const num = match[2].trim();
+                   const desc = match[3].trim();
+                   return desc ? `${type} ${num} — ${desc}` : `${type} ${num}`;
+               }
+               return cleanLine.trim();
+           }
           
           let cmdArgs = [];
           if (p.ambiente) cmdArgs.push(`--ambiente ${p.ambiente}`);
@@ -3922,7 +4583,8 @@
           let cmdStr = `python Processos/${job.task} ${cmdArgs.join(' ')}`;
           const initTs = getTimestampForLine(job, 0, lines.length);
           
-          currentStep = {
+                    currentStep = {
+              id: `step-${job.id}-init`,
               title: 'Inicializar Subprocesso',
               dotColor: 'var(--primary)',
               inContent: cmdStr,
@@ -3960,102 +4622,381 @@
                cleanLine = cleanLine.replace(/\(-?\d+,\s*'([^']*)'.*?\)/g, '$1');
                cleanLine = cleanLine.replace(/\('([^']*)',\)/g, '$1');
                
-               let isNewStep = false;
-               let newStepTitle = '';
-               let newStepColor = 'var(--primary)';
-               
-               const roleMatch = cleanLine.match(/▶\s*\[\d+\/\d+\]\s*(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\-]+)/i);
-               const chainMatch = cleanLine.match(/^([✅❌])\s*([^-]+)\s*-\s*(.*)$/);
-               const phaseMatch = cleanLine.match(/===+\s*(FASE\s+\d+:\s+[^=]+)\s*===+/i) || cleanLine.match(/(FASE\s+\d+:\s+.*)/i);
-               
-               if (roleMatch) {
-                   isNewStep = true;
-                   newStepTitle = cleanLine.trim();
-                   newStepColor = 'var(--primary)';
-               } else if (phaseMatch) {
-                   isNewStep = true;
-                   let titleStr = phaseMatch[1].trim();
-                   if (titleStr.toUpperCase() === titleStr) {
-                       titleStr = titleStr.toLowerCase().replace(/^(fase\s+\d+:?)\s*(.*)$/, (match, p1, p2) => {
-                           const part1 = p1.charAt(0).toUpperCase() + p1.slice(1);
-                           const prepositions = ['de', 'do', 'da', 'dos', 'das', 'em', 'para', 'com', 'por', 'a', 'o', 'e'];
-                           const words = p2.split(/\s+/).map((w, index) => {
-                               if (index === 0) return w.charAt(0).toUpperCase() + w.slice(1);
-                               if (prepositions.includes(w)) return w;
-                               return w.charAt(0).toUpperCase() + w.slice(1);
-                           });
-                           return part1 + ' ' + words.join(' ');
-                       });
+               // Intercept technical poller logs - aggregate separately without affecting step colors
+               if (cleanLine.includes('[DEBUG POLLER]') || cleanLine.includes('[TECHNICAL WARN]')) {
+                   let diagStep = steps.find(s => s.title === 'Diagnóstico Técnico (Poller)');
+                   if (!diagStep) {
+                       diagStep = {
+                           title: 'Diagnóstico Técnico (Poller)',
+                           dotColor: 'var(--warning)',
+                           inContent: 'Alertas técnicos de rede do poller do cockpit',
+                           outLines: [],
+                           lineIndex: idx,
+                           timestamp: getTimestampForLine(job, idx, lines.length)
+                       };
+                       steps.push(diagStep);
                    }
-                   newStepTitle = titleStr;
-                   newStepColor = 'var(--primary)';
-               } else if (chainMatch) {
-                   isNewStep = true;
-                   newStepTitle = `Validar Cadeia: ${chainMatch[2].trim()}`;
-                   newStepColor = chainMatch[1] === '✅' ? 'var(--success)' : 'var(--danger)';
-               } else if (cleanLine.startsWith('[Etapa ') || cleanLine.includes('[Etapa ')) {
-                   isNewStep = true;
-                   newStepTitle = cleanLine.trim();
-                   newStepColor = 'var(--primary)';
-               } else if (cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌ SAP Erro:') || cleanLine.includes('❌ Erro') || cleanLine.includes('❌ Falha') || cleanLine.startsWith('Traceback') || cleanLine.startsWith('ERRO:')) {
-                   if (currentStep) {
-                       currentStep.dotColor = 'var(--danger)';
-                   }
+                   diagStep.outLines.push(cleanLine);
+                   return;
                }
-               
-               if (isNewStep) {
-                   currentStep = {
-                       title: newStepTitle,
-                       dotColor: newStepColor,
-                       inContent: cleanLine.trim(),
-                       outLines: [],
-                       lineIndex: idx,
-                       timestamp: getTimestampForLine(job, idx, lines.length)
+
+               // Intercept [METRIC_DETAIL] lines - skip display
+               if (cleanLine.includes('[METRIC_DETAIL]')) {
+                   return;
+               }
+               // Intercept [METRIC] lines - store durations for each role step
+               const metricMatch = cleanLine.match(/\[METRIC\]\s*Role\s*([A-Za-z0-9_\-]+)\s*\|\s*total=(\d+)s\s*\|\s*etapa1=(\d+)s\s*\|\s*etapa2=(\d+)s\s*\|\s*etapa3=(\d+)s\s*\|\s*etapa4=(\d+)s/);
+               if (metricMatch) {
+                   window._metricsCache = window._metricsCache || {};
+                   window._metricsCache[metricMatch[1].trim()] = {
+                       total: parseInt(metricMatch[2]),
+                       etapa1: parseInt(metricMatch[3]),
+                       etapa2: parseInt(metricMatch[4]),
+                       etapa3: parseInt(metricMatch[5]),
+                       etapa4: parseInt(metricMatch[6])
                    };
-                   steps.push(currentStep);
-               } else {
-                   if (currentStep) {
-                       currentStep.outLines.push(cleanLine);
-                       
-                       const lowerLine = cleanLine.toLowerCase();
-                       if (cleanLine.includes('🟢 SUCESSO') || cleanLine.includes('✅') || lowerLine.includes('sucesso') || lowerLine.includes('concluída') || lowerLine.includes('concluido')) {
-                           currentStep.dotColor = 'var(--success)';
-                       } else if (cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌') || lowerLine.includes('falha') || lowerLine.includes('erro') || lowerLine.includes('exception') || lowerLine.includes('traceback') || cleanLine.startsWith('ERRO:')) {
-                           currentStep.dotColor = 'var(--danger)';
-                       } else if (cleanLine.includes('⚠️') || lowerLine.includes('warning') || lowerLine.includes('aviso') || cleanLine.startsWith('[WARN]')) {
-                           if (currentStep.dotColor !== 'var(--danger)' && currentStep.dotColor !== 'var(--success)') {
-                               currentStep.dotColor = 'var(--warning)';
-                           }
-                       }
-                   }
+                   return;
                }
+               
+                               let isNewStep = false;
+                let newStepTitle = '';
+                let newStepColor = 'var(--primary)';
+                
+                const roleMatch = cleanLine.match(/▶\s*\[\d+\/\d+\]\s*(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\-]+)/i);
+                const chainMatch = cleanLine.match(/^([✅❌])\s*([^-]+)\s*-\s*(.*)$/);
+                const phaseMatch = cleanLine.match(/===+\s*(FASE\s+\d+:\s+[^=]+)\s*===+/i) || cleanLine.match(/(FASE\s+\d+:\s+.*)/i);
+                const functionalMatch = cleanLine.match(/^\[(?:Fase|Etapa|Subetapa|Utilizador)\s+([^\]]+)\](.*)$/i);
+                
+                if (roleMatch) {
+                    isNewStep = true;
+                    newStepTitle = cleanLine.trim();
+                    newStepColor = 'var(--primary)';
+                } else if (phaseMatch) {
+                    isNewStep = true;
+                    let titleStr = phaseMatch[1].trim();
+                    if (titleStr.toUpperCase() === titleStr) {
+                        titleStr = titleStr.toLowerCase().replace(/^(fase\s+\d+:?)\s*(.*)$/, (match, p1, p2) => {
+                            const part1 = p1.charAt(0).toUpperCase() + p1.slice(1);
+                            const prepositions = ['de', 'do', 'da', 'dos', 'das', 'em', 'para', 'com', 'por', 'a', 'o', 'e'];
+                            const words = p2.split(/\s+/).map((w, index) => {
+                                if (index === 0) return w.charAt(0).toUpperCase() + w.slice(1);
+                                if (prepositions.includes(w)) return w;
+                                return w.charAt(0).toUpperCase() + w.slice(1);
+                            });
+                            return part1 + ' ' + words.join(' ');
+                        });
+                    }
+                    newStepTitle = titleStr;
+                    newStepColor = 'var(--primary)';
+                } else if (chainMatch) {
+                    isNewStep = true;
+                    newStepTitle = `Validar Cadeia: ${chainMatch[2].trim()}`;
+                    newStepColor = chainMatch[1] === '✅' ? 'var(--success)' : 'var(--danger)';
+                } else if (functionalMatch) {
+                    isNewStep = true;
+                    newStepTitle = formatGroupTitle(cleanLine);
+                    newStepColor = 'var(--primary)';
+                } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌ SAP Erro:') || cleanLine.includes('❌ Erro') || cleanLine.includes('❌ Falha') || cleanLine.startsWith('Traceback') || cleanLine.startsWith('ERRO:')) 
+                           && !cleanLine.includes('[DEBUG POLLER]') 
+                           && !cleanLine.includes('[TECHNICAL WARN]')
+                           && !cleanLine.toLowerCase().includes('heartbeat')) {
+                    if (currentStep) {
+                        currentStep.dotColor = 'var(--danger)';
+                    }
+                }
+                
+                if (isNewStep) {
+                    const groupIndex = steps.length;
+                    currentStep = {
+                        id: `step-${job.id}-${idx}-${groupIndex}`,
+                        title: newStepTitle,
+                        dotColor: newStepColor,
+                        inContent: cleanLine.trim(),
+                        outLines: [],
+                        lineIndex: idx,
+                        timestamp: getTimestampForLine(job, idx, lines.length)
+                    };
+                    steps.push(currentStep);
+                } else {
+                    if (currentStep) {
+                        currentStep.outLines.push(cleanLine);
+                        
+                        const lowerLine = cleanLine.toLowerCase();
+                        if (cleanLine.includes('🟢 SUCESSO') || cleanLine.includes('✅') || lowerLine.includes('sucesso') || lowerLine.includes('concluída') || lowerLine.includes('concluido')) {
+                            currentStep.dotColor = 'var(--success)';
+                        } else if ((cleanLine.includes('🔴 ERRO') || cleanLine.includes('❌') || lowerLine.includes('falha') || lowerLine.includes('erro') || lowerLine.includes('exception') || lowerLine.includes('traceback') || cleanLine.startsWith('ERRO:')) 
+                                   && !cleanLine.includes('[DEBUG POLLER]') 
+                                   && !cleanLine.includes('[TECHNICAL WARN]')
+                                   && !lowerLine.includes('heartbeat')) {
+                            currentStep.dotColor = 'var(--danger)';
+                        } else if (cleanLine.includes('⚠️') || lowerLine.includes('warning') || lowerLine.includes('aviso') || cleanLine.startsWith('[WARN]') || cleanLine.startsWith('[DOC_WARN]') || lowerLine.includes('heartbeat')) {
+                            if (currentStep.dotColor !== 'var(--danger)' && currentStep.dotColor !== 'var(--success)') {
+                                currentStep.dotColor = 'var(--warning)';
+                            }
+                        }
+                    }
+                }
            });
           
-          let taskLogRows = '';
-          steps.forEach((step, idx) => {
-              // Determine level
+          // ─────────────────────────────────────────────────────────────────
+          // BLOCO 2: Agrupar steps por Role → roleGroups[]
+          // ─────────────────────────────────────────────────────────────────
+          const SPECIAL_INIT = 'Inicializar Subprocesso';
+          const SPECIAL_DIAG = 'Diagnóstico Técnico (Poller)';
+
+          // Helper: derive role status from its steps
+          function getRoleStatus(rSteps, jobState, isCurrentRole) {
+              if (!rSteps || rSteps.length === 0) return 'pending';
+              const hasError = rSteps.some(s => s.dotColor === 'var(--danger)' || s.dotColor === '#ef4444');
+              const hasWarn  = rSteps.some(s => s.dotColor === 'var(--warning)' || s.dotColor === '#f59e0b');
+              // Check if role conclusion is present in outLines
+              const lastStep = rSteps[rSteps.length - 1];
+              const allOut   = rSteps.flatMap(s => s.outLines).join('\n');
+              const hasSuccess = allOut.includes('🟢 SUCESSO') || allOut.includes('Role tratada por completo') ||
+                                 allOut.includes('Role concluida') || allOut.includes('Role concluída');
+              if (hasError) return 'error';
+              if (hasSuccess) return hasWarn ? 'warning' : 'succeeded';
+              if (isCurrentRole && jobState === 'running') return 'running';
+              if (jobState === 'succeeded' || jobState === 'succeeded_with_warnings') return hasWarn ? 'warning' : 'succeeded';
+              if (jobState === 'failed') return hasError ? 'error' : 'succeeded';
+              return 'pending';
+          }
+
+          // Group steps into roleGroups
+          let roleGroups = [];
+          let currentRoleGroup = null;
+          let diagGroup = null;
+          let initGroup = null;
+
+          steps.forEach(step => {
+              // Diagnostic group (always last, pre-created during step parsing)
+              if (step.title === SPECIAL_DIAG) {
+                  diagGroup = diagGroup || step;
+                  if (diagGroup !== step) {
+                      // merge outLines into existing diagGroup
+                      diagGroup.outLines = diagGroup.outLines.concat(step.outLines);
+                  }
+                  return;
+              }
+
+              // Init step
+              if (step.title === SPECIAL_INIT) {
+                  initGroup = step;
+                  return;
+              }
+
+              // Detect new Role start: ▶ [X/Y] ROLE: NAME or similar
+              const isRoleStart = /▶\s*\[\d+\/\d+\]\s*(?:ROLE|CADEIA):/i.test(step.title) ||
+                                  /^Validar Cadeia:/i.test(step.title);
+
+              if (isRoleStart) {
+                  // Parse role index from title  ▶ [2/5] ROLE: Z_PURCHASE...
+                  const idxMatch  = step.title.match(/▶\s*\[(\d+)\/(\d+)\]/);
+                  const nameMatch = step.title.match(/(?:ROLE|CADEIA):\s*([A-Za-z0-9_\\\-]+)/i);
+                  const cadeiaMatch = /^Validar Cadeia:\s*(.+)/.exec(step.title);
+
+                  const grpName  = nameMatch ? nameMatch[1] :
+                                   cadeiaMatch ? cadeiaMatch[1] : step.title;
+                  const grpIdx   = idxMatch ? parseInt(idxMatch[1]) : (roleGroups.length + 1);
+                  const grpTotal = idxMatch ? parseInt(idxMatch[2]) : (totalRoles || 0);
+
+                  // Retrieve pre-parsed metadata (TCODEs, description)
+                  const meta = roleMetadata[grpName] || {};
+
+                  currentRoleGroup = {
+                      roleId:       `role-${job.id}-${grpIdx}`,
+                      roleName:     grpName,
+                      roleTitle:    step.title,
+                      roleIdx:      grpIdx,
+                      roleTotal:    grpTotal,
+                      tcodes:       meta.tcodes || null,
+                      duration:     meta.duration || '',
+                      steps:        [step],
+                      isCurrentRole: false   // will be resolved below
+                  };
+                  roleGroups.push(currentRoleGroup);
+              } else {
+                  // Append step to current role group (or create a catch-all)
+                  if (!currentRoleGroup) {
+                      // Steps before any ROLE marker → treat as init overflow
+                                            if (!initGroup) initGroup = { id: `step-${job.id}-init`, title: SPECIAL_INIT, dotColor: 'var(--primary)', inContent: '', outLines: [], lineIndex: 0 };
+                      initGroup.outLines.push(...step.outLines);
+                  } else {
+                      currentRoleGroup.steps.push(step);
+                  }
+              }
+          });
+
+          // Detect which role is currently active (for auto-open)
+          const lastRoleGroup = roleGroups.length > 0 ? roleGroups[roleGroups.length - 1] : null;
+          if (lastRoleGroup && (job.state === 'running' || job.state === 'pending')) {
+              lastRoleGroup.isCurrentRole = true;
+          }
+
+          // Build flat steps array for key lookups and flat rendering
+          const allFlatSteps = [];
+          if (initGroup) allFlatSteps.push(initGroup);
+          steps.forEach(s => {
+              if (s.title !== SPECIAL_DIAG && s.title !== SPECIAL_INIT) allFlatSteps.push(s);
+          });
+          if (diagGroup) allFlatSteps.push(diagGroup);
+
+          // Gerenciar estado de acordeões
+          const stateAccordion = getLogAccordionState(job.id);
+          
+          let activeStageKey = null;
+          if (job.state === 'running' || job.state === 'pending') {
+              // 1. Identificar etapa ativa prioritariamente pelo estado estruturado
+              let activeStageTitle = null;
+              if (job.stages && Array.isArray(job.stages)) {
+                  const activeStage = job.stages.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                  if (activeStage) activeStageTitle = activeStage.name || activeStage.title;
+              }
+              if (!activeStageTitle && job.steps && Array.isArray(job.steps)) {
+                  const activeStep = job.steps.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                  if (activeStep) activeStageTitle = activeStep.name || activeStep.title;
+              }
+              if (!activeStageTitle && job.params) {
+                  if (job.params.stages && Array.isArray(job.params.stages)) {
+                      const activeStage = job.params.stages.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                      if (activeStage) activeStageTitle = activeStage.name || activeStage.title;
+                  }
+                  if (!activeStageTitle && job.params.steps && Array.isArray(job.params.steps)) {
+                      const activeStep = job.params.steps.find(s => ['running', 'in_progress', 'active'].includes(String(s.state || s.status || '').toLowerCase()));
+                      if (activeStep) activeStageTitle = activeStep.name || activeStep.title;
+                  }
+              }
+
+                            if (activeStageTitle) {
+                  const matchedRole = roleGroups.find(rg => rg.roleName === activeStageTitle || rg.roleTitle === activeStageTitle);
+                  if (matchedRole) {
+                      activeStageKey = matchedRole.roleId;
+                  } else {
+                      const matchedStep = allFlatSteps.find(s => s.title === activeStageTitle || s.title.includes(activeStageTitle));
+                      if (matchedStep) {
+                          activeStageKey = matchedStep.id;
+                      }
+                  }
+              }
+
+              // 2. Campo explícito como current_stage, active_step, etc.
+              if (!activeStageKey) {
+                  const explicitField = job.current_stage || job.active_stage || job.active_step || job.current_step ||
+                                        (job.params && (job.params.current_stage || job.params.active_stage || job.params.active_step || job.params.current_step));
+                  if (explicitField) {
+                      const matchedRole = roleGroups.find(rg => String(rg.roleIdx) === String(explicitField) || rg.roleName === explicitField || rg.roleTitle === explicitField);
+                      if (matchedRole) {
+                          activeStageKey = matchedRole.roleId;
+                      } else {
+                          const matchedStep = allFlatSteps.find(s => s.title === explicitField || s.title.includes(explicitField) || String(s.lineIndex) === String(explicitField));
+                          if (matchedStep) {
+                              activeStageKey = matchedStep.id;
+                          }
+                      }
+                  }
+              }
+
+              // 3. Fallback: última etapa iniciada e ainda não concluída ou último grupo de logs
+              if (!activeStageKey) {
+                  if (roleGroups.length > 0) {
+                      activeStageKey = roleGroups[roleGroups.length - 1].roleId;
+                  } else if (allFlatSteps.length > 0) {
+                      // No modo flat, encontrar a última etapa não concluída/falhada
+                      for (let i = allFlatSteps.length - 1; i >= 0; i--) {
+                          const step = allFlatSteps[i];
+                          const isCompleted = step.dotColor === 'var(--success)' || step.dotColor === '#2da44e' ||
+                                              step.dotColor === 'var(--danger)' || step.dotColor === '#cf222e';
+                          if (!isCompleted) {
+                              activeStageKey = step.id;
+                              break;
+                          }
+                      }
+                      // Fallback final: o último passo registrado
+                      if (!activeStageKey) {
+                          activeStageKey = allFlatSteps[allFlatSteps.length - 1].id;
+                      }
+                  } else if (initGroup) {
+                      activeStageKey = `init-${job.id}`;
+                  }
+              }
+          }
+          
+          // Tratar transição de etapa ativa
+          if (activeStageKey !== stateAccordion.activeStageKey) {
+              const prevActive = stateAccordion.activeStageKey;
+              stateAccordion.activeStageKey = activeStageKey;
+              if (prevActive) {
+                  // Fechar automaticamente a etapa anterior
+                  stateAccordion.manuallyExpanded.delete(prevActive);
+                  stateAccordion.manuallyCollapsed.add(prevActive);
+              }
+              if (activeStageKey) {
+                  // Abrir automaticamente a nova etapa ativa
+                  stateAccordion.manuallyCollapsed.delete(activeStageKey);
+              }
+          }
+          
+          // Tratar status terminal: recolher tudo na primeira vez que atinge terminal
+          const isTerminalState = ['succeeded', 'succeeded_with_warnings', 'failed', 'cancelled', 'canceled', 'stopped', 'error'].includes(job.state.toLowerCase());
+          if (isTerminalState) {
+              activeStageKey = null;
+              stateAccordion.activeStageKey = null;
+              if (!stateAccordion.terminalCollapseApplied) {
+                  stateAccordion.terminalCollapseApplied = true;
+                  stateAccordion.manuallyExpanded.clear();
+                  stateAccordion.manuallyCollapsed.clear();
+                  // Todos ficam fechados por padrão
+              }
+          } else {
+              stateAccordion.terminalCollapseApplied = false;
+          }
+
+          function isStageOpen(job, stageKey) {
+              const stateAcc = getLogAccordionState(job.id);
+              
+              // Se foi expandido ou recolhido manualmente
+              if (stateAcc.manuallyExpanded.has(stageKey)) {
+                  return true;
+              }
+              if (stateAcc.manuallyCollapsed.has(stageKey)) {
+                  return false;
+              }
+              
+              // Caso contrário, depende do estado do job
+              const isTerm = ['succeeded', 'succeeded_with_warnings', 'failed', 'cancelled', 'canceled', 'stopped', 'error'].includes(job.state.toLowerCase());
+              if (isTerm) {
+                  return false; // Todos iniciam recolhidos
+              }
+              
+              // Em execução: apenas a etapa ativa fica aberta por padrão
+              return stageKey === stateAcc.activeStageKey;
+          }
+
+          // ─────────────────────────────────────────────────────────────────
+          // Helper: render a single step as timeline-item HTML
+          // ─────────────────────────────────────────────────────────────────
+          function renderStepHtml(step, idx, job) {
               let level = 'INFO';
               if (step.dotColor === 'var(--danger)' || step.dotColor === 'red' || step.dotColor === '#ef4444') {
                   level = 'ERROR';
               } else if (step.dotColor === 'var(--warning)' || step.dotColor === 'orange' || step.dotColor === '#f59e0b') {
                   level = 'WARN';
               }
-              
+
               let outContent = step.outLines.join('\n').trim();
-              
-              // Show terminal box for subprocess initialization OR if traceback is detected
-              const isCommandStep = step.title === 'Inicializar Subprocesso';
-              const hasTraceback = outContent.includes('Traceback') || outContent.includes('Exception') || outContent.toLowerCase().includes('erro:');
+
+              const isCommandStep = step.title === SPECIAL_INIT;
+              const hasTraceback  = outContent.includes('Traceback') || outContent.includes('Exception') || outContent.toLowerCase().includes('erro:');
               const showCard = isCommandStep || hasTraceback;
-              
+
               let stepCardHtml = '';
-              let subTextHtml = '';
-              
+              let subTextHtml  = '';
+
               if (showCard) {
-                  let outSectionHtml = outContent 
+                  let outSectionHtml = outContent
                       ? `<div style="display: flex; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-color, #e5e7eb);"><span style="color: var(--text-secondary); font-weight: bold; flex-shrink: 0; width: 32px; user-select: none; font-size: 11px;">OUT</span><span style="color: var(--text-primary); white-space: pre-wrap; word-break: break-all; font-family: Consolas, Monaco, monospace; font-size: 11px;">${escapeHtml(outContent)}</span></div>`
                       : '';
-                      
+
                   stepCardHtml = `
                       <div class="timeline-detail-card" style="margin-top: 8px; margin-bottom: 8px; background: #f6f8fa; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; padding: 10px 14px; font-family: Consolas, Monaco, 'Courier New', monospace; font-size: 11px; line-height: 1.4; color: var(--text-primary); box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);">
                           <div style="display: flex; gap: 8px;"><span style="color: var(--text-secondary); font-weight: bold; flex-shrink: 0; width: 32px; user-select: none; font-size: 11px;">IN</span><span style="white-space: pre-wrap; word-break: break-all; color: #032f62; font-size: 11px;">${escapeHtml(step.inContent)}</span></div>
@@ -4081,7 +5022,7 @@
                           });
                           return prefix + cleanedParts.join(' -> ');
                       };
-                      
+
                       linesToRender.forEach(l => {
                           const trimmed = l.trim();
                           const isGroupable = trimmed.startsWith('|-') || trimmed.startsWith('├─') || trimmed.startsWith('| -');
@@ -4095,9 +5036,7 @@
                               groupedLines.push(l);
                           }
                       });
-                      if (currentGroup.length > 0) {
-                          groupedLines.push(processStepGroup(currentGroup));
-                      }
+                      if (currentGroup.length > 0) groupedLines.push(processStepGroup(currentGroup));
                       linesToRender = groupedLines;
 
                       subTextHtml = `
@@ -4105,8 +5044,8 @@
                               ${linesToRender.map(l => {
                                   const isThought = l.toLowerCase().includes('thought') || l.toLowerCase().startsWith('vou ') || l.toLowerCase().includes('analisando') || l.toLowerCase().includes('validar existencia');
                                   const textColor = isThought ? 'var(--text-secondary)' : 'var(--text-primary)';
-                                  const fontSize = isThought ? '11px' : '12px';
-                                  const icon = isThought ? '💡' : '·';
+                                  const fontSize  = isThought ? '11px' : '12px';
+                                  const icon      = isThought ? '💡' : '·';
                                   return `<div style="font-size: ${fontSize}; color: ${textColor}; display: flex; gap: 6px; align-items: flex-start; line-height: 1.4;">
                                       <span style="opacity: 0.6; flex-shrink: 0;">${icon}</span>
                                       <span>${escapeHtml(l)}</span>
@@ -4116,21 +5055,21 @@
                       `;
                   }
               }
-              
+
               const startDate = getRawDateForLine(job, step.lineIndex, lines.length);
               let endDate;
-              if (idx < steps.length - 1) {
-                  endDate = getRawDateForLine(job, steps[idx + 1].lineIndex, lines.length);
+              const stepIdxInAll = steps.indexOf(step);
+              if (stepIdxInAll >= 0 && stepIdxInAll < steps.length - 1) {
+                  endDate = getRawDateForLine(job, steps[stepIdxInAll + 1].lineIndex, lines.length);
               } else {
-                  endDate = (job.state === 'running' || job.state === 'pending') 
-                      ? new Date() 
+                  endDate = (job.state === 'running' || job.state === 'pending')
+                      ? new Date()
                       : new Date(job.updated_at);
               }
-              
+
               const startTimeStr = step.timestamp;
-              const endTimeStr = formatTimeOnly(endDate);
-              
-              const diffMs = Math.max(0, endDate - startDate);
+              const endTimeStr   = formatTimeOnly(endDate);
+              const diffMs  = Math.max(0, endDate - startDate);
               const diffSecs = Math.round(diffMs / 1000);
               let durationStr = '';
               if (diffSecs < 60) {
@@ -4140,31 +5079,28 @@
                   const secs = diffSecs % 60;
                   durationStr = `${mins}m ${secs}s`;
               }
-              
               const timeRangeStr = `${startTimeStr} · ${durationStr} ago`;
-              
-              let dotColor = '#2da44e'; // green
-              if (level === 'ERROR') {
-                  dotColor = '#cf222e'; // red
-              } else if (level === 'WARN') {
-                  dotColor = '#9a6700'; // orange
-              } else if (step.title.toLowerCase().includes('thought') || step.title.toLowerCase().includes('info')) {
-                  dotColor = '#8c959f'; // gray
-              }
-              
-              const hasDetails = (subTextHtml.trim() !== '' || stepCardHtml.trim() !== '');
+
+              let dotColor = '#2da44e';
+              if (level === 'ERROR')      dotColor = '#cf222e';
+              else if (level === 'WARN')  dotColor = '#9a6700';
+              else if (step.title.toLowerCase().includes('thought') || step.title.toLowerCase().includes('info')) dotColor = '#8c959f';
+
+                            const hasDetails = (subTextHtml.trim() !== '' || stepCardHtml.trim() !== '');
               let titleWithToggleHtml = '';
-              let detailsWrapperHtml = '';
-              
+              let detailsWrapperHtml  = '';
+
               if (hasDetails) {
+                  const stepKey = step.id || `step-${job.id}-${idx}`;
+                  const isOpen = isStageOpen(job, stepKey);
                   titleWithToggleHtml = `
                       <div style="display: flex; align-items: center; gap: 4px;">
-                          <span style="font-weight: 600; font-size: 13px; color: var(--text-primary); cursor: pointer;" onclick="const btn = document.getElementById('toggle-btn-${job.id}-${idx}'); if (btn) btn.click();">${escapeHtml(step.title)}</span>
-                          <button id="toggle-btn-${job.id}-${idx}" onclick="event.stopPropagation(); toggleStepDetails(this, 'step-details-${job.id}-${idx}')" style="background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; font-size: 13px; padding: 0 4px; display: inline-flex; align-items: center; outline: none;">(+)</button>
+                          <span style="font-weight: 600; font-size: 13px; color: var(--text-primary); cursor: pointer;" onclick="const btn = document.getElementById('toggle-btn-${stepKey}'); if (btn) btn.click();">${escapeHtml(step.title)}</span>
+                          <button id="toggle-btn-${stepKey}" onclick="event.stopPropagation(); toggleStepDetails(this, 'step-details-${stepKey}')" style="background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; font-size: 13px; padding: 0 4px; display: inline-flex; align-items: center; outline: none;">${isOpen ? '(-)' : '(+)'}</button>
                       </div>
                   `;
                   detailsWrapperHtml = `
-                      <div id="step-details-${job.id}-${idx}" style="display: none; width: 100%;">
+                      <div id="step-details-${stepKey}" style="display: ${isOpen ? 'block' : 'none'}; width: 100%;">
                           ${subTextHtml}
                           ${stepCardHtml}
                       </div>
@@ -4175,12 +5111,11 @@
                   `;
               }
 
-              taskLogRows += `
+              return `
                   <div class="timeline-item" data-level="${level}" style="position: relative; padding-left: 36px; margin-bottom: 16px; display: flex; flex-direction: column;">
                       <div class="timeline-dot-wrapper" style="position: absolute; left: 6px; top: 4px; z-index: 2; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">
                           <span style="width: 10px; height: 10px; border-radius: 50%; background: ${dotColor}; display: inline-block; border: 2px solid #ffffff; box-shadow: 0 0 0 1px rgba(27,31,35,0.15);"></span>
                       </div>
-                      
                       <div class="timeline-content" style="display: flex; flex-direction: column;">
                           <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between; width: 100%;">
                               ${titleWithToggleHtml}
@@ -4190,34 +5125,169 @@
                       </div>
                   </div>
               `;
-              taskLogCount++;
-          });
-          
-          let lineHtml = (taskLogRows) ? `<div style="position: absolute; left: 33px; top: 32px; bottom: 32px; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
-          
+          }
+
+          // ─────────────────────────────────────────────────────────────────
+          // BLOCO 3: Render roleGroups → taskLogRows HTML
+          // ─────────────────────────────────────────────────────────────────
+          let taskLogRows = '';
+          let taskLogCount = 0;
+
+          // Helper: render the init step group (no Role header)
+          function renderInitGroup(initSt, job) {
+              if (!initSt) return '';
+              const stageKey = `init-${job.id}`;
+              const isOpen = isStageOpen(job, stageKey);
+              const stepHtml = renderStepHtml(initSt, 'init', job);
+              return `
+                  <div class="role-group role-group-init" aria-expanded="${isOpen}">
+                      <div class="role-group-header" onclick="toggleRoleGroup('${stageKey}')" aria-expanded="${isOpen}">
+                          <span class="role-group-dot" style="background:#8c959f;"></span>
+                          <span class="role-group-title">⚙ Inicialização do Processo</span>
+                          <span id="role-chevron-${stageKey}" class="role-group-chevron" style="transform: ${isOpen ? 'rotate(180deg)' : ''};">▾</span>
+                      </div>
+                      <div id="role-body-${stageKey}" class="role-group-body" style="display: ${isOpen ? 'block' : 'none'};">
+                          <div style="position: relative;">
+                              <div style="position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: #e1e4e8; z-index: 1;"></div>
+                              <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
+                                  ${stepHtml}
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              `;
+          }
+
+          // If no role groups were parsed, render flat (backward-compatible)
+          if (roleGroups.length === 0) {
+              // Flat rendering — same as before
+              let flatRows = '';
+
+              allFlatSteps.forEach((step, idx) => {
+                  flatRows += renderStepHtml(step, idx, job);
+                  taskLogCount++;
+              });
+
+              const lineHtmlFlat = flatRows ? `<div style="position: absolute; left: 33px; top: 32px; bottom: 32px; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
+              taskLogRows = `
+                  <div style="border: 1px solid var(--border-color); border-radius: 8px; background: #ffffff; display: flex; flex-direction: column; position: relative; padding: 24px 20px;">
+                      ${lineHtmlFlat}
+                      <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px;">
+                          ${flatRows || '<div style="text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 20px;">Nenhuma atividade registrada...</div>'}
+                      </div>
+                  </div>
+              `;
+          } else {
+              // Role-grouped accordion rendering
+              let groupedHtml = '';
+
+              // Init group (before first Role)
+              groupedHtml += renderInitGroup(initGroup, job);
+
+              // Each Role group
+              roleGroups.forEach((rg, rgIdx) => {
+                  const status = getRoleStatus(rg.steps, job.state, rg.isCurrentRole);
+
+                  // Accordion open/close logic:
+                  const isOpen = isStageOpen(job, rg.roleId);
+
+                  let dotColorRG = '#2da44e';
+                  let badgeClass = 'badge-succeeded';
+                  let badgeText  = 'CONCLUÍDO';
+                  let rgCssClass = 'role-succeeded';
+
+                  if (status === 'running')   { dotColorRG = '#3b82f6'; badgeClass = 'badge-running';   badgeText = 'EM EXECUÇÃO'; rgCssClass = 'role-running'; }
+                  else if (status === 'error')    { dotColorRG = '#ef4444'; badgeClass = 'badge-error';     badgeText = 'ERRO';         rgCssClass = 'role-error'; }
+                  else if (status === 'warning')  { dotColorRG = '#f59e0b'; badgeClass = 'badge-warning';   badgeText = 'ALERTAS';      rgCssClass = 'role-warning'; }
+                  else if (status === 'pending')  { dotColorRG = '#8c959f'; badgeClass = 'badge-pending';   badgeText = 'PENDENTE';     rgCssClass = ''; }
+                  else if (status === 'succeeded'){ dotColorRG = '#2da44e'; badgeClass = 'badge-succeeded'; badgeText = 'CONCLUÍDO';    rgCssClass = 'role-succeeded'; }
+
+                  const meta = roleMetadata[rg.roleName] || {};
+                  const tcodesStr = (rg.tcodes || meta.tcodes) ? `• ${rg.tcodes || meta.tcodes} TCODE${(rg.tcodes || meta.tcodes) > 1 ? 's' : ''}` : '';
+                  const durStr    = (rg.duration || meta.duration) ? `• ${rg.duration || meta.duration}` : '';
+                  const roleCounter = rg.roleTotal > 0 ? `Role ${rg.roleIdx}/${rg.roleTotal}` : `Role ${rg.roleIdx}`;
+
+                  // Render steps inside this role
+                  let stepsInGroupHtml = '';
+                  rg.steps.forEach((step, stepIdx) => {
+                      stepsInGroupHtml += renderStepHtml(step, `rg${rgIdx}-${stepIdx}`, job);
+                      taskLogCount++;
+                  });
+
+                  const lineHtmlRg = stepsInGroupHtml ? `<div style="position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: #e1e4e8; z-index: 1;"></div>` : '';
+
+                  groupedHtml += `
+                      <div class="role-group ${rgCssClass}" aria-expanded="${isOpen}">
+                          <div class="role-group-header" onclick="toggleRoleGroup('${rg.roleId}')" aria-expanded="${isOpen}">
+                              <span class="role-group-dot" style="background: ${dotColorRG};"></span>
+                              <div style="flex: 1; min-width: 0;">
+                                  <div class="role-group-title">
+                                      <span style="font-size: 10px; opacity: 0.6; font-weight: 600; margin-right: 6px;">${escapeHtml(roleCounter)} —</span>${escapeHtml(rg.roleName)}
+                                  </div>
+                                  <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                      ${escapeHtml(tcodesStr)} ${escapeHtml(durStr)}
+                                  </div>
+                              </div>
+                              <div class="role-group-meta">
+                                  <span class="role-group-badge ${badgeClass}">${badgeText}</span>
+                              </div>
+                              <span id="role-chevron-${rg.roleId}" class="role-group-chevron" style="transform: ${isOpen ? 'rotate(180deg)' : ''};">▾</span>
+                          </div>
+                          <div id="role-body-${rg.roleId}" class="role-group-body" style="display: ${isOpen ? 'block' : 'none'};">
+                              <div style="position: relative;">
+                                  ${lineHtmlRg}
+                                  <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 12px;">
+                                      ${stepsInGroupHtml || '<div style="color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 8px 0;">Sem etapas registradas...</div>'}
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  `;
+              });
+
+              // Diagnostic group at the end (if any)
+              if (diagGroup && diagGroup.outLines.length > 0) {
+                  const stageKey = `diag-${job.id}`;
+                  const isOpen = isStageOpen(job, stageKey);
+                  const diagStepsHtml = renderStepHtml(diagGroup, 'diag', job);
+                  taskLogCount++;
+                  groupedHtml += `
+                      <div class="role-group role-group-diag" aria-expanded="${isOpen}">
+                          <div class="role-group-header" onclick="toggleRoleGroup('${stageKey}')" aria-expanded="${isOpen}">
+                              <span class="role-group-dot" style="background: #f59e0b;"></span>
+                              <span class="role-group-title">🔧 Diagnóstico Técnico (Poller)</span>
+                              <span class="role-group-badge badge-warning">TÉCNICO</span>
+                              <span id="role-chevron-${stageKey}" class="role-group-chevron" style="transform: ${isOpen ? 'rotate(180deg)' : ''};">▾</span>
+                          </div>
+                          <div id="role-body-${stageKey}" class="role-group-body" style="display: ${isOpen ? 'block' : 'none'};">
+                              <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
+                                  ${diagStepsHtml}
+                              </div>
+                          </div>
+                      </div>
+                  `;
+              }
+
+              taskLogRows = groupedHtml || '<div style="text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 20px;">Nenhuma atividade registrada...</div>';
+          }
+
+          let lineHtml = '';  // kept for backward-compat (flat mode uses own lineHtml)
+
           let taskLogsHtml = `
-             <div style="flex: 1; min-width: 320px; display: flex; flex-direction: column;">
+             <div style="flex: 1 1 100%; min-width: 100%; display: flex; flex-direction: column;">
                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-                    <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
-                       Registro de Atividades (Logs)
-                    </span>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                       <input type="text" id="log-search-input" placeholder="Search logs" oninput="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-primary); width: 140px; outline: none; height: 28px;">
-                       <select id="log-level-select" onchange="filterLogs()" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); cursor: pointer; outline: none; height: 28px;">
-                          <option value="ALL">Log Level</option>
-                          <option value="INFO">Info</option>
-                          <option value="WARN">Warning</option>
-                          <option value="ERROR">Error</option>
-                       </select>
-                       <button class="btn" onclick="copyJobLog('${job.id}')" style="padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: #ffffff; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 500; height: 28px;">
-                          📋 Copiar Logs
+                       <span style="font-weight: 700; color: var(--text-primary); font-size: 15px;">
+                          Registro de Atividades (Logs)
+                       </span>
+                       <button onclick="copyJobLog('${job.id}')" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0; margin: 0; opacity: 0.6; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
+                          📋
                        </button>
                     </div>
                  </div>
-                 <div class="activity-log-scroll terminal-scroll" id="activity-log-scroll-${job.id}" style="height: 380px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: #ffffff; display: flex; flex-direction: column; position: relative; padding: 24px 20px;">
-                    ${lineHtml}
-                    <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px;">
-                        ${taskLogRows || '<div style="text-align: center; color: var(--text-secondary); font-size: 12px; font-style: italic; padding: 20px;">Nenhuma atividade registrada...</div>'}
+                 <div class="activity-log-scroll terminal-scroll" id="activity-log-scroll-${job.id}" style="border: 1px solid var(--border-color); border-radius: 8px; background: #ffffff; display: flex; flex-direction: column; position: relative; padding: 16px 16px;">
+                    <div style="position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px;">
+                        ${taskLogRows}
                     </div>
                  </div>
              </div>
@@ -4264,75 +5334,12 @@
                   ${connectorHtml}
               `;
           }
-          let timelineHtml = `
-             <!-- Active Job KPIs Row -->
-             <div class="active-job-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px;">
-                <!-- Card 1: Roles Concluídas -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon green">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${concludedRoles}/${totalRoles}</span>
-                      <span class="job-kpi-title">${isCadeiaProcess ? 'Cadeias verificadas' : 'Roles concluídas'}</span>
-                      <span class="job-kpi-sub">${totalRoles > 0 ? Math.round((concludedRoles / totalRoles) * 100) + '%' : '100%'}</span>
-                   </div>
-                </div>
-                
-                <!-- Card 2: Ações -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon purple">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${totalActions}</span>
-                      <span class="job-kpi-title">Ações</span>
-                      <span class="job-kpi-sub">Total executadas</span>
-                   </div>
-                </div>
-                
-                <!-- Card 3: Tempo total -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon blue">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <circle cx="12" cy="12" r="10"></circle>
-                         <polyline points="12 6 12 12 16 14"></polyline>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${formatDuration(job.created_at, (job.state === 'running' || job.state === 'pending') ? null : job.updated_at)}</span>
-                      <span class="job-kpi-title">Tempo total</span>
-                      <span class="job-kpi-sub">Duração da execução</span>
-                   </div>
-                </div>
-                
-                <!-- Card 4: Erros -->
-                <div class="job-kpi-card">
-                   <div class="job-kpi-icon red">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                         <line x1="12" y1="9" x2="12" y2="13"></line>
-                         <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                      </svg>
-                   </div>
-                   <div class="job-kpi-info">
-                      <span class="job-kpi-value">${errorCount}</span>
-                      <span class="job-kpi-title">Erros</span>
-                      <span class="job-kpi-sub">${errorCount > 0 ? 'Requer atenção' : 'Sem erros'}</span>
-                   </div>
-                </div>
-             </div>
-             
+                    let timelineHtml = `
              <!-- Split Bottom Columns -->
-             <div style="display: flex; gap: 24px; margin-top: 24px; flex-wrap: wrap;">
-                ${roleHistoryHtml}
+             <div style="display: flex; gap: 24px; margin-top: 12px;">
                 ${taskLogsHtml}
              </div>
-          `;
+           `;
           let progressLabelsHtml = '';
           let progressWidth = '0%';
           if (totalRoles > 0) {
@@ -4382,14 +5389,14 @@
                   `;
               }
           }
-          dropdownOptionsHtml += `
-             <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--text-secondary); cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(0, 0, 0, 0.04)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); copyJobLog('${job.id}')">
-                📋 Copiar Logs
-             </button>
-             <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--danger); font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.07)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); deleteJob('${job.id}')">
-               🗑️ Eliminar Job
-             </button>
-          `;
+           dropdownOptionsHtml += `
+              <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--danger); font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.07)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); deleteJob('${job.id}')">
+                🗑️ Eliminar Job
+              </button>
+              <button class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 10px 16px; font-size: 13px; color: var(--danger); font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.07)'" onmouseout="this.style.background='transparent'" onclick="event.stopPropagation(); deleteAllJobs()">
+                🧨 Eliminar Todos os Jobs
+              </button>
+           `;
 
           const shortId = job.id.substring(0, 8);
           const isFocused = job.id === activeJobId;
@@ -4426,7 +5433,7 @@
                 
                 <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
                    ${focusIndicator}
-                   <span class="badge-outline ${job.state}">${job.state.toUpperCase()}</span>
+                   <span class="badge-outline ${job.state === 'succeeded_with_warnings' ? 'succeeded_with_warnings' : job.state}">${job.state === 'succeeded_with_warnings' ? 'ALERTAS' : job.state.toUpperCase()}</span>
                    <div style="position: relative; display: inline-block;">
                       <button type="button" class="btn-icon" style="padding: 4px; color: var(--text-secondary);" onclick="event.stopPropagation(); toggleJobOptionsDropdown(event, '${job.id}')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg></button>
                       <div id="job-options-menu-${job.id}" class="job-options-menu" style="display: none; position: absolute; right: 0; top: 30px; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; min-width: 180px; padding: 6px 0;">
@@ -4435,6 +5442,12 @@
                    </div>
                 </div>
              </div>
+             
+             ${docFuncionalPath ? `
+             <div style="margin-bottom: 20px; font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 8px; padding: 10px 16px;">
+                 <span>📁 <strong>Documento funcional:</strong></span>
+                 <span style="font-family: monospace; font-size: 11px; background: rgba(255, 255, 255, 0.7); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px 8px; user-select: all; cursor: text;">${escapeHtml(docFuncionalPath)}</span>
+             </div>` : ''}
              
              <!-- Connected Stages Timeline -->
              <div style="margin-bottom: 24px; background: rgba(0,0,0,0.01); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px;">
@@ -4495,41 +5508,28 @@
           // Restaurar ou atualizar o scroll do registo de atividades
           const actScrollContainer = card.querySelector('.activity-log-scroll');
           if (actScrollContainer) {
-                      const saved = savedScrolls[actScrollContainer.id];
+              const saved = savedScrolls[actScrollContainer.id];
               const isRunning = job.state === 'running' || job.state === 'pending';
-              if (saved) {
-                  if (isRunning) {
-                      if (saved.isAtBottom) {
-                          actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
+              setTimeout(() => {
+                  if (saved) {
+                      if (isRunning) {
+                          if (saved.isAtBottom) {
+                              actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
+                          } else {
+                              actScrollContainer.scrollTop = saved.scrollTop;
+                          }
                       } else {
                           actScrollContainer.scrollTop = saved.scrollTop;
                       }
                   } else {
-                      actScrollContainer.scrollTop = saved.scrollTop;
+                      actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
                   }
-              } else {
-                  actScrollContainer.scrollTop = actScrollContainer.scrollHeight;
-              }
+              }, 10);
           }
        });
 
-       // Restore input value and trigger filter for all cards
-       const queryInput = document.getElementById('log-search-input');
-       const stateSelect = document.getElementById('log-state-select');
-       const timeSelect = document.getElementById('log-time-select');
-       if (queryInput) {
-           queryInput.value = activeLogQuery;
-       }
-       if (stateSelect) {
-           stateSelect.value = activeLogState;
-       }
-       if (timeSelect) {
-           timeSelect.value = activeLogTime;
-       }
-       filterLogs();
-
        // Render Focused Job Logs in the sidebar
-       const focusedJob = allJobs.find(j => j.id === activeJobId);
+       // const focusedJob = allJobs.find(j => j.id === activeJobId);
        if (focusedJob && logContainer) {
            const lastJobId = logContainer.getAttribute('data-job-id');
            const lastUpdated = logContainer.getAttribute('data-updated-at');
@@ -4572,6 +5572,25 @@
                     `;
                }
                logContainer.innerHTML = rawLog || 'Nenhum log disponível para o job focado.';
+               
+                // Restaurar ou atualizar o scroll do log em tempo real (sidebar)
+                const isRunning = focusedJob.state === 'running' || focusedJob.state === 'pending';
+                setTimeout(() => {
+                    if (savedRealtimeScroll !== null) {
+                        if (isRunning) {
+                            if (realtimeIsAtBottom) {
+                                logContainer.scrollTop = logContainer.scrollHeight;
+                            } else {
+                                logContainer.scrollTop = savedRealtimeScroll;
+                            }
+                        } else {
+                            logContainer.scrollTop = savedRealtimeScroll;
+                        }
+                    } else {
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                }, 10);
+
                const statusEl = document.getElementById('log-connection-status');
                const timeEl = document.getElementById('log-updated-time');
                if (statusEl) {
@@ -4586,76 +5605,26 @@
                if (timeEl) {
                    timeEl.textContent = `Atualizado: ${formatTimeOnly(new Date())}`;
                }
-               // Restaurar ou atualizar o scroll do log em tempo real (sidebar)
-               const isRunning = focusedJob.state === 'running' || focusedJob.state === 'pending';
-               if (savedRealtimeScroll !== null) {
-                   if (isRunning) {
-                       if (realtimeIsAtBottom) {
-                           logContainer.scrollTop = logContainer.scrollHeight;
-                       } else {
-                           logContainer.scrollTop = savedRealtimeScroll;
-                       }
-                   } else {
-                       logContainer.scrollTop = savedRealtimeScroll;
-                   }
-               } else {
-                   logContainer.scrollTop = logContainer.scrollHeight;
-               }
+
            }
            // Copy log action
            document.getElementById('btn-copy-log').onclick = () => {
               navigator.clipboard.writeText(focusedJob.log || '');
-              const old = document.getElementById('btn-copy-log').textContent;
-              document.getElementById('btn-copy-log').textContent = 'Copiado!';
-              setTimeout(() => document.getElementById('btn-copy-log').textContent = old, 2000);
+              showToast('Log foi copiado', 'success');
            };
        } else if (logContainer) {
           logContainer.innerHTML = 'Nenhum job em foco para visualização de logs.';
        }
+        } catch (error) {
+            console.error("Erro ao renderizar o Registo de Atividades:", error);
+            const container = document.getElementById("active-jobs-container");
+            if (container) {
+                container.innerHTML = "<div class=\'log-render-error\' style=\'color:var(--danger);padding:16px;font-style:italic;\'>Nao foi possivel apresentar os detalhes do log.</div>";
+            }
+        }
     }
 
-    function filterLogs() {
-        const queryInput = document.getElementById('log-search-input');
-        const stateSelect = document.getElementById('log-state-select');
-        const timeSelect = document.getElementById('log-time-select');
-        
-        activeLogQuery = queryInput ? queryInput.value.toLowerCase() : '';
-        activeLogState = stateSelect ? stateSelect.value : 'ALL';
-        activeLogTime = timeSelect ? timeSelect.value : 'ALL';
-        
-        const now = Date.now();
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        
-        const items = document.querySelectorAll('.timeline-item');
-        items.forEach(item => {
-            const text = item.textContent.toLowerCase();
-            const state = item.getAttribute('data-state') || 'completed';
-            const timestamp = parseInt(item.getAttribute('data-time') || '0');
-            
-            const matchQuery = text.includes(activeLogQuery);
-            const matchState = (activeLogState === 'ALL') || (state === activeLogState);
-            
-            let matchTime = true;
-            if (activeLogTime === 'TODAY') {
-                const todayStart = new Date().setHours(0,0,0,0);
-                matchTime = timestamp >= todayStart;
-            } else if (activeLogTime === '24H') {
-                matchTime = (now - timestamp) <= oneDayMs;
-            } else if (activeLogTime === '7D') {
-                matchTime = (now - timestamp) <= (7 * oneDayMs);
-            } else if (activeLogTime === '30D') {
-                matchTime = (now - timestamp) <= (30 * oneDayMs);
-            }
-            
-            if (matchQuery && matchState && matchTime) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
-            }
-        });
-    }
-
-    function toggleLogItemDetails(itemId) {
+        function toggleLogItemDetails(itemId) {
         expandedLogItems[itemId] = !expandedLogItems[itemId];
         const container = document.getElementById(`log-item-details-${itemId}`);
         const icon = document.getElementById(`chevron-icon-${itemId}`);
@@ -4664,6 +5633,80 @@
         }
         if (icon) {
             icon.style.transform = expandedLogItems[itemId] ? 'rotate(180deg)' : '';
+        }
+    }
+
+        function toggleStepDetails(btn, detailsId) {
+        const detailsDiv = document.getElementById(detailsId);
+        if (!detailsDiv) return;
+        
+        const prefix = 'step-details-';
+        if (!detailsId.startsWith(prefix)) return;
+        const stepKey = detailsId.substring(prefix.length);
+        
+        const parts = stepKey.split('-');
+        let jobId = '';
+        if (parts.length >= 7) {
+            jobId = parts.slice(1, 6).join('-');
+        }
+        
+        const isOpen = detailsDiv.style.display !== 'none';
+        const newOpen = !isOpen;
+        
+        detailsDiv.style.display = newOpen ? 'block' : 'none';
+        btn.textContent = newOpen ? '(-)' : '(+)';
+        
+        if (jobId) {
+            const state = getLogAccordionState(jobId);
+            if (newOpen) {
+                state.manuallyExpanded.add(stepKey);
+                state.manuallyCollapsed.delete(stepKey);
+            } else {
+                state.manuallyCollapsed.add(stepKey);
+                state.manuallyExpanded.delete(stepKey);
+            }
+        }
+    }
+
+    // Toggle a Role group accordion in the Logs panel
+    function toggleRoleGroup(roleId) {
+        let jobId = activeJobId;
+        if (roleId.includes('-')) {
+            if (roleId.startsWith('init-')) {
+                jobId = roleId.substring(5);
+            } else if (roleId.startsWith('diag-')) {
+                jobId = roleId.substring(5);
+            } else if (roleId.startsWith('role-')) {
+                const lastDash = roleId.lastIndexOf('-');
+                jobId = roleId.substring(5, lastDash);
+            }
+        }
+
+        const body    = document.getElementById('role-body-' + roleId);
+        const chevron = document.getElementById('role-chevron-' + roleId);
+        if (!body) return;
+        
+        const isOpen = body.style.display !== 'none';
+        const newOpen = !isOpen;
+        
+        body.style.display = newOpen ? 'block' : 'none';
+        if (chevron) chevron.style.transform = newOpen ? 'rotate(180deg)' : '';
+
+        // Atualizar os atributos de acessibilidade
+        const header = document.querySelector(`[onclick="toggleRoleGroup('${roleId}')"]`);
+        if (header) header.setAttribute('aria-expanded', newOpen.toString());
+        const groupEl = header ? header.closest('.role-group') : null;
+        if (groupEl) groupEl.setAttribute('aria-expanded', newOpen.toString());
+
+        if (jobId) {
+            const state = getLogAccordionState(jobId);
+            if (newOpen) {
+                state.manuallyExpanded.add(roleId);
+                state.manuallyCollapsed.delete(roleId);
+            } else {
+                state.manuallyCollapsed.add(roleId);
+                state.manuallyExpanded.delete(roleId);
+            }
         }
     }
 
@@ -4698,17 +5741,6 @@
         }
     }
 
-    function toggleStepDetails(btn, detailsId) {
-        const detailsDiv = document.getElementById(detailsId);
-        if (!detailsDiv) return;
-        if (detailsDiv.style.display === 'none') {
-            detailsDiv.style.display = 'block';
-            btn.textContent = '(-)';
-        } else {
-            detailsDiv.style.display = 'none';
-            btn.textContent = '(+)';
-        }
-    }
 
     function focusJob(jobId) {
         activeJobId = jobId;
@@ -4751,36 +5783,285 @@
         }
     }
 
-    async function deleteJob(jobId) {
-        if (!confirm('Tem a certeza que quer eliminar este job permanentemente? Esta ação não pode ser desfeita.')) {
-            return;
-        }
-        try {
-            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
-            if (res.ok) {
-                const card = document.getElementById(`card-job-${jobId}`);
-                if (card) card.remove();
-                if (typeof activeJobId !== 'undefined' && activeJobId === jobId) {
-                    activeJobId = null;
-                }
-                await loadJobs();
-            } else {
-                const data = await res.json().catch(() => ({}));
-                alert('Erro ao eliminar o job: ' + (data.detail || res.status));
-            }
-        } catch(e) {
-            console.error('Erro de rede ao eliminar:', e);
-            alert('Erro de rede ao eliminar o job.');
-        }
+    function closeAllJobMenus() {
+      const allMenus = document.querySelectorAll('.job-options-menu');
+      allMenus.forEach(menu => {
+        if (menu) menu.style.display = 'none';
+      });
     }
 
-    function copyJobLog(jobId) {
-        const job = allJobs.find(j => j.id === jobId);
-        if (job) {
-            navigator.clipboard.writeText(job.log || '');
-            alert('Logs copiados com sucesso!');
+    window.deleteJobState = window.deleteJobState || {
+      pendingJobId: null,
+      isAll: false,
+      deleting: false
+    };
+
+    window.deleteJob = function(jobId) {
+      closeAllJobMenus();
+      const modal = document.getElementById('delete-job-modal');
+      const titleEl = document.getElementById('delete-job-modal-title');
+      const textEl = document.getElementById('delete-job-modal-text');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+
+      if (!modal) {
+        console.error('[deleteJob] Modal delete-job-modal não encontrado.');
+        return;
+      }
+
+      window.deleteJobState.pendingJobId = jobId;
+      window.deleteJobState.isAll = false;
+      window.deleteJobState.deleting = false;
+
+      modal.dataset.jobId = jobId || '';
+      modal.dataset.isAll = 'false';
+
+      if (titleEl) titleEl.textContent = 'Eliminar job?';
+      if (textEl) textEl.textContent = 'Tem a certeza que quer eliminar este job permanentemente? Esta ação não pode ser desfeita.';
+
+      if (errorBox) {
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+      }
+
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Eliminar definitivamente';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+      }
+
+      modal.removeAttribute('hidden');
+      modal.hidden = false;
+      modal.style.display = 'flex';
+    };
+
+    window.closeDeleteJobModal = function() {
+      const modal = document.getElementById('delete-job-modal');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+
+      window.deleteJobState.pendingJobId = null;
+      window.deleteJobState.isAll = false;
+      window.deleteJobState.deleting = false;
+
+      if (modal) {
+        delete modal.dataset.jobId;
+        delete modal.dataset.isAll;
+        modal.setAttribute('hidden', '');
+        modal.hidden = true;
+        modal.style.display = 'none';
+      }
+
+      if (errorBox) {
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+      }
+
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Eliminar definitivamente';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+      }
+    };
+
+    window.confirmDeleteJob = async function(event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+
+      if (window.deleteJobState.deleting) {
+        return;
+      }
+
+      const modal = document.getElementById('delete-job-modal');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+
+      const isAll = (modal?.dataset?.isAll === 'true') || window.deleteJobState.isAll;
+
+      window.deleteJobState.deleting = true;
+
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'A eliminar...';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = true;
+      }
+
+      if (isAll) {
+        const jobIds = (typeof allJobs !== 'undefined' ? allJobs : []).map(job => job.id).filter(Boolean);
+        try {
+          const res = await fetch('/api/jobs/delete-all', { method: 'POST' });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || 'Falha ao eliminar todos os jobs.');
+          }
+          window.closeDeleteJobModal();
+          activeJobId = null;
+          if (typeof loadJobs === 'function') await loadJobs();
+          if (typeof loadHistoryJobs === 'function') await loadHistoryJobs();
+          if (typeof showToast === 'function') showToast('Todos os jobs foram eliminados', 'success');
+        } catch (err) {
+          console.warn('Falha no endpoint de eliminação em massa, a usar eliminação individual:', err);
+          let removed = 0;
+          const failures = [];
+
+          for (const jobId of jobIds) {
+            try {
+              const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+              if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || 'Falha ao eliminar job.');
+              }
+              removed += 1;
+            } catch (deleteErr) {
+              failures.push({ jobId, error: deleteErr });
+            }
+          }
+
+          window.closeDeleteJobModal();
+          activeJobId = null;
+          if (typeof loadJobs === 'function') await loadJobs();
+          if (typeof loadHistoryJobs === 'function') await loadHistoryJobs();
+
+          if (typeof showToast === 'function') {
+            if (failures.length === 0) {
+              showToast(`Todos os jobs foram eliminados (${removed})`, 'success');
+            } else if (removed > 0) {
+              showToast(`Eliminar todos os jobs concluído parcialmente (${removed}/${jobIds.length})`, 'warning');
+            } else {
+              showToast('Não foi possível eliminar todos os jobs', 'error');
+            }
+          }
         }
-    }
+        return;
+      }
+
+      const jobId = modal?.dataset?.jobId || window.deleteJobState.pendingJobId;
+
+      if (!jobId) {
+        if (errorBox) {
+          errorBox.textContent = 'Nenhum job selecionado para eliminar.';
+          errorBox.hidden = false;
+        }
+        if (confirmBtn) {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Eliminar definitivamente';
+        }
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+        }
+        window.deleteJobState.deleting = false;
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+          method: 'DELETE'
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || `Erro HTTP ${res.status}`);
+        }
+
+        const card = document.getElementById(`card-job-${jobId}`);
+        if (card) card.remove();
+
+        if (typeof activeJobId !== 'undefined' && activeJobId === jobId) {
+          activeJobId = null;
+        }
+
+        window.closeDeleteJobModal();
+
+        if (typeof loadJobs === 'function') {
+          await loadJobs();
+        }
+        if (typeof loadHistoryJobs === 'function') {
+          await loadHistoryJobs();
+        }
+        if (typeof showToast === 'function') showToast('Job eliminado com sucesso', 'success');
+      } catch (err) {
+        window.deleteJobState.deleting = false;
+
+        if (errorBox) {
+          errorBox.textContent = `Erro ao eliminar o job: ${err.message || err}`;
+          errorBox.hidden = false;
+        }
+
+        if (confirmBtn) {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Eliminar definitivamente';
+        }
+
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+        }
+
+        console.error('[deleteJob] Erro:', err);
+      }
+    };
+
+    window.deleteAllJobs = function() {
+      closeAllJobMenus();
+      const modal = document.getElementById('delete-job-modal');
+      const titleEl = document.getElementById('delete-job-modal-title');
+      const textEl = document.getElementById('delete-job-modal-text');
+      const errorBox = document.getElementById('delete-job-modal-error');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+
+      if (!modal) {
+        console.error('[deleteAllJobs] Modal delete-job-modal não encontrado.');
+        return;
+      }
+
+      const jobIds = (typeof allJobs !== 'undefined' ? allJobs : []).map(job => job.id).filter(Boolean);
+      if (jobIds.length === 0) {
+        if (typeof showToast === 'function') showToast('Não existem jobs para eliminar', 'info');
+        return;
+      }
+
+      window.deleteJobState.pendingJobId = null;
+      window.deleteJobState.isAll = true;
+      window.deleteJobState.deleting = false;
+
+      modal.dataset.jobId = '';
+      modal.dataset.isAll = 'true';
+
+      if (titleEl) titleEl.textContent = 'Eliminar todos os jobs?';
+      if (textEl) textEl.textContent = 'Tem a certeza que quer eliminar todos os jobs permanentemente? Esta ação não pode ser desfeita.';
+
+      if (errorBox) {
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+      }
+
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Eliminar definitivamente';
+      }
+
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+      }
+
+      modal.removeAttribute('hidden');
+      modal.hidden = false;
+      modal.style.display = 'flex';
+    };
 
     function toggleJobOptionsDropdown(event, jobId) {
         event.stopPropagation();
@@ -4802,10 +6083,7 @@
 
     // Close menus when clicking outside
     document.addEventListener('click', function() {
-        const allMenus = document.querySelectorAll('.job-options-menu');
-        allMenus.forEach(menu => {
-            menu.style.display = 'none';
-        });
+        closeAllMenus();
     });
 
     function escapeHtml(value) {
@@ -5556,23 +6834,12 @@
     }
 
     async function deleteJobFromDb(jobId) {
-        if (!confirm('Deseja eliminar permanentemente este job da base de dados? Esta ação não pode ser desfeita.')) {
-            return;
-        }
-        try {
-            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
-            if (res.ok) {
-                allJobs = allJobs.filter(j => j.id !== jobId);
-                if (activeJobId === jobId) {
-                    activeJobId = null;
-                }
-                await loadHistoryJobs();
-            } else {
-                alert('Erro ao eliminar o job.');
-            }
-        } catch(e) {
-            console.error('Erro de rede ao eliminar:', e);
-            alert('Erro de rede ao eliminar o job.');
+        deleteJob(jobId);
+    }
+
+    function hideView(element) {
+        if (element) {
+            element.style.display = 'none';
         }
     }
 
@@ -5586,22 +6853,67 @@
         const visaoGeralView = document.getElementById('view-visao-geral');
         const jiraView = document.getElementById('view-jira');
         const historicoView = document.getElementById('view-historico');
+        const autorizacoesView = document.getElementById('view-autorizacoes');
+        const definicoesView = document.getElementById('view-definicoes');
         const headerTitle = document.querySelector('.top-header .header-titles h2');
         const headerSub = document.querySelector('.top-header .header-titles p');
         const jiraSyncWrapper = document.getElementById('jira-sync-wrapper');
         const refreshBtn = document.getElementById('refresh-button');
         const newJobBtn = document.getElementById('new-job-btn');
 
+        hideView(visaoGeralView);
+        hideView(jiraView);
+        hideView(historicoView);
+        hideView(autorizacoesView);
+        hideView(definicoesView);
+
+        if (viewName !== 'autorizacoes') {
+            if (typeof authorizationChatRequestId !== 'undefined') {
+                authorizationChatRequestId++;
+            }
+            if (typeof authorizationJobRequestId !== 'undefined') {
+                authorizationJobRequestId++;
+            }
+            if (typeof authChatFetchController !== 'undefined' && authChatFetchController) {
+                authChatFetchController.abort();
+                authChatFetchController = null;
+            }
+        }
+
         if (viewName === 'visao-geral') {
             document.getElementById('nav-item-visao-geral').classList.add('active');
-            visaoGeralView.style.display = 'flex';
-            jiraView.style.display = 'none';
-            if (historicoView) historicoView.style.display = 'none';
+            if (visaoGeralView) visaoGeralView.style.display = 'flex';
             if (headerTitle) headerTitle.textContent = 'Cockpit SAP Script';
             if (headerSub) headerSub.textContent = 'Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.';
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
-            if (refreshBtn) refreshBtn.style.display = 'inline-flex';
-            if (newJobBtn) newJobBtn.style.display = 'inline-flex';
+        } else if (viewName === 'autorizacoes') {
+            const navItem = document.getElementById('nav-item-autorizacoes');
+            if (navItem) {
+                navItem.classList.add('active');
+            }
+            if (autorizacoesView) {
+                autorizacoesView.style.display = 'flex';
+            }
+            if (headerTitle) {
+                headerTitle.textContent = 'Autorizações';
+            }
+            if (headerSub) {
+                headerSub.textContent = 'Validação de permissões e acessos dos utilizadores SAP.';
+            }
+            if (jiraSyncWrapper) {
+                jiraSyncWrapper.style.display = 'none';
+            }
+            if (refreshBtn) {
+                refreshBtn.style.display = 'none';
+            }
+            if (newJobBtn) {
+                newJobBtn.style.display = 'none';
+            }
+            window.requestAnimationFrame(() => {
+                if (typeof ensureAuthorizationViewReady === 'function') {
+                    ensureAuthorizationViewReady();
+                }
+            });
         } else if (viewName === 'jira') {
             document.getElementById('nav-item-jira').classList.add('active');
             // Ensure JIRA dropdown is open when navigating to this view
@@ -7331,6 +8643,7 @@
 
             if (data.triggered > 0) {
                 showToast(`✅ ${data.triggered} job(s) SAP criado(s) com sucesso!`, 'success');
+                setTimeout(() => switchView('visao-geral'), 500);
             } else if (data.tickets_found === 0) {
                 showToast('Nenhum ticket JIRA elegível encontrado.', 'info');
             } else {
@@ -7368,6 +8681,7 @@
 
             showToast(data.message || 'Job SAP criado com sucesso!', 'success');
             input.value = ''; // clear input
+            setTimeout(() => switchView('visao-geral'), 500);
 
             // Reload logs and results
             atLoadLog();
@@ -8601,6 +9915,49 @@
     loadJobs().then(() => {
         startPolling();
     });
+
+    // Exposição de funções do cockpit no objeto global window
+    window.switchView = switchView;
+    window.toggleSapMenu = toggleSapMenu;
+    window.toggleJiraMenu = toggleJiraMenu;
+    window.toggleProcessosMenu = toggleProcessosMenu;
+    window.toggleSubprocessosMenu = toggleSubprocessosMenu;
+    window.abrirSubprocessoModal = abrirSubprocessoModal;
+
+    // Eventos do Modal de Eliminação de Job Customizado
+    document.addEventListener('keydown', function(event) {
+      const modal = document.getElementById('delete-job-modal');
+      if (event.key === 'Escape' && modal && !modal.hidden) {
+        window.closeDeleteJobModal();
+      }
+    });
+
+    function initDeleteJobModalEvents() {
+      const cancelBtn = document.getElementById('delete-job-modal-cancel');
+      const confirmBtn = document.getElementById('delete-job-modal-confirm');
+
+      if (cancelBtn && !cancelBtn.dataset.bound) {
+        cancelBtn.dataset.bound = 'true';
+        cancelBtn.addEventListener('click', function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          window.closeDeleteJobModal();
+        });
+      }
+
+      if (confirmBtn && !confirmBtn.dataset.bound) {
+        confirmBtn.dataset.bound = 'true';
+        confirmBtn.addEventListener('click', function(event) {
+          window.confirmDeleteJob(event);
+        });
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initDeleteJobModalEvents);
+    } else {
+      initDeleteJobModalEvents();
+    }
   </script>
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">
@@ -8704,5 +10061,32 @@
     </div>
   </div>
 
+  <!-- ══ Modal: Confirmar Eliminação de Job ══ -->
+  <div id="delete-job-modal" class="delete-job-modal-overlay" hidden>
+    <div class="delete-job-modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-job-modal-title">
+      <div class="delete-job-modal-icon">⚠️</div>
+
+      <h3 id="delete-job-modal-title">Eliminar job?</h3>
+
+      <p id="delete-job-modal-text" class="delete-job-modal-text">
+        Tem a certeza que quer eliminar este job permanentemente?
+        Esta ação não pode ser desfeita.
+      </p>
+
+      <div id="delete-job-modal-error" class="delete-job-modal-error" hidden></div>
+
+      <div class="delete-job-modal-actions">
+        <button type="button" id="delete-job-modal-cancel" class="btn btn-secondary" onclick="window.closeDeleteJobModal()">
+          Cancelar
+        </button>
+        <button type="button" id="delete-job-modal-confirm" class="btn btn-danger" onclick="window.confirmDeleteJob(event)">
+          Eliminar definitivamente
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Script da View de Autorizações (Módulo Dedicado) ══ -->
+  <script src="/static/js/authorization_assistant.js?v=20260818_v34"></script>
 </body>
 </html>

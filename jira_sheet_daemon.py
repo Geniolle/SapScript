@@ -22,6 +22,15 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
+import signal
+import sys
+
+def handle_sigterm(signum, frame):
+    logging.info("Recebido SIGTERM, terminando o daemon de forma graciosa...")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, handle_sigterm)
+
 
 def get_int_env(name: str, default: int) -> int:
     raw = os.getenv(name, str(default)).strip()

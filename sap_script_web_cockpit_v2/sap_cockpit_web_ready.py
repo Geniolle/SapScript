@@ -146,12 +146,33 @@ def _parse_env_line(linha_txt: str):
     return chave, valor
 
 
-def _carregar_dotenv_manual():
+def get_project_env_path() -> str:
+    project_dir = os.environ.get("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if project_dir:
+        env_path = os.path.join(project_dir, ".env")
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env_path = os.path.join(base_dir, ".env")
+    return os.path.abspath(env_path)
+
+
+def reload_project_env(force_override: bool = True) -> str | None:
+    from dotenv import load_dotenv
+    env_path = get_project_env_path()
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=force_override)
+        _carregar_dotenv_manual(force_override=force_override)
+        return env_path
+    return None
+
+
+def _carregar_dotenv_manual(force_override: bool = True):
     base_atual = os.getcwd()
     base_script = os.path.dirname(os.path.abspath(__file__))
     base_script_pai = os.path.dirname(base_script)
 
     candidatos = [
+        get_project_env_path(),
         os.path.join(base_atual, ".env"),
         os.path.join(base_script, ".env"),
         os.path.join(base_script_pai, ".env"),
@@ -172,28 +193,80 @@ def _carregar_dotenv_manual():
                 chave, valor = _parse_env_line(linha_txt)
                 if not chave:
                     continue
-                if chave not in os.environ:
+                if force_override or chave not in os.environ:
                     os.environ[chave] = valor
         return caminho_norm
 
     return None
 
 
-def _carregar_dotenv():
-    caminho = _carregar_dotenv_manual()
+def _log_env_status(env_path: str):
+    import datetime
+    try:
+        mtime = os.path.getmtime(env_path)
+        mtime_str = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        mtime_str = "Desconhecido"
+        
+    info(f"[ENV_LOAD] Caminho absoluto: {env_path}")
+    info(f"[ENV_LOAD] Última modificação: {mtime_str}")
+    
+    # Palavras que identificam variáveis sensíveis (nunca imprimir o valor real)
+    _SENSITIVE_KEYWORDS = ("PASSWORD", "PASSWD", "PWD", "SECRET", "TOKEN", "KEY")
+
+    sap_vars = []
+    try:
+        with open(env_path, "r", encoding="utf-8-sig") as f:
+            for line in f:
+                chave, valor = _parse_env_line(line)
+                if not chave:
+                    continue
+                if chave.startswith("SAP_") or chave == "SAPLOGON_PATH":
+                    chave_upper = chave.upper()
+                    if any(kw in chave_upper for kw in _SENSITIVE_KEYWORDS):
+                        sap_vars.append(f"{chave} = CONFIGURADA")
+                    else:
+                        sap_vars.append(f"{chave} = {valor}")
+    except Exception as e:
+        warn(f"Erro ao analisar chaves do .env para logs: {e}")
+        
+    info(f"[ENV_LOAD] Variáveis SAP encontradas:")
+    for v in sap_vars:
+        info(f"  - {v}")
+
+
+def _carregar_dotenv(force_override: bool = True):
+    caminho = _carregar_dotenv_manual(force_override=force_override)
     if caminho:
-        info(f"Ficheiro .env carregado: {caminho}")
+        _log_env_status(caminho)
     else:
         warn("Ficheiro .env nao encontrado nos caminhos esperados.")
 
 
 def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tuple[str, str, str, str]:
-    _carregar_dotenv()
+    """
+    Lê as credenciais do .env usando:
+      SAP_USER
+      SAP_LANGUAGE para DEV, QAD e PRD (opcional, default PT)
+      SAP_CUA_LANGUAGE para CUA (opcional, default PT)
+      SAP_PASSWORD_{SISTEMA}CLNT{CLIENTE} para a password
+
+    Exemplo:
+      SAP_PASSWORD_S4QCLNT100
+    """
+    _carregar_dotenv(force_override=True)
 
     sistema = str(sistema_desejado or "").strip().upper()
     cliente = str(cliente_esperado or "").strip()
     usuario = os.getenv("SAP_USER", "").strip()
-    idioma = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
+
+    # Idioma diferenciado para CUA (SPA 001) vs outros ambientes
+    chave_idioma = (
+        "SAP_CUA_LANGUAGE"
+        if sistema == "SPA" and cliente == "001"
+        else "SAP_LANGUAGE"
+    )
+    idioma = os.getenv(chave_idioma, "PT").strip() or "PT"
 
     chave_password = f"SAP_PASSWORD_{sistema}CLNT{cliente}"
     senha = os.getenv(chave_password, "").strip()
@@ -211,6 +284,15 @@ def selecionar_ambiente(payload: dict[str, Any] | None = None, interactive: bool
     payload = payload or {}
     ambiente_payload = str(payload.get("ambiente") or "").strip().upper()
     if ambiente_payload:
+        alias_map = {
+            "S4DCLNT100": "DEV", "S4D": "DEV", "DEV": "DEV",
+            "S4QCLNT100": "QAD", "S4Q": "QAD", "QAD": "QAD",
+            "S4PCLNT100": "PRD", "S4P": "PRD", "PRD": "PRD",
+            "SPACLNT001": "CUA", "SPA": "CUA", "CUA": "CUA",
+        }
+        if ambiente_payload in alias_map:
+            ambiente_payload = alias_map[ambiente_payload]
+
         if ambiente_payload in MAPA_SISTEMA:
             return ambiente_payload
         raise SapCockpitError(f"Ambiente '{ambiente_payload}' invalido recebido pela web.")
@@ -243,6 +325,21 @@ def _resolve_processo_path(processo: str) -> str:
     if not processo:
         raise SapCockpitError("Processo/pasta nao informado no payload.")
 
+    # Mapeamento de aliases e categorias técnicas para as pastas físicas em Processos/
+    MAPA_ALIAS_PASTA = {
+        "CUA_CRIAR_USER": "Funções PFCG",
+        "CUA_ADICIONAR": "Funções PFCG",
+        "CUA_ENDDATE": "Funções PFCG",
+        "CUA_REMOVE": "Funções PFCG",
+        "PFCG_CREATE": "Funções PFCG",
+        "PFCG_DELETE": "Funções PFCG",
+        "PFCG_COMPOSTA": "Funções PFCG",
+        "PFCG_AUTHORITY": "Funções PFCG",
+    }
+
+    if processo in MAPA_ALIAS_PASTA:
+        processo = MAPA_ALIAS_PASTA[processo]
+
     if os.path.isabs(processo):
         caminho = processo
     else:
@@ -255,6 +352,14 @@ def _resolve_processo_path(processo: str) -> str:
         raise SapCockpitError("Processo fora da pasta PROCESSOS_DIR nao e permitido.")
 
     if not os.path.isdir(caminho):
+        # Fallback: procurar se o nome do processo corresponde a um script dentro de alguma subpasta
+        for p in os.listdir(PROCESSOS_DIR):
+            p_path = os.path.join(PROCESSOS_DIR, p)
+            if os.path.isdir(p_path) and p != "__pycache__":
+                for f in os.listdir(p_path):
+                    if f.upper().startswith(processo.upper()):
+                        return os.path.abspath(p_path)
+
         raise SapCockpitError(f"Pasta de processo nao encontrada: {caminho}")
 
     return caminho
@@ -504,9 +609,8 @@ def _criar_nova_request_no_sap(
     tipo: str | None = None,
     desc: str | None = None,
     interactive: bool = True,
+    ambiente: str = "DEV",
 ) -> tuple[str, str, str]:
-    _ensure_se10(session)
-
     if interactive:
         linha()
         destaque("CRIAR NOVA REQUEST")
@@ -532,6 +636,32 @@ def _criar_nova_request_no_sap(
     if not desc:
         desc = "REQUEST CRIADA VIA SCRIPT"
     desc = desc[:60]
+    tipo_txt = "Customizing" if tipo == "1" else "Workbench"
+
+    # 1. Tentar criar via RFC primeiro (sem abrir janela SE10 no SAP GUI)
+    try:
+        dir_atual = os.path.dirname(os.path.abspath(__file__))
+        dir_processos = os.path.join(os.path.dirname(dir_atual), "Processos")
+        if dir_processos not in sys.path:
+            sys.path.insert(0, dir_processos)
+
+        from criar_request_rfc import criar_nova_request_rfc
+        trkorr, task = criar_nova_request_rfc(
+            ambiente=ambiente or "DEV",
+            tipo="customizing" if tipo == "1" else "workbench",
+            descricao=desc
+        )
+        if trkorr:
+            ok("Request criada com sucesso via RFC!")
+            info(f"Tipo: {tipo_txt}")
+            info(f"Descricao: {desc}")
+            info(f"Request: {trkorr} (Tarefa: {task})")
+            return trkorr, desc, tipo_txt
+    except Exception as exc_rfc:
+        warn(f"Falha ao criar request via RFC ({exc_rfc}). Recorrendo ao SAP GUI...")
+
+    # 2. Fallback: SAP GUI SE10
+    _ensure_se10(session)
 
     _press(session, "wnd[0]/tbar[1]/btn[6]")
 
@@ -548,8 +678,6 @@ def _criar_nova_request_no_sap(
     if okcd:
         okcd.text = "/n"
         _send_vkey(session, 0)
-
-    tipo_txt = "Customizing" if tipo == "1" else "Workbench"
 
     ok("Request criada.")
     info(f"Tipo: {tipo_txt}")
@@ -671,7 +799,8 @@ def perguntar_opcao_request(
                 include_requests=False,
                 use_new_mode=True,
                 minimize=True,
-                close_after=True
+                close_after=True,
+                session=session
             )
         except TypeError:
             lista = mod_pesq.listar_requests(system_name=sistema_desejado, max_rows="5000")
@@ -820,20 +949,60 @@ def _build_exec_kwargs(
         if info_exec["p_pedir_confirmacao"]:
             kwargs[info_exec["p_pedir_confirmacao"].name] = False
 
+    # Identificar dinamicamente o primeiro parâmetro posicional real da função
+    # (é passado como argumento posicional `ambiente_cockpit` em exec_fn(ambiente_cockpit, **kwargs))
+    # Nunca deve ser copiado do payload para kwargs, independentemente do nome que tenha.
+    primeiro_param_posicional = next(
+        (
+            p.name
+            for p in info_exec["params"]
+            if p.name != "self"
+            and p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ),
+        None,
+    )
+
+    # Conjunto base de nomes a saltar + alias conhecidos + parâmetro detetado
+    skip_names = {
+        "self",
+        "session",
+        "ambiente",
+        "ambiente_cockpit",
+        "environment",
+        "env",
+    }
+    if primeiro_param_posicional:
+        skip_names.add(primeiro_param_posicional)
+
     # Passa parâmetros custom do payload que coincidam com o nome de parâmetros da função
-    # (exclui os já preenchidos e o parâmetro posicional ambiente_cockpit)
-    SKIP_NAMES = {"self", "ambiente_cockpit", "session"}
+    # (exclui o primeiro parâmetro posicional e os já preenchidos)
     if payload:
         for p in info_exec["params"]:
             if (
                 p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-                or p.name in SKIP_NAMES
+                or p.name in skip_names
                 or p.name in kwargs
             ):
                 continue
             raw = payload.get(p.name)
             if raw is not None and str(raw).strip():
                 kwargs[p.name] = raw
+
+        # Se a função aceita **kwargs, repassar também todas as chaves adicionais do payload
+        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in info_exec["params"])
+        if has_var_kw:
+            for k, v in payload.items():
+                if k not in skip_names and k not in kwargs and v is not None and str(v).strip():
+                    kwargs[k] = v
+
+    info(
+        f"Subprocesso: {processo_escolhido} | "
+        f"Parâmetro posicional: {primeiro_param_posicional or 'não detetado'} | "
+        f"kwargs: {sorted(kwargs.keys())}"
+    )
 
     return kwargs
 
@@ -861,12 +1030,47 @@ def _executar_um_script(
     if not os.path.exists(caminho_script):
         raise SapCockpitError(f"Subprocesso nao encontrado: {caminho_script}")
 
+    # DOC_DEBUG_START
+    debug_enabled = os.environ.get("SAP_DOC_DEBUG") == "1"
+    if debug_enabled:
+        try:
+            import hashlib
+            h = hashlib.sha256()
+            with open(caminho_script, "rb") as f:
+                while chunk := f.read(8192):
+                    h.update(chunk)
+            sha_val = h.hexdigest()
+        except Exception as hash_exc:
+            sha_val = f"error: {hash_exc}"
+
+        print(f"[DOC_DEBUG] Subprocesso selecionado: {processo_escolhido}")
+        print(f"[DOC_DEBUG] Caminho absoluto executado: {os.path.abspath(caminho_script)}")
+        print(f"[DOC_DEBUG] Existe: {os.path.exists(caminho_script)}")
+        try:
+            print(f"[DOC_DEBUG] MTime: {os.path.getmtime(caminho_script)}")
+            print(f"[DOC_DEBUG] Tamanho do ficheiro: {os.path.getsize(caminho_script)} bytes")
+        except Exception:
+            pass
+        print(f"[DOC_DEBUG] SHA256: {sha_val}")
+        print(f"[DOC_DEBUG] CWD: {os.getcwd()}")
+        print(f"[DOC_DEBUG] sys.path inicial relevante: {sys.path[:5]}")
+        print(f"[DOC_DEBUG] SAP_SCRIPT_PROJECT_DIR: {os.getenv('SAP_SCRIPT_PROJECT_DIR')}")
+        print(f"[DOC_DEBUG] Payload recebido: {payload}")
+    # DOC_DEBUG_END
+
     modulo = _load_process_module(caminho_script)
 
-    if not hasattr(modulo, "executar"):
-        raise SapCockpitError(f"O ficheiro '{processo_escolhido}' nao contem a funcao executar().")
+    info(f"Subprocesso carregado de: {os.path.abspath(getattr(modulo, '__file__', caminho_script))}")
+    info(f"Opção de processamento recebida: {payload.get('opcao_processamento', 'não informada') if payload else 'não informada'}")
 
-    exec_fn = modulo.executar
+    if hasattr(modulo, "executar"):
+        exec_fn = modulo.executar
+    elif hasattr(modulo, "main"):
+        exec_fn = modulo.main
+    else:
+        raise SapCockpitError(f"O ficheiro '{processo_escolhido}' nao contem a funcao executar() nem main().")
+
+    info(f"Assinatura da função carregada: {inspect.signature(exec_fn)}")
     kwargs = _build_exec_kwargs(
         processo_escolhido=processo_escolhido,
         exec_fn=exec_fn,
@@ -876,12 +1080,168 @@ def _executar_um_script(
         interactive=interactive,
     )
 
-    try:
-        exec_fn(ambiente_cockpit, **kwargs)
-    except TypeError:
-        exec_fn(ambiente_cockpit)
+    # DOC_DEBUG_START
+    if debug_enabled:
+        print(f"[DOC_DEBUG] kwargs montados para executar(): {kwargs}")
+        import win32com.client
+        import subprocess
+        import traceback
+        
+        _original_dispatch_ex = win32com.client.DispatchEx
+        _original_dispatch = win32com.client.Dispatch
+        
+        _original_ensure_dispatch = None
+        try:
+            import win32com.client.gencache
+            if hasattr(win32com.client.gencache, "EnsureDispatch"):
+                _original_ensure_dispatch = win32com.client.gencache.EnsureDispatch
+        except Exception:
+            pass
 
-    return read_sbar_status(session)
+        _original_run = subprocess.run
+        _original_popen = subprocess.Popen
+
+        def debug_dispatch_ex(prog_id, *args, **kw):
+            if str(prog_id).lower() == "word.application":
+                print("[DOC_DEBUG] Word.Application chamado via DispatchEx")
+                print("".join(traceback.format_stack(limit=30)))
+            return _original_dispatch_ex(prog_id, *args, **kw)
+
+        def debug_dispatch(prog_id, *args, **kw):
+            if str(prog_id).lower() == "word.application":
+                print("[DOC_DEBUG] Word.Application chamado via Dispatch")
+                print("".join(traceback.format_stack(limit=30)))
+            return _original_dispatch(prog_id, *args, **kw)
+
+        def debug_ensure_dispatch(prog_id, *args, **kw):
+            if str(prog_id).lower() == "word.application":
+                print("[DOC_DEBUG] Word.Application chamado via EnsureDispatch")
+                print("".join(traceback.format_stack(limit=30)))
+            return _original_ensure_dispatch(prog_id, *args, **kw)
+
+        def debug_run(*args, **kw):
+            cmd = args[0] if args else kw.get("args")
+            print(f"[DOC_DEBUG] subprocess.run chamado:\ncomando: {cmd}")
+            print("".join(traceback.format_stack(limit=30)))
+            return _original_run(*args, **kw)
+
+        def debug_popen(*args, **kw):
+            cmd = args[0] if args else kw.get("args")
+            print(f"[DOC_DEBUG] subprocess.Popen chamado:\ncomando: {cmd}")
+            print("".join(traceback.format_stack(limit=30)))
+            return _original_popen(*args, **kw)
+
+        win32com.client.DispatchEx = debug_dispatch_ex
+        win32com.client.Dispatch = debug_dispatch
+        if _original_ensure_dispatch is not None:
+            win32com.client.gencache.EnsureDispatch = debug_ensure_dispatch
+        subprocess.run = debug_run
+        subprocess.Popen = debug_popen
+
+    start_time = time.time()
+    # DOC_DEBUG_END
+
+    # Validação de guarda: o parâmetro posicional principal nunca pode estar em kwargs
+    _param_pos = next(
+        (
+            p.name
+            for p in inspect.signature(exec_fn).parameters.values()
+            if p.name != "self"
+            and p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ),
+        None,
+    )
+    if _param_pos and _param_pos in kwargs:
+        raise SapCockpitError(
+            f"Parâmetro posicional duplicado antes da execução: '{_param_pos}'."
+        )
+
+    resultado_execucao = None
+    try:
+        resultado_execucao = exec_fn(ambiente_cockpit, **kwargs)
+    finally:
+        # DOC_DEBUG_START
+        if debug_enabled:
+            win32com.client.DispatchEx = _original_dispatch_ex
+            win32com.client.Dispatch = _original_dispatch
+            if _original_ensure_dispatch is not None:
+                win32com.client.gencache.EnsureDispatch = _original_ensure_dispatch
+            subprocess.run = _original_run
+            subprocess.Popen = _original_popen
+
+            search_dirs = set()
+            excel_path = (payload or {}).get("caminho_ficheiro") or kwargs.get("caminho_ficheiro") or ""
+            if excel_path and os.path.exists(excel_path):
+                if os.path.isfile(excel_path):
+                    search_dirs.add(os.path.dirname(os.path.abspath(excel_path)))
+                else:
+                    search_dirs.add(os.path.abspath(excel_path))
+            
+            search_dirs.add(os.path.abspath(caminho_pasta))
+            
+            proj_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR")
+            if proj_dir:
+                search_dirs.add(os.path.abspath(proj_dir))
+            
+            search_dirs.add(os.path.abspath(os.getcwd()))
+            
+            for sub in ["sap_script_uploads", "cache", "documentacao", "output", "outputs"]:
+                search_dirs.add(os.path.abspath(os.path.join(os.getcwd(), sub)))
+                if proj_dir:
+                    search_dirs.add(os.path.abspath(os.path.join(proj_dir, sub)))
+
+            found_files = []
+            for d in search_dirs:
+                if not os.path.exists(d):
+                    continue
+                try:
+                    for root, subdirs, files in os.walk(d):
+                        rel_path = os.path.relpath(root, d)
+                        if rel_path != "." and len(rel_path.split(os.sep)) > 2:
+                            continue
+                        for file in files:
+                            filepath = os.path.join(root, file)
+                            try:
+                                mtime = os.path.getmtime(filepath)
+                                lower_name = file.lower()
+                                is_match = False
+                                if filepath.lower().endswith(".docx") and mtime >= (start_time - 2):
+                                    is_match = True
+                                elif "documentacao_funcional" in lower_name or "pfcg_create" in lower_name:
+                                    is_match = True
+                                
+                                if is_match:
+                                    found_files.append((filepath, os.path.getsize(filepath), mtime))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+            unique_found = {}
+            for filepath, size, mtime in found_files:
+                abs_p = os.path.abspath(filepath)
+                if abs_p not in unique_found:
+                    unique_found[abs_p] = (size, mtime)
+
+            for abs_p, (size, mtime) in unique_found.items():
+                print("[DOC_DEBUG] DOCX ou ficheiro relevante encontrado:")
+                print(f"Path: {abs_p}")
+                print(f"Size: {size} bytes")
+                print(f"Modified: {datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')}")
+        # DOC_DEBUG_END
+
+    if isinstance(resultado_execucao, dict):
+        return resultado_execucao
+    elif resultado_execucao is False:
+        return {"status": "ERRO", "success": False}
+    elif resultado_execucao is True:
+        return {"status": "CONCLUIDO", "success": True}
+
+    status_sbar = read_sbar_status(session) if session is not None else ""
+    return {"status": status_sbar or "CONCLUIDO", "success": True}
 
 
 def executar_processo(
@@ -992,6 +1352,13 @@ def _dismiss_popup_if_any(session) -> None:
     except Exception:
         return
 
+    for rad_id in ("wnd[1]/usr/radMULTI_LOGON_OPT2", "wnd[1]/usr/radMULTI_LOGON_OPT3"):
+        try:
+            session.findById(rad_id).select()
+            break
+        except Exception:
+            pass
+
     for btn in ("wnd[1]/tbar[0]/btn[0]", "wnd[1]/tbar[0]/btn[11]", "wnd[1]/tbar[0]/btn[12]"):
         try:
             session.findById(btn).press()
@@ -1089,6 +1456,97 @@ def _reportar_metadata_sap(session, interactive: bool = False):
         pass
 
 
+def mask_password_last_two(value: str) -> str:
+    value = str(value or "")
+    if not value:
+        return "VAZIA"
+    if len(value) <= 2:
+        return "XX"
+    return value[:-2] + "XX"
+
+def build_sap_logon_debug(
+    ambiente_cockpit: str,
+    sistema_desejado: str,
+    cliente_esperado: str,
+    nome_logon: str,
+    usuario: str,
+    idioma: str,
+    chave_password: str,
+    senha: str,
+) -> dict:
+    env_path = get_project_env_path()
+    env_mtime = "Desconhecido"
+    if os.path.exists(env_path):
+        try:
+            mtime = os.path.getmtime(env_path)
+            import datetime
+            env_mtime = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+
+    return {
+        "env_path": env_path,
+        "env_mtime": env_mtime,
+        "ambiente": {
+            "param": "params.ambiente",
+            "value": ambiente_cockpit,
+            "raw_present": bool(ambiente_cockpit),
+        },
+        "sistema": {
+            "param": "MAPA_SISTEMA[params.ambiente]",
+            "value": sistema_desejado,
+            "raw_present": bool(sistema_desejado),
+        },
+        "cliente": {
+            "param": "CLIENTES_POR_AMBIENTE[params.ambiente]",
+            "value": cliente_esperado,
+            "raw_present": bool(cliente_esperado),
+        },
+        "sap_logon": {
+            "param": "AMBIENTES[params.ambiente]",
+            "value": nome_logon,
+            "raw_present": bool(nome_logon),
+        },
+        "sap_user": {
+            "param": "SAP_USER",
+            "value": usuario,
+            "raw_present": bool(usuario),
+        },
+        "sap_password": {
+            "param": chave_password or "SAP_PASSWORD_<SISTEMA>CLNT<CLIENTE>",
+            "value": mask_password_last_two(senha),
+            "raw_present": bool(senha),
+        },
+        "sap_language": {
+            "param": "SAP_CUA_LANGUAGE" if sistema_desejado == "SPA" and cliente_esperado == "001" else "SAP_LANGUAGE",
+            "value": idioma,
+            "raw_present": bool(idioma),
+        },
+        "saplogon_path": {
+            "param": "SAPLOGON_PATH",
+            "value": SAPLOGON_PATH,
+            "raw_present": bool(SAPLOGON_PATH),
+        },
+    }
+
+def _reportar_sap_logon_debug(debug_data: dict):
+    job_id = os.environ.get("SAP_JOB_ID")
+    api_url = os.environ.get("SAP_API_BASE_URL")
+    token = os.environ.get("SAP_WORKER_TOKEN")
+    if not job_id or not api_url or not token:
+        return
+    try:
+        import requests
+        requests.post(
+            f"{api_url}/api/jobs/{job_id}/sap-logon-debug",
+            headers={"X-Worker-Token": token},
+            json={"sap_logon_debug": debug_data},
+            timeout=5
+        )
+    except Exception:
+        pass
+
+
 def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
     sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
     cliente_esperado = CLIENTES_POR_AMBIENTE.get(ambiente_cockpit, "100")
@@ -1128,6 +1586,7 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
     if session is None:
         # Tenta obter credenciais para auto-login
         credenciais_ok = False
+        usuario, senha, idioma, chave_password = "", "", "", ""
         try:
             usuario, senha, idioma, chave_password = _obter_credenciais_env(
                 sistema_desejado=sistema_desejado,
@@ -1136,6 +1595,9 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
             credenciais_ok = True
         except Exception:
             credenciais_ok = False
+            chave_password = f"SAP_PASSWORD_{sistema_desejado}CLNT{cliente_esperado}"
+
+
 
         if credenciais_ok:
             try:
@@ -1278,19 +1740,20 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
 
         caminho_processo = selecionar_pasta_processo(payload=payload, interactive=False)
 
-        # Verificar se o subprocess gere a sua própria sessão SAP
+        # Verificar se o subprocess gere a sua própria sessão SAP ou se é RFC
         subprocesso_payload = str(payload.get("subprocesso") or payload.get("script") or "").strip()
         web_config = _read_subprocess_web_config(caminho_processo, subprocesso_payload) if subprocesso_payload else {}
         manages_own_session = web_config.get("manages_own_session", False)
+        is_rfc_script = bool(subprocesso_payload and ("_RFC.py" in subprocesso_payload or "RFC" in subprocesso_payload.upper()))
 
-        if manages_own_session:
-            info("Subprocess gere a propria sessao SAP — a saltar obter_sessao_sap().")
+        if manages_own_session or is_rfc_script:
+            info("Subprocesso RFC / gestão própria de sessão SAP — a saltar obter_sessao_sap().")
             session = None
         else:
             session, _connection = obter_sessao_sap(ambiente_cockpit, interactive=False)
         log_lines.append(f"Processo: {caminho_processo}")
 
-        status = executar_processo(
+        result_dict = executar_processo(
             ambiente_cockpit,
             caminho_pasta=caminho_processo,
             sistema_desejado=sistema_desejado,
@@ -1299,8 +1762,22 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
             interactive=False,
         )
 
+        status = ""
+        if isinstance(result_dict, dict):
+            status = result_dict.get("status") or ""
+        else:
+            status = result_dict or ""
+
         status = status or (read_sbar_status(session) if session is not None else "")
         log_lines.append(f"STATUS: {status}")
+
+        if isinstance(result_dict, dict):
+            return {
+                "status": status,
+                "log": "\n".join(log_lines),
+                "success": result_dict.get("success", True),
+                "summary": result_dict.get("summary")
+            }
 
         return {
             "status": status,

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 Ler ficheiros de favoritos SAP e escrever apenas transações válidas no Excel selecionado por popup.
 
 Regras:
@@ -186,7 +186,7 @@ def escrever_resultado(ws, row_idx: int, status_col: int, msg_col: int, ts_col: 
 # FAVORITOS SAP
 # =========================================================
 def caminho_favorito_do_usuario(usuario: str) -> str:
-    """
+    r"""
     Procura o ficheiro com nome exato do utilizador em C:\Favoritos
     Exemplo:
         utilizador = 168801

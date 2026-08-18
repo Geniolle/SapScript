@@ -18,8 +18,6 @@ def executar(
     import re
     import unicodedata
     import tkinter as tk
-
-    import pandas as pd
     import win32com.client
     from tkinter import filedialog
     from datetime import datetime
@@ -98,10 +96,13 @@ def executar(
     col_timestamp = None
     dynamic_fields = {} # name -> col_idx
 
+    COLUNAS_ENTRADA = {"AGR_NAME"}
+    COLUNAS_SAIDA = {"STATUS": "STATUS", "MSG": "MSG", "TIMESTEMP": "TIMESTEMP"}
+
     for r in range(1, SEARCH_HEADER_IN_FIRST_ROWS + 1):
         row_vals = [norm_col(c.value) for c in ws[r]]
-        colunas_encontradas = set(row_vals).intersection(COLUNAS_MINIMAS)
-        if len(colunas_encontradas) >= len(COLUNAS_MINIMAS):
+        colunas_entrada_encontradas = set(row_vals).intersection(COLUNAS_ENTRADA)
+        if len(colunas_entrada_encontradas) == len(COLUNAS_ENTRADA):
             header_row = r
             
             seen_agr_name = False
@@ -128,6 +129,43 @@ def executar(
                     col_timestamp = idx
                 elif val not in ("ID",):
                     dynamic_fields[val] = idx
+
+            # Verificar se faltam colunas de saída e criá-las
+            modificou = False
+            last_col = 0
+            for idx, val in enumerate(row_vals, start=1):
+                if val:
+                    last_col = idx
+
+            if not col_status:
+                last_col += 1
+                ws.cell(row=r, column=last_col, value="STATUS")
+                col_status = last_col
+                print(f"➕ Coluna 'STATUS' criada automaticamente na coluna {last_col}.")
+                modificou = True
+
+            if not col_msg:
+                last_col += 1
+                ws.cell(row=r, column=last_col, value="MSG")
+                col_msg = last_col
+                print(f"➕ Coluna 'MSG' criada automaticamente na coluna {last_col}.")
+                modificou = True
+
+            if not col_timestamp:
+                last_col += 1
+                ws.cell(row=r, column=last_col, value="TIMESTEMP")
+                col_timestamp = last_col
+                print(f"➕ Coluna 'TIMESTEMP' criada automaticamente na coluna {last_col}.")
+                modificou = True
+
+            if modificou:
+                try:
+                    wb.save(caminho_ficheiro)
+                    print("💾 Ficheiro Excel guardado com as novas colunas.")
+                except Exception as e:
+                    wb.close()
+                    print(f"❌ Erro ao guardar o ficheiro Excel com as novas colunas: {e}")
+                    return
             break
 
     if not header_row:
@@ -141,12 +179,33 @@ def executar(
         agr = "" if agr_val is None else str(agr_val).strip()
         if not agr: continue
         
+        # Validar e remover espaços do nome da Role simples
+        if " " in agr:
+            orig = agr
+            agr = agr.replace(" ", "")
+            ws.cell(row=r, column=col_agr_simples, value=agr)
+            print(f"⚠️ Espaços detetados e removidos da Role Simples: '{orig}' -> '{agr}' (atualizado no Excel)")
+            try:
+                wb.save(caminho_ficheiro)
+            except Exception:
+                pass
+
         rec = {"_row": r}
         rec["AGR_NAME"] = agr
         
         if col_agr_composta:
             val = ws.cell(row=r, column=col_agr_composta).value
-            rec["AGR_NAME_COMPOSTA"] = "" if val is None else str(val).strip()
+            agr_comp = "" if val is None else str(val).strip()
+            if " " in agr_comp:
+                orig_comp = agr_comp
+                agr_comp = agr_comp.replace(" ", "")
+                ws.cell(row=r, column=col_agr_composta, value=agr_comp)
+                print(f"⚠️ Espaços detetados e removidos da Role Composta: '{orig_comp}' -> '{agr_comp}' (atualizado no Excel)")
+                try:
+                    wb.save(caminho_ficheiro)
+                except Exception:
+                    pass
+            rec["AGR_NAME_COMPOSTA"] = agr_comp
         else:
             rec["AGR_NAME_COMPOSTA"] = ""
             
@@ -158,9 +217,9 @@ def executar(
             
         if col_text_simples:
             val = ws.cell(row=r, column=col_text_simples).value
-            rec["TEXT"] = "" if val is None else str(val).strip()
+            rec["TEXT_AGR_NAME"] = "" if val is None else str(val).strip()
         else:
-            rec["TEXT"] = ""
+            rec["TEXT_AGR_NAME"] = ""
             
         if col_objeto:
             val = ws.cell(row=r, column=col_objeto).value
@@ -186,16 +245,20 @@ def executar(
         else:
             rec["TIMESTEMP"] = ""
             
-        # Add dynamic fields
         for f_name, f_idx in dynamic_fields.items():
             val = ws.cell(row=r, column=f_idx).value
             rec[f_name] = "" if val is None else str(val).strip()
             
         records.append(rec)
 
-    df_original = pd.DataFrame(records)
-    df_proc = df_original[~df_original["STATUS"].str.upper().str.contains("CONCLUIDO", na=False)].copy()
-    if df_proc.empty:
+    # Identificar linhas que não estão com status "CONCLUIDO"
+    pending_records = []
+    for idx, rec in enumerate(records):
+        status_norm = norm_txt(rec["STATUS"])
+        if "CONCLUIDO" not in status_norm:
+            pending_records.append((idx, rec))
+
+    if not pending_records:
         print("⚠️ Tudo concluído.")
         wb.close()
         return
@@ -392,13 +455,13 @@ def executar(
         return trkorr
 
     print("\n📋 Resumo das Funções a processar:")
-    for idx, r in df_proc.iterrows():
-        r_nome = r["AGR_NAME"]
-        r_obj = r["OBJETO DE AUTORIZACAO"] or "F_KNA1_GRP"
-        comp_info = f" -> Composta: {r['AGR_NAME_COMPOSTA']}" if r['AGR_NAME_COMPOSTA'] else ""
+    for idx_item, rec_item in pending_records:
+        r_nome = rec_item["AGR_NAME"]
+        r_obj = rec_item["OBJETO DE AUTORIZACAO"] or "F_KNA1_GRP"
+        comp_info = f" -> Composta: {rec_item['AGR_NAME_COMPOSTA']}" if rec_item['AGR_NAME_COMPOSTA'] else ""
         print(f"   - {r_nome} (Obj: {r_obj}){comp_info}")
         
-    print(f"\n🔢 Total de linhas para processamento: {len(df_proc)}")
+    print(f"\n🔢 Total de linhas para processamento: {len(pending_records)}")
 
     if not request_transporte and not modo_nao_interativo:
         print("\n============================================================")
@@ -432,7 +495,8 @@ def executar(
                     include_requests=True, 
                     use_new_mode=True,     
                     minimize=True,         
-                    close_after=True       
+                    close_after=True,
+                    session=session
                 )
                 
                 if resultados_pesquisa:
@@ -504,44 +568,76 @@ def executar(
                     raise Exception(f"FALHA NO PASSO: '{descricao}' -> ID: {path}")
 
         def ensure_role_exists(self, nome, desc):
-            self.audit_step("Chamar transação /npfcg", "wnd[0]/tbar[0]/okcd", "text", "/npfcg")
-            self.audit_step("Enter (Ir para PFCG)", "wnd[0]", "sendVKey", vkey=0)
+            print("├─ Abrindo /NPFCG...")
+            self.audit_step("Chamar transação /npfcg", "wnd[0]/tbar[0]/okcd", "text", "/npfcg", silencioso=True)
+            self.audit_step("Enter (Ir para PFCG)", "wnd[0]", "sendVKey", vkey=0, silencioso=True)
             
-            self.audit_step("Inserir Nome da Role", "wnd[0]/usr/ctxtAGR_NAME_NEU", "text", nome)
-            self.audit_step("Clicar Criar Papel Simples", "wnd[0]/usr/btn%#AUTOTEXT003", "press")
+            print(f"├─ Validando role: {nome}")
+            self.audit_step("Inserir Nome da Role", "wnd[0]/usr/ctxtAGR_NAME_NEU", "text", nome, silencioso=True)
             
-            if object_exists("wnd[0]/usr/txtS_AGR_TEXTS-TEXT"):
-                descricao_final = desc if desc else f"Criado via Script - {nome}"
-                self.audit_step("Preencher Descrição da Role", "wnd[0]/usr/txtS_AGR_TEXTS-TEXT", "text", descricao_final)
-                self.audit_step("Enter após descrição", "wnd[0]", "sendVKey", vkey=0)
+            try_actions([
+                {"path": "wnd[0]/usr/btn%#AUTOTEXT003", "op": "press"},
+                {"path": "wnd[0]/tbar[1]/btn[5]", "op": "press"}
+            ])
+            tratar_popup_modal()
+            
+            mt, sb = get_statusbar()
+            if "EXISTE" in norm_txt(sb) or "EXISTS" in norm_txt(sb):
+                print(f"├─ Role já existe. Abrindo em alteração...")
+                try_actions([
+                    {"path": "wnd[0]/usr/btn%#AUTOTEXT001", "op": "press"},
+                    {"path": "wnd[0]/tbar[1]/btn[2]", "op": "press"}
+                ])
+                tratar_popup_modal()
                 
-                if self.sess.Children.Count > 1 and object_exists("wnd[1]/usr/btnBUTTON_1"):
-                    self.audit_step("Confirmar popup criação (Sim)", "wnd[1]/usr/btnBUTTON_1", "press")
-                
-                if object_exists("wnd[0]/tbar[0]/btn[11]"):
-                    self.audit_step("Guardar Role", "wnd[0]/tbar[0]/btn[11]", "press")
+                desc_atual = ""
+                sap_id, obj = _resolver_id(
+                    "role_desc_field",
+                    ["wnd[0]/usr/txtS_AGR_TEXTS-TEXT", "wnd[0]/usr/txtS_AGR_TEXTS-TEXT1", "wnd[0]/usr/txtAGR_TEXTS-TEXT"]
+                )
+                if obj: desc_atual = obj.text
+                print(f"├─ Descrição: {desc_atual}")
+                return "CHANGE"
             else:
-                print("  ├─ [SAP] A função já existe.")
+                print(f"├─ Role não existe. Criando role simples...")
+                sap_id, obj = _resolver_id(
+                    "role_desc_field",
+                    ["wnd[0]/usr/txtS_AGR_TEXTS-TEXT", "wnd[0]/usr/txtS_AGR_TEXTS-TEXT1", "wnd[0]/usr/txtAGR_TEXTS-TEXT"]
+                )
+                if obj:
+                    descricao_final = desc if desc else f"Criada via Script - {nome}"
+                    obj.text = descricao_final
+                    _send_vkey(0)
+                    tratar_popup_modal()
+                    
+                try:
+                    self.sess.findById("wnd[0]").sendVKey(11)
+                except:
+                    try_actions([{"path": "wnd[0]/tbar[0]/btn[11]", "op": "press"}])
+                _esperar_sap_livre()
+                tratar_popup_modal()
+                return "CREATE"
 
         def update_mass_values_dynamic(self, nome, objeto, row_data):
-            self.audit_step("Chamar transação /nPFCGMASSVAL", "wnd[0]/tbar[0]/okcd", "text", "/nPFCGMASSVAL")
-            self.audit_step("Enter (Ir para MASSVAL)", "wnd[0]", "sendVKey", vkey=0)
+            self.audit_step("Chamar transação /nPFCGMASSVAL", "wnd[0]/tbar[0]/okcd", "text", "/nPFCGMASSVAL", silencioso=True)
+            self.audit_step("Enter (Ir para MASSVAL)", "wnd[0]", "sendVKey", vkey=0, silencioso=True)
             
-            self.audit_step("Selecionar Execução Direta", "wnd[0]/usr/radMOD_EXE", "select")
-            self.audit_step("Selecionar Inserção Manual", "wnd[0]/usr/radSEL_NAU", "select")
-            self.audit_step("ENTER Crucial do VBS para atualizar tela", "wnd[0]", "sendVKey", vkey=0)
+            self.audit_step("Selecionar Execução Direta", "wnd[0]/usr/radMOD_EXE", "select", silencioso=True)
+            self.audit_step("Selecionar Inserção Manual", "wnd[0]/usr/radSEL_NAU", "select", silencioso=True)
+            self.audit_step("ENTER Crucial do VBS para atualizar tela", "wnd[0]", "sendVKey", vkey=0, silencioso=True)
             
-            self.audit_step("Preencher ROLE-LOW por segurança", "wnd[0]/usr/ctxtROLE-LOW", "text", nome)
+            self.audit_step("Preencher ROLE-LOW por segurança", "wnd[0]/usr/ctxtROLE-LOW", "text", nome, silencioso=True)
             
-            self.audit_step("Preencher OBJOBJ (Objeto de Autorização)", "wnd[0]/usr/ctxtOBJOBJ", "text", objeto)
-            self.audit_step("Enter após OBJOBJ (A carregar campos...)", "wnd[0]", "sendVKey", vkey=0)
+            self.audit_step("Preencher OBJOBJ (Objeto de Autorização)", "wnd[0]/usr/ctxtOBJOBJ", "text", objeto, silencioso=True)
+            self.audit_step("Enter após OBJOBJ (A carregar campos...)", "wnd[0]", "sendVKey", vkey=0, silencioso=True)
             
             time.sleep(0.5)
 
-            # ---------------------------------------------------------
-            # LEITURA DINÂMICA SILENCIOSA
-            # ---------------------------------------------------------
             campos_encontrados_sap = 0
+            alterou_qualquer_campo = False
+            
+            detalhe_existentes = []
+            detalhe_novos = []
             
             for j in range(1, 15):
                 btn_id = f"wnd[0]/usr/btnPOBJ{j}N"
@@ -549,7 +645,6 @@ def executar(
                     break 
                 
                 campos_encontrados_sap += 1
-                
                 campo_sap_tecnico = ""
                 ids_para_testar = [
                     f"wnd[0]/usr/txtOBJFLD{j}",      
@@ -557,7 +652,7 @@ def executar(
                     f"wnd[0]/usr/ctxtS_AGR_DEFINE-FNAM{j}",
                     f"wnd[0]/usr/txtS_AGR_DEFINE-FNAM{j}",
                     f"wnd[0]/usr/ctxtFNAM{j}",
-                    f"wnd[0]/usr/txtFNAM{j}",
+                    f"wnd[0]/txtFNAM{j}",
                     f"wnd[0]/usr/ctxtFIELD{j}",
                     f"wnd[0]/usr/txtFIELD{j}"
                 ]
@@ -574,375 +669,453 @@ def executar(
                     continue 
 
                 valor_no_excel = str(row_data.get(campo_sap_tecnico, '')).strip()
+                if not valor_no_excel or valor_no_excel == 'NAN':
+                    continue
 
-                if valor_no_excel and valor_no_excel != 'NAN':
-                    print(f"\n  ⭐ [CAMPO IDENTIFICADO] Nome: '{campo_sap_tecnico}' | Valor a inserir: '{valor_no_excel}'")
+                # Open the values popup to read/edit
+                self.audit_step(f"Clicar Botão VALS para '{campo_sap_tecnico}'", btn_id, "press", silencioso=True)
+                time.sleep(0.5) 
+
+                existing_vals = []
+                missing_vals = []
+                alterou_este_campo = False
+                
+                # Check which table control is open in popup wnd[1]
+                if object_exists("wnd[1]/usr/tblSAPLSUPRNACT_TC"):
+                    # Checkbox table
+                    for linha in range(40):
+                        try:
+                            act_code = self.sess.findById(f"wnd[1]/usr/tblSAPLSUPRNACT_TC/txtH_FVAL-LOW[1,{linha}]").text.strip()
+                            if not act_code:
+                                break
+                            chk = self.sess.findById(f"wnd[1]/usr/tblSAPLSUPRNACT_TC/chkH_FVAL-MARK[0,{linha}]")
+                            if chk.selected:
+                                existing_vals.append(act_code)
+                        except:
+                            break
+                            
+                    valores_lista = [v.strip() for v in valor_no_excel.split(',')]
+                    missing_vals = [v for v in valores_lista if v not in existing_vals]
                     
-                    self.audit_step(f"Clicar Botão VALS para '{campo_sap_tecnico}'", btn_id, "press")
-                    time.sleep(0.5) 
-                    
+                    if missing_vals:
+                        alterou_este_campo = True
+                        for linha in range(40):
+                            try:
+                                act_code = self.sess.findById(f"wnd[1]/usr/tblSAPLSUPRNACT_TC/txtH_FVAL-LOW[1,{linha}]").text.strip()
+                                if not act_code:
+                                    break
+                                if act_code in missing_vals:
+                                    chk = self.sess.findById(f"wnd[1]/usr/tblSAPLSUPRNACT_TC/chkH_FVAL-MARK[0,{linha}]")
+                                    if not chk.selected:
+                                        self.audit_step(f"Marcar Checkbox '{act_code}'", f"wnd[1]/usr/tblSAPLSUPRNACT_TC/chkH_FVAL-MARK[0,{linha}]", "select", silencioso=True)
+                            except:
+                                break
+                
+                elif object_exists("wnd[1]/usr/tblSAPLSUPRNVAL_TC"):
+                    # Values table
+                    empty_row_indices = []
+                    for linha in range(40):
+                        val_text = ""
+                        try:
+                            val_text = self.sess.findById(f"wnd[1]/usr/tblSAPLSUPRNVAL_TC/ctxtH_FVAL_LOW[0,{linha}]").text.strip()
+                        except:
+                            try:
+                                val_text = self.sess.findById(f"wnd[1]/usr/tblSAPLSUPRNVAL_TC/ctxtH_FVAL_LOW[1,{linha}]").text.strip()
+                            except:
+                                break
+                        if val_text:
+                            existing_vals.append(val_text)
+                        else:
+                            empty_row_indices.append(linha)
+                            
                     if valor_no_excel == "*":
-                        self.audit_step(f"Full Auth (*) no Campo '{campo_sap_tecnico}'", "wnd[1]/usr/btnGES2", "press")
+                        if "*" not in existing_vals:
+                            self.audit_step(f"Full Auth (*) no Campo '{campo_sap_tecnico}'", "wnd[1]/usr/btnGES2", "press", silencioso=True)
+                            alterou_este_campo = True
+                            missing_vals = ["*"]
+                        else:
+                            missing_vals = []
                     else:
                         valores_lista = [v.strip() for v in valor_no_excel.split(',')]
-                        
-                        if object_exists("wnd[1]/usr/tblSAPLSUPRNACT_TC"):
-                            print(f"      ℹ️ Janela de Atividades Detetada! Valores: {valores_lista}")
-                            for linha in range(15):
-                                try:
-                                    act_code = self.sess.findById(f"wnd[1]/usr/tblSAPLSUPRNACT_TC/txtH_FVAL-LOW[1,{linha}]").text.strip()
-                                    if act_code in valores_lista:
-                                        self.audit_step(f"Marcar Checkbox '{act_code}'", f"wnd[1]/usr/tblSAPLSUPRNACT_TC/chkH_FVAL-MARK[0,{linha}]", "select", silencioso=True)
-                                        print(f"      ✅ Checkbox '{act_code}' marcada com sucesso.")
-                                except: break 
-                        else:
-                            for idx_val, val in enumerate(valores_lista):
-                                try:
-                                    self.audit_step(f"Preencher Valor '{val}' para '{campo_sap_tecnico}'", f"wnd[1]/usr/tblSAPLSUPRNVAL_TC/ctxtH_FVAL_LOW[0,{idx_val}]", "text", val, silencioso=True)
-                                except Exception:
-                                    self.audit_step(f"Preencher Valor '{val}' para '{campo_sap_tecnico}'", f"wnd[1]/usr/tblSAPLSUPRNVAL_TC/ctxtH_FVAL_LOW[1,{idx_val}]", "text", val, silencioso=True)
-                                print(f"      ✅ Valor '{val}' inserido com sucesso.")
+                        missing_vals = [v for v in valores_lista if v not in existing_vals]
+                        if missing_vals:
+                            alterou_este_campo = True
+                            for i, val in enumerate(missing_vals):
+                                if i < len(empty_row_indices):
+                                    empty_r = empty_row_indices[i]
+                                    try:
+                                        self.audit_step(f"Preencher Valor '{val}'", f"wnd[1]/usr/tblSAPLSUPRNVAL_TC/ctxtH_FVAL_LOW[0,{empty_r}]", "text", val, silencioso=True)
+                                    except Exception:
+                                        self.audit_step(f"Preencher Valor '{val}'", f"wnd[1]/usr/tblSAPLSUPRNVAL_TC/ctxtH_FVAL_LOW[1,{empty_r}]", "text", val, silencioso=True)
+                                else:
+                                    raise Exception(f"Tabela de valores cheia, não foi possível inserir '{val}' no campo '{campo_sap_tecnico}'")
+                else:
+                    raise Exception(f"Não foi possível validar o estado da autorização para o campo '{campo_sap_tecnico}'. Interface desconhecida.")
 
-                    self.audit_step(f"Confirmar Popup de '{campo_sap_tecnico}'", "wnd[1]/tbar[0]/btn[0]", "press")
+                if existing_vals:
+                    detalhe_existentes.append(f"{campo_sap_tecnico} ({','.join(existing_vals)})")
+                else:
+                    detalhe_existentes.append(f"{campo_sap_tecnico} (nenhuma)")
+                    
+                if missing_vals:
+                    detalhe_novos.append(f"{campo_sap_tecnico} ({','.join(missing_vals)})")
+                    alterou_qualquer_campo = True
+
+                self.audit_step(f"Confirmar Popup de '{campo_sap_tecnico}'", "wnd[1]/tbar[0]/btn[0]", "press", silencioso=True)
+                time.sleep(0.2)
+
+            str_existentes = " | ".join(detalhe_existentes) if detalhe_existentes else "nenhum"
+            str_novos = " | ".join(detalhe_novos) if detalhe_novos else "nenhuma"
+            print(f"├─ Valores já existentes: {str_existentes}")
+            print(f"├─ Valores novos a inserir: {str_novos}")
+
+            if not alterou_qualquer_campo:
+                # Regresso sem salvar para evitar transportes/gerações desnecessárias
+                self.audit_step("Voltar ao Ecrã Inicial (/N) por falta de deltas", "wnd[0]/tbar[0]/okcd", "text", "/N", silencioso=True)
+                self.audit_step("Enter (/N)", "wnd[0]", "sendVKey", vkey=0, silencioso=True)
+                return False
 
             if campos_encontrados_sap == 0:
                 print("  ⚠️ AVISO: O Objeto inserido não gerou campos visíveis.")
 
-            self.audit_step("Clicar Executar (Relógio)", "wnd[0]/tbar[1]/btn[8]", "press")
-            self.audit_step("Clicar Guardar (Disquete)", "wnd[0]/tbar[1]/btn[20]", "press")
+            self.audit_step("Clicar Executar (Relógio)", "wnd[0]/tbar[1]/btn[8]", "press", silencioso=True)
+            self.audit_step("Clicar Guardar (Disquete)", "wnd[0]/tbar[1]/btn[20]", "press", silencioso=True)
             
             if self.sess.Children.Count > 1 and object_exists("wnd[1]/tbar[0]/btn[0]"):
-                self.audit_step("Confirmar popup Sucesso Gravação", "wnd[1]/tbar[0]/btn[0]", "press")
+                self.audit_step("Confirmar popup Sucesso Gravação", "wnd[1]/tbar[0]/btn[0]", "press", silencioso=True)
+
+            mt, sb = self.get_sbar()
+            if mt in ("E", "A"):
+                raise Exception(f"Erro ao salvar autorizações: {sb}")
+                
+            mudou = True
+            if sb:
+                sb_norm = norm_txt(sb)
+                if "NAO FORAM MODIFICADOS DADOS" in sb_norm or "SEM ALTERACOES" in sb_norm or "NO CHANGES" in sb_norm:
+                    mudou = False
+            return mudou
 
         def execute_transport(self, req_num, nome):
-            self.audit_step("Chamar transação /nPFCG para Transporte", "wnd[0]/tbar[0]/okcd", "text", "/nPFCG")
-            self.audit_step("Enter", "wnd[0]", "sendVKey", vkey=0)
+            self.audit_step("Chamar transação /nPFCG para Transporte", "wnd[0]/tbar[0]/okcd", "text", "/nPFCG", silencioso=True)
+            self.audit_step("Enter", "wnd[0]", "sendVKey", vkey=0, silencioso=True)
             
-            self.audit_step("Preencher Função", "wnd[0]/usr/ctxtAGR_NAME_NEU", "text", nome)
-            self.audit_step("Selecionar Menu Transporte", "wnd[0]/mbar/menu[0]/menu[9]", "select")
-            self.audit_step("Executar Transporte", "wnd[0]/tbar[1]/btn[8]", "press")
+            self.audit_step("Preencher Função", "wnd[0]/usr/ctxtAGR_NAME_NEU", "text", nome, silencioso=True)
+            self.audit_step("Selecionar Menu Transporte", "wnd[0]/mbar/menu[0]/menu[9]", "select", silencioso=True)
+            self.audit_step("Executar Transporte", "wnd[0]/tbar[1]/btn[8]", "press", silencioso=True)
             time.sleep(0.3)
             
             if self.sess.Children.Count > 1 and object_exists("wnd[1]/usr/ctxtKO008-TRKORR"):
-                self.audit_step("Inserir Request", "wnd[1]/usr/ctxtKO008-TRKORR", "text", req_num)
-                self.audit_step("Confirmar Request", "wnd[1]/tbar[0]/btn[0]", "press")
+                self.audit_step("Inserir Request", "wnd[1]/usr/ctxtKO008-TRKORR", "text", req_num, silencioso=True)
+                self.audit_step("Confirmar Request", "wnd[1]/tbar[0]/btn[0]", "press", silencioso=True)
 
-        # =============================================================================
-        # COMPOSITE ROLES METHODS
-        # =============================================================================
-        def set_role_name(self, nome):
-            sap_id, obj = _resolver_id(
-                "role_name_field",
-                ["wnd[0]/usr/ctxtAGR_NAME_NEU", "wnd[0]/usr/ctxtAGR_NAME"]
-            )
-            if not obj: return False
-            try:
-                obj.setFocus()
-                obj.text = nome
-                _esperar_sap_livre()
-                return True
-            except: return False
-
-        def open_for_edit(self):
-            if not try_actions([
-                {"path": "wnd[0]/usr/btn%#AUTOTEXT004", "op": "press"},
-                {"path": "wnd[0]/tbar[1]/btn[5]", "op": "press"}
-            ]):
-                raise Exception("Não consegui clicar em Criar Função Composta.")
-
-            tratar_popup_modal()
-
-            mt, sb = get_statusbar()
-            if "EXISTE" in norm_txt(sb) or "EXISTS" in norm_txt(sb):
-                print("  ├─ A Role já existe. Alterando para modo de 'Alteração'...")
-                if not try_actions([
-                    {"path": "wnd[0]/usr/btn%#AUTOTEXT001", "op": "press"},
-                    {"path": "wnd[0]/tbar[1]/btn[2]", "op": "press"}
-                ]):
-                    raise Exception("Role já existe, mas não consegui abrir Alterar.")
-                tratar_popup_modal()
-                return "CHANGE"
-            return "CREATE"
-
-        def set_description(self, desc):
-            sap_id, obj = _resolver_id(
-                "role_desc_field",
-                ["wnd[0]/usr/txtS_AGR_TEXTS-TEXT", "wnd[0]/usr/txtS_AGR_TEXTS-TEXT1", "wnd[0]/usr/txtAGR_TEXTS-TEXT"]
-            )
-            if not obj: return False
-            try:
-                obj.text = desc
-                _send_vkey(0)
-                tratar_popup_modal()
-                return True
-            except: return False
-
-        def save_composite(self, log_msg="  └─ Guardando alterações..."):
-            print(log_msg)
-            try:
-                self.sess.findById("wnd[0]").sendVKey(11)
-            except:
-                try_actions([{"path": "wnd[0]/tbar[0]/btn[11]", "op": "press"}])
-
-            _esperar_sap_livre()
-            tratar_popup_modal()
-
-            mt, sb = get_statusbar()
-            if sb:
-                if mt in ("E", "A"):
-                    print(f"     ❌ SAP Erro: {sb}")
-                    raise Exception(f"Falha ao guardar: {sb}")
-                else:
-                    print(f"     ✔️ SAP: {sb}")
-            else:
-                print("     ✔️ SAP: Operação concluída sem mensagem do sistema.")
-
-        def ensure_composite_role_exists(self, nome, desc):
-            self.audit_step("Chamar transação /npfcg para Composta", "wnd[0]/tbar[0]/okcd", "text", "/npfcg")
-            self.audit_step("Enter (Ir para PFCG)", "wnd[0]", "sendVKey", vkey=0)
-            
-            if not self.set_role_name(nome):
-                raise Exception("Falha ao escrever nome da Função Composta.")
-                
-            modo = self.open_for_edit()
-            self.set_description(desc)
-            self.save_composite("  └─ Guardando alterações iniciais da Composta...")
-            return modo
-
-        def goto_roles_tab(self):
-            sap_id, obj = _resolver_id("roles_tab", ["wnd[0]/usr/tabsTABSTRIP1/tabpTAB8"])
-            if not obj:
-                raise Exception("Não consegui abrir a aba Funções (TAB8).")
-            try:
-                obj.select()
-                _esperar_sap_livre()
-            except:
-                raise Exception("Não consegui abrir a aba Funções (TAB8).")
-            tratar_popup_modal()
-
-        def add_roles(self, roles_list):
-            if not roles_list: return 0
-
-            print(f"  ├─ A preparar inserção de {len(roles_list)} função(ões) componente(s)...")
-            
-            table_id, table_obj = _resolver_id(
-                "roles_table",
-                [
-                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0600/tblSAPLPRGN_TREECTRL_AGRLIST2",
-                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0610/tblSAPLPRGN_TREECTRL_AGRLIST2",
-                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0620/tblSAPLPRGN_TREECTRL_AGRLIST2",
-                    "wnd[0]/usr/tabsTABSTRIP1/tabpTAB8/ssubSUB1:SAPLPRGN_TREE:0330/tblSAPLPRGN_TREECTRL_AGRLIST2",
-                ]
-            )
-            if not table_obj:
-                raise Exception("Não encontrei a tabela de funções componentes.")
-
-            visible_rows = 10
-            try:
-                visible_rows = int(table_obj.VisibleRowCount)
-            except: pass
-
-            inserted = 0
-            for idx, role in enumerate(roles_list):
-                row_in_page = idx % visible_rows
-                
-                if idx > 0 and row_in_page == 0:
-                    try:
-                        table_obj.VerticalScrollbar.Position = idx
-                        _esperar_sap_livre()
-                    except:
-                        try:
-                            self.sess.findById("wnd[0]").sendVKey(0)
-                            _esperar_sap_livre()
-                        except: pass
-                
-                cell_id = f"{table_id}/ctxtI_ACTGROUPS-AGR_NAME[0,{row_in_page}]"
-                cell = _esperar_objeto(cell_id, timeout=2.0)
-                if not cell:
-                    cell = _safe_find(cell_id)
-                
-                if cell:
-                    cell.text = role
-                    inserted += 1
-                    print(f"     ├─ Inserindo {role} na linha {idx}")
-                else:
-                    print(f"     ⚠️ Não consegui encontrar o campo para a linha {idx} (ID: {cell_id})")
-
-            _esperar_sap_livre()
-            try: self.sess.findById("wnd[0]").sendVKey(0)
-            except: pass
-            _esperar_sap_livre()
-            tratar_popup_modal()
-            return inserted
-
-        def execute_transport_composite(self, req_num, nome):
-            if req_num:
-                print("  ├─ Recuando para a base da PFCG para pedir Transporte (F3)...")
-                try_actions([{"path": "wnd[0]/tbar[0]/btn[3]", "op": "press"}])
-                tratar_popup_modal()
-
-                print("  ├─ Acedendo ao Menu Função -> Transporte...")
-                try_actions([{"path": "wnd[0]/mbar/menu[0]/menu[9]", "op": "select"}])
-                tratar_popup_modal()
-
-                print("  ├─ Clicando em Executar transporte...")
-                try_actions([{"path": "wnd[0]/tbar[1]/btn[8]", "op": "press"}])
-
-                field_id, req_field = _resolver_id_esperando(
-                    "transport_req_field",
-                    ["wnd[1]/usr/ctxtKO008-TRKORR"],
-                    timeout=3.0
-                )
-
-                print(f"  ├─ Injetando a Request ({req_num}) diretamente no popup...")
-                if req_field:
-                    req_field.text = str(req_num)
-
-                try_actions([{"path": "wnd[1]/tbar[0]/btn[0]", "op": "press"}])
-                tratar_popup_modal()
-
-                mt, sb = get_statusbar()
-                if sb and mt not in ("E", "A"):
-                    print(f"     ✔️ SAP: {sb}")
-                else:
-                    print("     ✔️ SAP: Transporte associado com sucesso!")
-
-            print("  └─ Regressando em segurança ao ecrã principal SAP Easy Access (F3)...")
-            for _ in range(3):
-                try_actions([{"path": "wnd[0]/tbar[0]/btn[3]", "op": "press"}])
-                tratar_popup_modal()
-
-
-    ###################################################################################
-    # EXECUÇÃO SEQUENCIAL (FASE 1: SIMPLES, FASE 2: COMPOSTAS)
-    ###################################################################################
     auditor = PFCG_AuthPage_Auditor(session)
     resultados_simples = {}
     resultados = {}
+
+    # Contadores de Resumo
+    linhas_processadas = len(pending_records)
+    agr_criadas = 0
+    agr_existentes = 0
+    agr_com_erro = 0
+    objetos_alterados = 0
+    objetos_sem_alteracao = 0
+    
+    compostas_processadas = 0
+    compostas_criadas = 0
+    compostas_existentes = 0
+    compostas_sem_alteracao = 0
+    compostas_com_erro = 0
+    componentes_inseridos_total = 0
+    componentes_existentes_total = 0
 
     try:
         session.findById("wnd[0]/tbar[0]/okcd").text = "/N"
         session.findById("wnd[0]").sendVKey(0)
     except: pass
 
-    # FASE 1: Funções Simples
-    for idx, rr in df_proc.iterrows():
-        nome = str(rr["AGR_NAME"]).strip()
-        desc = str(rr.get("TEXT", "")).strip()
-        
-        objeto = str(rr.get("OBJETO DE AUTORIZACAO", rr.get("OBJETO", ""))).strip()
-        if not objeto: objeto = "F_KNA1_GRP"
+    # =====================================================================
+    # FASE 1: Funções Simples (Agrupadas por AGR_NAME para otimização)
+    # =====================================================================
+    # Encontrar a lista distinta de AGR_NAME que estão pendentes
+    agrs_pendentes = list(dict.fromkeys([rec["AGR_NAME"] for _, rec in pending_records if rec["AGR_NAME"]]))
+    total_agrs = len(agrs_pendentes)
+    
+    for idx_agr, agr_name in enumerate(agrs_pendentes, start=1):
+        # Achar todas as linhas pendentes deste AGR_NAME
+        linhas_grupo = [(idx, rec) for idx, rec in pending_records if rec["AGR_NAME"] == agr_name]
         
         print("\n======================================================================")
-        print(f"▶ [{idx+1}/{len(df_proc)}] [FASE SIMPLES] LÓGICA DINÂMICA: {nome} | OBJ: {objeto}")
+        print(f"▶ [{idx_agr}/{total_agrs}] INICIANDO AGR_NAME: {agr_name}")
         print("======================================================================")
         
+        # Obter descrição da primeira linha que tiver
+        desc_role = ""
+        for _, rec in linhas_grupo:
+            if rec.get("TEXT_AGR_NAME"):
+                desc_role = rec["TEXT_AGR_NAME"]
+                break
+                
         try:
-            print("\n[Etapa 1] Validação da Role")
-            auditor.ensure_role_exists(nome, desc)
-            
-            print("\n[Etapa 2] Inserção MASSVAL (Modo Pull Dinâmico)")
-            auditor.update_mass_values_dynamic(nome, objeto, rr)
-            
+            print("[Etapa 1] Preparação da Role Simples")
+            modo = auditor.ensure_role_exists(agr_name, desc_role)
+            if modo == "CREATE":
+                agr_criadas += 1
+            else:
+                agr_existentes += 1
+                
+            for idx_row, row_data in linhas_grupo:
+                objeto = row_data["OBJETO DE AUTORIZACAO"] or "F_KNA1_GRP"
+                print("\n[Etapa 2] Autorizações")
+                print(f"├─ Objeto de autorização: {objeto}")
+                
+                # Logar campos
+                for campo in ["KTOKD", "ACTVT", "RLTYP"]:
+                    val_c = str(row_data.get(campo, "")).strip()
+                    if val_c and val_c != "NAN":
+                        print(f"├─ Campo {campo}: {val_c}")
+                        
+                # Executar MASSVAL
+                mudou = auditor.update_mass_values_dynamic(agr_name, objeto, row_data)
+                if mudou:
+                    objetos_alterados += 1
+                else:
+                    objetos_sem_alteracao += 1
+                    
+                resultados_simples[idx_row] = {
+                    "STATUS": "CONCLUIDO",
+                    "MSG": "AGR_NAME OK"
+                }
+                print(f"└─ Resultado: CONCLUIDO")
+                
             if request_transporte:
                 print("\n[Etapa 3] Inserir na Request de Transporte")
-                auditor.execute_transport(request_transporte, nome)
-
-            auditor.audit_step("Voltar ao Ecrã Inicial (/N) para próxima iteração", "wnd[0]/tbar[0]/okcd", "text", "/N", silencioso=True)
+                auditor.execute_transport(request_transporte, agr_name)
+                
+            auditor.audit_step("Voltar ao Ecrã Inicial (/N)", "wnd[0]/tbar[0]/okcd", "text", "/N", silencioso=True)
             auditor.audit_step("Enter (/N)", "wnd[0]", "sendVKey", vkey=0, silencioso=True)
             
-            resultados_simples[idx] = {"STATUS": "SIMPLES_OK", "MSG": "Sucesso"}
-            print("\n🟢 SUCESSO! Função simples processada e ecrã preparado para a próxima.")
-            
         except Exception as e:
-            resultados_simples[idx] = {"STATUS": "ERRO", "MSG": str(e)}
-            print(f"\n🔴 INTERRUPÇÃO DETETADA NA FUNÇÃO SIMPLES:\n{str(e)}")
+            err_msg = str(e)
+            print(f"🔴 ERRO no processamento da role simples {agr_name}: {err_msg}")
+            agr_com_erro += 1
+            
+            for idx_row, _ in linhas_grupo:
+                resultados_simples[idx_row] = {
+                    "STATUS": "ERRO",
+                    "MSG": f"AGR_NAME ERRO: {err_msg}"
+                }
+                
             try:
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/N"
                 session.findById("wnd[0]").sendVKey(0)
             except: pass
+            
+        # Checkpoint incremental a cada AGR_NAME processado
+        try:
+            col_st, col_ms, col_tm = col_status, col_msg, col_timestamp
+            for idx_row, _ in linhas_grupo:
+                res = resultados_simples.get(idx_row)
+                if res:
+                    ws.cell(row=records[idx_row]["_row"], column=col_st).value = res["STATUS"]
+                    ws.cell(row=records[idx_row]["_row"], column=col_ms).value = res["MSG"]
+                    ws.cell(row=records[idx_row]["_row"], column=col_tm).value = now_ts()
+            wb.save(caminho_ficheiro)
+        except Exception as checkpoint_exc:
+            print(f"  ⚠️ Erro ao salvar checkpoint do Excel na Fase 1: {checkpoint_exc}")
 
+    # =====================================================================
     # FASE 2: Funções Compostas
+    # =====================================================================
     if col_agr_composta:
-        compostas_a_processar = df_proc[df_proc["AGR_NAME_COMPOSTA"].str.strip() != ""]["AGR_NAME_COMPOSTA"].unique()
+        # Achar todas as compostas pendentes na execução
+        compostas_a_processar = list(dict.fromkeys([rec["AGR_NAME_COMPOSTA"] for _, rec in pending_records if rec["AGR_NAME_COMPOSTA"].strip()]))
         
         if len(compostas_a_processar) > 0:
             print("\n======================================================================")
-            print(f"▶ INICIANDO FASE COMPOSTA: {len(compostas_a_processar)} Funções Compostas a processar")
+            print(f"▶ [FASE 2] INICIANDO FASE COMPOSTA: {len(compostas_a_processar)} Funções Compostas a processar")
             print("======================================================================")
+            
+            grupos_para_processar = []
             
             for nome_comp in compostas_a_processar:
                 nome_comp = str(nome_comp).strip()
                 
-                # Reunir todas as simples associadas à composta no Excel completo (df_original)
-                roles_filhas_series = df_original[df_original["AGR_NAME_COMPOSTA"] == nome_comp]["AGR_NAME"]
-                roles_filhas = list(dict.fromkeys([str(r).strip().upper() for r in roles_filhas_series if str(r).strip()]))
+                # Obter todas as linhas desta composta no Excel completo (records)
+                linhas_composta_original = [rec for rec in records if rec["AGR_NAME_COMPOSTA"] == nome_comp]
                 
-                # Descrição da composta
-                desc_comp_series = df_original[df_original["AGR_NAME_COMPOSTA"] == nome_comp]["TEXT_COMPOSTA"]
+                # Obter a lista distinta de AGR_NAME (componentes) para esta composta
+                componentes_todos = list(dict.fromkeys([r["AGR_NAME"] for r in linhas_composta_original if r["AGR_NAME"]]))
+                
+                # Obter a descrição da composta
                 desc_comp = ""
-                for d in desc_comp_series:
-                    if str(d).strip():
-                        desc_comp = str(d).strip()
+                for rec in linhas_composta_original:
+                    if rec.get("TEXT_COMPOSTA"):
+                        desc_comp = rec["TEXT_COMPOSTA"]
                         break
-                        
-                print(f"\n▶ A processar Função Composta: {nome_comp} | Componentes: {len(roles_filhas)}")
-                try:
-                    modo = auditor.ensure_composite_role_exists(nome_comp, desc_comp)
-                    auditor.goto_roles_tab()
-                    qtd_ins = auditor.add_roles(roles_filhas)
-                    auditor.save_composite("  └─ Guardando Funções inseridas na Composta...")
+                
+                # Validar componentes
+                componentes_validos = []
+                componentes_erros = []
+                
+                for comp in componentes_todos:
+                    # Encontrar todas as linhas correspondentes a este comp no Excel
+                    # Para saber se ele foi processado nesta execução ou se já estava concluído
+                    rows_comp_processados = [idx for idx, rec in pending_records if rec["AGR_NAME"] == comp]
                     
-                    if request_transporte:
-                        print("\n[Etapa 3] Ordem de Transporte para Composta")
-                        auditor.execute_transport_composite(request_transporte, nome_comp)
+                    if len(rows_comp_processados) > 0:
+                        teve_erro = False
+                        for r_idx in rows_comp_processados:
+                            res_simp = resultados_simples.get(r_idx, {})
+                            if res_simp.get("STATUS") == "ERRO":
+                                teve_erro = True
+                                break
+                        if teve_erro:
+                            componentes_erros.append(comp)
+                        else:
+                            componentes_validos.append(comp)
+                    else:
+                        componentes_validos.append(comp)
                         
-                    print(f"🟢 SUCESSO: Função Composta {nome_comp} tratada com sucesso!")
-                    
-                    # Atualizar cada linha do df_proc correspondente
-                    rows_matching = df_proc[df_proc["AGR_NAME_COMPOSTA"] == nome_comp].index
-                    for row_idx in rows_matching:
-                        res_simp = resultados_simples.get(row_idx, {"STATUS": "ERRO", "MSG": "Não processado"})
-                        if res_simp["STATUS"] == "SIMPLES_OK":
-                            resultados[row_idx] = {
-                                "STATUS": "CONCLUIDO",
-                                "MSG": f"Sucesso ({modo}) | {qtd_ins}/{len(roles_filhas)} Componentes atribuídos."
+                # Obter os índices das linhas pendentes desta composta
+                linhas_pendentes_comp = [idx for idx, rec in pending_records if rec["AGR_NAME_COMPOSTA"] == nome_comp]
+                
+                if componentes_erros:
+                    err_msg = f"Composta não processada: existem componentes AGR_NAME com erro na fase anterior. Falhas: {', '.join(componentes_erros)}."
+                    print(f"🔴 {err_msg}")
+                    compostas_com_erro += 1
+                    for idx_row in linhas_pendentes_comp:
+                        res_simp = resultados_simples.get(idx_row, {"STATUS": "ERRO", "MSG": "Não processado"})
+                        if res_simp["STATUS"] == "CONCLUIDO":
+                            resultados[idx_row] = {
+                                "STATUS": "ERRO",
+                                "MSG": f"AGR_NAME OK | {err_msg}"
                             }
                         else:
-                            resultados[row_idx] = res_simp
-                            
-                except Exception as e:
-                    print(f"🔴 ERRO na Função Composta {nome_comp}: {e}")
-                    try:
-                        session.findById("wnd[0]/tbar[0]/okcd").text = "/N"
-                        session.findById("wnd[0]").sendVKey(0)
-                    except: pass
+                            resultados[idx_row] = {
+                                "STATUS": "ERRO",
+                                "MSG": f"{res_simp['MSG']} | Composta não processada."
+                            }
+                else:
+                    grupos_para_processar.append({
+                        "agr_name_composta": nome_comp,
+                        "text_composta": desc_comp,
+                        "componentes": componentes_validos,
+                        "linhas_excel": linhas_pendentes_comp
+                    })
                     
-                    # Atualizar erros na composta nas linhas correspondentes
-                    rows_matching = df_proc[df_proc["AGR_NAME_COMPOSTA"] == nome_comp].index
-                    for row_idx in rows_matching:
-                        resultados[row_idx] = {"STATUS": "ERRO", "MSG": f"Erro na Composta: {str(e)}"}
+            if grupos_para_processar:
+                print(f"├─ Carregando módulo D. PFCG_COMPOSTA.py dinamicamente...")
+                try:
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location(
+                        "pfcg_composta",
+                        os.path.join(dir_atual, "D. PFCG_COMPOSTA.py")
+                    )
+                    pfcg_composta = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(pfcg_composta)
+                    
+                    # Pre-populate cache with successful components from Phase 1
+                    pfcg_composta.roles_existentes_cache = {}
+                    for idx_row, res_s in resultados_simples.items():
+                        if res_s.get("STATUS") == "CONCLUIDO":
+                            rec_item = records[idx_row]
+                            pfcg_composta.roles_existentes_cache[rec_item["AGR_NAME"].upper().strip()] = True
+                    
+                    res_compostas = pfcg_composta.executar_grupos_compostos(
+                        ambiente_cockpit=ambiente_cockpit,
+                        grupos_compostos=grupos_para_processar,
+                        caminho_ficheiro=caminho_ficheiro,
+                        request_transporte=request_transporte,
+                        modo_nao_interativo=True,
+                        pedir_confirmacao=False,
+                        origem="PFCG_AUTHORITY",
+                        sess_externa=session
+                    )
+                    
+                    for gp in grupos_para_processar:
+                        nome_comp = gp["agr_name_composta"]
+                        res_comp = res_compostas.get(nome_comp, {"STATUS": "ERRO", "MSG": "Erro desconhecido na composta.", "modo": "CHANGE", "inseridos": 0, "existentes": 0})
+                        
+                        compostas_processadas += 1
+                        if res_comp["STATUS"] == "CONCLUIDO":
+                            if res_comp.get("modo") == "CREATE":
+                                compostas_criadas += 1
+                            else:
+                                if res_comp.get("inseridos", 0) > 0:
+                                    compostas_existentes += 1
+                                else:
+                                    compostas_sem_alteracao += 1
+                                    
+                            componentes_inseridos_total += res_comp.get("inseridos", 0)
+                            componentes_existentes_total += res_comp.get("existentes", 0)
+                        else:
+                            compostas_com_erro += 1
+                            
+                        for idx_row in gp["linhas_excel"]:
+                            res_simp = resultados_simples.get(idx_row, {"STATUS": "ERRO", "MSG": "Não processado"})
+                            if res_simp["STATUS"] == "CONCLUIDO":
+                                if res_comp["STATUS"] == "CONCLUIDO":
+                                    resultados[idx_row] = {
+                                        "STATUS": "CONCLUIDO",
+                                        "MSG": f"AGR_NAME OK | COMPOSTA OK: {res_comp['MSG']}"
+                                    }
+                                else:
+                                    resultados[idx_row] = {
+                                        "STATUS": "ERRO",
+                                        "MSG": f"AGR_NAME OK | COMPOSTA ERRO: {res_comp['MSG']}"
+                                    }
+                            else:
+                                resultados[idx_row] = {
+                                    "STATUS": "ERRO",
+                                    "MSG": f"{res_simp['MSG']} | COMPOSTA não processada."
+                                }
+                except Exception as e_import:
+                    err_msg = f"Erro técnico ao invocar D. PFCG_COMPOSTA.py: {e_import}"
+                    print(f"🔴 {err_msg}")
+                    for gp in grupos_para_processar:
+                        compostas_com_erro += 1
+                        for idx_row in gp["linhas_excel"]:
+                            res_simp = resultados_simples.get(idx_row, {"STATUS": "ERRO", "MSG": "Não processado"})
+                            resultados[idx_row] = {
+                                "STATUS": "ERRO",
+                                "MSG": f"{res_simp.get('MSG', 'AGR_NAME OK')} | COMPOSTA ERRO: {err_msg}"
+                            }
+                            
+                # Checkpoint incremental para as compostas
+                try:
+                    col_st, col_ms, col_tm = col_status, col_msg, col_timestamp
+                    for gp in grupos_para_processar:
+                        for idx_row in gp["linhas_excel"]:
+                            res = resultados.get(idx_row)
+                            if res:
+                                ws.cell(row=records[idx_row]["_row"], column=col_st).value = res["STATUS"]
+                                ws.cell(row=records[idx_row]["_row"], column=col_ms).value = res["MSG"]
+                                ws.cell(row=records[idx_row]["_row"], column=col_tm).value = now_ts()
+                    wb.save(caminho_ficheiro)
+                except Exception as checkpoint_exc:
+                    print(f"  ⚠️ Erro ao salvar checkpoint do Excel na Fase 2: {checkpoint_exc}")
 
-    # Resolver linhas sem composta ou que não entraram na Fase 2
-    for idx, rr in df_proc.iterrows():
-        if idx not in resultados:
-            res_simp = resultados_simples.get(idx, {"STATUS": "ERRO", "MSG": "Não processado"})
-            if res_simp["STATUS"] == "SIMPLES_OK":
-                resultados[idx] = {"STATUS": "CONCLUIDO", "MSG": "Sucesso simples"}
+    # Resolver linhas sem composta associada
+    for idx_row, rec in pending_records:
+        if idx_row not in resultados:
+            res_simp = resultados_simples.get(idx_row, {"STATUS": "ERRO", "MSG": "Não processado"})
+            if res_simp["STATUS"] == "CONCLUIDO":
+                resultados[idx_row] = {"STATUS": "CONCLUIDO", "MSG": "AGR_NAME OK | Sem composta associada."}
             else:
-                resultados[idx] = res_simp
+                resultados[idx_row] = res_simp
 
     ###################################################################################
-    # GRAVAR EXCEL E FINALIZAR
+    # GRAVAR EXCEL FINAL E EXIBIR RESUMOS
     ###################################################################################
     try:
         col_st = col_status
         col_ms = col_msg
         col_tm = col_timestamp
         for rec in records:
-            df_idx = df_proc.index[df_proc['_row'] == rec['_row']].tolist()
-            if not df_idx: continue
-            res = resultados.get(df_idx[0])
+            # Encontrar no pending_records
+            match_idx = [idx for idx, r in pending_records if r['_row'] == rec['_row']]
+            if not match_idx: continue
+            res = resultados.get(match_idx[0])
             if res:
                 if col_st: ws.cell(row=rec["_row"], column=col_st).value = res["STATUS"]
                 if col_ms: ws.cell(row=rec["_row"], column=col_ms).value = res["MSG"]
@@ -952,6 +1125,24 @@ def executar(
         print("\n💾 Resultados gravados no Excel.")
     except Exception as e:
         print(f"❌ Erro ao gravar no Excel: {e}")
+
+    # Exibir logs de resumo finais
+    print("\n📊 RESUMO PFCG_AUTHORITY")
+    print(f"- Linhas processadas: {linhas_processadas}")
+    print(f"- AGR_NAME criadas: {agr_criadas}")
+    print(f"- AGR_NAME já existentes: {agr_existentes}")
+    print(f"- AGR_NAME com erro: {agr_com_erro}")
+    print(f"- Objetos de autorização alterados: {objetos_alterados}")
+    print(f"- Objetos de autorização sem alteração: {objetos_sem_alteracao}")
+    
+    print("\n📊 RESUMO AGR_NAME_COMPOSTA")
+    print(f"- Compostas processadas: {compostas_processadas}")
+    print(f"- Compostas criadas: {compostas_criadas}")
+    print(f"- Compostas já existentes: {compostas_existentes}")
+    print(f"- Componentes inseridos: {componentes_inseridos_total}")
+    print(f"- Componentes já existentes: {componentes_existentes_total}")
+    print(f"- Compostas sem alteração: {compostas_sem_alteracao}")
+    print(f"- Compostas com erro: {compostas_com_erro}")
 
     tempo_decorrido_total = time.time() - tempo_inicio_total
     print(f"\n⏱️ Tempo total da operação: {formatar_tempo(tempo_decorrido_total)}")

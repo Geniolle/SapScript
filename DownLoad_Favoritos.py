@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 Download dos favoritos SAP por utilizador
 - Abre um ficheiro Excel por popup em primeiro plano
 - Lê a sheet "Users Ativos"

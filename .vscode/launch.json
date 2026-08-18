@@ -1,0 +1,55 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SAP Web API",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "sap_script_web_cockpit_v2.web_api.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "SAP Worker",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/sap_script_web_cockpit_v2/worker/worker.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "SAP Auth RFC Simulator",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/sap_script_web_cockpit_v2/worker/authorization_rfc_simulator.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "args": [
+        "--system",
+        "DEV"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "SAP Web + Worker",
+      "configurations": [
+        "SAP Web API",
+        "SAP Worker"
+      ]
+    }
+  ]
+}
