@@ -656,7 +656,7 @@ def _run_single_query_rfc(conn: Any, cfg: dict[str, Any], runtime: RuntimeConfig
     table = str(cfg.get("tabela") or "").strip().upper()
     _print_query_header(cfg)
 
-    options: list[dict[str, str]] = []
+    clauses: list[str] = []
     filtros = cfg.get("filtros") or []
     for f in filtros:
         campo = str(f.get("campo") or "").strip().upper()
@@ -678,8 +678,23 @@ def _run_single_query_rfc(conn: Any, cfg: dict[str, Any], runtime: RuntimeConfig
                 clause = f"{campo} = '{valor}'"
         else:
             clause = f"{campo} {opcao} '{valor}'"
+        clauses.append(clause)
 
-        options.append({"TEXT": clause})
+    options: list[dict[str, str]] = []
+    if clauses:
+        full_where = " AND ".join(clauses)
+        words = full_where.split(" ")
+        current_line = ""
+        for word in words:
+            if not current_line:
+                current_line = word
+            elif len(current_line) + 1 + len(word) <= 70:
+                current_line += " " + word
+            else:
+                options.append({"TEXT": current_line})
+                current_line = word
+        if current_line:
+            options.append({"TEXT": current_line})
 
     requested_fields = cfg.get("campos_saida") or []
     fields_input = [{"FIELDNAME": f.strip().upper()} for f in requested_fields if f.strip()]
