@@ -9,6 +9,7 @@ A lógica SAP fica no engine genérico e não deve ser copiada para este ficheir
 # PARÂMETROS DO PROCESSO — ALTERAR AQUI NO VS CODE
 # =============================================================================
 
+METODO = "RFC"  # "RFC" ou "GUI"
 SAP_KEY = "S4DCLNT100"
 TRANSACTION = "SE16H"
 ABRIR_NOVO_MODO = True
@@ -40,6 +41,7 @@ CONSULTAS = [
 PROCESSO = {
     "id": "metodos_pagamento_pt",
     "titulo": "Análise de configuração - Métodos de pagamento PT",
+    "metodo": METODO,
     "sap_key": SAP_KEY,
     "transaction": TRANSACTION,
     "abrir_novo_modo": ABRIR_NOVO_MODO,
@@ -59,6 +61,5 @@ if __name__ == "__main__":
         sys.path.insert(0, str(_base_dir))
 
     from engine import executar_processo
-
     sys.exit(executar_processo(PROCESSO))
 
