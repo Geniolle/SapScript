@@ -306,8 +306,17 @@ def get_available_processes() -> list[dict[str, str]]:
         return []
 
     processos: list[dict[str, str]] = []
+    # ###################################################################################
+    # (1) PRIORIDADE VISUAL DOS PROCESSOS NO MENU
+    # ###################################################################################
+    prioridade_menu = {
+        "UAT Simulação": 0,
+    }
 
-    for nome in sorted(os.listdir(processos_dir), key=str.casefold):
+    def sort_key(nome: str) -> tuple[int, str]:
+        return prioridade_menu.get(nome, 1000), nome.casefold()
+
+    for nome in sorted(os.listdir(processos_dir), key=sort_key):
         if nome.startswith("~$"):
             continue
 

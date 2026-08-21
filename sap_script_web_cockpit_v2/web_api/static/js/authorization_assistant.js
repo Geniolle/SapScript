@@ -3774,6 +3774,7 @@ const AUTH_CHAT_STATES = {
         { label: '🏦 Chave de banco', val: 'Chave de banco' },
         { label: '📋 Códigos IVA', val: 'Códigos IVA' },
         { label: '👤 Dados de utilizador', val: 'Dados de utilizador' },
+        { label: '🧪 UAT Simulação', val: 'UAT Simulação' },
         { label: '🛡️ Perfil de autorização', val: 'Perfil de autorização' },
         { label: '🔄 Reverter documento', val: 'Reverter documento' }
       ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
@@ -3915,6 +3916,57 @@ const AUTH_CHAT_STATES = {
           btn.classList.add('selected');
           btn.setAttribute('aria-pressed', 'true');
           selectUserDataSubroutine(item);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function showUatSimulationSubroutineOptions() {
+      hideAuthorizationTypingIndicator();
+
+      appendAuthorizationMessage(
+        'assistant',
+        'Perfeito. Selecionou a pasta **UAT Simulação**.\nQual rotina pretende executar?'
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const items = [
+        { label: '🧾 Criar Documento', val: 'Criar Documento', scriptName: 'Criar Documento.py', category: 'UAT Simulação' },
+        { label: '⚙️ Executar F110', val: 'Executar F110', scriptName: 'Executar F110.py', category: 'UAT Simulação' },
+        { label: '🧪 Simular F110', val: 'Simular F110', scriptName: 'simular_f110.py', category: 'UAT Simulação' },
+        { label: '📄 Proposta Pagamento F110', val: 'Proposta Pagamento F110', scriptName: 'proposta_pagamento_f110.py', category: 'UAT Simulação' },
+        { label: '🔁 RFF110S', val: 'RFF110S', scriptName: 'RFF110S.py', category: 'UAT Simulação' }
+      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+
+      items.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 12px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          promptProcessMode(item.val, item.category, item.scriptName, item.label);
         };
         btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
         grid.appendChild(btn);
@@ -4794,6 +4846,11 @@ const AUTH_CHAT_STATES = {
 
       if (normVal.includes('CADEIA') || normVal.includes('CADEIAS DE PESQUISA')) {
         promptProcessMode('Cadeias de Pesquisa', 'Cadeias de Pesquisa', 'CADEIAS_DE_PESQUISA.py', 'Configuração de cadeias OT83');
+        return;
+      }
+
+      if (normVal.includes('UAT SIMULACAO')) {
+        showUatSimulationSubroutineOptions();
         return;
       }
 

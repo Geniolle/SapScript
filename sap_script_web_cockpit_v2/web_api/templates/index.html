@@ -1260,19 +1260,20 @@
         </div>
       </div>
       <nav class="nav-menu">
-        <a class="nav-item active" id="nav-item-visao-geral" onclick="switchView('visao-geral')">Visão geral</a>
         <div class="nav-sub-wrapper">
           <a class="nav-item-toggle" id="nav-jira-toggle" onclick="toggleJiraMenu()">
             <span>JIRA</span>
             <span class="nav-toggle-arrow">&#9660;</span>
           </a>
           <div class="nav-sub-list" id="nav-jira-sub">
+            <a class="nav-item active" id="nav-item-jira" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira')">🎫 Tickets</a>
             <a class="nav-item" id="nav-item-sap-agent" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('sap-agent')">🤖 Agente SAP</a>
-            <a class="nav-item" id="nav-item-jira" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira')">🎫 Tickets</a>
             <a class="nav-item" id="nav-item-jira-dashboard" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
             <a class="nav-item" id="nav-item-auto-trigger" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('auto-trigger')">⚡ Auto-Trigger SAP</a>
           </div>
         </div>
+        <a class="nav-item" id="nav-item-autorizacoes" onclick="switchView('autorizacoes')">Agente IT Salsa</a>
+        <a class="nav-item" id="nav-item-visao-geral" onclick="switchView('visao-geral')">Visão geral</a>
         <div class="nav-sub-wrapper">
           <a class="nav-item-toggle" id="nav-sap-toggle" onclick="toggleSapMenu()">
             <span>SAP</span>
@@ -1290,7 +1291,6 @@
             </div>
           </div>
         </div>
-        <a class="nav-item" id="nav-item-autorizacoes" onclick="switchView('autorizacoes')">Autorizações</a>
         <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
         <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')">⚙️ Definições</a>
       </nav>
@@ -1335,7 +1335,7 @@
       </header>
 
       <!-- Visão Geral View -->
-      <div id="view-visao-geral" style="flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
+      <div id="view-visao-geral" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <!-- KPIs -->
         {% include "components/dashboard_kpis.html" %}
 
@@ -1376,7 +1376,7 @@
       </div>
 
       <!-- JIRA View -->
-      <div id="view-jira" style="display: none; flex: 1; min-height: 0; flex-direction: column;">
+      <div id="view-jira" style="display: flex; flex: 1; min-height: 0; flex-direction: column;">
         <div id="view-jira-tickets-wrapper" style="display: flex; flex-direction: column; height: 100%; padding-bottom: 24px;">
           <!-- Jira KPIs -->
         <section class="kpi-grid" id="jira-kpi-grid" style="margin-bottom: 24px; flex-shrink: 0;">
@@ -2827,7 +2827,7 @@
             <div class="auth-chat-header-left">
               <div class="auth-chat-header-icon">🛡️</div>
               <div class="auth-chat-header-titles">
-                <h3>Assistente de Autorizações SAP</h3>
+                <h3>Agente IT Salsa</h3>
                 <p>Análise inteligente de utilizadores, perfis e acessos SAP.</p>
               </div>
             </div>
@@ -6895,7 +6895,7 @@
                 autorizacoesView.style.display = 'flex';
             }
             if (headerTitle) {
-                headerTitle.textContent = 'Autorizações';
+                headerTitle.textContent = 'Agente IT Salsa';
             }
             if (headerSub) {
                 headerSub.textContent = 'Validação de permissões e acessos dos utilizadores SAP.';
@@ -7661,6 +7661,8 @@
 
     // Set up JIRA action listeners
     document.addEventListener('DOMContentLoaded', () => {
+        switchView('jira');
+
         const searchInput = document.getElementById('jira-search-input');
         if (searchInput) {
             searchInput.addEventListener('input', filterAndRenderJiraTickets);
@@ -10087,6 +10089,6 @@
   </div>
 
   <!-- ══ Script da View de Autorizações (Módulo Dedicado) ══ -->
-  <script src="/static/js/authorization_assistant.js?v=20260818_v34"></script>
+  <script src="/static/js/authorization_assistant.js?v=20260821_v36"></script>
 </body>
 </html>
