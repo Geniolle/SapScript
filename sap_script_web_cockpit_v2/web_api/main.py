@@ -37,6 +37,8 @@ from web_api.store import append_job_log, cancel_job, claim_next_job, complete_j
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 from web_api.authorization_agent import get_analysis_types, get_execution_mode_for_system_key
 import asyncio
+import difflib
+import unicodedata
 from openpyxl import Workbook
 
 def update_worker_ping_for_job(job_id: str) -> None:
@@ -290,10 +292,51 @@ def _resolve_process_path(processo: str) -> str | None:
     processos_dir_abs = os.path.abspath(processos_dir)
     caminho = os.path.abspath(os.path.join(processos_dir_abs, processo_normalizado))
 
+    def _normalizar_chave(valor: str) -> str:
+        texto = str(valor or "").strip()
+        if not texto:
+            return ""
+
+        candidatos = [texto]
+        for origem, destino in (("utf-8", "latin1"), ("utf-8", "cp1252")):
+            try:
+                candidatos.append(texto.encode(origem).decode(destino))
+            except Exception:
+                pass
+
+        melhor = ""
+        for candidato in candidatos:
+            base = unicodedata.normalize("NFKD", candidato)
+            base = "".join(ch for ch in base if not unicodedata.combining(ch))
+            base = re.sub(r"[^0-9a-z]+", "", base.casefold())
+            if len(base) > len(melhor):
+                melhor = base
+        return melhor
+
     if caminho != processos_dir_abs and not caminho.startswith(processos_dir_abs + os.sep):
         return None
 
     if not os.path.isdir(caminho):
+        processo_key = _normalizar_chave(processo_normalizado)
+        melhor_caminho = ""
+        melhor_score = 0.0
+
+        for nome in os.listdir(processos_dir_abs):
+            if nome == "__pycache__":
+                continue
+
+            candidato_path = os.path.join(processos_dir_abs, nome)
+            if not os.path.isdir(candidato_path):
+                continue
+
+            score = difflib.SequenceMatcher(None, processo_key, _normalizar_chave(nome)).ratio()
+            if score > melhor_score:
+                melhor_score = score
+                melhor_caminho = candidato_path
+
+        if melhor_caminho and melhor_score >= 0.75:
+            return melhor_caminho
+
         return None
 
     return caminho

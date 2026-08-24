@@ -241,6 +241,7 @@ def _safe_date(value: str, default_value: str) -> str:
 
 @dataclass(frozen=True)
 class DocumentInput:
+    system_key: str
     company_code: str
     vendor: str
     gl_account: str
@@ -253,8 +254,11 @@ class DocumentInput:
     item_text: str
     header_text: str
     reference: str
+    baseline_date: str = ""
+    doc_type: str = DEFAULT_DOC_TYPE
     cost_center: str = ""
     profit_center: str = ""
+    check_only: bool = False
 
 
 def collect_document_input(args: argparse.Namespace) -> DocumentInput:
@@ -279,6 +283,7 @@ def collect_document_input(args: argparse.Namespace) -> DocumentInput:
     profit_center = (args.profit_center or _prompt_text("Profit center", default="")).strip()
 
     return DocumentInput(
+        system_key=str(args.sap_system).strip(),
         company_code=company_code,
         vendor=vendor,
         gl_account=gl_account,
@@ -286,8 +291,10 @@ def collect_document_input(args: argparse.Namespace) -> DocumentInput:
         currency=currency,
         doc_date=doc_date,
         posting_date=posting_date,
+        baseline_date="",
         payment_terms=payment_terms,
         payment_method=payment_method,
+        doc_type=DEFAULT_DOC_TYPE,
         item_text=item_text,
         header_text=header_text,
         reference=reference,
@@ -405,6 +412,33 @@ def _safe_commit(conn: Connection) -> None:
 # =============================================================================
 # (5) EXECUCAO PRINCIPAL
 # =============================================================================
+
+def executar(ambiente_cockpit: str | None = None, **kwargs: Any) -> DocumentResult:
+    load_project_dotenv()
+
+    payload = DocumentInput(
+        system_key=str(kwargs.get("system_key") or ambiente_cockpit or kwargs.get("sap_system") or DEFAULT_SYSTEM_KEY).strip(),
+        company_code=str(kwargs.get("company_code") or "2010").strip(),
+        vendor=str(kwargs.get("vendor") or "10000040").strip(),
+        gl_account=str(kwargs.get("gl_account") or "12010741").strip(),
+        amount=_parse_decimal_cli(str(kwargs.get("amount") or "88,88")),
+        currency=str(kwargs.get("currency") or DEFAULT_CURRENCY).strip().upper() or DEFAULT_CURRENCY,
+        doc_date=str(kwargs.get("document_date") or kwargs.get("doc_date") or _today_yyyymmdd()).strip(),
+        posting_date=str(kwargs.get("posting_date") or _today_yyyymmdd()).strip(),
+        baseline_date=str(kwargs.get("baseline_date") or "").strip(),
+        payment_terms=str(kwargs.get("payment_terms") or "").strip().upper(),
+        payment_method=str(kwargs.get("payment_method") or DEFAULT_PAYMENT_METHOD).strip().upper(),
+        doc_type=str(kwargs.get("doc_type") or DEFAULT_DOC_TYPE).strip().upper(),
+        reference=str(kwargs.get("reference") or DEFAULT_REFERENCE_PREFIX).strip(),
+        header_text=str(kwargs.get("header_text") or DEFAULT_DOC_TEXT).strip(),
+        item_text=str(kwargs.get("item_text") or DEFAULT_DOC_TEXT).strip(),
+        cost_center=str(kwargs.get("cost_center") or "").strip(),
+        profit_center=str(kwargs.get("profit_center") or "").strip(),
+        check_only=bool(kwargs.get("check_only", False)),
+    )
+
+    poster = FiDocumentPoster()
+    return poster.run(payload)
 
 def main(argv: list[str] | None = None) -> int:
     load_project_dotenv()

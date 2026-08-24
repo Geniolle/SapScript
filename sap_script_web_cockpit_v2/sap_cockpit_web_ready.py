@@ -5,11 +5,13 @@
 from __future__ import annotations
 
 import ast
+import difflib
 import importlib.util
 import inspect
 import msvcrt
 import os
 import re
+import unicodedata
 import subprocess
 import sys
 import time
@@ -340,6 +342,27 @@ def _resolve_processo_path(processo: str) -> str:
     if processo in MAPA_ALIAS_PASTA:
         processo = MAPA_ALIAS_PASTA[processo]
 
+    def _normalizar_chave(valor: str) -> str:
+        texto = str(valor or "").strip()
+        if not texto:
+          return ""
+
+        candidatos = [texto]
+        for origem, destino in (("utf-8", "latin1"), ("utf-8", "cp1252")):
+            try:
+                candidatos.append(texto.encode(origem).decode(destino))
+            except Exception:
+                pass
+
+        melhor = ""
+        for candidato in candidatos:
+            base = unicodedata.normalize("NFKD", candidato)
+            base = "".join(ch for ch in base if not unicodedata.combining(ch))
+            base = re.sub(r"[^0-9a-z]+", "", base.casefold())
+            if len(base) > len(melhor):
+                melhor = base
+        return melhor
+
     if os.path.isabs(processo):
         caminho = processo
     else:
@@ -352,13 +375,22 @@ def _resolve_processo_path(processo: str) -> str:
         raise SapCockpitError("Processo fora da pasta PROCESSOS_DIR nao e permitido.")
 
     if not os.path.isdir(caminho):
-        # Fallback: procurar se o nome do processo corresponde a um script dentro de alguma subpasta
+        processo_key = _normalizar_chave(processo)
+        melhor_caminho = ""
+        melhor_score = 0.0
+
+        # Fallback: procurar a pasta com melhor correspondencia normalizada.
         for p in os.listdir(PROCESSOS_DIR):
             p_path = os.path.join(PROCESSOS_DIR, p)
             if os.path.isdir(p_path) and p != "__pycache__":
-                for f in os.listdir(p_path):
-                    if f.upper().startswith(processo.upper()):
-                        return os.path.abspath(p_path)
+                p_key = _normalizar_chave(p)
+                score = difflib.SequenceMatcher(None, processo_key, p_key).ratio()
+                if score > melhor_score:
+                    melhor_score = score
+                    melhor_caminho = p_path
+
+        if melhor_caminho and melhor_score >= 0.75:
+            return os.path.abspath(melhor_caminho)
 
         raise SapCockpitError(f"Pasta de processo nao encontrada: {caminho}")
 
@@ -1010,6 +1042,7 @@ def _build_exec_kwargs(
 def _load_process_module(caminho_script: str):
     spec = importlib.util.spec_from_file_location("modulo_processo", caminho_script)
     modulo = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = modulo
     spec.loader.exec_module(modulo)
     return modulo
 
@@ -1744,7 +1777,22 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
         subprocesso_payload = str(payload.get("subprocesso") or payload.get("script") or "").strip()
         web_config = _read_subprocess_web_config(caminho_processo, subprocesso_payload) if subprocesso_payload else {}
         manages_own_session = web_config.get("manages_own_session", False)
-        is_rfc_script = bool(subprocesso_payload and ("_RFC.py" in subprocesso_payload or "RFC" in subprocesso_payload.upper()))
+        explicit_rfc_scripts = {
+            "Criar Documento.py",
+            "Criar Documento RFC.py",
+            "criar_documento_teste_f110.py",
+            "Executar F110.py",
+            "RFF110S.py",
+            "simular_f110.py",
+        }
+        is_rfc_script = bool(
+            subprocesso_payload
+            and (
+                "_RFC.py" in subprocesso_payload
+                or "RFC" in subprocesso_payload.upper()
+                or subprocesso_payload in explicit_rfc_scripts
+            )
+        )
 
         if manages_own_session or is_rfc_script:
             info("Subprocesso RFC / gestão própria de sessão SAP — a saltar obter_sessao_sap().")

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from criar_documento_teste_f110 import executar as executar_criar_documento
@@ -41,10 +41,15 @@ DEFAULT_REFERENCE = "UAT-F110-TEST"
 DEFAULT_HEADER_TEXT = "UAT TESTE F110"
 DEFAULT_ITEM_TEXT = "UAT F110 TESTE"
 DEFAULT_STEP = "create-document"
+DEFAULT_EXISTING_DOCUMENT = ""
 
 
 def _today_yyyymmdd() -> str:
     return date.today().strftime("%Y%m%d")
+
+
+def _next_yyyymmdd() -> str:
+    return (date.today() + timedelta(days=1)).strftime("%Y%m%d")
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:
@@ -73,6 +78,7 @@ class F110FlowResult:
     proposal_only: bool
     created_document_number: str = ""
     created_fiscal_year: str = ""
+    used_existing_document: bool = False
     simulation_status: str = ""
     proposal_status: str = ""
     reasons: list[str] = field(default_factory=list)
@@ -105,7 +111,8 @@ def _print_summary(result: F110FlowResult) -> None:
     lines.append(f"Modo           : {'PROPOSTA' if result.proposal_only else 'PAGAMENTO'}")
     lines.append(f"Estado         : {result.status.upper()}")
     if result.created_document_number:
-        lines.append(f"Documento novo : {result.created_document_number}")
+        doc_label = "Documento utilizado" if result.used_existing_document else "Documento novo"
+        lines.append(f"{doc_label} : {result.created_document_number}")
     if result.created_fiscal_year:
         lines.append(f"Exercicio novo : {result.created_fiscal_year}")
     if result.simulation_status:
@@ -144,58 +151,94 @@ def executar(**kwargs: Any) -> F110FlowResult:
         proposal_only = False
     force_payment = _to_bool(kwargs.get("force_payment"), default=False)
     step = str(kwargs.get("step") or DEFAULT_STEP).strip().lower()
-    run_date = str(kwargs.get("run_date") or DEFAULT_RUN_DATE).strip()
+    run_date = str(kwargs.get("run_date") or _today_yyyymmdd()).strip()
     identification = str(kwargs.get("identification") or DEFAULT_IDENTIFICATION).strip()
     docs_entered_up_to = str(kwargs.get("docs_entered_up_to") or DEFAULT_DOC_DATE).strip()
     wait_seconds = int(kwargs.get("wait_seconds") or 120)
     check_only = _to_bool(kwargs.get("check_only"), default=False)
+    skip_create_document = _to_bool(kwargs.get("skip_create_document"), default=False)
+    existing_document_number = str(
+        kwargs.get("document_number")
+        or kwargs.get("existing_document_number")
+        or DEFAULT_EXISTING_DOCUMENT
+    ).strip()
+    existing_fiscal_year = str(
+        kwargs.get("fiscal_year")
+        or kwargs.get("existing_fiscal_year")
+        or ""
+    ).strip()
 
     reasons: list[str] = []
+
+    document_result: Any = None
+    created_document_number = existing_document_number
+    created_fiscal_year = existing_fiscal_year or posting_date[:4]
 
     # -------------------------------------------------------------------------
     # (2.1) CRIACAO DO DOCUMENTO DE TESTE
     # -------------------------------------------------------------------------
-    document_result = executar_criar_documento(
-        system_key=system_key,
-        company_code=company_code,
-        vendor=vendor,
-        gl_account=gl_account,
-        amount=amount,
-        currency=currency,
-        document_date=document_date,
-        posting_date=posting_date,
-        baseline_date=baseline_date,
-        payment_terms=payment_terms,
-        payment_method=payment_method,
-        doc_type=doc_type,
-        reference=reference,
-        header_text=header_text,
-        item_text=item_text,
-        check_only=check_only,
-    )
-
-    created_document_number = str(getattr(document_result, "posted_belnr", "") or "").strip()
-    created_fiscal_year = str(getattr(document_result, "posted_gjahr", "") or "").strip() or posting_date[:4]
-    if not created_document_number:
-        created_document_number = str(kwargs.get("document_number") or "").strip()
-
-    if getattr(document_result, "status", "") != "posted":
-        reasons.append(_stage_reason("Criacao do documento nao concluiu com sucesso", document_result))
-        result = F110FlowResult(
-            status="blocked",
-            system_id=str(getattr(document_result, "system_id", "") or "").strip(),
+    if skip_create_document:
+        if not created_document_number:
+            reasons.append("Nao foi informado um documento existente para reutilizar.")
+            result = F110FlowResult(
+                status="blocked",
+                system_id=system_key,
+                company_code=company_code,
+                vendor=vendor,
+                document_number="",
+                fiscal_year=created_fiscal_year,
+                proposal_only=proposal_only,
+                created_document_number="",
+                created_fiscal_year=created_fiscal_year,
+                used_existing_document=True,
+                reasons=reasons,
+                document_result=None,
+            )
+            _print_summary(result)
+            return result
+    else:
+        document_result = executar_criar_documento(
+            system_key=system_key,
             company_code=company_code,
             vendor=vendor,
-            document_number=created_document_number,
-            fiscal_year=created_fiscal_year,
-            proposal_only=proposal_only,
-            created_document_number=created_document_number,
-            created_fiscal_year=created_fiscal_year,
-            reasons=reasons + list(getattr(document_result, "reasons", []) or []),
-            document_result=document_result,
+            gl_account=gl_account,
+            amount=amount,
+            currency=currency,
+            document_date=document_date,
+            posting_date=posting_date,
+            baseline_date=baseline_date,
+            payment_terms=payment_terms,
+            payment_method=payment_method,
+            doc_type=doc_type,
+            reference=reference,
+            header_text=header_text,
+            item_text=item_text,
+            check_only=check_only,
         )
-        _print_summary(result)
-        return result
+
+        created_document_number = str(getattr(document_result, "posted_belnr", "") or "").strip()
+        created_fiscal_year = str(getattr(document_result, "posted_gjahr", "") or "").strip() or posting_date[:4]
+        if not created_document_number:
+            created_document_number = existing_document_number
+
+        if getattr(document_result, "status", "") != "posted":
+            reasons.append(_stage_reason("Criacao do documento nao concluiu com sucesso", document_result))
+            result = F110FlowResult(
+                status="blocked",
+                system_id=str(getattr(document_result, "system_id", "") or "").strip(),
+                company_code=company_code,
+                vendor=vendor,
+                document_number=created_document_number,
+                fiscal_year=created_fiscal_year,
+                proposal_only=proposal_only,
+                created_document_number=created_document_number,
+                created_fiscal_year=created_fiscal_year,
+                used_existing_document=skip_create_document,
+                reasons=reasons + list(getattr(document_result, "reasons", []) or []),
+                document_result=document_result,
+            )
+            _print_summary(result)
+            return result
 
     if step in {"create-document", "create_doc", "create"} or check_only:
         result = F110FlowResult(
@@ -208,6 +251,7 @@ def executar(**kwargs: Any) -> F110FlowResult:
             proposal_only=proposal_only,
             created_document_number=created_document_number,
             created_fiscal_year=created_fiscal_year,
+            used_existing_document=skip_create_document,
             reasons=list(getattr(document_result, "reasons", []) or []),
             document_result=document_result,
         )
@@ -239,6 +283,7 @@ def executar(**kwargs: Any) -> F110FlowResult:
             proposal_only=proposal_only,
             created_document_number=created_document_number,
             created_fiscal_year=created_fiscal_year,
+            used_existing_document=skip_create_document,
             simulation_status=simulation_status,
             reasons=list(getattr(document_result, "reasons", []) or [])
             + list(getattr(simulation_result, "reasons", []) or []),
@@ -281,7 +326,7 @@ def executar(**kwargs: Any) -> F110FlowResult:
         run_date=run_date,
         identification=identification,
         posting_date=posting_date,
-        docs_entered_up_to=docs_entered_up_to or posting_date,
+        docs_entered_up_to=docs_entered_up_to or _next_yyyymmdd(),
         payment_method=payment_method,
         proposal_only=proposal_only,
         wait_seconds=wait_seconds,
@@ -306,6 +351,7 @@ def executar(**kwargs: Any) -> F110FlowResult:
         proposal_only=proposal_only,
         created_document_number=created_document_number,
         created_fiscal_year=created_fiscal_year,
+        used_existing_document=skip_create_document,
         simulation_status=simulation_status,
         proposal_status=proposal_status,
         reasons=reasons,
@@ -338,9 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reference", default=DEFAULT_REFERENCE, help="Referencia externa do documento")
     parser.add_argument("--header-text", default=DEFAULT_HEADER_TEXT, help="Texto do cabecalho")
     parser.add_argument("--item-text", default=DEFAULT_ITEM_TEXT, help="Texto das linhas")
-    parser.add_argument("--run-date", default=DEFAULT_RUN_DATE, help="Data da execucao do job em YYYYMMDD")
+    parser.add_argument("--run-date", default=_today_yyyymmdd(), help="Data da execucao do job em YYYYMMDD")
     parser.add_argument("--identification", default=DEFAULT_IDENTIFICATION, help="Identificacao da F110")
-    parser.add_argument("--docs-entered-up-to", default=DEFAULT_DOC_DATE, help="Data limite dos documentos em YYYYMMDD")
+    parser.add_argument("--docs-entered-up-to", default=_next_yyyymmdd(), help="Data limite dos documentos em YYYYMMDD")
     parser.add_argument("--wait-seconds", type=int, default=120, help="Tempo maximo de espera pelo job")
     parser.add_argument("--check-only", action="store_true", help="Executa apenas a criacao do documento, sem continuar")
     parser.add_argument(

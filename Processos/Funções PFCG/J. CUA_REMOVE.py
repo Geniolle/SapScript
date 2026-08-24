@@ -1,21 +1,21 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
 ###################################################################################
-# PROCESSO: Remover FunÃ§Ãµes SU01 (sheet = nome do ficheiro .py sem prefixo)
+# PROCESSO: Remover Funções SU01 (sheet = nome do ficheiro .py sem prefixo)
 ###################################################################################
-# Ex.: "I. CUA_REMOVE.py"  â†’  Sheet "CUA_REMOVE"
+# Ex.: "I. CUA_REMOVE.py"  →  Sheet "CUA_REMOVE"
 #
 # COLUNAS ESPERADAS NA SHEET:
 # ID | UTILIZADOR | SISTEMA | AGR_NAME | STATUS | MSG | TIMESTEMP
 #
-# MODO TEMPORÃRIO DE VALIDAÃ‡ÃƒO:
-# - SÃ³ avanÃ§a quando o utilizador carregar Enter
+# MODO TEMPORÁRIO DE VALIDAÇÃO:
+# - Só avança quando o utilizador carregar Enter
 # - Mostra no terminal cada passo antes de executar
 # - Faz varredura real dos campos do popup de filtro
 ###################################################################################
 
 ###################################################################################
-# BLOCO 1: IMPORTAÃ‡Ã•ES E CONFIGURAÃ‡ÃƒO
+# BLOCO 1: IMPORTAÇÕES E CONFIGURAÇÃO
 ###################################################################################
 
 import os
@@ -46,11 +46,11 @@ MAPA_SISTEMA = {
     "CUA": "SPA"
 }
 
-# TEMPORÃRIO: modo passo a passo
+# TEMPORÁRIO: modo passo a passo
 MODO_DEBUG_PASSO_A_PASSO = True
 
 ###################################################################################
-# BLOCO 3: UTILITÃRIOS
+# BLOCO 3: UTILITÁRIOS
 ###################################################################################
 
 def normalizar_coluna(valor):
@@ -97,12 +97,12 @@ def texto_limpo(valor):
 
 def pausar(msg):
     if MODO_DEBUG_PASSO_A_PASSO:
-        input(f"\nâ¸ï¸ {msg}\nPrima Enter para continuar...")
+        input(f"\n⏸️ {msg}\nPrima Enter para continuar...")
 
 def selecionar_ficheiro_excel():
     """
     Abre o popup SEM diretoria predefinida.
-    O Windows abrirÃ¡ naturalmente na Ãºltima pasta utilizada.
+    O Windows abrirá naturalmente na última pasta utilizada.
     """
     try:
         root = tk.Tk()
@@ -118,14 +118,14 @@ def selecionar_ficheiro_excel():
         root.destroy()
 
         if not caminho:
-            print("âš ï¸ SeleÃ§Ã£o de ficheiro cancelada pelo utilizador.")
+            print("⚠️ Seleção de ficheiro cancelada pelo utilizador.")
             return None
 
-        print(f"âœ… Ficheiro selecionado: {caminho}")
+        print(f"✅ Ficheiro selecionado: {caminho}")
         return caminho
 
     except Exception as e:
-        print(f"âŒ Erro ao abrir a janela de seleÃ§Ã£o: {e}")
+        print(f"❌ Erro ao abrir a janela de seleção: {e}")
         return None
 
 def obter_status_bar(session):
@@ -141,7 +141,7 @@ def tipo_sbar_para_status(tipo_sbar):
     tipo = (tipo_sbar or "").strip().upper()
 
     if tipo == "S":
-        return "CONCLUÃDO"
+        return "CONCLUÍDO"
     if tipo == "W":
         return "AVISO"
     if tipo in ("E", "A"):
@@ -166,10 +166,10 @@ def obter_objeto(session, obj_id):
     try:
         return session.findById(obj_id)
     except Exception as e:
-        raise Exception(f"Objeto SAP nÃ£o encontrado: {obj_id} | {e}")
+        raise Exception(f"Objeto SAP não encontrado: {obj_id} | {e}")
 
 def setar_texto_debug(session, obj_id, valor, descricao="campo"):
-    print(f"ðŸ“ A preencher {descricao}: {obj_id} = '{valor}'")
+    print(f"📝 A preencher {descricao}: {obj_id} = '{valor}'")
     pausar(f"Validar antes de preencher {descricao}")
 
     try:
@@ -194,8 +194,8 @@ def setar_texto_debug(session, obj_id, valor, descricao="campo"):
     except Exception as e:
         raise Exception(f"Falha ao preencher {descricao} ({obj_id}) com valor '{valor}': {e}")
 
-def pressionar_botao_debug(session, obj_id, descricao="botÃ£o"):
-    print(f"ðŸ–±ï¸ A pressionar {descricao}: {obj_id}")
+def pressionar_botao_debug(session, obj_id, descricao="botão"):
+    print(f"🖱️ A pressionar {descricao}: {obj_id}")
     pausar(f"Validar antes de pressionar {descricao}")
 
     try:
@@ -204,8 +204,8 @@ def pressionar_botao_debug(session, obj_id, descricao="botÃ£o"):
     except Exception as e:
         raise Exception(f"Falha ao pressionar {descricao} ({obj_id}): {e}")
 
-def enviar_vkey_debug(session, wnd_id, vkey, descricao="aÃ§Ã£o"):
-    print(f"âŒ¨ï¸ A executar {descricao}: {wnd_id}.sendVKey({vkey})")
+def enviar_vkey_debug(session, wnd_id, vkey, descricao="ação"):
+    print(f"⌨️ A executar {descricao}: {wnd_id}.sendVKey({vkey})")
     pausar(f"Validar antes de executar {descricao}")
 
     try:
@@ -215,7 +215,7 @@ def enviar_vkey_debug(session, wnd_id, vkey, descricao="aÃ§Ã£o"):
         raise Exception(f"Falha ao executar {descricao} em {wnd_id} com VKey={vkey}: {e}")
 
 def selecionar_tab_debug(session, obj_id, descricao="tab"):
-    print(f"ðŸ“‘ A selecionar {descricao}: {obj_id}")
+    print(f"📑 A selecionar {descricao}: {obj_id}")
     pausar(f"Validar antes de selecionar {descricao}")
 
     try:
@@ -237,7 +237,7 @@ def obter_children(obj):
 
 def coletar_componentes_recursivo(obj, lista):
     """
-    Percorre recursivamente os componentes SAP a partir de um nÃ³.
+    Percorre recursivamente os componentes SAP a partir de um nó.
     """
     try:
         lista.append(obj)
@@ -368,7 +368,7 @@ def preencher_popup_filtro(
             except Exception as e:
                 valor_atual = ""
 
-            print(f"ðŸ”’ Campo preservado por ID: {obj_id} | valor atual='{valor_atual}' | valor esperado='{valor_esperado}'")
+            print(f"🔒 Campo preservado por ID: {obj_id} | valor atual='{valor_atual}' | valor esperado='{valor_esperado}'")
             if valor_atual != normalizar_valor(valor_esperado):
                 return {
                     "success": False,
@@ -387,9 +387,9 @@ def preencher_popup_filtro(
             val_atual_norm = ""
             val_atual_bruto = ""
 
-        # ProteÃ§Ã£o por valor
+        # Proteção por valor
         if val_atual_norm in valores_protegidos:
-            print(f"ðŸ”’ Campo preservado por valor: {obj_id} | contem valor protegido='{val_atual_bruto}'")
+            print(f"🔒 Campo preservado por valor: {obj_id} | contem valor protegido='{val_atual_bruto}'")
             continue
 
         try:
@@ -412,9 +412,9 @@ def preencher_popup_filtro(
 
             # Validar que a escrita funcionou no campo candidato
             if normalizar_valor(escrito) != normalizar_valor(valor):
-                raise Exception("Valor escrito nÃ£o corresponde ao esperado no campo.")
+                raise Exception("Valor escrito não corresponde ao esperado no campo.")
 
-            # Validar todos os campos protegidos e o prÃ³prio valor escrito antes de clicar em Confirmar
+            # Validar todos os campos protegidos e o próprio valor escrito antes de clicar em Confirmar
             for cp_id, cp_val in campos_protegidos.items():
                 try:
                     cp_obj = session.findById(cp_id)
@@ -422,10 +422,10 @@ def preencher_popup_filtro(
                 except Exception:
                     cp_atual = ""
                 if cp_atual != normalizar_valor(cp_val):
-                    raise Exception(f"ValidaÃ§Ã£o prÃ©-confirmaÃ§Ã£o falhou: Campo protegido '{cp_id}' foi corrompido.")
+                    raise Exception(f"Validação pré-confirmação falhou: Campo protegido '{cp_id}' foi corrompido.")
 
-            print(f"âœ… Campo aceite: {obj_id} | antes='{val_atual_bruto}' | depois='{escrito}'")
-            print(f"âœ… ValidaÃ§Ã£o antes de confirmar: {descricao_filtro}='{valor}'")
+            print(f"✅ Campo aceite: {obj_id} | antes='{val_atual_bruto}' | depois='{escrito}'")
+            print(f"✅ Validação antes de confirmar: {descricao_filtro}='{valor}'")
             pressionar_botao_debug(session, "wnd[1]/tbar[0]/btn[0]", "confirmar filtro")
             
             return {
@@ -440,7 +440,7 @@ def preencher_popup_filtro(
         except Exception as e:
             erros.append(f"{obj_id} => {e}")
             candidatos_rejeitados += 1
-            print(f"ðŸ”Ž Candidato nÃ£o corresponde ao filtro solicitado. A testar prÃ³ximo campo.")
+            print(f"🔎 Candidato não corresponde ao filtro solicitado. A testar próximo campo.")
             print(f"[DEBUG] Campo ignorado: id='{obj_id}' | erro='{e}'")
 
     return {
@@ -481,7 +481,7 @@ def obter_valor_celula_grid(shell, row, coluna):
 
 def ler_ficheiro_excel(caminho_ficheiro, nome_sheet):
     if not caminho_ficheiro or not os.path.exists(caminho_ficheiro):
-        print("âŒ Ficheiro nÃ£o encontrado ou caminho invÃ¡lido.")
+        print("❌ Ficheiro não encontrado ou caminho inválido.")
         return None
 
     try:
@@ -490,7 +490,7 @@ def ler_ficheiro_excel(caminho_ficheiro, nome_sheet):
         wb.close()
 
         if nome_sheet not in sheets:
-            print(f"âŒ Sheet '{nome_sheet}' nÃ£o encontrada. DisponÃ­veis: {', '.join(sheets)}")
+            print(f"❌ Sheet '{nome_sheet}' não encontrada. Disponíveis: {', '.join(sheets)}")
             return None
 
         df = pd.read_excel(caminho_ficheiro, sheet_name=nome_sheet, dtype=object)
@@ -509,7 +509,7 @@ def ler_ficheiro_excel(caminho_ficheiro, nome_sheet):
         obrigatorias = ["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME"]
         faltantes = [c for c in obrigatorias if c not in df.columns]
         if faltantes:
-            print(f"âŒ Colunas obrigatÃ³rias em falta na sheet '{nome_sheet}': {', '.join(faltantes)}")
+            print(f"❌ Colunas obrigatórias em falta na sheet '{nome_sheet}': {', '.join(faltantes)}")
             return None
 
         for col in ["STATUS", "MSG", "TIMESTEMP"]:
@@ -525,15 +525,15 @@ def ler_ficheiro_excel(caminho_ficheiro, nome_sheet):
         df["MSG"] = df["MSG"].str.strip()
         df["TIMESTEMP"] = df["TIMESTEMP"].str.strip()
 
-        print(f"ðŸ“„ Sheet carregada: '{nome_sheet}' | Registos: {len(df)}")
+        print(f"📄 Sheet carregada: '{nome_sheet}' | Registos: {len(df)}")
         return df
 
     except Exception as e:
-        print(f"âŒ Erro ao ler o ficheiro/sheet: {e}")
+        print(f"❌ Erro ao ler o ficheiro/sheet: {e}")
         return None
 
 ###################################################################################
-# BLOCO 5: CONEXÃƒO COM SAP GUI
+# BLOCO 5: CONEXÃO COM SAP GUI
 ###################################################################################
 
 def conectar_sap(sistema_desejado):
@@ -546,18 +546,18 @@ def conectar_sap(sistema_desejado):
                 try:
                     if sess.Info.SystemName.upper() == sistema_desejado.upper():
                         print(
-                            f"âœ… Conectado ao SAP: {sess.Info.SystemName.upper()} | "
+                            f"✅ Conectado ao SAP: {sess.Info.SystemName.upper()} | "
                             f"Utilizador: {sess.Info.User} | Cliente: {sess.Info.Client}"
                         )
                         return sess
                 except Exception:
                     continue
 
-        print(f"âŒ SessÃ£o SAP nÃ£o encontrada para o sistema '{sistema_desejado}'.")
+        print(f"❌ Sessão SAP não encontrada para o sistema '{sistema_desejado}'.")
         return None
 
     except Exception as e:
-        print(f"âŒ Erro na conexÃ£o SAP GUI: {e}")
+        print(f"❌ Erro na conexão SAP GUI: {e}")
         return None
 
 def processar_grupos_sistema_user(df, session):
@@ -565,7 +565,7 @@ def processar_grupos_sistema_user(df, session):
     grupos = [g for _, g in df.groupby(["_UTILIZADOR_NORM", "_SISTEMA_NORM"], dropna=False)]
     total_grupos = len(grupos)
     print(f"Linhas Excel recebidas: {len(df)}")
-    print(f"CombinaÃ§Ãµes Ãºnicas UTILIZADOR + SISTEMA: {total_grupos}")
+    print(f"Combinações únicas UTILIZADOR + SISTEMA: {total_grupos}")
 
     for i, grp in enumerate(grupos, 1):
         row_exemplo = grp.iloc[0]
@@ -578,7 +578,7 @@ def processar_grupos_sistema_user(df, session):
         }
 
         print(
-            f"\nðŸ”§ Grupo {i}/{total_grupos} | "
+            f"\n🔧 Grupo {i}/{total_grupos} | "
             f"UTILIZADOR='{utilizador}' | SISTEMA='{sistema}' | Linhas Excel relacionadas: {len(grp)}"
         )
 
@@ -586,60 +586,60 @@ def processar_grupos_sistema_user(df, session):
 
         if not utilizador:
             msg = "UTILIZADOR vazio no grupo."
-            print(f"âŒ {msg}")
+            print(f"❌ {msg}")
             for idx in grp.index:
                 registar_resultado(df, idx, "ERRO", msg)
             continue
 
         if not sistema:
             msg = "SISTEMA vazio no grupo."
-            print(f"âŒ {msg}")
+            print(f"❌ {msg}")
             for idx in grp.index:
                 registar_resultado(df, idx, "ERRO", msg)
             continue
 
         if not roles_excel:
-            msg = f"Nenhuma funÃ§Ã£o vÃ¡lida foi informada para o utilizador {utilizador} no sistema {sistema}."
-            print(f"âŒ {msg}")
+            msg = f"Nenhuma função válida foi informada para o utilizador {utilizador} no sistema {sistema}."
+            print(f"❌ {msg}")
             for idx in grp.index:
                 registar_resultado(df, idx, "ERRO", msg)
             continue
 
         try:
-            print("âž¡ï¸ Passo 1: Entrar na SU01")
+            print("➡️ Passo 1: Entrar na SU01")
             print("\n[Etapa 2] Acesso ao SAP CUA")
             setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/nSU01", "campo de comando")
             enviar_vkey_debug(session, "wnd[0]", 0, "confirmar entrada na SU01")
             time.sleep(0.3)
 
-            print("âž¡ï¸ Passo 2: Informar utilizador")
+            print("➡️ Passo 2: Informar utilizador")
             setar_texto_debug(session, "wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME", utilizador, "campo utilizador")
             enviar_vkey_debug(session, "wnd[0]", 0, "confirmar utilizador")
             time.sleep(0.4)
 
             tipo_sbar, texto_sbar = obter_status_bar(session)
-            print(f"ðŸ“£ STATUS BAR apÃ³s abrir utilizador: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
+            print(f"📣 STATUS BAR após abrir utilizador: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
 
             if tipo_sbar in ("E", "A"):
                 msg = texto_sbar or f"Erro ao abrir o utilizador '{utilizador}'."
-                print(f"âŒ {msg}")
+                print(f"❌ {msg}")
                 for idx in grp.index:
                     registar_resultado(df, idx, tipo_sbar_para_status(tipo_sbar), msg)
                 continue
 
-            print("âž¡ï¸ Passo 3: Entrar em modo alteraÃ§Ã£o")
-            pressionar_botao_debug(session, "wnd[0]/tbar[1]/btn[18]", "botÃ£o alterar")
+            print("➡️ Passo 3: Entrar em modo alteração")
+            pressionar_botao_debug(session, "wnd[0]/tbar[1]/btn[18]", "botão alterar")
             time.sleep(0.3)
 
-            print("âž¡ï¸ Passo 4: Selecionar tab de funÃ§Ãµes")
+            print("➡️ Passo 4: Selecionar tab de funções")
             selecionar_tab_debug(session, "wnd[0]/usr/tabsTABSTRIP1/tabpACTG", "tab ACTG")
             time.sleep(0.3)
 
-            print("âž¡ï¸ Passo 5: Obter grid de funÃ§Ãµes")
-            pausar("Validar grid de funÃ§Ãµes antes de obter o objeto")
+            print("➡️ Passo 5: Obter grid de funções")
+            pausar("Validar grid de funções antes de obter o objeto")
             shell = obter_grid_roles(session)
 
-            print("âž¡ï¸ Passo 6: Filtrar SUBSYSTEM")
+            print("➡️ Passo 6: Filtrar SUBSYSTEM")
             pausar("Validar antes de abrir filtro SUBSYSTEM")
             shell.currentCellColumn = "SUBSYSTEM"
             shell.contextMenu()
@@ -648,27 +648,27 @@ def processar_grupos_sistema_user(df, session):
             time.sleep(0.3)
 
             if not res_filtro.get("success"):
-                msg = f"NÃ£o foi possÃ­vel preencher o filtro SUBSYSTEM='{sistema}'. Erro: {res_filtro.get('error')}"
-                print(f"âŒ {msg}")
+                msg = f"Não foi possível preencher o filtro SUBSYSTEM='{sistema}'. Erro: {res_filtro.get('error')}"
+                print(f"❌ {msg}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", msg)
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o apÃ³s falha no filtro")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação após falha no filtro")
                 continue
 
             row_count = obter_row_count_grid(shell)
-            print(f"ðŸ“Š RowCount do grid apÃ³s filtros: {row_count}")
+            print(f"📊 RowCount do grid após filtros: {row_count}")
 
             if row_count <= 0:
-                msg = f"Nenhuma funÃ§Ã£o encontrada para o utilizador {utilizador} no sistema {sistema}."
-                print(f"âš ï¸ {msg}")
+                msg = f"Nenhuma função encontrada para o utilizador {utilizador} no sistema {sistema}."
+                print(f"⚠️ {msg}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "AVISO", msg)
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                 continue
 
-            print("\n[Etapa 3] ValidaÃ§Ã£o e RemoÃ§Ã£o de Perfis")
+            print("\n[Etapa 3] Validação e Remoção de Perfis")
             indices_para_remover = []
             ignoradas = 0
 
@@ -679,12 +679,12 @@ def processar_grupos_sistema_user(df, session):
                 subsystem_legivel = False
 
             if not subsystem_legivel:
-                msg = "NÃ£o foi possÃ­vel validar as colunas necessÃ¡rias do grid. Nenhuma linha foi eliminada."
-                print(f"âŒ {msg}")
+                msg = "Não foi possível validar as colunas necessárias do grid. Nenhuma linha foi eliminada."
+                print(f"❌ {msg}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", msg)
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                 continue
 
             for row_index in range(row_count):
@@ -704,17 +704,17 @@ def processar_grupos_sistema_user(df, session):
                         f"   Linha {row_index} validada:\n"
                         f"      AGR_NAME='{agr_grid}'\n"
                         f"      SUBSYSTEM='{sub_grid}'\n"
-                        f"      CORRESPONDÃŠNCIA=SIM\n"
-                        f"      AÃ‡ÃƒO=ELIMINAR"
+                        f"      CORRESPONDÊNCIA=SIM\n"
+                        f"      AÇÃO=ELIMINAR"
                     )
                     indices_para_remover.append(row_index)
                 else:
-                    motivo = "FunÃ§Ã£o nÃ£o listada no Excel" if normalizar_valor(agr_grid) not in roles_excel else "SUBSYSTEM diferente do sistema indicado no Excel"
+                    motivo = "Função não listada no Excel" if normalizar_valor(agr_grid) not in roles_excel else "SUBSYSTEM diferente do sistema indicado no Excel"
                     print(
                         f"   Linha {row_index} preservada:\n"
                         f"      AGR_NAME='{agr_grid}'\n"
                         f"      SUBSYSTEM='{sub_grid}'\n"
-                        f"      CORRESPONDÃŠNCIA=NÃƒO\n"
+                        f"      CORRESPONDÊNCIA=NÃO\n"
                         f"      MOTIVO={motivo}"
                     )
                     ignoradas += 1
@@ -722,17 +722,17 @@ def processar_grupos_sistema_user(df, session):
             total_correspondencias = len(indices_para_remover)
             print(
                 f"\n   Entradas no grid: {row_count}"
-                f" | CorrespondÃªncias do Excel: {total_correspondencias}"
+                f" | Correspondências do Excel: {total_correspondencias}"
                 f" | Ignoradas: {ignoradas}"
             )
 
             if total_correspondencias == 0:
-                msg = f"Nenhuma correspondÃªncia encontrada | Sistema: {sistema} | Entradas eliminadas: 0"
-                print(f"âš ï¸ {msg}")
+                msg = f"Nenhuma correspondência encontrada | Sistema: {sistema} | Entradas eliminadas: 0"
+                print(f"⚠️ {msg}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "AVISO", msg)
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                 continue
 
             entradas_eliminadas = 0
@@ -746,7 +746,7 @@ def processar_grupos_sistema_user(df, session):
                     agr_atual = texto_limpo(obter_valor_celula_grid(shell, row_index, "AGR_NAME"))
                     sub_atual = texto_limpo(obter_valor_celula_grid(shell, row_index, "SUBSYSTEM"))
                 except Exception:
-                    print(f"âŒ Grid deixou de responder ao tentar revalidar a linha {row_index} antes da remoÃ§Ã£o.")
+                    print(f"❌ Grid deixou de responder ao tentar revalidar a linha {row_index} antes da remoção.")
                     grid_inconsistente = True
                     estado_grid_inseguro = True
                     break
@@ -759,8 +759,8 @@ def processar_grupos_sistema_user(df, session):
                     opcao_processamento="sistema"
                 ) or normalizar_valor(agr_atual) not in roles_excel:
                     print(
-                        f"   Linha {row_index} deixou de corresponder apÃ³s atualizaÃ§Ã£o do grid. "
-                        f"RemoÃ§Ã£o cancelada para esta linha."
+                        f"   Linha {row_index} deixou de corresponder após atualização do grid. "
+                        f"Remoção cancelada para esta linha."
                     )
                     continue
 
@@ -774,7 +774,7 @@ def processar_grupos_sistema_user(df, session):
                     try:
                         _ = obter_row_count_grid(shell)
                     except Exception as grid_err:
-                        print(f"âŒ Grid deixou de responder apÃ³s DEL_LINE na linha {row_index}: {grid_err}")
+                        print(f"❌ Grid deixou de responder após DEL_LINE na linha {row_index}: {grid_err}")
                         grid_inconsistente = True
                         estado_grid_inseguro = True
                         break
@@ -782,14 +782,14 @@ def processar_grupos_sistema_user(df, session):
                     tipo_sbar_del, texto_sbar_del = obter_status_bar(session)
                     detalhe_del = f" | SAP: {texto_sbar_del}" if texto_sbar_del else ""
                     err_msg = f"Linha {row_index}: {del_err}{detalhe_del}"
-                    print(f"âŒ Falha ao eliminar {err_msg}")
+                    print(f"❌ Falha ao eliminar {err_msg}")
                     erros_remocao.append(err_msg)
                     falhas_remocao += 1
 
                     try:
                         _ = obter_row_count_grid(shell)
                     except Exception:
-                        print("âŒ Grid inacessÃ­vel apÃ³s falha. Interrompendo remoÃ§Ãµes.")
+                        print("❌ Grid inacessível após falha. Interrompendo remoções.")
                         grid_inconsistente = True
                         estado_grid_inseguro = True
                         break
@@ -799,7 +799,7 @@ def processar_grupos_sistema_user(df, session):
             def _resumo_contadores():
                 return (
                     f"Entradas no grid: {row_count}"
-                    f" | CorrespondÃªncias do Excel: {total_correspondencias}"
+                    f" | Correspondências do Excel: {total_correspondencias}"
                     f" | Entradas eliminadas: {entradas_eliminadas}"
                     f" | Falhas: {falhas_remocao}"
                     f" | Entradas ignoradas: {ignoradas}"
@@ -807,44 +807,44 @@ def processar_grupos_sistema_user(df, session):
                 )
 
             if estado_grid_inseguro:
-                msg_final = f"Processamento interrompido por seguranÃ§a | O estado do grid deixou de ser confiÃ¡vel | Entradas eliminadas antes da interrupÃ§Ã£o: {entradas_eliminadas} | Nenhuma eliminaÃ§Ã£o adicional foi executada"
-                print(f"âŒ {msg_final}")
+                msg_final = f"Processamento interrompido por segurança | O estado do grid deixou de ser confiável | Entradas eliminadas antes da interrupção: {entradas_eliminadas} | Nenhuma eliminação adicional foi executada"
+                print(f"❌ {msg_final}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", msg_final)
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o apÃ³s estado inseguro")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação após estado inseguro")
                 continue
 
             if entradas_eliminadas == 0:
-                msg_final = f"Falha na remoÃ§Ã£o | {_resumo_contadores()}"
-                print(f"âŒ {msg_final}")
+                msg_final = f"Falha na remoção | {_resumo_contadores()}"
+                print(f"❌ {msg_final}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", msg_final)
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                 continue
 
-            print("âž¡ï¸ Passo 9: Gravar")
-            enviar_vkey_debug(session, "wnd[0]", 11, "gravar alteraÃ§Ã£o")
+            print("➡️ Passo 9: Gravar")
+            enviar_vkey_debug(session, "wnd[0]", 11, "gravar alteração")
             time.sleep(0.5)
 
             tipo_sbar, texto_sbar = obter_status_bar(session)
-            print(f"ðŸ“£ STATUS BAR final: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
+            print(f"📣 STATUS BAR final: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
 
             if tipo_sbar in ("E", "A"):
-                msg_sap = texto_sbar or "Falha ao gravar alteraÃ§Ãµes"
-                msg_final = f"{msg_sap} | Estado SAP nÃ£o confirmado | {_resumo_contadores()}"
-                print(f"âŒ {msg_final}")
+                msg_sap = texto_sbar or "Falha ao gravar alterações"
+                msg_final = f"{msg_sap} | Estado SAP não confirmado | {_resumo_contadores()}"
+                print(f"❌ {msg_final}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", msg_final)
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o apÃ³s falha de gravaÃ§Ã£o")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação após falha de gravação")
                 continue
 
             msg_sap = texto_sbar or f"User {utilizador} has changed"
 
             if entradas_eliminadas == total_correspondencias and falhas_remocao == 0:
-                status_final = "CONCLUÃDO"
+                status_final = "CONCLUÍDO"
             elif entradas_eliminadas > 0 and falhas_remocao > 0:
                 status_final = "AVISO"
             else:
@@ -854,46 +854,46 @@ def processar_grupos_sistema_user(df, session):
                 f"{msg_sap} | Modo: Sistema / User | "
                 f"Sistema: {sistema} | "
                 f"Entradas no grid: {row_count} | "
-                f"CorrespondÃªncias do Excel: {total_correspondencias} | "
+                f"Correspondências do Excel: {total_correspondencias} | "
                 f"Entradas eliminadas: {entradas_eliminadas} | "
                 f"Entradas preservadas: {ignoradas} | "
                 f"Falhas: {falhas_remocao}"
             )
-            icone = "âœ…" if status_final == "CONCLUÃDO" else "âš ï¸" if status_final == "AVISO" else "âŒ"
+            icone = "✅" if status_final == "CONCLUÍDO" else "⚠️" if status_final == "AVISO" else "❌"
             print(f"{icone} {msg_final}")
 
             for idx in grp.index:
                 registar_resultado(df, idx, status_final, msg_final)
 
-            print("âž¡ï¸ Passo 10: Sair da transaÃ§Ã£o")
+            print("➡️ Passo 10: Sair da transação")
             setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-            enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saÃ­da da transaÃ§Ã£o")
+            enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saída da transação")
 
         except Exception as e:
             tipo_sbar, texto_sbar = obter_status_bar(session)
             detalhe_sap = f" | SAP: {texto_sbar}" if texto_sbar else ""
             err_txt = f"{str(e).strip()}{detalhe_sap}"
-            print(f"âŒ Erro ao remover funÃ§Ãµes do sistema '{sistema}' para o utilizador '{utilizador}': {err_txt}")
+            print(f"❌ Erro ao remover funções do sistema '{sistema}' para o utilizador '{utilizador}': {err_txt}")
             for idx in grp.index:
                 registar_resultado(df, idx, "ERRO", err_txt)
 
             try:
-                print("â†©ï¸ Tentativa de sair da transaÃ§Ã£o apÃ³s erro")
+                print("↩️ Tentativa de sair da transação após erro")
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saÃ­da apÃ³s erro")
+                enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saída após erro")
             except Exception:
                 pass
 
     return df
 
 ###################################################################################
-# BLOCO 6: EXECUÃ‡ÃƒO (REMOVER FUNÃ‡ÃƒO NO CUA)
+# BLOCO 6: EXECUÇÃO (REMOVER FUNÇÃO NO CUA)
 ###################################################################################
 
 def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
     opcao_processamento = texto_limpo(opcao_processamento or "sistema_user").lower()
     if opcao_processamento not in {"sistema_user", "sistema"}:
-        print(f"âŒ OpÃ§Ã£o de processamento invÃ¡lida: {opcao_processamento}")
+        print(f"❌ Opção de processamento inválida: {opcao_processamento}")
         return df
 
     # Normalizar strings para agrupamento seguro
@@ -905,7 +905,7 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
         grupos = [g for _, g in df.groupby(["_UTILIZADOR_NORM", "_SISTEMA_NORM"], dropna=False)]
         total_grupos = len(grupos)
         print(f"Linhas Excel recebidas: {len(df)}")
-        print(f"CombinaÃ§Ãµes Ãºnicas UTILIZADOR + SISTEMA: {total_grupos}")
+        print(f"Combinações únicas UTILIZADOR + SISTEMA: {total_grupos}")
 
         for i, grp in enumerate(grupos, 1):
             row_exemplo = grp.iloc[0]
@@ -913,7 +913,7 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
             sistema = texto_limpo(row_exemplo.get("SISTEMA", ""))
             
             print(
-                f"\nðŸ”§ Grupo {i}/{total_grupos} | "
+                f"\n🔧 Grupo {i}/{total_grupos} | "
                 f"UTILIZADOR='{utilizador}' | SISTEMA='{sistema}' | Linhas Excel relacionadas: {len(grp)}"
             )
 
@@ -921,53 +921,53 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
 
             if not utilizador:
                 msg = "UTILIZADOR vazio no grupo."
-                print(f"âŒ {msg}")
+                print(f"❌ {msg}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", msg)
                 continue
 
             if not sistema:
                 msg = "SISTEMA vazio no grupo."
-                print(f"âŒ {msg}")
+                print(f"❌ {msg}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", msg)
                 continue
 
             try:
-                print("âž¡ï¸ Passo 1: Entrar na SU01")
+                print("➡️ Passo 1: Entrar na SU01")
                 print("\n[Etapa 2] Acesso ao SAP CUA")
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/nSU01", "campo de comando")
                 enviar_vkey_debug(session, "wnd[0]", 0, "confirmar entrada na SU01")
                 time.sleep(0.3)
 
-                print("âž¡ï¸ Passo 2: Informar utilizador")
+                print("➡️ Passo 2: Informar utilizador")
                 setar_texto_debug(session, "wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME", utilizador, "campo utilizador")
                 enviar_vkey_debug(session, "wnd[0]", 0, "confirmar utilizador")
                 time.sleep(0.4)
 
                 tipo_sbar, texto_sbar = obter_status_bar(session)
-                print(f"ðŸ“£ STATUS BAR apÃ³s abrir utilizador: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
+                print(f"📣 STATUS BAR após abrir utilizador: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
 
                 if tipo_sbar in ("E", "A"):
                     msg = texto_sbar or f"Erro ao abrir o utilizador '{utilizador}'."
-                    print(f"âŒ {msg}")
+                    print(f"❌ {msg}")
                     for idx in grp.index:
                         registar_resultado(df, idx, tipo_sbar_para_status(tipo_sbar), msg)
                     continue
 
-                print("âž¡ï¸ Passo 3: Entrar em modo alteraÃ§Ã£o")
-                pressionar_botao_debug(session, "wnd[0]/tbar[1]/btn[18]", "botÃ£o alterar")
+                print("➡️ Passo 3: Entrar em modo alteração")
+                pressionar_botao_debug(session, "wnd[0]/tbar[1]/btn[18]", "botão alterar")
                 time.sleep(0.3)
 
-                print("âž¡ï¸ Passo 4: Selecionar tab de funÃ§Ãµes")
+                print("➡️ Passo 4: Selecionar tab de funções")
                 selecionar_tab_debug(session, "wnd[0]/usr/tabsTABSTRIP1/tabpACTG", "tab ACTG")
                 time.sleep(0.3)
 
-                print("âž¡ï¸ Passo 5: Obter grid de funÃ§Ãµes")
-                pausar("Validar grid de funÃ§Ãµes antes de obter o objeto")
+                print("➡️ Passo 5: Obter grid de funções")
+                pausar("Validar grid de funções antes de obter o objeto")
                 shell = obter_grid_roles(session)
 
-                print("âž¡ï¸ Passo 6: Filtrar SUBSYSTEM")
+                print("➡️ Passo 6: Filtrar SUBSYSTEM")
                 pausar("Validar antes de abrir filtro SUBSYSTEM")
                 shell.currentCellColumn = "SUBSYSTEM"
                 shell.contextMenu()
@@ -976,32 +976,32 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                 time.sleep(0.3)
 
                 if not res_filtro.get("success"):
-                    msg = f"NÃ£o foi possÃ­vel preencher o filtro SUBSYSTEM='{sistema}'. Erro: {res_filtro.get('error')}"
-                    print(f"âŒ {msg}")
+                    msg = f"Não foi possível preencher o filtro SUBSYSTEM='{sistema}'. Erro: {res_filtro.get('error')}"
+                    print(f"❌ {msg}")
                     for idx in grp.index:
                         registar_resultado(df, idx, "ERRO", msg)
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o apÃ³s falha no filtro")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação após falha no filtro")
                     continue
 
                 row_count = obter_row_count_grid(shell)
-                print(f"ðŸ“Š RowCount do grid apÃ³s filtros: {row_count}")
+                print(f"📊 RowCount do grid após filtros: {row_count}")
 
                 if row_count <= 0:
-                    msg = f"Nenhuma funÃ§Ã£o encontrada para o utilizador {utilizador} no sistema {sistema}."
-                    print(f"âš ï¸ {msg}")
+                    msg = f"Nenhuma função encontrada para o utilizador {utilizador} no sistema {sistema}."
+                    print(f"⚠️ {msg}")
                     for idx in grp.index:
                         registar_resultado(df, idx, "AVISO", msg)
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                     continue
 
                 # Validar cada linha individualmente
-                print("\n[Etapa 3] ValidaÃ§Ã£o e RemoÃ§Ã£o de Perfis")
+                print("\n[Etapa 3] Validação e Remoção de Perfis")
                 indices_para_remover = []
                 ignoradas = 0
 
-                # Validar colunas obrigatÃ³rias
+                # Validar colunas obrigatórias
                 subsystem_legivel = True
                 try:
                     _ = obter_valor_celula_grid(shell, 0, "SUBSYSTEM")
@@ -1009,12 +1009,12 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                     subsystem_legivel = False
 
                 if not subsystem_legivel:
-                    msg = "NÃ£o foi possÃ­vel validar as colunas necessÃ¡rias do grid. Nenhuma linha foi eliminada."
-                    print(f"âŒ {msg}")
+                    msg = "Não foi possível validar as colunas necessárias do grid. Nenhuma linha foi eliminada."
+                    print(f"❌ {msg}")
                     for idx in grp.index:
                         registar_resultado(df, idx, "ERRO", msg)
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                     continue
 
                 for row_index in range(row_count):
@@ -1034,17 +1034,17 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                             f"   Linha {row_index} validada:\n"
                             f"      AGR_NAME='{agr_grid}'\n"
                             f"      SUBSYSTEM='{sub_grid}'\n"
-                            f"      CORRESPONDÃŠNCIA=SIM\n"
-                            f"      AÃ‡ÃƒO=ELIMINAR"
+                            f"      CORRESPONDÊNCIA=SIM\n"
+                            f"      AÇÃO=ELIMINAR"
                         )
                         indices_para_remover.append(row_index)
                     else:
-                        motivo = "SUBSYSTEM diferente do sistema indicado no Excel" if normalizar_valor(sub_grid) != normalizar_valor(sistema) else "NÃ£o foi possÃ­vel validar os dados da linha"
+                        motivo = "SUBSYSTEM diferente do sistema indicado no Excel" if normalizar_valor(sub_grid) != normalizar_valor(sistema) else "Não foi possível validar os dados da linha"
                         print(
                             f"   Linha {row_index} preservada:\n"
                             f"      AGR_NAME='{agr_grid}'\n"
                             f"      SUBSYSTEM='{sub_grid}'\n"
-                            f"      CORRESPONDÃŠNCIA=NÃƒO\n"
+                            f"      CORRESPONDÊNCIA=NÃO\n"
                             f"      MOTIVO={motivo}"
                         )
                         ignoradas += 1
@@ -1052,17 +1052,17 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                 total_correspondencias = len(indices_para_remover)
                 print(
                     f"\n   Entradas no grid: {row_count}"
-                    f" | CorrespondÃªncias do sistema: {total_correspondencias}"
+                    f" | Correspondências do sistema: {total_correspondencias}"
                     f" | Ignoradas: {ignoradas}"
                 )
 
                 if total_correspondencias == 0:
-                    msg = f"Nenhuma correspondÃªncia encontrada | Sistema: {sistema} | Entradas eliminadas: 0"
-                    print(f"âš ï¸ {msg}")
+                    msg = f"Nenhuma correspondência encontrada | Sistema: {sistema} | Entradas eliminadas: 0"
+                    print(f"⚠️ {msg}")
                     for idx in grp.index:
                         registar_resultado(df, idx, "AVISO", msg)
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                     continue
 
                 # Eliminar em ordem decrescente
@@ -1073,12 +1073,12 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                 estado_grid_inseguro = False
 
                 for row_index in sorted(indices_para_remover, reverse=True):
-                    # RevalidaÃ§Ã£o imediatamente antes de eliminar
+                    # Revalidação imediatamente antes de eliminar
                     try:
                         agr_atual = texto_limpo(obter_valor_celula_grid(shell, row_index, "AGR_NAME"))
                         sub_atual = texto_limpo(obter_valor_celula_grid(shell, row_index, "SUBSYSTEM"))
                     except Exception:
-                        print(f"âŒ Grid deixou de responder ao tentar revalidar a linha {row_index} antes da remoÃ§Ã£o.")
+                        print(f"❌ Grid deixou de responder ao tentar revalidar a linha {row_index} antes da remoção.")
                         grid_inconsistente = True
                         estado_grid_inseguro = True
                         break
@@ -1091,8 +1091,8 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                         opcao_processamento="sistema"
                     ):
                         print(
-                            f"   Linha {row_index} deixou de corresponder apÃ³s atualizaÃ§Ã£o do grid. "
-                            f"RemoÃ§Ã£o cancelada para esta linha."
+                            f"   Linha {row_index} deixou de corresponder após atualização do grid. "
+                            f"Remoção cancelada para esta linha."
                         )
                         continue
 
@@ -1103,11 +1103,11 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                         entradas_eliminadas += 1
                         time.sleep(0.2)
 
-                        # RevalidaÃ§Ã£o da consistÃªncia apÃ³s DEL_LINE
+                        # Revalidação da consistência após DEL_LINE
                         try:
                             _ = obter_row_count_grid(shell)
                         except Exception as grid_err:
-                            print(f"âŒ Grid deixou de responder apÃ³s DEL_LINE na linha {row_index}: {grid_err}")
+                            print(f"❌ Grid deixou de responder após DEL_LINE na linha {row_index}: {grid_err}")
                             grid_inconsistente = True
                             estado_grid_inseguro = True
                             break
@@ -1115,14 +1115,14 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                         tipo_sbar_del, texto_sbar_del = obter_status_bar(session)
                         detalhe_del = f" | SAP: {texto_sbar_del}" if texto_sbar_del else ""
                         err_msg = f"Linha {row_index}: {del_err}{detalhe_del}"
-                        print(f"âŒ Falha ao eliminar {err_msg}")
+                        print(f"❌ Falha ao eliminar {err_msg}")
                         erros_remocao.append(err_msg)
                         falhas_remocao += 1
 
                         try:
                             _ = obter_row_count_grid(shell)
                         except Exception:
-                            print("âŒ Grid inacessÃ­vel apÃ³s falha. Interrompendo remoÃ§Ãµes.")
+                            print("❌ Grid inacessível após falha. Interrompendo remoções.")
                             grid_inconsistente = True
                             estado_grid_inseguro = True
                             break
@@ -1132,7 +1132,7 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                 def _resumo_contadores():
                     return (
                         f"Entradas no grid: {row_count}"
-                        f" | CorrespondÃªncias do sistema: {total_correspondencias}"
+                        f" | Correspondências do sistema: {total_correspondencias}"
                         f" | Entradas eliminadas: {entradas_eliminadas}"
                         f" | Falhas: {falhas_remocao}"
                         f" | Entradas ignoradas: {ignoradas}"
@@ -1140,44 +1140,44 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                     )
 
                 if estado_grid_inseguro:
-                    msg_final = f"Processamento interrompido por seguranÃ§a | O estado do grid deixou de ser confiÃ¡vel | Entradas eliminadas antes da interrupÃ§Ã£o: {entradas_eliminadas} | Nenhuma eliminaÃ§Ã£o adicional foi executada"
-                    print(f"âŒ {msg_final}")
+                    msg_final = f"Processamento interrompido por segurança | O estado do grid deixou de ser confiável | Entradas eliminadas antes da interrupção: {entradas_eliminadas} | Nenhuma eliminação adicional foi executada"
+                    print(f"❌ {msg_final}")
                     for idx in grp.index:
                         registar_resultado(df, idx, "ERRO", msg_final)
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o apÃ³s estado inseguro")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação após estado inseguro")
                     continue
 
                 if entradas_eliminadas == 0:
-                    msg_final = f"Falha na remoÃ§Ã£o | {_resumo_contadores()}"
-                    print(f"âŒ {msg_final}")
+                    msg_final = f"Falha na remoção | {_resumo_contadores()}"
+                    print(f"❌ {msg_final}")
                     for idx in grp.index:
                         registar_resultado(df, idx, "ERRO", msg_final)
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                     continue
 
-                print("âž¡ï¸ Passo 9: Gravar")
-                enviar_vkey_debug(session, "wnd[0]", 11, "gravar alteraÃ§Ã£o")
+                print("➡️ Passo 9: Gravar")
+                enviar_vkey_debug(session, "wnd[0]", 11, "gravar alteração")
                 time.sleep(0.5)
 
                 tipo_sbar, texto_sbar = obter_status_bar(session)
-                print(f"ðŸ“£ STATUS BAR final: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
+                print(f"📣 STATUS BAR final: tipo='{tipo_sbar}' | texto='{texto_sbar}'")
 
                 if tipo_sbar in ("E", "A"):
-                    msg_sap = texto_sbar or "Falha ao gravar alteraÃ§Ãµes"
-                    msg_final = f"{msg_sap} | Estado SAP nÃ£o confirmado | {_resumo_contadores()}"
-                    print(f"âŒ {msg_final}")
+                    msg_sap = texto_sbar or "Falha ao gravar alterações"
+                    msg_final = f"{msg_sap} | Estado SAP não confirmado | {_resumo_contadores()}"
+                    print(f"❌ {msg_final}")
                     for idx in grp.index:
                         registar_resultado(df, idx, "ERRO", msg_final)
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transaÃ§Ã£o apÃ³s falha de gravaÃ§Ã£o")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação após falha de gravação")
                     continue
 
                 msg_sap = texto_sbar or f"User {utilizador} has changed"
 
                 if entradas_eliminadas == total_correspondencias and falhas_remocao == 0:
-                    status_final = "CONCLUÃDO"
+                    status_final = "CONCLUÍDO"
                 elif entradas_eliminadas > 0 and falhas_remocao > 0:
                     status_final = "AVISO"
                 else:
@@ -1187,33 +1187,33 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
                     f"{msg_sap} | Modo: Sistema | "
                     f"Sistema: {sistema} | "
                     f"Entradas no grid: {row_count} | "
-                    f"CorrespondÃªncias do sistema: {total_correspondencias} | "
+                    f"Correspondências do sistema: {total_correspondencias} | "
                     f"Entradas eliminadas: {entradas_eliminadas} | "
                     f"Entradas preservadas: {ignoradas} | "
                     f"Falhas: {falhas_remocao}"
                 )
-                icone = "âœ…" if status_final == "CONCLUÃDO" else "âš ï¸" if status_final == "AVISO" else "âŒ"
+                icone = "✅" if status_final == "CONCLUÍDO" else "⚠️" if status_final == "AVISO" else "❌"
                 print(f"{icone} {msg_final}")
                 
                 for idx in grp.index:
                     registar_resultado(df, idx, status_final, msg_final)
 
-                print("âž¡ï¸ Passo 10: Sair da transaÃ§Ã£o")
+                print("➡️ Passo 10: Sair da transação")
                 setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saÃ­da da transaÃ§Ã£o")
+                enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saída da transação")
 
             except Exception as e:
                 tipo_sbar, texto_sbar = obter_status_bar(session)
                 detalhe_sap = f" | SAP: {texto_sbar}" if texto_sbar else ""
                 err_txt = f"{str(e).strip()}{detalhe_sap}"
-                print(f"âŒ Erro ao remover funÃ§Ãµes do sistema '{sistema}' para o utilizador '{utilizador}': {err_txt}")
+                print(f"❌ Erro ao remover funções do sistema '{sistema}' para o utilizador '{utilizador}': {err_txt}")
                 for idx in grp.index:
                     registar_resultado(df, idx, "ERRO", err_txt)
 
                 try:
-                    print("â†©ï¸ Tentativa de sair da transaÃ§Ã£o apÃ³s erro")
+                    print("↩️ Tentativa de sair da transação após erro")
                     setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
-                    enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saÃ­da apÃ³s erro")
+                    enviar_vkey_debug(session, "wnd[0]", 0, "confirmar saída após erro")
                 except Exception:
                     pass
 
@@ -1221,7 +1221,7 @@ def remover_funcao_usuario(df, session, opcao_processamento="sistema_user"):
         print("Modo de processamento: Sistema / User")
         return processar_grupos_sistema_user(df, session)
 ###################################################################################
-# BLOCO 7: GUARDAR RESULTADOS PRESERVANDO FORMATAÃ‡ÃƒO
+# BLOCO 7: GUARDAR RESULTADOS PRESERVANDO FORMATAÇÃO
 ###################################################################################
 
 def mapear_cabecalhos(ws):
@@ -1248,7 +1248,7 @@ def salvar_resultado(df, caminho_ficheiro, nome_sheet):
         wb = load_workbook(caminho_ficheiro)
 
         if nome_sheet not in wb.sheetnames:
-            print(f"âŒ Sheet '{nome_sheet}' nÃ£o existe para gravar.")
+            print(f"❌ Sheet '{nome_sheet}' não existe para gravar.")
             return
 
         ws = wb[nome_sheet]
@@ -1273,7 +1273,7 @@ def salvar_resultado(df, caminho_ficheiro, nome_sheet):
 
         wb.save(caminho_ficheiro)
         print(
-            f"ðŸ’¾ Resultados atualizados na sheet '{nome_sheet}' "
+            f"💾 Resultados atualizados na sheet '{nome_sheet}' "
             f"(apenas STATUS / MSG / TIMESTEMP). Linhas atualizadas: {total_atualizadas}"
         )
 
@@ -1281,10 +1281,10 @@ def salvar_resultado(df, caminho_ficheiro, nome_sheet):
         base, ext = os.path.splitext(caminho_ficheiro)
         alternativo = f"{base}_resultado{ext}"
         wb.save(alternativo)
-        print(f"âš ï¸ Ficheiro estava aberto. Foi criada uma cÃ³pia:\n   {alternativo}")
+        print(f"⚠️ Ficheiro estava aberto. Foi criada uma cópia:\n   {alternativo}")
 
     except Exception as e:
-        print(f"âŒ Erro ao salvar preservando formataÃ§Ã£o: {e}")
+        print(f"❌ Erro ao salvar preservando formatação: {e}")
 
 def _log_resumo_excel_remocao(df):
     try:
@@ -1303,12 +1303,12 @@ def _log_resumo_excel_remocao(df):
                     utilizadores.append(normalizar_valor(utilizador))
         utilizadores_unicos = list(dict.fromkeys(utilizadores))
 
-        print(f"ðŸ“Š Resumo Excel CUA_REMOVE | Utilizadores: {', '.join(utilizadores_unicos) if utilizadores_unicos else 'N/D'}")
-        print(f"ðŸ“Š Resumo Excel CUA_REMOVE | Sistemas na sheet: {', '.join(sistemas_unicos) if sistemas_unicos else 'N/D'}")
+        print(f"📊 Resumo Excel CUA_REMOVE | Utilizadores: {', '.join(utilizadores_unicos) if utilizadores_unicos else 'N/D'}")
+        print(f"📊 Resumo Excel CUA_REMOVE | Sistemas na sheet: {', '.join(sistemas_unicos) if sistemas_unicos else 'N/D'}")
         if sistemas_unicos:
-            print(f"ðŸ“Š Resumo Excel CUA_REMOVE | Sistema principal do pedido: {sistemas_unicos[0]}")
+            print(f"📊 Resumo Excel CUA_REMOVE | Sistema principal do pedido: {sistemas_unicos[0]}")
     except Exception as exc:
-        print(f"âš ï¸ NÃ£o foi possÃ­vel resumir o Excel de remoÃ§Ã£o: {exc}")
+        print(f"⚠️ Não foi possível resumir o Excel de remoção: {exc}")
 
 ###################################################################################
 # BLOCO 8: EXECUTAR PROCESSO
@@ -1324,19 +1324,19 @@ def executar(
     global MODO_DEBUG_PASSO_A_PASSO
     MODO_DEBUG_PASSO_A_PASSO = bool(pedir_confirmacao and not modo_nao_interativo)
 
-    print(f"ðŸ“„ Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
+    print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
 
     # Resolver o caminho do ficheiro
     caminho = texto_limpo(caminho_ficheiro)
 
     if caminho:
         if not os.path.exists(caminho):
-            print(f"âŒ Ficheiro recebido nÃ£o encontrado no disco: {caminho}")
+            print(f"❌ Ficheiro recebido não encontrado no disco: {caminho}")
             return False
-        print(f"âœ… Ficheiro recebido para processamento: {caminho}")
+        print(f"✅ Ficheiro recebido para processamento: {caminho}")
     else:
         if modo_nao_interativo:
-            print("âŒ Caminho do ficheiro nÃ£o recebido pela pÃ¡gina web.")
+            print("❌ Caminho do ficheiro não recebido pela página web.")
             return False
         caminho = selecionar_ficheiro_excel()
         if not caminho:
@@ -1351,11 +1351,11 @@ def executar(
 
     sistema_desejado = MAPA_SISTEMA.get(str(ambiente).strip().upper())
     if not sistema_desejado:
-        print(f"âŒ Ambiente invÃ¡lido: {ambiente}. Use: {', '.join(MAPA_SISTEMA.keys())}")
+        print(f"❌ Ambiente inválido: {ambiente}. Use: {', '.join(MAPA_SISTEMA.keys())}")
         return False
 
-    print(f"ðŸ“Œ Ambiente de execuÃ§Ã£o efetivo: {ambiente}")
-    print(f"ðŸ“Œ Sistema lÃ³gico do alvo: {sistema_desejado}")
+    print(f"📌 Ambiente de execução efetivo: {ambiente}")
+    print(f"📌 Sistema lógico do alvo: {sistema_desejado}")
 
     session = conectar_sap(sistema_desejado)
     if not session:
@@ -1384,7 +1384,7 @@ def executar(
         # Para cada grupo, ler o status e somar eliminadas
         for _, grp in df_temp.groupby(["_U", "_S"]):
             st = grp.iloc[0].get("STATUS", "")
-            if st == "CONCLUÃDO":
+            if st == "CONCLUÍDO":
                 concluidos += 1
             elif st == "AVISO":
                 avisos += 1
@@ -1401,12 +1401,12 @@ def executar(
         print("Modo: Sistema")
         print(f"Linhas do Excel: {len(df_final)}")
         print(f"Grupos UTILIZADOR + SISTEMA: {total_grupos}")
-        print(f"Grupos concluÃ­dos: {concluidos}")
+        print(f"Grupos concluídos: {concluidos}")
         print(f"Grupos com aviso: {avisos}")
         print(f"Grupos com erro: {erros}")
-        print(f"FunÃ§Ãµes eliminadas: {tot_eliminadas}")
+        print(f"Funções eliminadas: {tot_eliminadas}")
     else:
-        concluidas = len(df_final[df_final["STATUS"] == "CONCLUÃDO"])
+        concluidas = len(df_final[df_final["STATUS"] == "CONCLUÍDO"])
         avisos = len(df_final[df_final["STATUS"] == "AVISO"])
         erros = len(df_final[df_final["STATUS"] == "ERRO"])
         
@@ -1419,13 +1419,13 @@ def executar(
 
         print("Modo: Sistema / User")
         print(f"Linhas processadas: {len(df_final)}")
-        print(f"ConcluÃ­das: {concluidas}")
+        print(f"Concluídas: {concluidas}")
         print(f"Avisos: {avisos}")
         print(f"Erros: {erros}")
-        print(f"FunÃ§Ãµes eliminadas: {tot_eliminadas}")
+        print(f"Funções eliminadas: {tot_eliminadas}")
     print("==================================================")
 
-    print("\n[Etapa 4] GravaÃ§Ã£o de Resultados")
+    print("\n[Etapa 4] Gravação de Resultados")
     salvar_resultado(df_final, caminho, NOME_SHEET)
 
     # Determinar status final de forma estruturada a partir dos contadores
@@ -1453,7 +1453,7 @@ def executar(
     return {
         "success": sucesso_final,
         "status": status_final,
-        "message": f"RemoÃ§Ã£o de funÃ§Ãµes concluÃ­da com estado: {status_final}",
+        "message": f"Remoção de funções concluída com estado: {status_final}",
         "summary": {
             "grupos_concluidos": concluidos if opcao_proc_normalizado == "sistema" else concluidas,
             "grupos_aviso": avisos,
