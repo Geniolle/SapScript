@@ -102,7 +102,7 @@ const AUTH_CHAT_STATES = {
     function escapeAuthorizationText(text) {
       if (!text) return '';
       return text
-        .replace(/&/g, "&amp;")
+        .replace(/&/g, "&")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
@@ -3950,7 +3950,7 @@ const AUTH_CHAT_STATES = {
 
       const items = [
         { label: '🔑 Alterar Senha', val: 'Alterar Senha', scriptName: 'su01_reset_password.py', category: 'CUA Login' },
-        { label: '➕ Criar utilizador', val: 'Criar utilizador', scriptName: 'L. CUA_CRIAR_USER.py', category: 'CUA_CRIAR_USER' },
+        { label: 'âž• Criar utilizador', val: 'Criar utilizador', scriptName: 'L. CUA_CRIAR_USER.py', category: 'CUA_CRIAR_USER' },
         { label: '📅 Delimitar data fim', val: 'Delimitar data fim', scriptName: 'I. CUA_ENDDATE.py', category: 'CUA_ENDDATE' }
       ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
 
@@ -4335,18 +4335,13 @@ const AUTH_CHAT_STATES = {
       const params = job?.params || {};
       return {
         state: String(job?.state || '').trim() || 'unknown',
-        status: String(job?.status || '').trim() || 'N/D',
-        systemId: extractUatLogField(log, 'Sistema'),
         companyCode: extractUatLogField(log, 'Empresa'),
         vendor: extractUatLogField(log, 'Fornecedor'),
-        documentNumber: extractUatLogField(log, 'Documento utilizado') || extractUatLogField(log, 'Documento novo') || extractUatLogField(log, 'Documento'),
+        documentNumber: extractUatLogField(log, 'Documento SAP utilizado') || extractUatLogField(log, 'Documento utilizado') || extractUatLogField(log, 'Documento novo') || extractUatLogField(log, 'Documento'),
         fiscalYear: extractUatLogField(log, 'Exercicio'),
-        identification: extractUatLogField(log, 'Identificacao') || extractUatLogField(log, 'Identificação'),
-        mode: extractUatLogField(log, 'Modo'),
-        simulationStatus: extractUatLogField(log, 'Simulacao'),
-        proposalStatus: extractUatLogField(log, 'Proposta/F110'),
+        identification: extractUatLogField(log, 'Identificacao') || extractUatLogField(log, 'Identificação') || extractUatLogField(log, 'Identificação'),
+        paymentDocumentNumber: extractUatLogField(log, 'Documento de pagamento') || extractUatLogField(log, 'AUGBL'),
         runDate: String(params.run_date || '').trim(),
-        docsEnteredUpTo: String(params.docs_entered_up_to || '').trim(),
       };
     }
 
@@ -4354,17 +4349,13 @@ const AUTH_CHAT_STATES = {
       const summary = parseUatExecuteF110JobSummary(job);
       const lines = [
         ['state', summary.state],
-        ['status', summary.status],
+        ['Run date', summary.runDate ? formatUatDisplayDate(summary.runDate) : ''],
         ['Identificacao', summary.identification],
         ['Documento SAP utilizado', summary.documentNumber],
         ['Empresa', summary.companyCode],
         ['Fornecedor', summary.vendor],
         ['Exercicio', summary.fiscalYear],
-        ['Modo', summary.mode],
-        ['Simulacao', summary.simulationStatus],
-        ['Proposta/F110', summary.proposalStatus],
-        ['Run date', summary.runDate ? formatUatDisplayDate(summary.runDate) : ''],
-        ['Docs up to', summary.docsEnteredUpTo ? formatUatDisplayDate(summary.docsEnteredUpTo) : ''],
+        ['Documento de pagamento', summary.paymentDocumentNumber],
       ];
 
       return lines
@@ -4508,13 +4499,14 @@ const AUTH_CHAT_STATES = {
       appendAuthorizationMessage(
         'assistant',
         [
-          'A preparar a execução completa da F110 com os seguintes parâmetros:',
+          'A preparar a execução completa da F110:',
           '',
-          `• <b>Documento SAP:</b> ${escapeAuthorizationText(String(context.documentNumber || '').trim())}`,
           `• <b>Run date:</b> ${escapeAuthorizationText(schedule.runDateDisplay)}`,
-          `• <b>Docs up to:</b> ${escapeAuthorizationText(schedule.docsEnteredUpToDisplay)}`,
-          `• <b>Contas pretendidas:</b> ${escapeAuthorizationText('10000000 até 99999999')}`,
-          `• <b>Identificação:</b> ${escapeAuthorizationText(identification)}`,
+          `• <b>Identificacao:</b> ${escapeAuthorizationText(identification)}`,
+          `• <b>Documento SAP:</b> ${escapeAuthorizationText(String(context.documentNumber || '').trim())}`,
+          `• <b>Empresa:</b> ${escapeAuthorizationText(String(context.companyCode || '').trim())}`,
+          `• <b>Fornecedor:</b> ${escapeAuthorizationText(String(context.vendor || '').trim())}`,
+          `• <b>Exercicio:</b> ${escapeAuthorizationText(String(context.fiscalYear || '').trim())}`,
         ].join('<br>'),
         true
       );
@@ -5631,7 +5623,7 @@ const AUTH_CHAT_STATES = {
 
       // Se for seleção de uma sub-rotina específica de Dados de Utilizador
       if (normVal.includes('CRIAR UTILIZADOR') || normVal.includes('ADICIONAR UTILIZADOR') || normVal.includes('CRIAR USER')) {
-        selectUserDataSubroutine({ label: '➕ Criar utilizador', val: 'Criar utilizador', scriptName: 'L. CUA_CRIAR_USER.py', category: 'CUA_CRIAR_USER' });
+        selectUserDataSubroutine({ label: 'âž• Criar utilizador', val: 'Criar utilizador', scriptName: 'L. CUA_CRIAR_USER.py', category: 'CUA_CRIAR_USER' });
         return;
       }
 
@@ -6674,3 +6666,4 @@ const AUTH_CHAT_STATES = {
         }
       }, 0);
     });
+

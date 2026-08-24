@@ -78,6 +78,39 @@ def test_build_selinfo_uses_real_rff110s_field_names():
     assert selinfo[14]["LOW"] == "6050000002"
 
 
+def test_read_payment_document_number_uses_clearing_document(monkeypatch):
+    calls: list[str] = []
+
+    def fake_read_table_with_fallbacks(conn, table_name, field_sets, options=None, rowcount=10):
+        calls.append(table_name)
+        if table_name == "BSAK":
+            return ([{"AUGBL": "2230000011"}], "AUGBL")
+        return ([], "")
+
+    monkeypatch.setattr(f110, "read_table_with_fallbacks", fake_read_table_with_fallbacks)
+
+    runner = f110.F110ProposalRunner()
+    runner.conn = object()
+    payload = f110.ProposalInput(
+        system_key="QAD",
+        company_code="2010",
+        vendor="10000040",
+        document_number="6050000016",
+        fiscal_year="2026",
+        run_date="20260824",
+        identification="UAT02",
+        posting_date="20260824",
+        docs_entered_up_to="20260825",
+        payment_method="S",
+        proposal_only=False,
+        jobclass="C",
+        wait_seconds=120,
+    )
+
+    assert runner._read_payment_document_number(payload) == "2230000011"
+    assert calls[0] == "BSAK"
+
+
 def test_next_identification_picks_first_free_sequence():
     class FakeConn:
         def call(self, function_name, **kwargs):

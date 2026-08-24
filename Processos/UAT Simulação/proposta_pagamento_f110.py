@@ -18,6 +18,7 @@ from f110_uat_common import (
     open_rfc_connection,
     parse_yyyymmdd,
     read_table,
+    read_table_with_fallbacks,
     zero_pad_if_numeric,
 )
 
@@ -127,6 +128,7 @@ class ProposalResult:
     docs_entered_up_to: str
     payment_method: str
     proposal_only: bool
+    payment_document_number: str = ""
     reasons: list[str] = field(default_factory=list)
     evidences: list[ProposalEvidence] = field(default_factory=list)
     job_status: str = ""
@@ -291,11 +293,42 @@ class F110ProposalRunner:
                 lines.append(f"[{msgtype or '?'}] {msgid} {msgno} {text}".strip())
         return lines
 
+    def _read_payment_document_number(self, payload: ProposalInput) -> str:
+        belnr = zero_pad_if_numeric(payload.document_number)
+        company_code = str(payload.company_code).strip()
+        fiscal_year = str(payload.fiscal_year).strip()
+        vendor_no = zero_pad_if_numeric(payload.vendor)
+
+        for table_name in ("BSAK", "BSEG"):
+            try:
+                rows, _ = read_table_with_fallbacks(
+                    self.conn,
+                    table_name,
+                    [["BUKRS", "BELNR", "GJAHR", "LIFNR", "AUGBL"], ["BUKRS", "BELNR", "GJAHR", "AUGBL"], ["BUKRS", "BELNR", "GJAHR"]],
+                    options=[
+                        f"BUKRS = '{company_code}'",
+                        f"AND BELNR = '{belnr}'",
+                        f"AND GJAHR = '{fiscal_year}'",
+                        f"AND LIFNR = '{vendor_no}'",
+                    ],
+                    rowcount=20,
+                )
+            except Exception:
+                continue
+
+            for row in rows:
+                payment_doc = zero_pad_if_numeric(row.get("AUGBL"), 10)
+                if payment_doc:
+                    return payment_doc
+
+        return ""
+
     def run(self, payload: ProposalInput) -> ProposalResult:
         evidences: list[ProposalEvidence] = []
         reasons: list[str] = []
         job_status = ""
         joblog: list[str] = []
+        payment_document_number = ""
         jobname = f"Z_F110_{payload.company_code}_{str(payload.identification or DEFAULT_IDENTIFICATION).strip().upper()}_{_now_hhmmss()}"
         jobcount = ""
         finished = False
@@ -322,6 +355,7 @@ class F110ProposalRunner:
                     docs_entered_up_to=payload.docs_entered_up_to,
                     payment_method=payload.payment_method,
                     proposal_only=payload.proposal_only,
+                    payment_document_number="",
                     reasons=reasons,
                     evidences=evidences,
                 )
@@ -352,6 +386,7 @@ class F110ProposalRunner:
                     docs_entered_up_to=payload.docs_entered_up_to,
                     payment_method=payload.payment_method,
                     proposal_only=payload.proposal_only,
+                    payment_document_number="",
                     reasons=reasons,
                     evidences=evidences,
                 )
@@ -379,6 +414,7 @@ class F110ProposalRunner:
                     docs_entered_up_to=payload.docs_entered_up_to,
                     payment_method=payload.payment_method,
                     proposal_only=payload.proposal_only,
+                    payment_document_number="",
                     reasons=reasons,
                     evidences=evidences,
                 )
@@ -412,6 +448,7 @@ class F110ProposalRunner:
                     docs_entered_up_to=payload.docs_entered_up_to,
                     payment_method=payload.payment_method,
                     proposal_only=payload.proposal_only,
+                    payment_document_number="",
                     reasons=reasons,
                     evidences=evidences,
                 )
@@ -499,6 +536,17 @@ class F110ProposalRunner:
             if joblog:
                 self._add_evidence(evidences, "JOBLOG", "ok", "Log do job lido.", [{"TEXT": line} for line in joblog[:20]])
 
+            if not payload.proposal_only:
+                payment_document_number = self._read_payment_document_number(payload)
+                if payment_document_number:
+                    self._add_evidence(
+                        evidences,
+                        "PAYMENT_DOCUMENT",
+                        "ok",
+                        "Documento de pagamento localizado em BSAK/BSEG.",
+                        [{"AUGBL": payment_document_number}],
+                    )
+
             status = "finished" if finished else "scheduled"
             return ProposalResult(
                 status=status,
@@ -518,6 +566,7 @@ class F110ProposalRunner:
                 docs_entered_up_to=payload.docs_entered_up_to,
                 payment_method=payload.payment_method,
                 proposal_only=payload.proposal_only,
+                payment_document_number=payment_document_number,
                 reasons=reasons,
                 evidences=evidences,
                 job_status=job_status,
@@ -543,6 +592,7 @@ class F110ProposalRunner:
                 docs_entered_up_to=payload.docs_entered_up_to,
                 payment_method=payload.payment_method,
                 proposal_only=payload.proposal_only,
+                payment_document_number=payment_document_number,
                 reasons=reasons,
                 evidences=evidences,
                 job_status=job_status,
@@ -591,24 +641,15 @@ def format_result(result: ProposalResult) -> str:
     lines.append("=" * 84)
     lines.append("UAT PROPOSTA PAGAMENTO F110")
     lines.append("=" * 84)
-    lines.append(f"Sistema        : {result.system_id or '?'}")
-    lines.append(f"Cliente        : {result.client or '?'}")
-    lines.append(f"Job            : {result.jobname}")
-    lines.append(f"Job count      : {result.jobcount or '?'}")
     lines.append(f"Estado         : {result.status.upper()}")
-    lines.append(f"Job status     : {result.job_status or '?'}")
-    lines.append(f"Empresa        : {result.company_code}")
-    lines.append(f"Fornecedor     : {result.vendor}")
-    lines.append(f"Documento      : {result.document_number}")
-    lines.append(f"Exercicio      : {result.fiscal_year}")
     lines.append(f"Run date       : {result.run_date}")
     lines.append(f"Identificacao  : {result.identification}")
-    lines.append(f"Posting date   : {result.posting_date}")
-    lines.append(f"Docs up to     : {result.docs_entered_up_to}")
-    lines.append(f"Metodo         : {result.payment_method}")
-    lines.append(f"Proposal only  : {'SIM' if result.proposal_only else 'NAO'}")
-    lines.append(f"Scheduled      : {'SIM' if result.scheduled else 'NAO'}")
-    lines.append(f"Finished       : {'SIM' if result.finished else 'NAO'}")
+    lines.append(f"Documento SAP utilizado : {result.document_number}")
+    lines.append(f"Empresa        : {result.company_code}")
+    lines.append(f"Fornecedor     : {result.vendor}")
+    lines.append(f"Exercicio      : {result.fiscal_year}")
+    if result.payment_document_number:
+        lines.append(f"Documento de pagamento : {result.payment_document_number}")
     lines.append("")
     lines.append("Motivos")
     lines.append("-" * 84)
