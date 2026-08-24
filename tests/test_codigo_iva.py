@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -22,9 +23,7 @@ def load_module():
 
 
 def temp_dir() -> Path:
-    base = Path("_test_tmp") / "codigo_iva"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+    return Path(tempfile.mkdtemp(prefix="codigo_iva_"))
 
 
 def build_workbook(path: Path) -> Path:
