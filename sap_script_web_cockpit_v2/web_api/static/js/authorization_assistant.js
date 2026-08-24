@@ -2854,11 +2854,15 @@ const AUTH_CHAT_STATES = {
     function showAuthorizationTypingIndicator(requestId = null, label = 'A pensar...') {
       const container = document.getElementById('authorization-chat-messages');
       if (!container) return;
-      
+
       const existing = container.querySelector('[data-authorization-typing="true"]');
       if (existing) {
         if (requestId !== null) {
           existing.dataset.requestId = requestId;
+        }
+        const existingLabel = existing.querySelector('.auth-chat-typing-label');
+        if (existingLabel) {
+          existingLabel.innerHTML = label ? String(label) : '';
         }
         container.scrollTop = container.scrollHeight;
         return;
@@ -2876,6 +2880,7 @@ const AUTH_CHAT_STATES = {
         <span class="auth-chat-typing-dot"></span>
         <span class="auth-chat-typing-dot"></span>
         <span class="auth-chat-typing-dot"></span>
+        <span class="auth-chat-typing-label">${label ? String(label) : ''}</span>
       `;
       container.appendChild(typingDiv);
       container.scrollTop = container.scrollHeight;
@@ -4091,6 +4096,25 @@ const AUTH_CHAT_STATES = {
       };
     }
 
+    function buildUatExecuteF110PreparationLabel(context, schedule) {
+      const defaults = getUatCreateDocumentDefaults();
+      const companyCode = String(context?.companyCode || defaults.company_code || '').trim();
+      const vendor = String(context?.vendor || defaults.vendor || '').trim();
+      const fiscalYear = String(context?.fiscalYear || new Date().getFullYear()).trim();
+      const documentNumber = String(context?.documentNumber || '').trim();
+      const runDateDisplay = String(schedule?.runDateDisplay || formatUatDisplayDate(getUatExecuteF110Schedule().runDate) || '').trim();
+
+      return [
+        'A preparar a execução completa da F110:',
+        `• Run date: ${escapeAuthorizationText(runDateDisplay)}`,
+        '• Identificação: sequencial automática',
+        `• Documento SAP: ${escapeAuthorizationText(documentNumber)}`,
+        `• Empresa: ${escapeAuthorizationText(companyCode)}`,
+        `• Fornecedor: ${escapeAuthorizationText(vendor)}`,
+        `• Exercicio: ${escapeAuthorizationText(fiscalYear)}`,
+      ].join('<br>');
+    }
+
     async function resolveLatestUatExecuteF110Identification() {
       try {
         const response = await fetch('/api/jobs?include_archived=true&limit=50', { cache: 'no-store' });
@@ -4493,23 +4517,8 @@ const AUTH_CHAT_STATES = {
       const currentRequestId = ++authorizationUatExecuteF110JobRequestId;
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       updateAuthorizationComposer();
-      showAuthorizationTypingIndicator(currentRequestId, 'A executar o fluxo completo da F110...');
       const schedule = getUatExecuteF110Schedule();
-      const identification = await resolveLatestUatExecuteF110Identification();
-      appendAuthorizationMessage(
-        'assistant',
-        [
-          'A preparar a execução completa da F110:',
-          '',
-          `• <b>Run date:</b> ${escapeAuthorizationText(schedule.runDateDisplay)}`,
-          `• <b>Identificacao:</b> ${escapeAuthorizationText(identification)}`,
-          `• <b>Documento SAP:</b> ${escapeAuthorizationText(String(context.documentNumber || '').trim())}`,
-          `• <b>Empresa:</b> ${escapeAuthorizationText(String(context.companyCode || '').trim())}`,
-          `• <b>Fornecedor:</b> ${escapeAuthorizationText(String(context.vendor || '').trim())}`,
-          `• <b>Exercicio:</b> ${escapeAuthorizationText(String(context.fiscalYear || '').trim())}`,
-        ].join('<br>'),
-        true
-      );
+      showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule));
 
       try {
         const job = await submitUatExecuteF110Job(context);
@@ -4518,7 +4527,7 @@ const AUTH_CHAT_STATES = {
           throw new Error('Job sem identificador');
         }
 
-        showAuthorizationTypingIndicator(currentRequestId, 'A acompanhar o processamento final da F110...');
+        showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule));
         await pollUatExecuteF110Job(jobId, currentRequestId);
       } catch (error) {
         hideAuthorizationTypingIndicator();
@@ -6666,4 +6675,3 @@ const AUTH_CHAT_STATES = {
         }
       }, 0);
     });
-
