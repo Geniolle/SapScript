@@ -58,3 +58,38 @@ def test_build_document_header_uses_reference_as_xblnr_source():
     header = f110.FiDocumentPoster._build_document_header(payload, "SAPUSER")
 
     assert header["REF_DOC_NO"] == "UAT-F110-TEST03"
+
+
+def test_build_tables_includes_vendor_withholding_tax_information():
+    payload = f110.DocumentInput(
+        system_key="QAD",
+        company_code="2010",
+        vendor="10000040",
+        gl_account="12010741",
+        amount=f110._normalize_amount("88,88"),
+        reference="UAT-F110-TEST03",
+    )
+
+    tables = f110.FiDocumentPoster._build_tables(
+        payload,
+        payment_terms="",
+        company_currency="EUR",
+        withholding_tax_rows=[
+            {
+                "ITEMNO_ACC": "0000000001",
+                "WT_TYPE": "IR",
+                "WT_CODE": "01",
+                "BAS_AMT_TC": "88.88",
+            }
+        ],
+    )
+
+    assert tables["ACCOUNTWT"] == [
+        {
+            "ITEMNO_ACC": "0000000001",
+            "WT_TYPE": "IR",
+            "WT_CODE": "01",
+            "BAS_AMT_TC": "88.88",
+        }
+    ]
+    assert tables["ACCOUNTPAYABLE"][0]["W_TAX_CODE"] == "01"

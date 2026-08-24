@@ -200,6 +200,44 @@ class FiDocumentPoster:
             return {}
         return dict(rows[0]) if rows else {}
 
+    def _read_vendor_withholding_tax(self, company_code: str, vendor: str, amount: Decimal) -> list[dict[str, str]]:
+        try:
+            rows, _ = read_table_with_fallbacks(
+                self.conn,
+                "LFBW",
+                [
+                    ["BUKRS", "LIFNR", "WITHT", "WT_WITHCD", "WT_SUBJCT"],
+                    ["BUKRS", "LIFNR", "WITHT", "WT_WITHCD"],
+                    ["BUKRS", "LIFNR", "WITHT"],
+                ],
+                options=[
+                    f"BUKRS = '{company_code}'",
+                    f"AND LIFNR = '{vendor}'",
+                ],
+                rowcount=10,
+            )
+        except Exception:
+            return []
+
+        withholding_amount = _decimal_to_bapi_text(abs(amount))
+        accountwt: list[dict[str, str]] = []
+        for row in rows:
+            wt_type = str(row.get("WITHT") or "").strip().upper()
+            wt_code = str(row.get("WT_WITHCD") or "").strip().upper()
+            if not wt_type or not wt_code:
+                continue
+
+            entry: dict[str, str] = {
+                "ITEMNO_ACC": _line_no(1),
+                "WT_TYPE": wt_type,
+                "WT_CODE": wt_code,
+            }
+            if withholding_amount:
+                entry["BAS_AMT_TC"] = withholding_amount
+            accountwt.append(entry)
+
+        return accountwt
+
     def _next_reference(self, company_code: str, reference_base: str) -> str:
         base = str(reference_base or DEFAULT_REFERENCE).strip().upper() or DEFAULT_REFERENCE
         prefix = base[: XBLNR_MAX_LENGTH - XBLNR_SEQUENCE_DIGITS]
@@ -245,7 +283,12 @@ class FiDocumentPoster:
         }
 
     @staticmethod
-    def _build_tables(payload: DocumentInput, payment_terms: str, company_currency: str) -> dict[str, list[dict[str, str]]]:
+    def _build_tables(
+        payload: DocumentInput,
+        payment_terms: str,
+        company_currency: str,
+        withholding_tax_rows: list[dict[str, str]],
+    ) -> dict[str, list[dict[str, str]]]:
         vendor_no = zero_pad_if_numeric(payload.vendor)
         gl_account = zero_pad_if_numeric(payload.gl_account)
         currency = (payload.currency or company_currency or DEFAULT_CURRENCY).strip().upper() or DEFAULT_CURRENCY
@@ -268,6 +311,11 @@ class FiDocumentPoster:
                 "ITEM_TEXT": payload.item_text,
             }
         ]
+        if withholding_tax_rows:
+            first_withholding_code = str(withholding_tax_rows[0].get("WT_CODE") or "").strip().upper()
+            if first_withholding_code:
+                account_payable[0]["W_TAX_CODE"] = first_withholding_code
+
         account_gl = [
             {
                 "ITEMNO_ACC": _line_no(2),
@@ -295,16 +343,19 @@ class FiDocumentPoster:
         return {
             "ACCOUNTGL": account_gl,
             "ACCOUNTPAYABLE": account_payable,
+            "ACCOUNTWT": withholding_tax_rows,
             "CURRENCYAMOUNT": currency_amount,
         }
 
     def _call_bapi(self, function_name: str, payload: DocumentInput, username: str, payment_terms: str, company_currency: str) -> dict[str, Any]:
-        tables = self._build_tables(payload, payment_terms, company_currency)
+        withholding_tax_rows = self._read_vendor_withholding_tax(payload.company_code, payload.vendor, payload.amount)
+        tables = self._build_tables(payload, payment_terms, company_currency, withholding_tax_rows)
         return self.conn.call(
             function_name,
             DOCUMENTHEADER=self._build_document_header(payload, username),
             ACCOUNTGL=tables["ACCOUNTGL"],
             ACCOUNTPAYABLE=tables["ACCOUNTPAYABLE"],
+            ACCOUNTWT=tables["ACCOUNTWT"],
             CURRENCYAMOUNT=tables["CURRENCYAMOUNT"],
         )
 

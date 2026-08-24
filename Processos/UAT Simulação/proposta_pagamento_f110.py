@@ -32,7 +32,7 @@ DEFAULT_JOBCLASS = "C"
 DEFAULT_PAYMENT_METHOD = "S"
 DEFAULT_PROPOSAL_ONLY = "X"
 DEFAULT_DOC_DATE = date.today().strftime("%Y%m%d")
-DEFAULT_RUN_DATE = (date.today() + timedelta(days=1)).strftime("%Y%m%d")
+DEFAULT_RUN_DATE = date.today().strftime("%Y%m%d")
 DEFAULT_DOCS_ENTERED_UP_TO = (date.today() + timedelta(days=1)).strftime("%Y%m%d")
 DEFAULT_IDENTIFICATION = "AUTO"
 DEFAULT_REPORT = "RFF110S"
@@ -196,7 +196,7 @@ class F110ProposalRunner:
         company_code = str(payload.company_code).strip()
         vendor_no = zero_pad_if_numeric(payload.vendor)
         payment_method = str(payload.payment_method or DEFAULT_PAYMENT_METHOD).strip().upper()
-        run_date = str(payload.run_date or _next_yyyymmdd()).strip()
+        run_date = str(payload.run_date or _today_yyyymmdd()).strip()
         posting_date = str(payload.posting_date or _today_yyyymmdd()).strip()
         docs_entered_up_to = str(payload.docs_entered_up_to or _next_yyyymmdd()).strip()
         document_number = zero_pad_if_numeric(payload.document_number)
@@ -641,7 +641,7 @@ def executar(**kwargs: Any) -> ProposalResult:
         vendor=str(kwargs.get("vendor") or "10000040").strip(),
         document_number=str(kwargs.get("document_number") or "6050000002").strip(),
         fiscal_year=str(kwargs.get("fiscal_year") or "2026").strip(),
-        run_date=str(kwargs.get("run_date") or _next_yyyymmdd()).strip(),
+        run_date=str(kwargs.get("run_date") or _today_yyyymmdd()).strip(),
         identification=str(kwargs.get("identification") or DEFAULT_IDENTIFICATION).strip(),
         posting_date=str(kwargs.get("posting_date") or _today_yyyymmdd()).strip(),
         docs_entered_up_to=str(kwargs.get("docs_entered_up_to") or _next_yyyymmdd()).strip(),

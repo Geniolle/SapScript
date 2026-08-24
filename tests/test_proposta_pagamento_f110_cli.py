@@ -19,7 +19,7 @@ def test_build_parser_defaults_to_proposal_only():
     args = f110.build_parser().parse_args([])
     assert args.proposal_only is True
     assert args.posting_date == date.today().strftime("%Y%m%d")
-    assert args.run_date == (date.today() + timedelta(days=1)).strftime("%Y%m%d")
+    assert args.run_date == date.today().strftime("%Y%m%d")
     assert args.docs_entered_up_to == (date.today() + timedelta(days=1)).strftime("%Y%m%d")
     assert args.identification == "AUTO"
 
