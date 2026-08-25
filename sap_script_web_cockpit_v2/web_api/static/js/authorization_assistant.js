@@ -55,7 +55,9 @@ const AUTH_CHAT_STATES = {
     let authorizationUatCreateDocumentFlow = null;
     let authorizationUatCreateDocumentJobRequestId = 0;
     let authorizationUatLastCreatedDocumentContext = null;
+    let authorizationUatLastProposalContext = null;
     let authorizationUatExecuteF110JobRequestId = 0;
+    let authorizationCreateDocumentDefaults = null;
 
     let authorizationLoadRequestId = 0;
     let authorizationChatLoading = false;
@@ -749,7 +751,7 @@ const AUTH_CHAT_STATES = {
             showPfcgProcessExecutionOptions();
           }
         }
-      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+      ];
 
       actions.forEach(item => {
         const btn = document.createElement('button');
@@ -823,7 +825,7 @@ const AUTH_CHAT_STATES = {
       const isProcessQuery = /processo|processos|skill|skills|modulo|modulos/i.test(queryNorm);
       if (isProcessQuery || queryNorm.includes('AUTORIZA') || queryNorm.includes('PFCG') || queryNorm.includes('CODIGOS IVA') || queryNorm.includes('CADEIAS')) {
         if (queryNorm.includes('AUTORIZA') || queryNorm.includes('PERFIL') || queryNorm.includes('PFCG') || queryNorm.includes('CUA')) {
-          promptInitialSystemSelection('Perfil de autorização');
+          showAuthorizationProfileSubroutineOptions();
           return;
         }
 
@@ -3163,6 +3165,8 @@ const AUTH_CHAT_STATES = {
         showJiraTeamOptions();
       } else {
         if (!skipUserMsg) appendAuthorizationMessage('user', 'Executar processo');
+        authorizationChatState = AUTH_CHAT_STATES.READY;
+        updateAuthorizationComposer();
         renderRoutineSuggestionsInitial();
       }
     }
@@ -3812,6 +3816,8 @@ const AUTH_CHAT_STATES = {
 
     function renderRoutineSuggestionsInitial() {
       hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.READY;
+      updateAuthorizationComposer();
 
       appendAuthorizationMessage(
         'assistant',
@@ -3865,6 +3871,8 @@ const AUTH_CHAT_STATES = {
 
     function showAuthorizationProfileSubroutineOptions() {
       hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.READY;
+      updateAuthorizationComposer();
 
       appendAuthorizationMessage(
         'assistant',
@@ -3937,6 +3945,8 @@ const AUTH_CHAT_STATES = {
 
     function showUserDataSubroutineOptions() {
       hideAuthorizationTypingIndicator();
+      authorizationChatState = AUTH_CHAT_STATES.READY;
+      updateAuthorizationComposer();
 
       appendAuthorizationMessage(
         'assistant',
@@ -3989,7 +3999,7 @@ const AUTH_CHAT_STATES = {
 
       appendAuthorizationMessage(
         'assistant',
-        'Perfeito. Selecionou a pasta **UAT Simulação**.\nQual rotina pretende executar?'
+        'Perfeito. Selecionou a pasta UAT Simulação.\nEscolha o modo pretendido'
       );
 
       const container = document.getElementById('authorization-chat-messages');
@@ -4005,10 +4015,9 @@ const AUTH_CHAT_STATES = {
       const items = [
         { label: '🧾 Criar Documento', val: 'Criar Documento', scriptName: 'Criar Documento.py', category: 'UAT Simulação' },
         { label: '⚙️ Executar F110', val: 'Executar F110', scriptName: 'Executar F110.py', category: 'UAT Simulação' },
-        { label: '🧪 Simular F110', val: 'Simular F110', scriptName: 'simular_f110.py', category: 'UAT Simulação' },
-        { label: '📄 Proposta Pagamento F110', val: 'Proposta Pagamento F110', scriptName: 'proposta_pagamento_f110.py', category: 'UAT Simulação' },
-        { label: '🔁 RFF110S', val: 'RFF110S', scriptName: 'RFF110S.py', category: 'UAT Simulação' }
-      ].sort((a, b) => a.val.localeCompare(b.val, 'pt', { sensitivity: 'base' }));
+        { label: '📄 Proposta Pagamento', val: 'Proposta Pagamento', scriptName: 'Executar F110.py', category: 'UAT Simulação' },
+        { label: '🔄 Ciclo de pagamento', val: 'Ciclo de pagamento', scriptName: 'Executar F110.py', category: 'UAT Simulação' }
+      ];
 
       items.forEach(item => {
         const btn = document.createElement('button');
@@ -4036,6 +4045,7 @@ const AUTH_CHAT_STATES = {
     }
 
     function getUatCreateDocumentDefaults() {
+      const defaults = authorizationCreateDocumentDefaults || {};
       const today = new Date();
       const y = today.getFullYear();
       const m = String(today.getMonth() + 1).padStart(2, '0');
@@ -4043,19 +4053,54 @@ const AUTH_CHAT_STATES = {
       const todayYyyyMmDd = `${y}${m}${d}`;
 
       return {
-        system_key: 'QAD',
-        company_code: '2010',
-        vendor: '10000040',
-        gl_account: '12010741',
-        amount: '88,88',
-        currency: 'EUR',
-        document_date: todayYyyyMmDd,
-        posting_date: todayYyyyMmDd,
-        payment_method: 'S',
-        doc_type: 'KR',
-        reference: 'UAT-F110-TEST',
-        header_text: 'UAT TESTE F110',
-        item_text: 'UAT F110 TESTE',
+        system_key: String(defaults.system_key || '').trim().toUpperCase(),
+        company_code: String(defaults.company_code || '').trim(),
+        vendor: String(defaults.vendor || '').trim(),
+        customer: String(defaults.customer || '').trim(),
+        customer_company_code: String(defaults.customer_company_code || '').trim(),
+        customer_gl_account: String(defaults.customer_gl_account || '').trim(),
+        customer_doc_type: String(defaults.customer_doc_type || '').trim().toUpperCase(),
+        vendor_payment_method: String(defaults.vendor_payment_method || defaults.payment_method || '').trim().toUpperCase(),
+        customer_payment_method: String(defaults.customer_payment_method || defaults.payment_method || '').trim().toUpperCase(),
+        gl_account: String(defaults.gl_account || '').trim(),
+        amount: String(defaults.amount || '').trim(),
+        currency: String(defaults.currency || '').trim().toUpperCase(),
+        document_date: String(defaults.document_date || '').trim() || todayYyyyMmDd,
+        posting_date: String(defaults.posting_date || '').trim() || todayYyyyMmDd,
+        payment_method: String(defaults.payment_method || '').trim().toUpperCase(),
+        doc_type: String(defaults.doc_type || '').trim().toUpperCase(),
+        reference: String(defaults.reference || '').trim(),
+        header_text: String(defaults.header_text || '').trim(),
+        item_text: String(defaults.item_text || '').trim(),
+      };
+    }
+
+    function getUatCreateDocumentPartyAccountDefault(partyType, defaults = getUatCreateDocumentDefaults()) {
+      const normalizedPartyType = String(partyType || '').trim().toLowerCase();
+      if (normalizedPartyType === 'customer') {
+        return String(defaults.customer || '').trim();
+      }
+      return String(defaults.vendor || '').trim();
+    }
+
+    function getUatCreateDocumentPartySpecificDefaults(partyType, defaults = getUatCreateDocumentDefaults()) {
+      const normalizedPartyType = String(partyType || '').trim().toLowerCase();
+      if (normalizedPartyType === 'customer') {
+        return {
+          company_code: String(defaults.customer_company_code || defaults.company_code || '').trim(),
+          gl_account: String(defaults.customer_gl_account || defaults.gl_account || '').trim(),
+          doc_type: String(defaults.customer_doc_type || defaults.doc_type || '').trim(),
+          payment_method: String(defaults.customer_payment_method || defaults.payment_method || '').trim().toUpperCase(),
+          partner_key: String(defaults.customer || '').trim(),
+        };
+      }
+
+      return {
+        company_code: String(defaults.company_code || '').trim(),
+        gl_account: String(defaults.gl_account || '').trim(),
+        doc_type: String(defaults.doc_type || '').trim(),
+        payment_method: String(defaults.vendor_payment_method || defaults.payment_method || '').trim().toUpperCase(),
+        partner_key: String(defaults.vendor || '').trim(),
       };
     }
 
@@ -4096,16 +4141,17 @@ const AUTH_CHAT_STATES = {
       };
     }
 
-    function buildUatExecuteF110PreparationLabel(context, schedule) {
+    function buildUatExecuteF110PreparationLabel(context, schedule, modeLabel) {
       const defaults = getUatCreateDocumentDefaults();
       const companyCode = String(context?.companyCode || defaults.company_code || '').trim();
       const vendor = String(context?.vendor || defaults.vendor || '').trim();
       const fiscalYear = String(context?.fiscalYear || new Date().getFullYear()).trim();
       const documentNumber = String(context?.documentNumber || '').trim();
       const runDateDisplay = String(schedule?.runDateDisplay || formatUatDisplayDate(getUatExecuteF110Schedule().runDate) || '').trim();
+      const title = String(modeLabel || 'Executar F110').trim();
 
       return [
-        'A preparar a execução completa da F110:',
+        `A preparar a execução de ${escapeAuthorizationText(title)}:`,
         `• Run date: ${escapeAuthorizationText(runDateDisplay)}`,
         '• Identificação: sequencial automática',
         `• Documento SAP: ${escapeAuthorizationText(documentNumber)}`,
@@ -4148,20 +4194,35 @@ const AUTH_CHAT_STATES = {
       return 'UAT01';
     }
 
-    const UAT_CREATE_DOCUMENT_STEPS = [
-      { key: 'company_code', label: 'Código da empresa (BUKRS)', defaultValue: '2010', uppercase: true },
-      { key: 'vendor', label: 'Fornecedor', defaultValue: '10000040', uppercase: true },
-      { key: 'gl_account', label: 'Conta GL', defaultValue: '12010741', uppercase: true },
-      { key: 'amount', label: 'Valor do documento', defaultValue: '88,88' },
-      { key: 'currency', label: 'Moeda', defaultValue: 'EUR', uppercase: true },
-      { key: 'document_date', label: 'Data do documento', defaultValue: null, date: true },
-      { key: 'posting_date', label: 'Data de lançamento', defaultValue: null, date: true },
-      { key: 'payment_method', label: 'Método de pagamento', defaultValue: 'S', uppercase: true },
-      { key: 'doc_type', label: 'Tipo de documento', defaultValue: 'KR', uppercase: true },
-      { key: 'reference', label: 'Referência externa', defaultValue: 'UAT-F110-TEST' },
-      { key: 'header_text', label: 'Texto do cabeçalho', defaultValue: 'UAT TESTE F110' },
-      { key: 'item_text', label: 'Texto das linhas', defaultValue: 'UAT F110 TESTE' },
-    ];
+    function getUatCreateDocumentSteps() {
+      const defaults = getUatCreateDocumentDefaults();
+      const partyType = authorizationUatCreateDocumentFlow?.values?.party_type || 'vendor';
+      const partyLabel = getUatCreateDocumentPartyLabel(partyType);
+      const partyAccountDefault = getUatCreateDocumentPartyAccountDefault(partyType, defaults);
+      const partyDefaults = getUatCreateDocumentPartySpecificDefaults(partyType, defaults);
+      return [
+        { key: 'company_code', label: 'Código da empresa (BUKRS)', defaultValue: partyDefaults.company_code || defaults.company_code, uppercase: true },
+        { key: 'vendor', label: partyLabel, defaultValue: partyAccountDefault, uppercase: true },
+        { key: 'gl_account', label: 'Conta GL', defaultValue: partyDefaults.gl_account || defaults.gl_account, uppercase: true },
+        { key: 'amount', label: 'Valor do documento', defaultValue: defaults.amount },
+        { key: 'currency', label: 'Moeda', defaultValue: defaults.currency, uppercase: true },
+        { key: 'document_date', label: 'Data do documento', defaultValue: defaults.document_date, date: true },
+        { key: 'posting_date', label: 'Data de lançamento', defaultValue: defaults.posting_date, date: true },
+        { key: 'payment_method', label: 'Método de pagamento', defaultValue: defaults.payment_method, uppercase: true },
+        { key: 'doc_type', label: 'Tipo de documento', defaultValue: partyDefaults.doc_type || defaults.doc_type, uppercase: true },
+        { key: 'reference', label: 'Referência externa', defaultValue: defaults.reference },
+        { key: 'header_text', label: 'Texto do cabeçalho', defaultValue: defaults.header_text },
+        { key: 'item_text', label: 'Texto das linhas', defaultValue: defaults.item_text },
+      ];
+    }
+
+    function getUatCreateDocumentPartyLabel(partyType) {
+      const normalizedPartyType = String(partyType || '').trim().toLowerCase();
+      if (normalizedPartyType === 'customer') {
+        return 'Cliente';
+      }
+      return 'Fornecedor';
+    }
 
     function normalizeUatCreateDocumentText(value, uppercase = false) {
       const text = String(value || '').trim();
@@ -4191,7 +4252,54 @@ const AUTH_CHAT_STATES = {
       authorizationUatCreateDocumentFlow = null;
     }
 
-    function appendUatCreateDocumentPrompt() {
+    function appendUatCreateDocumentPartyPrompt() {
+      hideAuthorizationTypingIndicator();
+      appendAuthorizationMessage(
+        'assistant',
+        'Pretende criar o documento para **Fornecedor** ou **Cliente**?'
+      );
+
+      const container = document.getElementById('authorization-chat-messages');
+      if (!container) return;
+
+      const grid = document.createElement('div');
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
+      grid.style.gap = '10px';
+      grid.style.marginTop = '6px';
+      grid.style.marginBottom = '8px';
+
+      const options = [
+        { label: 'Fornecedor', val: 'vendor' },
+        { label: 'Cliente', val: 'customer' },
+      ];
+
+      options.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'auth-chat-system-card';
+        btn.style.flex = '0 0 auto';
+        btn.style.padding = '8px 12px';
+        btn.onclick = () => {
+          if (btn.parentElement) {
+            btn.parentElement.querySelectorAll('button').forEach(b => {
+              b.classList.remove('selected');
+              b.setAttribute('aria-pressed', 'false');
+            });
+          }
+          btn.classList.add('selected');
+          btn.setAttribute('aria-pressed', 'true');
+          selectUatCreateDocumentPartyType(item.val);
+        };
+        btn.innerHTML = `<span class="sys-code" style="font-size:0.82rem; font-weight:700;">${escapeAuthorizationText(item.label)}</span>`;
+        grid.appendChild(btn);
+      });
+
+      container.appendChild(grid);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function appendUatCreateDocumentModePrompt() {
       hideAuthorizationTypingIndicator();
       appendAuthorizationMessage(
         'assistant',
@@ -4240,18 +4348,35 @@ const AUTH_CHAT_STATES = {
 
     async function submitUatCreateDocumentJob(params) {
       const defaults = getUatCreateDocumentDefaults();
+      const partyType = String(params?.party_type || defaults.party_type || 'vendor').trim().toLowerCase();
+      const partyDefaults = getUatCreateDocumentPartySpecificDefaults(partyType, defaults);
+      const resolvedSystemKey = String(
+        params?.system_key ||
+        defaults.system_key ||
+        authorizationSelectedSystem?.key ||
+        ''
+      ).trim().toUpperCase();
       const payload = {
         task: 'sap_cockpit',
-        ambiente: defaults.system_key,
+        ambiente: resolvedSystemKey,
         processo: 'UAT Simulação',
         subprocesso: 'Criar Documento.py',
         request_option: '4',
         request_type: '1',
         caminho_ficheiro: '',
         nome_pasta: '',
-        system_key: defaults.system_key,
+        system_key: resolvedSystemKey,
         ...defaults,
+        ...partyDefaults,
+        ambiente: resolvedSystemKey,
+        system_key: resolvedSystemKey,
         ...params,
+        company_code: String(params?.company_code || partyDefaults.company_code || defaults.company_code || '').trim(),
+        gl_account: String(params?.gl_account || partyDefaults.gl_account || defaults.gl_account || '').trim(),
+        doc_type: String(params?.doc_type || partyDefaults.doc_type || defaults.doc_type || '').trim(),
+        vendor: partyType === 'vendor' ? String(params?.vendor || defaults.vendor || '').trim() : '',
+        customer: partyType === 'customer' ? String(params?.customer || defaults.customer || '').trim() : '',
+        party_type: partyType === 'customer' ? 'customer' : 'vendor',
       };
 
       const formData = new FormData();
@@ -4278,6 +4403,7 @@ const AUTH_CHAT_STATES = {
 
     function parseUatCreateDocumentJobSummary(job) {
       const log = String(job?.log || '');
+      const params = job?.params || {};
       const state = String(job?.state || '').trim() || 'unknown';
       const status = String(job?.status || '').trim() || 'N/D';
 
@@ -4285,6 +4411,7 @@ const AUTH_CHAT_STATES = {
       const companyMatch = log.match(/\bBUKRS\s*:\s*([0-9]+)/i);
       const yearMatch = log.match(/\bGJAHR\s*:\s*([0-9]+)/i);
       const refMatch = log.match(/\bReferencia\s*:\s*(.+)/i);
+      const partyTypeMatch = log.match(/^\s*Tipo\s*:\s*(Cliente|Fornecedor)\s*$/im);
 
       return {
         state,
@@ -4293,27 +4420,62 @@ const AUTH_CHAT_STATES = {
         companyCode: String(companyMatch?.[1] || '').trim(),
         fiscalYear: String(yearMatch?.[1] || '').trim(),
         reference: String(refMatch?.[1] || '').trim(),
+        partyType: String(params.party_type || partyTypeMatch?.[1] || '').trim(),
+        paymentMethod: String(params.payment_method || '').trim().toUpperCase(),
       };
     }
 
     function buildUatCreateDocumentFinalHtml(job) {
       const summary = parseUatCreateDocumentJobSummary(job);
+      const flowValues = authorizationUatCreateDocumentFlow?.values || {};
       const lines = [
         `state: ${escapeAuthorizationText(summary.state)}`,
         `status: ${escapeAuthorizationText(summary.status)}`,
       ];
 
-      if (summary.documentNumber) {
-        lines.push(`Documento SAP criado: ${escapeAuthorizationText(summary.documentNumber)}`);
+      const partyType = summary.partyType || flowValues.party_type || 'vendor';
+      const companyCode = String(flowValues.company_code || summary.companyCode || '').trim();
+      const partnerValue = String(flowValues.vendor || flowValues.customer || '').trim();
+      const documentNumber = String(summary.documentNumber || flowValues.documentNumber || '').trim();
+      const fiscalYear = String(summary.fiscalYear || (String(flowValues.posting_date || '').trim().slice(0, 4)) || '').trim();
+      const reference = String(flowValues.reference || summary.reference || '').trim();
+      const paymentMethod = String(flowValues.payment_method || summary.paymentMethod || '').trim().toUpperCase();
+      const docType = String(flowValues.doc_type || '').trim().toUpperCase();
+      const amount = String(flowValues.amount || '').trim();
+      const currency = String(flowValues.currency || '').trim().toUpperCase();
+
+      if (partyType) {
+        lines.push(`Tipo: ${escapeAuthorizationText(getUatCreateDocumentPartyLabel(partyType))}`);
       }
-      if (summary.companyCode) {
-        lines.push(`Empresa: ${escapeAuthorizationText(summary.companyCode)}`);
+      if (partnerValue) {
+        lines.push(`Parceiro: ${escapeAuthorizationText(partnerValue)}`);
       }
-      if (summary.fiscalYear) {
-        lines.push(`Exercicio: ${escapeAuthorizationText(summary.fiscalYear)}`);
+      if (companyCode) {
+        lines.push(`Empresa: ${escapeAuthorizationText(companyCode)}`);
       }
-      if (summary.reference) {
-        lines.push(`Referencia no SAP: ${escapeAuthorizationText(summary.reference)}`);
+      if (documentNumber) {
+        lines.push(`Documento SAP criado: ${escapeAuthorizationText(documentNumber)}`);
+      }
+      if (fiscalYear) {
+        lines.push(`Exercicio: ${escapeAuthorizationText(fiscalYear)}`);
+      }
+      if (paymentMethod) {
+        lines.push(`Metodo: ${escapeAuthorizationText(paymentMethod)}`);
+      }
+      if (docType) {
+        lines.push(`Tipo doc.: ${escapeAuthorizationText(docType)}`);
+      }
+      if (amount || currency) {
+        lines.push(`Valor: ${escapeAuthorizationText(amount)} ${escapeAuthorizationText(currency)}`.trim());
+      }
+      if (String(flowValues.document_date || '').trim()) {
+        lines.push(`Data doc.: ${escapeAuthorizationText(String(flowValues.document_date || '').trim())}`);
+      }
+      if (String(flowValues.posting_date || '').trim()) {
+        lines.push(`Data lanc.: ${escapeAuthorizationText(String(flowValues.posting_date || '').trim())}`);
+      }
+      if (reference) {
+        lines.push(`Referencia no SAP: ${escapeAuthorizationText(reference)}`);
       }
 
       return lines.map(line => `&bull; ${line}`).join('<br>');
@@ -4335,6 +4497,7 @@ const AUTH_CHAT_STATES = {
         fiscalYear: String(summary.fiscalYear || flowValues.posting_date?.slice?.(0, 4) || new Date().getFullYear()).trim(),
         companyCode: String(flowValues.company_code || '').trim(),
         vendor: String(flowValues.vendor || '').trim(),
+        customer: String(flowValues.customer || '').trim(),
         systemKey: String(flowValues.system_key || getUatCreateDocumentDefaults().system_key).trim(),
         reference: String(flowValues.reference || '').trim(),
         glAccount: String(flowValues.gl_account || '').trim(),
@@ -4344,6 +4507,7 @@ const AUTH_CHAT_STATES = {
         docType: String(flowValues.doc_type || '').trim(),
         documentDate: String(flowValues.document_date || '').trim(),
         postingDate: String(flowValues.posting_date || '').trim(),
+        partyType: String(flowValues.party_type || '').trim(),
       };
     }
 
@@ -4357,6 +4521,7 @@ const AUTH_CHAT_STATES = {
     function parseUatExecuteF110JobSummary(job) {
       const log = String(job?.log || '');
       const params = job?.params || {};
+      const proposalOnlyRaw = String(params.proposal_only || '').trim().toLowerCase();
       return {
         state: String(job?.state || '').trim() || 'unknown',
         companyCode: extractUatLogField(log, 'Empresa'),
@@ -4366,6 +4531,7 @@ const AUTH_CHAT_STATES = {
         identification: extractUatLogField(log, 'Identificacao') || extractUatLogField(log, 'Identificação') || extractUatLogField(log, 'Identificação'),
         paymentDocumentNumber: extractUatLogField(log, 'Documento de pagamento') || extractUatLogField(log, 'AUGBL'),
         runDate: String(params.run_date || '').trim(),
+        proposalOnly: proposalOnlyRaw === 'true' || proposalOnlyRaw === 'x',
       };
     }
 
@@ -4388,9 +4554,13 @@ const AUTH_CHAT_STATES = {
         .join('<br>');
     }
 
-    async function submitUatExecuteF110Job(context) {
+    async function submitUatExecuteF110Job(context, options = {}) {
       const defaults = getUatCreateDocumentDefaults();
       const schedule = getUatExecuteF110Schedule();
+      const skipCreateDocument = options.skipCreateDocument !== undefined ? options.skipCreateDocument : true;
+      const proposalOnly = options.proposalOnly !== undefined ? options.proposalOnly : false;
+      const executePayment = options.executePayment !== undefined ? options.executePayment : true;
+      const identification = String(options.identification || context?.identification || '').trim().toUpperCase();
       const payload = {
         task: 'sap_cockpit',
         ambiente: String(context?.systemKey || defaults.system_key || 'QAD').trim(),
@@ -4413,14 +4583,16 @@ const AUTH_CHAT_STATES = {
         reference: String(context?.reference || defaults.reference || '').trim(),
         header_text: String(context?.headerText || defaults.header_text || '').trim(),
         item_text: String(context?.itemText || defaults.item_text || '').trim(),
-        document_number: String(context?.documentNumber || '').trim(),
+        party_type: String(context?.partyType || defaults.party_type || '').trim(),
+        document_number: skipCreateDocument ? String(context?.documentNumber || '').trim() : '',
         fiscal_year: String(context?.fiscalYear || '').trim(),
+        identification,
         run_date: schedule.runDate,
         docs_entered_up_to: schedule.docsEnteredUpTo,
         step: 'full',
-        skip_create_document: 'true',
-        proposal_only: 'false',
-        execute_payment: 'true',
+        skip_create_document: skipCreateDocument ? 'true' : 'false',
+        proposal_only: proposalOnly ? 'true' : 'false',
+        execute_payment: executePayment ? 'true' : 'false',
         wait_seconds: '120',
       };
 
@@ -4446,69 +4618,101 @@ const AUTH_CHAT_STATES = {
       return job;
     }
 
-    async function pollUatExecuteF110Job(jobId, requestId) {
+    async function pollUatExecuteF110Job(jobId, requestId, options = {}) {
+      const showOptionsOnSuccess = options.showOptionsOnSuccess !== false;
+      const appendResult = options.appendResult !== false;
       const startTime = Date.now();
       const timeoutMs = 300000;
 
-      async function check() {
-        if (requestId !== authorizationUatExecuteF110JobRequestId) {
-          return;
+      return new Promise(resolve => {
+        function finish(value) {
+          resolve(value);
         }
 
-        if (Date.now() - startTime > timeoutMs) {
-          if (requestId === authorizationUatExecuteF110JobRequestId) {
+        async function check() {
+          if (requestId !== authorizationUatExecuteF110JobRequestId) {
+            finish(null);
+            return;
+          }
+
+          if (Date.now() - startTime > timeoutMs) {
+            if (requestId === authorizationUatExecuteF110JobRequestId) {
+              hideAuthorizationTypingIndicator();
+              appendAuthorizationMessage(
+                'assistant',
+                `O fluxo completo da F110 ainda está a ser processado no worker. Job #${escapeAuthorizationText(String(jobId || '').slice(0, 8))}.`
+              );
+              showUatSimulationSubroutineOptions();
+            }
+            finish(null);
+            return;
+          }
+
+          try {
+            const response = await fetchWithTimeout(`/api/jobs/${jobId}`, {}, 10000);
+            if (!response.ok) {
+              throw new Error(`Erro HTTP ${response.status}`);
+            }
+
+            const job = await response.json();
+            if (requestId !== authorizationUatExecuteF110JobRequestId) {
+              finish(null);
+              return;
+            }
+
+            if (!isAuthorizationTerminalJobState(job.state)) {
+              window.setTimeout(check, 2000);
+              return;
+            }
+
+            const summary = parseUatExecuteF110JobSummary(job);
+            if (summary.proposalOnly && summary.identification) {
+              authorizationUatLastProposalContext = {
+                identification: summary.identification,
+                runDate: summary.runDate,
+                documentNumber: summary.documentNumber,
+                companyCode: summary.companyCode,
+                vendor: summary.vendor,
+                fiscalYear: summary.fiscalYear,
+              };
+            }
+
+            hideAuthorizationTypingIndicator();
+            if (appendResult) {
+              appendAuthorizationMessage('assistant', buildUatExecuteF110FinalHtml(job), true);
+            }
+            if (showOptionsOnSuccess) {
+              showUatSimulationSubroutineOptions();
+            }
+            finish(summary);
+          } catch (error) {
+            if (requestId !== authorizationUatExecuteF110JobRequestId) {
+              finish(null);
+              return;
+            }
+
             hideAuthorizationTypingIndicator();
             appendAuthorizationMessage(
               'assistant',
-              `O fluxo completo da F110 ainda está a ser processado no worker. Job #${escapeAuthorizationText(String(jobId || '').slice(0, 8))}.`
+              `⚠️ Não foi possível obter o resultado final da F110: ${escapeAuthorizationText(error?.message || 'erro desconhecido')}`
             );
             showUatSimulationSubroutineOptions();
+            finish(null);
           }
-          return;
         }
 
-        try {
-          const response = await fetchWithTimeout(`/api/jobs/${jobId}`, {}, 10000);
-          if (!response.ok) {
-            throw new Error(`Erro HTTP ${response.status}`);
-          }
-
-          const job = await response.json();
-          if (requestId !== authorizationUatExecuteF110JobRequestId) {
-            return;
-          }
-
-          if (!isAuthorizationTerminalJobState(job.state)) {
-            window.setTimeout(check, 2000);
-            return;
-          }
-
-          hideAuthorizationTypingIndicator();
-          appendAuthorizationMessage('assistant', buildUatExecuteF110FinalHtml(job), true);
-          showUatSimulationSubroutineOptions();
-        } catch (error) {
-          if (requestId !== authorizationUatExecuteF110JobRequestId) {
-            return;
-          }
-
-          hideAuthorizationTypingIndicator();
-          appendAuthorizationMessage(
-            'assistant',
-            `⚠️ Não foi possível obter o resultado final da F110: ${escapeAuthorizationText(error?.message || 'erro desconhecido')}`
-          );
-          showUatSimulationSubroutineOptions();
-        }
-      }
-
-      window.setTimeout(check, 1000);
+        window.setTimeout(check, 1000);
+      });
     }
 
     async function finalizeUatExecuteF110Flow() {
       const context = authorizationUatLastCreatedDocumentContext;
-      if (!context || !String(context.documentNumber || '').trim()) {
+      const proposalContext = authorizationUatLastProposalContext || {};
+      const identification = String(proposalContext.identification || context?.identification || '').trim().toUpperCase();
+      if (!context || !String(context.documentNumber || '').trim() || !identification) {
         appendAuthorizationMessage(
           'assistant',
-          'Não encontro um documento SAP válido gerado anteriormente neste chat. Primeiro execute `Criar Documento` para gerar o número e depois volte a `Executar F110`.'
+          'Não encontro uma proposta SAP válida gerada anteriormente neste chat. Primeiro execute `Proposta Pagamento` para gerar a proposta e depois volte a `Ciclo de pagamento`.'
         );
         showUatSimulationSubroutineOptions();
         return;
@@ -4518,17 +4722,149 @@ const AUTH_CHAT_STATES = {
       authorizationChatState = AUTH_CHAT_STATES.LOADING;
       updateAuthorizationComposer();
       const schedule = getUatExecuteF110Schedule();
-      showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule));
+      showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule, 'Ciclo de pagamento'));
 
       try {
-        const job = await submitUatExecuteF110Job(context);
+        const job = await submitUatExecuteF110Job(
+          {
+            ...context,
+            identification,
+          },
+          {
+            skipCreateDocument: true,
+            proposalOnly: false,
+            executePayment: true,
+            identification,
+          }
+        );
         const jobId = String(job?.id || '').trim();
         if (!jobId) {
           throw new Error('Job sem identificador');
         }
 
-        showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule));
+        showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule, 'Ciclo de pagamento'));
         await pollUatExecuteF110Job(jobId, currentRequestId);
+      } catch (error) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage(
+          'assistant',
+          `⚠️ Não foi possível executar o ciclo de pagamento da F110: ${escapeAuthorizationText(error?.message || 'erro desconhecido')}`
+        );
+        showUatSimulationSubroutineOptions();
+      } finally {
+        authorizationChatState = AUTH_CHAT_STATES.READY;
+        updateAuthorizationComposer();
+      }
+    }
+
+    async function finalizeUatProposalPagamentoFlow() {
+      const context = authorizationUatLastCreatedDocumentContext || {};
+      if (!String(context.documentNumber || '').trim()) {
+        appendAuthorizationMessage(
+          'assistant',
+          'Não encontro um documento SAP válido gerado anteriormente neste chat. Primeiro execute `Criar Documento` para gerar o número e depois volte a `Proposta Pagamento`.'
+        );
+        showUatSimulationSubroutineOptions();
+        return;
+      }
+
+      const currentRequestId = ++authorizationUatExecuteF110JobRequestId;
+      authorizationChatState = AUTH_CHAT_STATES.LOADING;
+      updateAuthorizationComposer();
+      const schedule = getUatExecuteF110Schedule();
+      showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule, 'Proposta Pagamento'));
+
+      try {
+        const job = await submitUatExecuteF110Job(context, {
+          skipCreateDocument: true,
+          proposalOnly: true,
+          executePayment: false,
+        });
+        const jobId = String(job?.id || '').trim();
+        if (!jobId) {
+          throw new Error('Job sem identificador');
+        }
+
+        showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule, 'Proposta Pagamento'));
+        await pollUatExecuteF110Job(jobId, currentRequestId);
+      } catch (error) {
+        hideAuthorizationTypingIndicator();
+        appendAuthorizationMessage(
+          'assistant',
+          `⚠️ Não foi possível criar a proposta de pagamento: ${escapeAuthorizationText(error?.message || 'erro desconhecido')}`
+        );
+        showUatSimulationSubroutineOptions();
+      } finally {
+        authorizationChatState = AUTH_CHAT_STATES.READY;
+        updateAuthorizationComposer();
+      }
+    }
+
+    async function finalizeUatFullExecuteF110Flow() {
+      const context = authorizationUatLastCreatedDocumentContext || {};
+      if (!context || !String(context.documentNumber || '').trim()) {
+        appendAuthorizationMessage(
+          'assistant',
+          'Não encontro um documento SAP válido gerado anteriormente neste chat. Primeiro execute `Criar Documento` e depois volte a `Executar F110`.'
+        );
+        showUatSimulationSubroutineOptions();
+        return;
+      }
+
+      const currentRequestId = ++authorizationUatExecuteF110JobRequestId;
+      authorizationChatState = AUTH_CHAT_STATES.LOADING;
+      updateAuthorizationComposer();
+      const schedule = getUatExecuteF110Schedule();
+      showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule, 'Proposta Pagamento'));
+
+      try {
+        const proposalJob = await submitUatExecuteF110Job(context, {
+          skipCreateDocument: true,
+          proposalOnly: true,
+          executePayment: false,
+        });
+        const proposalJobId = String(proposalJob?.id || '').trim();
+        if (!proposalJobId) {
+          throw new Error('Job da proposta sem identificador');
+        }
+
+        const proposalSummary = await pollUatExecuteF110Job(proposalJobId, currentRequestId, {
+          showOptionsOnSuccess: false,
+          appendResult: false,
+        });
+        const proposalIdentification = String(proposalSummary?.identification || '').trim().toUpperCase();
+        if (!proposalIdentification) {
+          throw new Error('Identificação da proposta não foi devolvida');
+        }
+
+        authorizationUatLastProposalContext = {
+          identification: proposalIdentification,
+          runDate: String(proposalSummary?.runDate || schedule.runDate || '').trim(),
+          documentNumber: String(proposalSummary?.documentNumber || context.documentNumber || '').trim(),
+          companyCode: String(proposalSummary?.companyCode || context.companyCode || '').trim(),
+          vendor: String(proposalSummary?.vendor || context.vendor || '').trim(),
+          fiscalYear: String(proposalSummary?.fiscalYear || context.fiscalYear || '').trim(),
+        };
+
+        showAuthorizationTypingIndicator(currentRequestId, buildUatExecuteF110PreparationLabel(context, schedule, 'Ciclo de pagamento'));
+        const paymentJob = await submitUatExecuteF110Job(
+          {
+            ...context,
+            identification: proposalIdentification,
+          },
+          {
+            skipCreateDocument: true,
+            proposalOnly: false,
+            executePayment: true,
+            identification: proposalIdentification,
+          }
+        );
+        const paymentJobId = String(paymentJob?.id || '').trim();
+        if (!paymentJobId) {
+          throw new Error('Job do ciclo de pagamento sem identificador');
+        }
+
+        await pollUatExecuteF110Job(paymentJobId, currentRequestId, { showOptionsOnSuccess: true });
       } catch (error) {
         hideAuthorizationTypingIndicator();
         appendAuthorizationMessage(
@@ -4615,9 +4951,11 @@ const AUTH_CHAT_STATES = {
     }
 
     function formatUatCreateDocumentSummary(values) {
+      const partyLabel = getUatCreateDocumentPartyLabel(values.party_type || 'vendor');
       return [
+        `• Tipo: ${escapeAuthorizationText(partyLabel)}`,
         `• Empresa: ${escapeAuthorizationText(values.company_code || '')}`,
-        `• Fornecedor: ${escapeAuthorizationText(values.vendor || '')}`,
+        `• ${escapeAuthorizationText(partyLabel)}: ${escapeAuthorizationText(values.vendor || values.customer || '')}`,
         `• Conta GL: ${escapeAuthorizationText(values.gl_account || '')}`,
         `• Valor: ${escapeAuthorizationText(values.amount || '')} ${escapeAuthorizationText(values.currency || '')}`,
         `• Data doc.: ${escapeAuthorizationText(values.document_date || '')}`,
@@ -4634,7 +4972,7 @@ const AUTH_CHAT_STATES = {
         return;
       }
 
-      const step = UAT_CREATE_DOCUMENT_STEPS[flow.stepIndex || 0];
+      const step = getUatCreateDocumentSteps()[flow.stepIndex || 0];
       if (!step) {
         void finalizeUatCreateDocumentFlow();
         return;
@@ -4699,11 +5037,46 @@ const AUTH_CHAT_STATES = {
       appendAuthorizationMessage('user', 'Novos dados');
       authorizationUatCreateDocumentFlow.mode = 'new';
       authorizationUatCreateDocumentFlow.stepIndex = 0;
+      const partyType = authorizationUatCreateDocumentFlow?.values?.party_type || 'vendor';
+      const partyDefaults = getUatCreateDocumentPartySpecificDefaults(partyType);
       authorizationUatCreateDocumentFlow.values = {
         ...getUatCreateDocumentDefaults(),
+        ...partyDefaults,
+        party_type: partyType,
+        vendor: partyType === 'vendor' ? getUatCreateDocumentPartyAccountDefault('vendor') : '',
+        customer: partyType === 'customer' ? getUatCreateDocumentPartyAccountDefault('customer') : '',
       };
       authorizationChatState = AUTH_CHAT_STATES.READY;
       askNextUatCreateDocumentStep();
+    }
+
+    function selectUatCreateDocumentPartyType(partyType) {
+      const normalizedPartyType = String(partyType || '').trim().toLowerCase();
+      if (!authorizationUatCreateDocumentFlow) {
+        authorizationUatCreateDocumentFlow = {
+          active: true,
+          mode: 'pending_party',
+          stepIndex: 0,
+          values: getUatCreateDocumentDefaults(),
+        };
+      }
+
+      const label = getUatCreateDocumentPartyLabel(normalizedPartyType);
+      appendAuthorizationMessage('user', label);
+
+      const partyDefaults = getUatCreateDocumentPartySpecificDefaults(normalizedPartyType);
+
+      authorizationUatCreateDocumentFlow.values = {
+        ...getUatCreateDocumentDefaults(),
+        ...(authorizationUatCreateDocumentFlow.values || {}),
+        ...partyDefaults,
+        party_type: normalizedPartyType === 'customer' ? 'customer' : 'vendor',
+        vendor: normalizedPartyType === 'vendor' ? getUatCreateDocumentPartyAccountDefault('vendor') : '',
+        customer: normalizedPartyType === 'customer' ? getUatCreateDocumentPartyAccountDefault('customer') : '',
+        payment_method: partyDefaults.payment_method || getUatCreateDocumentPartySpecificDefaults(normalizedPartyType).payment_method,
+      };
+      authorizationUatCreateDocumentFlow.mode = 'pending_mode';
+      appendUatCreateDocumentModePrompt();
     }
 
     function handleUatCreateDocumentChatSubmit(rawValue) {
@@ -4714,7 +5087,24 @@ const AUTH_CHAT_STATES = {
 
       const normValue = normalizeAuthorizationSearchText(rawValue);
 
-      if (flow.mode === 'pending') {
+      if (flow.mode === 'pending' || flow.mode === 'pending_party') {
+        if (normValue.includes('FORNECEDOR') || normValue.includes('VENDEDOR') || normValue.includes('VENDOR')) {
+          selectUatCreateDocumentPartyType('vendor');
+          return true;
+        }
+        if (normValue.includes('CLIENTE') || normValue.includes('CUSTOMER')) {
+          selectUatCreateDocumentPartyType('customer');
+          return true;
+        }
+        appendAuthorizationMessage(
+          'assistant',
+          'Escolha uma das opções: **Fornecedor** ou **Cliente**.'
+        );
+        appendUatCreateDocumentPartyPrompt();
+        return true;
+      }
+
+      if (flow.mode === 'pending_mode') {
         if (normValue.includes('DEFAULT') || normValue.includes('DADOS DEFAULT')) {
           selectUatCreateDocumentMode('default');
           return true;
@@ -4727,7 +5117,7 @@ const AUTH_CHAT_STATES = {
           'assistant',
           'Escolha uma das opções: **Dados Default** ou **Novos dados**.'
         );
-        appendUatCreateDocumentPrompt();
+        appendUatCreateDocumentModePrompt();
         return true;
       }
 
@@ -4735,20 +5125,24 @@ const AUTH_CHAT_STATES = {
         return false;
       }
 
-      const step = UAT_CREATE_DOCUMENT_STEPS[flow.stepIndex || 0];
+      const step = getUatCreateDocumentSteps()[flow.stepIndex || 0];
       if (!step) {
         return false;
       }
 
       const resolvedValue = resolveUatCreateDocumentFieldValue(step, rawValue, flow.values || {});
       flow.values[step.key] = resolvedValue;
+      if (step.key === 'vendor' && String(flow.values.party_type || '').trim().toLowerCase() === 'customer') {
+        flow.values.customer = resolvedValue;
+        flow.values.vendor = '';
+      }
 
       const displayValue = resolvedValue || '(vazio)';
       appendAuthorizationMessage('user', `${step.label}: ${displayValue}`);
 
       flow.stepIndex = (flow.stepIndex || 0) + 1;
 
-      if (flow.stepIndex >= UAT_CREATE_DOCUMENT_STEPS.length) {
+      if (flow.stepIndex >= getUatCreateDocumentSteps().length) {
         void finalizeUatCreateDocumentFlow();
       } else {
         askNextUatCreateDocumentStep();
@@ -4763,16 +5157,28 @@ const AUTH_CHAT_STATES = {
       if (String(item.val || '').trim().toLowerCase() === 'criar documento') {
         authorizationUatCreateDocumentFlow = {
           active: true,
-          mode: 'pending',
+          mode: 'pending_party',
           stepIndex: 0,
           values: getUatCreateDocumentDefaults(),
         };
         authorizationChatState = AUTH_CHAT_STATES.READY;
-        appendUatCreateDocumentPrompt();
+        appendUatCreateDocumentPartyPrompt();
         return;
       }
 
       if (String(item.val || '').trim().toLowerCase() === 'executar f110') {
+        authorizationChatState = AUTH_CHAT_STATES.READY;
+        void finalizeUatFullExecuteF110Flow();
+        return;
+      }
+
+      if (String(item.val || '').trim().toLowerCase() === 'proposta pagamento') {
+        authorizationChatState = AUTH_CHAT_STATES.READY;
+        void finalizeUatProposalPagamentoFlow();
+        return;
+      }
+
+      if (String(item.val || '').trim().toLowerCase() === 'ciclo de pagamento') {
         authorizationChatState = AUTH_CHAT_STATES.READY;
         void finalizeUatExecuteF110Flow();
         return;
@@ -4946,6 +5352,9 @@ const AUTH_CHAT_STATES = {
         authorizationTechnicalUser = String(payload.user_sap || '').trim().toUpperCase();
         authorizationAvailableSystems = Array.isArray(payload.systems) ? payload.systems : [];
         authorizationAnalysisTypes = Array.isArray(payload.analysis_types) ? payload.analysis_types : [];
+        authorizationCreateDocumentDefaults = payload.create_document_defaults && typeof payload.create_document_defaults === 'object'
+          ? payload.create_document_defaults
+          : null;
 
         if (!payload.env_found) {
           throw new Error(payload.message || 'Não foi possível carregar a configuração SAP.');

@@ -40,6 +40,8 @@ DEFAULT_REPORT = "RFF110S"
 IDENTIFICATION_PREFIX = "UAT"
 IDENTIFICATION_MIN = 1
 IDENTIFICATION_MAX = 99
+DEFAULT_ACCOUNT_RANGE_LOW = "10000000"
+DEFAULT_ACCOUNT_RANGE_HIGH = "99999999"
 _TRUE_VALUES = {"1", "true", "yes", "on", "sim", "s", "x"}
 
 
@@ -206,6 +208,10 @@ class F110ProposalRunner:
         return [
             {"SELNAME": "SEL_BUKR", "KIND": "S", "SIGN": "I", "OPTION": "EQ", "LOW": company_code, "HIGH": ""},
             {"SELNAME": "SEL_KRED", "KIND": "S", "SIGN": "I", "OPTION": "EQ", "LOW": vendor_no, "HIGH": ""},
+            {"SELNAME": "SEL_KREP-LOW", "KIND": "P", "SIGN": "I", "OPTION": "EQ", "LOW": DEFAULT_ACCOUNT_RANGE_LOW, "HIGH": ""},
+            {"SELNAME": "SEL_KREP-HIGH", "KIND": "P", "SIGN": "I", "OPTION": "EQ", "LOW": DEFAULT_ACCOUNT_RANGE_HIGH, "HIGH": ""},
+            {"SELNAME": "SEL_DEBP-LOW", "KIND": "P", "SIGN": "I", "OPTION": "EQ", "LOW": DEFAULT_ACCOUNT_RANGE_LOW, "HIGH": ""},
+            {"SELNAME": "SEL_DEBP-HIGH", "KIND": "P", "SIGN": "I", "OPTION": "EQ", "LOW": DEFAULT_ACCOUNT_RANGE_HIGH, "HIGH": ""},
             {"SELNAME": "PAR_ZWE", "KIND": "P", "SIGN": "I", "OPTION": "EQ", "LOW": payment_method, "HIGH": ""},
             {"SELNAME": "PAR_XVL", "KIND": "P", "SIGN": "I", "OPTION": "EQ", "LOW": "X" if payload.proposal_only else "", "HIGH": ""},
             {"SELNAME": "PAR_LFD", "KIND": "P", "SIGN": "I", "OPTION": "EQ", "LOW": run_date, "HIGH": ""},

@@ -50,6 +50,10 @@ def test_build_selinfo_uses_real_rff110s_field_names():
     assert [row["SELNAME"] for row in selinfo] == [
         "SEL_BUKR",
         "SEL_KRED",
+        "SEL_KREP-LOW",
+        "SEL_KREP-HIGH",
+        "SEL_DEBP-LOW",
+        "SEL_DEBP-HIGH",
         "PAR_ZWE",
         "PAR_XVL",
         "PAR_LFD",
@@ -67,15 +71,23 @@ def test_build_selinfo_uses_real_rff110s_field_names():
     assert selinfo[0]["LOW"] == "2010"
     assert selinfo[1]["LOW"] == "0010000040"
     assert selinfo[1]["HIGH"] == ""
-    assert selinfo[4]["LOW"] == "20260822"
-    assert selinfo[5]["LOW"] == "UAT1"
-    assert selinfo[6]["LOW"] == "20260822"
-    assert selinfo[9]["LOW"] == "X"
-    assert selinfo[10]["LOW"] == "X"
-    assert selinfo[11]["LOW"] == "X"
-    assert selinfo[12]["LOW"] == "X"
-    assert selinfo[13]["LOW"] == "BKPF-BELNR"
-    assert selinfo[14]["LOW"] == "6050000002"
+    assert selinfo[2]["LOW"] == "10000000"
+    assert selinfo[2]["HIGH"] == ""
+    assert selinfo[3]["LOW"] == "99999999"
+    assert selinfo[3]["HIGH"] == ""
+    assert selinfo[4]["LOW"] == "10000000"
+    assert selinfo[4]["HIGH"] == ""
+    assert selinfo[5]["LOW"] == "99999999"
+    assert selinfo[5]["HIGH"] == ""
+    assert selinfo[8]["LOW"] == "20260822"
+    assert selinfo[9]["LOW"] == "UAT1"
+    assert selinfo[10]["LOW"] == "20260822"
+    assert selinfo[13]["LOW"] == "X"
+    assert selinfo[14]["LOW"] == "X"
+    assert selinfo[15]["LOW"] == "X"
+    assert selinfo[16]["LOW"] == "X"
+    assert selinfo[17]["LOW"] == "BKPF-BELNR"
+    assert selinfo[18]["LOW"] == "6050000002"
 
 
 def test_read_payment_document_number_uses_clearing_document(monkeypatch):

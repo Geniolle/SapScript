@@ -284,7 +284,14 @@ def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tupl
 
 def selecionar_ambiente(payload: dict[str, Any] | None = None, interactive: bool = True) -> str:
     payload = payload or {}
-    ambiente_payload = str(payload.get("ambiente") or "").strip().upper()
+    ambiente_payload = str(
+        payload.get("ambiente")
+        or payload.get("system_key")
+        or payload.get("sap_system")
+        or os.getenv("SAP_SYSTEM")
+        or os.getenv("WORKFLOW_SAP_KEY")
+        or ""
+    ).strip().upper()
     if ambiente_payload:
         alias_map = {
             "S4DCLNT100": "DEV", "S4D": "DEV", "DEV": "DEV",
@@ -1766,6 +1773,14 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
     session = None
 
     try:
+        # =============================================================================
+        # (1) CARREGAR CONFIGURACAO DO PROJETO
+        # =============================================================================
+        reload_project_env(force_override=False)
+
+        # =============================================================================
+        # (2) RESOLVER AMBIENTE E PROCESSO
+        # =============================================================================
         ambiente_cockpit = selecionar_ambiente(payload=payload, interactive=False)
         sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -34,10 +34,40 @@ XBLNR_SEQUENCE_DIGITS = 2
 DEFAULT_HEADER_TEXT = "UAT TESTE F110"
 DEFAULT_ITEM_TEXT = "UAT F110 TESTE"
 DEFAULT_CURRENCY = "EUR"
+DEFAULT_PARTY_TYPE = "vendor"
+
+
+def _normalize_party_type(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if raw == "customer":
+        return "customer"
+    return "vendor"
+
+
+def _party_label(value: str | None) -> str:
+    return "Cliente" if _normalize_party_type(value) == "customer" else "Fornecedor"
 
 
 def _today_yyyymmdd() -> str:
     return date.today().strftime("%Y%m%d")
+
+
+def _normalize_date_text(value: str, default_value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return default_value
+
+    for fmt in ("%Y%m%d", "%d%m%Y", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+
+    raise ValueError(f"Data invalida '{raw}'. Use YYYYMMDD ou DDMMYYYY.")
+
+
+def _yyyymmdd_to_date(value: str) -> date:
+    return datetime.strptime(_normalize_date_text(value, _today_yyyymmdd()), "%Y%m%d").date()
 
 
 def _current_year() -> str:
@@ -95,6 +125,7 @@ class DocumentInput:
     reference: str = DEFAULT_REFERENCE
     header_text: str = DEFAULT_HEADER_TEXT
     item_text: str = DEFAULT_ITEM_TEXT
+    party_type: str = DEFAULT_PARTY_TYPE
     check_only: bool = False
 
 
@@ -139,6 +170,7 @@ class DocumentResult:
     evidences: list[DocumentEvidence] = field(default_factory=list)
     check_messages: list[dict[str, str]] = field(default_factory=list)
     post_messages: list[dict[str, str]] = field(default_factory=list)
+    party_type: str = DEFAULT_PARTY_TYPE
 
 
 # =============================================================================
@@ -193,6 +225,22 @@ class FiDocumentPoster:
                 options=[
                     f"BUKRS = '{company_code}'",
                     f"AND LIFNR = '{vendor}'",
+                ],
+                rowcount=1,
+            )
+        except Exception:
+            return {}
+        return dict(rows[0]) if rows else {}
+
+    def _read_customer_defaults(self, company_code: str, customer: str) -> dict[str, str]:
+        try:
+            rows, _ = read_table_with_fallbacks(
+                self.conn,
+                "KNB1",
+                [["BUKRS", "KUNNR", "ZTERM", "ZWELS"], ["BUKRS", "KUNNR", "ZTERM"], ["BUKRS", "KUNNR"]],
+                options=[
+                    f"BUKRS = '{company_code}'",
+                    f"AND KUNNR = '{customer}'",
                 ],
                 rowcount=1,
             )
@@ -269,14 +317,14 @@ class FiDocumentPoster:
         return f"{prefix}{next_sequence:0{XBLNR_SEQUENCE_DIGITS}d}"
 
     @staticmethod
-    def _build_document_header(payload: DocumentInput, username: str) -> dict[str, str]:
+    def _build_document_header(payload: DocumentInput, username: str) -> dict[str, Any]:
         return {
             "BUS_ACT": DEFAULT_BUS_ACT,
             "USERNAME": username,
             "HEADER_TXT": payload.header_text,
             "COMP_CODE": payload.company_code,
-            "DOC_DATE": payload.document_date,
-            "PSTNG_DATE": payload.posting_date,
+            "DOC_DATE": _yyyymmdd_to_date(payload.document_date),
+            "PSTNG_DATE": _yyyymmdd_to_date(payload.posting_date),
             "FISC_YEAR": payload.posting_date[:4],
             "DOC_TYPE": payload.doc_type,
             "REF_DOC_NO": payload.reference,
@@ -289,20 +337,65 @@ class FiDocumentPoster:
         company_currency: str,
         withholding_tax_rows: list[dict[str, str]],
     ) -> dict[str, list[dict[str, str]]]:
-        vendor_no = zero_pad_if_numeric(payload.vendor)
+        party_type = _normalize_party_type(payload.party_type)
+        party_no = zero_pad_if_numeric(payload.vendor)
         gl_account = zero_pad_if_numeric(payload.gl_account)
         currency = (payload.currency or company_currency or DEFAULT_CURRENCY).strip().upper() or DEFAULT_CURRENCY
         amount_text = _decimal_to_bapi_text(payload.amount)
-        credit_amount = f"-{amount_text}" if not amount_text.startswith("-") else amount_text
-        debit_amount = amount_text.lstrip("-")
+        positive_amount = amount_text.lstrip("-")
+        negative_amount = f"-{positive_amount}" if not positive_amount.startswith("-") else positive_amount
         baseline_date = str(payload.baseline_date or "").strip()
         payment_method = str(payload.payment_method or "").strip().upper()
         payment_terms = str(payment_terms or payload.payment_terms or "").strip().upper()
 
+        if party_type == "customer":
+            account_receivable = [
+                {
+                    "ITEMNO_ACC": _line_no(1),
+                    "CUSTOMER": party_no,
+                    "COMP_CODE": payload.company_code,
+                    "PMNTTRMS": payment_terms,
+                    "BLINE_DATE": baseline_date,
+                    "PYMT_METH": payment_method,
+                    "ALLOC_NMBR": payload.reference,
+                    "ITEM_TEXT": payload.item_text,
+                }
+            ]
+            account_gl = [
+                {
+                    "ITEMNO_ACC": _line_no(2),
+                    "GL_ACCOUNT": gl_account,
+                    "COMP_CODE": payload.company_code,
+                    "ITEM_TEXT": payload.item_text,
+                    "ALLOC_NMBR": payload.reference,
+                    "DE_CRE_IND": "H",
+                }
+            ]
+            currency_amount = [
+                {
+                    "ITEMNO_ACC": _line_no(1),
+                    "CURR_TYPE": "00",
+                    "CURRENCY": currency,
+                    "AMT_DOCCUR": positive_amount,
+                },
+                {
+                    "ITEMNO_ACC": _line_no(2),
+                    "CURR_TYPE": "00",
+                    "CURRENCY": currency,
+                    "AMT_DOCCUR": negative_amount,
+                },
+            ]
+            return {
+                "ACCOUNTGL": account_gl,
+                "ACCOUNTRECEIVABLE": account_receivable,
+                "ACCOUNTWT": [],
+                "CURRENCYAMOUNT": currency_amount,
+            }
+
         account_payable = [
             {
                 "ITEMNO_ACC": _line_no(1),
-                "VENDOR_NO": vendor_no,
+                "VENDOR_NO": party_no,
                 "COMP_CODE": payload.company_code,
                 "PMNTTRMS": payment_terms,
                 "BLINE_DATE": baseline_date,
@@ -331,13 +424,13 @@ class FiDocumentPoster:
                 "ITEMNO_ACC": _line_no(1),
                 "CURR_TYPE": "00",
                 "CURRENCY": currency,
-                "AMT_DOCCUR": credit_amount,
+                "AMT_DOCCUR": negative_amount,
             },
             {
                 "ITEMNO_ACC": _line_no(2),
                 "CURR_TYPE": "00",
                 "CURRENCY": currency,
-                "AMT_DOCCUR": debit_amount,
+                "AMT_DOCCUR": positive_amount,
             },
         ]
         return {
@@ -348,15 +441,18 @@ class FiDocumentPoster:
         }
 
     def _call_bapi(self, function_name: str, payload: DocumentInput, username: str, payment_terms: str, company_currency: str) -> dict[str, Any]:
-        withholding_tax_rows = self._read_vendor_withholding_tax(payload.company_code, payload.vendor, payload.amount)
+        party_type = _normalize_party_type(payload.party_type)
+        withholding_tax_rows = []
+        if party_type == "vendor":
+            withholding_tax_rows = self._read_vendor_withholding_tax(payload.company_code, payload.vendor, payload.amount)
         tables = self._build_tables(payload, payment_terms, company_currency, withholding_tax_rows)
         return self.conn.call(
             function_name,
             DOCUMENTHEADER=self._build_document_header(payload, username),
             ACCOUNTGL=tables["ACCOUNTGL"],
-            ACCOUNTPAYABLE=tables["ACCOUNTPAYABLE"],
             ACCOUNTWT=tables["ACCOUNTWT"],
             CURRENCYAMOUNT=tables["CURRENCYAMOUNT"],
+            **({"ACCOUNTPAYABLE": tables["ACCOUNTPAYABLE"]} if party_type == "vendor" else {"ACCOUNTRECEIVABLE": tables["ACCOUNTRECEIVABLE"]}),
         )
 
     @staticmethod
@@ -393,6 +489,7 @@ class FiDocumentPoster:
         posted_gjahr = ""
         status = "blocked"
         normalized_system_key = normalize_system_key(payload.system_key)
+        party_type = _normalize_party_type(payload.party_type)
 
         try:
             if normalized_system_key not in ALLOWED_SYSTEM_KEYS:
@@ -420,6 +517,7 @@ class FiDocumentPoster:
                     reference=payload.reference,
                     header_text=payload.header_text,
                     item_text=payload.item_text,
+                    party_type=party_type,
                     fiscal_year=payload.posting_date[:4],
                     reasons=reasons,
                     evidences=evidences,
@@ -452,23 +550,26 @@ class FiDocumentPoster:
                     reference=payload.reference,
                     header_text=payload.header_text,
                     item_text=payload.item_text,
+                    party_type=party_type,
                     fiscal_year=payload.posting_date[:4],
                     reasons=reasons,
                     evidences=evidences,
                 )
 
             company_code = payload.company_code
-            vendor_no = zero_pad_if_numeric(payload.vendor)
+            party_no = zero_pad_if_numeric(payload.vendor)
             gl_account = zero_pad_if_numeric(payload.gl_account)
             company_currency = self._read_company_currency(company_code)
-            vendor_defaults = self._read_vendor_defaults(company_code, vendor_no)
-            resolved_payment_terms = str(payload.payment_terms or vendor_defaults.get("ZTERM") or "").strip().upper()
+            vendor_defaults = self._read_vendor_defaults(company_code, party_no)
+            customer_defaults = self._read_customer_defaults(company_code, party_no)
+            party_defaults = customer_defaults if party_type == "customer" else vendor_defaults
+            resolved_payment_terms = str(payload.payment_terms or party_defaults.get("ZTERM") or "").strip().upper()
             resolved_currency = str(payload.currency or company_currency or DEFAULT_CURRENCY).strip().upper() or DEFAULT_CURRENCY
             resolved_reference = self._next_reference(company_code, payload.reference)
             resolved_payload = DocumentInput(
                 system_key=payload.system_key,
                 company_code=company_code,
-                vendor=vendor_no,
+                vendor=party_no,
                 gl_account=gl_account,
                 amount=payload.amount,
                 currency=resolved_currency,
@@ -481,6 +582,7 @@ class FiDocumentPoster:
                 reference=resolved_reference,
                 header_text=payload.header_text,
                 item_text=payload.item_text,
+                party_type=party_type,
                 check_only=payload.check_only,
             )
 
@@ -492,7 +594,8 @@ class FiDocumentPoster:
                 [
                     {
                         "COMP_CODE": company_code,
-                        "VENDOR": vendor_no,
+                        "PARTY_TYPE": party_type,
+                        "PARTNER": party_no,
                         "GL_ACCOUNT": gl_account,
                         "CURRENCY": resolved_currency,
                         "PAYMENT_TERMS": resolved_payment_terms,
@@ -541,6 +644,7 @@ class FiDocumentPoster:
                     reference=resolved_payload.reference,
                     header_text=resolved_payload.header_text,
                     item_text=resolved_payload.item_text,
+                    party_type=party_type,
                     fiscal_year=resolved_payload.posting_date[:4],
                     reasons=reasons,
                     evidences=evidences,
@@ -571,6 +675,7 @@ class FiDocumentPoster:
                     reference=resolved_payload.reference,
                     header_text=resolved_payload.header_text,
                     item_text=resolved_payload.item_text,
+                    party_type=party_type,
                     fiscal_year=resolved_payload.posting_date[:4],
                     reasons=reasons,
                     evidences=evidences,
@@ -626,6 +731,7 @@ class FiDocumentPoster:
                     reference=resolved_payload.reference,
                     header_text=resolved_payload.header_text,
                     item_text=resolved_payload.item_text,
+                    party_type=party_type,
                     fiscal_year=resolved_payload.posting_date[:4],
                     obj_key=obj_key,
                     obj_type=obj_type,
@@ -696,6 +802,7 @@ class FiDocumentPoster:
                 evidences=evidences,
                 check_messages=check_messages,
                 post_messages=post_messages,
+                party_type=party_type,
             )
         except Exception as exc:
             reasons.append(str(exc))
@@ -732,6 +839,7 @@ class FiDocumentPoster:
                 evidences=evidences,
                 check_messages=check_messages,
                 post_messages=post_messages,
+                party_type=party_type,
             )
         finally:
             self.close()
@@ -742,15 +850,17 @@ class FiDocumentPoster:
 # =============================================================================
 
 def _default_payload_from_args(args: argparse.Namespace) -> DocumentInput:
+    party_type = _normalize_party_type(getattr(args, "party_type", DEFAULT_PARTY_TYPE))
+    partner_value = str(getattr(args, "customer", "") or getattr(args, "vendor", "")).strip()
     return DocumentInput(
         system_key=str(args.sap_system).strip(),
         company_code=str(args.company_code).strip(),
-        vendor=str(args.vendor).strip(),
+        vendor=partner_value,
         gl_account=str(args.gl_account).strip(),
         amount=_normalize_amount(args.amount),
         currency=str(args.currency or DEFAULT_CURRENCY).strip().upper() or DEFAULT_CURRENCY,
-        document_date=str(args.document_date or _today_yyyymmdd()).strip(),
-        posting_date=str(args.posting_date or _today_yyyymmdd()).strip(),
+        document_date=_normalize_date_text(str(args.document_date or _today_yyyymmdd()).strip(), _today_yyyymmdd()),
+        posting_date=_normalize_date_text(str(args.posting_date or _today_yyyymmdd()).strip(), _today_yyyymmdd()),
         baseline_date=str(args.baseline_date or "").strip(),
         payment_terms=str(args.payment_terms or "").strip().upper(),
         payment_method=str(args.payment_method or "S").strip().upper(),
@@ -758,6 +868,7 @@ def _default_payload_from_args(args: argparse.Namespace) -> DocumentInput:
         reference=str(args.reference or DEFAULT_REFERENCE).strip(),
         header_text=str(args.header_text or DEFAULT_HEADER_TEXT).strip(),
         item_text=str(args.item_text or DEFAULT_ITEM_TEXT).strip(),
+        party_type=party_type,
         check_only=bool(args.check_only),
     )
 
@@ -765,8 +876,10 @@ def _default_payload_from_args(args: argparse.Namespace) -> DocumentInput:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Criar documento FI de fornecedor via RFC/BAPI para teste da F110.")
     parser.add_argument("--sap-system", default="QAD", help="Chave de sistema SAP. Padrao: QAD")
+    parser.add_argument("--party-type", default=DEFAULT_PARTY_TYPE, choices=["vendor", "customer"], help="Tipo de parceiro: vendor ou customer")
     parser.add_argument("--company-code", default="2010", help="Codigo da empresa (BUKRS)")
     parser.add_argument("--vendor", default="10000040", help="Numero do fornecedor")
+    parser.add_argument("--customer", default="", help="Numero do cliente")
     parser.add_argument("--gl-account", default="12010741", help="Conta contabil de contrapartida")
     parser.add_argument("--amount", default="88,88", help="Valor do documento")
     parser.add_argument("--currency", default=DEFAULT_CURRENCY, help="Moeda do documento")
@@ -784,6 +897,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def format_result(result: DocumentResult) -> str:
+    party_label = _party_label(result.party_type)
     lines: list[str] = []
     lines.append("=" * 84)
     lines.append("UAT CRIACAO DOCUMENTO FI F110")
@@ -791,7 +905,7 @@ def format_result(result: DocumentResult) -> str:
     lines.append(f"Sistema        : {result.system_id or '?'}")
     lines.append(f"Cliente        : {result.client or '?'}")
     lines.append(f"Empresa        : {result.company_code}")
-    lines.append(f"Fornecedor     : {result.vendor}")
+    lines.append(f"{party_label:<14}: {result.vendor}")
     lines.append(f"Conta GL       : {result.gl_account}")
     lines.append(f"Valor          : {result.amount} {result.currency}")
     lines.append(f"Data doc.      : {result.document_date}")
@@ -801,6 +915,7 @@ def format_result(result: DocumentResult) -> str:
     lines.append(f"Metodo esp.    : {result.payment_method}")
     lines.append(f"Tipo doc.      : {result.doc_type}")
     lines.append(f"Referencia     : {result.reference}")
+    lines.append(f"Tipo           : {party_label}")
     lines.append(f"Estado         : {result.status.upper()}")
     lines.append(f"Check OK       : {'SIM' if result.checked else 'NAO'}")
     lines.append(f"Post OK        : {'SIM' if result.posted else 'NAO'}")
@@ -856,22 +971,29 @@ def _format_messages_for_output(messages: list[dict[str, str]]) -> list[str]:
 
 def executar(ambiente_cockpit: str | None = None, **kwargs: Any) -> DocumentResult:
     load_project_dotenv()
+    party_type = _normalize_party_type(kwargs.get("party_type"))
+    partner_value = str(kwargs.get("vendor") or kwargs.get("customer") or ("10000040" if party_type == "vendor" else "")).strip()
+    payment_method = str(
+        kwargs.get("payment_method")
+        or ("Q" if party_type == "customer" else "S")
+    ).strip().upper()
     payload = DocumentInput(
         system_key=str(kwargs.get("system_key") or ambiente_cockpit or kwargs.get("sap_system") or "QAD").strip(),
         company_code=str(kwargs.get("company_code") or "2010").strip(),
-        vendor=str(kwargs.get("vendor") or "10000040").strip(),
+        vendor=partner_value,
         gl_account=str(kwargs.get("gl_account") or "12010741").strip(),
         amount=_normalize_amount(kwargs.get("amount") or "88,88"),
         currency=str(kwargs.get("currency") or DEFAULT_CURRENCY).strip().upper() or DEFAULT_CURRENCY,
-        document_date=str(kwargs.get("document_date") or _today_yyyymmdd()).strip(),
-        posting_date=str(kwargs.get("posting_date") or _today_yyyymmdd()).strip(),
+        document_date=_normalize_date_text(str(kwargs.get("document_date") or _today_yyyymmdd()).strip(), _today_yyyymmdd()),
+        posting_date=_normalize_date_text(str(kwargs.get("posting_date") or _today_yyyymmdd()).strip(), _today_yyyymmdd()),
         baseline_date=str(kwargs.get("baseline_date") or "").strip(),
         payment_terms=str(kwargs.get("payment_terms") or "").strip().upper(),
-        payment_method=str(kwargs.get("payment_method") or "S").strip().upper(),
+        payment_method=payment_method,
         doc_type=str(kwargs.get("doc_type") or DEFAULT_DOC_TYPE).strip().upper(),
         reference=str(kwargs.get("reference") or DEFAULT_REFERENCE).strip(),
         header_text=str(kwargs.get("header_text") or DEFAULT_HEADER_TEXT).strip(),
         item_text=str(kwargs.get("item_text") or DEFAULT_ITEM_TEXT).strip(),
+        party_type=party_type,
         check_only=bool(kwargs.get("check_only", False)),
     )
     poster = FiDocumentPoster()

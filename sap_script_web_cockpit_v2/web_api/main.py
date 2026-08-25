@@ -1056,6 +1056,32 @@ def _first_env_value(env_data: dict[str, str], *names: str) -> str:
     return ""
 
 
+def _authorization_uat_create_document_defaults(env_data: dict[str, str]) -> dict[str, str]:
+    today_yyyymmdd = datetime.now().strftime("%Y%m%d")
+
+    return {
+        "system_key": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_SYSTEM_KEY"),
+        "company_code": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_COMPANY_CODE"),
+        "vendor": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_VENDOR"),
+        "customer": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER"),
+        "customer_company_code": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_COMPANY_CODE"),
+        "customer_gl_account": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_GL_ACCOUNT"),
+        "customer_doc_type": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_DOC_TYPE"),
+        "vendor_payment_method": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_VENDOR_PAYMENT_METHOD"),
+        "customer_payment_method": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_PAYMENT_METHOD"),
+        "gl_account": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_GL_ACCOUNT"),
+        "amount": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_AMOUNT"),
+        "currency": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CURRENCY"),
+        "document_date": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_DOCUMENT_DATE") or today_yyyymmdd,
+        "posting_date": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_POSTING_DATE") or today_yyyymmdd,
+        "payment_method": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_PAYMENT_METHOD"),
+        "doc_type": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_DOC_TYPE"),
+        "reference": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_REFERENCE"),
+        "header_text": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_HEADER_TEXT"),
+        "item_text": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_ITEM_TEXT"),
+    }
+
+
 def _build_authorization_rfc_connection(env_data: dict[str, str], target_system_key: str) -> dict[str, str]:
     system_key = str(target_system_key or "").strip().upper()
     system_alias = _authorization_env_alias(system_key)
@@ -1130,6 +1156,7 @@ def api_get_authorizations_context() -> dict[str, Any]:
             "systems": [],
             "env_found": False,
             "message": "Ficheiro .env não encontrado no contentor.",
+            "create_document_defaults": _authorization_uat_create_document_defaults({}),
             "diagnostic": {
                 "configured_path": os.getenv("SAP_AUTH_ENV_FILE", "/sap-script/.env"),
                 "project_directory_configured": bool(os.getenv("SAP_SCRIPT_PROJECT_DIR"))
@@ -1186,6 +1213,7 @@ def api_get_authorizations_context() -> dict[str, Any]:
         "systems": systems,
         "analysis_types": get_analysis_types(),
         "env_found": True,
+        "create_document_defaults": _authorization_uat_create_document_defaults(env_data),
         "message": message
     }
 
