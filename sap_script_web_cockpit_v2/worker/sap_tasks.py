@@ -28,8 +28,15 @@ WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKER_STATE_PATH = os.path.join(WORKER_DIR, ".sap_script_web_worker_state.json")
 
 
+def _get_project_dir() -> str:
+    p_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if not p_dir or not os.path.exists(p_dir):
+        p_dir = os.path.abspath(os.path.join(WORKER_DIR, "..", ".."))
+    return p_dir
+
+
 def _prepare_project_imports() -> None:
-    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    project_dir = _get_project_dir()
     if project_dir and project_dir not in sys.path:
         sys.path.insert(0, project_dir)
 
@@ -142,7 +149,7 @@ def select_excel_file_on_windows(params: dict[str, Any] | None = None) -> tuple[
     return selected_path, log
 
 
-def get_first_available_session() -> Any:
+def get_first_available_session(target_system: Optional[str] = None) -> Any:
     try:
         pythoncom.CoInitialize()
         sap_gui_auto = win32com.client.GetObject("SAPGUI")
@@ -153,17 +160,49 @@ def get_first_available_session() -> Any:
             "e se o SAP GUI Scripting esta ativo."
         ) from exc
 
+    candidates = []
     for connection_index in range(application.Children.Count):
         connection = application.Children(connection_index)
         for session_index in range(connection.Children.Count):
             session = connection.Children(session_index)
             try:
                 if not session.Busy:
-                    return session
+                    sys_name = (session.Info.SystemName or "").upper().strip()
+                    user = (session.Info.User or "").strip()
+                    candidates.append((sys_name, bool(user), session))
             except Exception:
                 continue
 
-    raise SapExecutionError("Nao existe nenhuma sessao SAP disponivel.")
+    if target_system:
+        target = target_system.upper().strip()
+        matching = [c for c in candidates if c[0] == target]
+        if matching:
+            logged = [c for c in matching if c[1]]
+            return logged[0][2] if logged else matching[0][2]
+        else:
+            # Tentar abrir e efetuar login automaticamente no sistema solicitado
+            try:
+                _prepare_project_imports()
+                from sap_session import ensure_sap_access_from_env
+                return ensure_sap_access_from_env(key=target, timeout_s=45)
+            except Exception as exc_auto:
+                open_systems = list(dict.fromkeys([c[0] for c in candidates if c[0]]))
+                sys_str = ", ".join(open_systems) if open_systems else "Nenhum"
+                raise SapExecutionError(
+                    f"Nenhuma sessão SAP aberta no sistema solicitado '{target}' e falha ao abrir automaticamente: {exc_auto}. "
+                    f"Sistema(s) atualmente aberto(s): {sys_str}."
+                )
+
+    if not candidates:
+        # Se nenhuma janela está aberta, tentar abrir o sistema padrão
+        try:
+            _prepare_project_imports()
+            from sap_session import ensure_sap_access_from_env
+            return ensure_sap_access_from_env(timeout_s=45)
+        except Exception as exc_auto:
+            raise SapExecutionError(f"Nenhuma sessão SAP disponível e falha ao abrir automaticamente: {exc_auto}")
+
+    return candidates[0][2]
 
 
 def get_any_session() -> Any:
@@ -235,19 +274,47 @@ def _run_sap_cockpit(params: dict[str, Any]) -> tuple[str, str]:
     result = cockpit.run_sap_cockpit(params)
 
     if isinstance(result, tuple) and len(result) == 2:
-        return str(result[0] or ""), str(result[1] or "")
+        return str(result[0] or ""), str(result[1] or ""), True
 
     if isinstance(result, dict):
         status = str(result.get("status") or result.get("STATUS") or "").strip()
         log = str(result.get("log") or result.get("log_text") or "")
-        return status, log
+        success = result.get("success", True)
+        return status, log, success
 
-    return str(result or ""), ""
+    return str(result or ""), "", True
 
 
 def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
-    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    project_dir = _get_project_dir()
+    ambiente = str(params.get("ambiente") or "DEV").upper()
+    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+    sistema_desejado = mapa_sistema.get(ambiente, "S4D")
+
+    # 1. Tentar pesquisa 100% por RFC (sem abrir janela SAP GUI)
+    caminho_rfc = os.path.join(project_dir, "Processos", "pesquisar_request_rfc.py")
+    if os.path.exists(caminho_rfc):
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("pesquisar_request_rfc", caminho_rfc)
+            mod_rfc = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_rfc)
+            lista = mod_rfc.listar_requests(
+                system_name=sistema_desejado,
+                max_rows="5000",
+                include_requests=False,
+            )
+            if not lista:
+                return "[]", f"Pesquisa RFC concluída. Nenhuma request encontrada para o sistema {sistema_desejado}."
+            itens = [{"trkorr": item[0], "as4text": item[1]} for item in lista]
+            status_json = json.dumps(itens)
+            log = f"Pesquisa RFC concluída com sucesso. Encontradas {len(lista)} requests no sistema {sistema_desejado}."
+            return status_json, log
+        except Exception as exc_rfc:
+            print(f"⚠️ Pesquisa de requests via RFC falhou ({exc_rfc}). A tentar fallback via SAP GUI...")
+
+    # 2. Fallback: SAP GUI pesquisar_request.py
     caminho = os.path.join(project_dir, "Processos", "pesquisar_request.py")
     if not os.path.exists(caminho):
         raise SapExecutionError(f"Nao encontrei o ficheiro pesquisar_request.py no caminho: {caminho}")
@@ -260,10 +327,12 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     except Exception as exc:
         raise SapExecutionError(f"Falha ao carregar modulo pesquisar_request.py: {exc}")
         
-    ambiente = str(params.get("ambiente") or "DEV").upper()
-    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
-    sistema_desejado = mapa_sistema.get(ambiente, "S4D")
-    
+    session = None
+    try:
+        session = get_first_available_session(target_system=sistema_desejado)
+    except Exception as exc:
+        raise SapExecutionError(f"Falha ao obter sessão SAP para o sistema '{sistema_desejado}': {exc}")
+
     try:
         lista = mod.listar_requests(
             system_name=sistema_desejado,
@@ -272,6 +341,7 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
             use_new_mode=True,
             minimize=True,
             close_after=True,
+            session=session
         )
     except Exception as exc:
         raise SapExecutionError(f"Erro ao pesquisar requests no SAP: {exc}")
@@ -282,7 +352,7 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     itens = [{"trkorr": item[0], "as4text": item[1]} for item in lista]
     status_json = json.dumps(itens)
     
-    log = f"Pesquisa concluida com sucesso. Encontradas {len(lista)} requests."
+    log = f"Pesquisa concluida com sucesso via SAP GUI. Encontradas {len(lista)} requests no sistema {sistema_desejado}."
     return status_json, log
 
 
@@ -382,19 +452,507 @@ def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
     return status_json, log
 
 
-def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
-    from dotenv import load_dotenv
-    _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
-    if _project_dir:
-        load_dotenv(os.path.join(_project_dir, ".env"))
+# Whitelist de subprocessos com suporte a documentação funcional automática.
+# Para adicionar suporte a um novo subprocesso basta adicionar o nome aqui.
+SUPPORTED_FUNCTIONAL_DOC_PROCESSES: frozenset[str] = frozenset({
+    "A. PFCG_CREATE.py",
+})
+
+
+def _run_authorization_open_cua(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    target_user = str(params.get("target_user") or "").strip().upper()
+    target_system_key = str(params.get("target_system_key") or "").strip().upper()
+    analysis_type = str(params.get("analysis_type") or "").strip().lower()
+    cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+
+    if not target_user:
+        raise SapExecutionError("Utilizador a analisar não foi informado.")
+
+    if not target_system_key:
+        raise SapExecutionError("Sistema alvo da análise não foi informado.")
+
+    if analysis_type not in {"master_data", "authorizations"}:
+        raise SapExecutionError("Tipo de análise inválido.")
+
+    try:
+        from sap_session import ensure_sap_access_from_env, session_info
+
+        session = ensure_sap_access_from_env(
+            key=cua_sap_key,
+            timeout_s=40,
+            load_env=True,
+        )
+        info = session_info(session)
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível abrir a sessão SAP CUA: {exc}") from exc
+
+    expected_system = "SPA"
+    expected_client = "001"
+
+    if str(info.get("system_name") or "").strip().upper() != expected_system:
+        raise SapExecutionError("A sessão aberta não corresponde ao sistema CUA esperado.")
+
+    if str(info.get("client") or "").strip() != expected_client:
+        raise SapExecutionError("A sessão aberta não corresponde ao cliente CUA esperado.")
+
+    result = {
+        "success": True,
+        "execution_environment": "CUA",
+        "system_name": info.get("system_name", ""),
+        "client": info.get("client", ""),
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "analysis_type": analysis_type,
+    }
+
+    status = json.dumps(result, ensure_ascii=False)
+    log = (
+        "Sessão SAP CUA validada com sucesso.\n"
+        f"Utilizador analisado: {target_user}\n"
+        f"Sistema alvo: {target_system_key}\n"
+        f"Tipo de análise: {analysis_type}\n"
+        f"Sistema técnico: {info.get('system_name', '')}\n"
+        f"Cliente técnico: {info.get('client', '')}"
+    )
+
+    return status, log
+
+
+def validate_completed_analysis(result: dict[str, Any]) -> None:
+    if not result:
+        raise SapExecutionError("Resultado da análise está vazio.")
+
+    if not result.get("success"):
+        raise SapExecutionError(f"A análise falhou: {result.get('message')}")
+
+    code = result.get("code")
+    if code not in {"analysis_complete", "user_not_assigned_to_system", "user_not_found"}:
+        raise SapExecutionError(f"Código de conclusão de análise inválido: {code}")
+
+    if result.get("data_source_verified") is not True:
+        raise SapExecutionError("A veracidade das fontes da análise não pôde ser confirmada.")
+
+    if result.get("worker_feature_version") != "authorization-tables-v1":
+        raise SapExecutionError("A sessão CUA foi aberta, mas a consulta das tabelas não foi executada pelo Worker (versão antiga detetada).")
+
+    queries = result.get("queries") or []
+    if not queries:
+        raise SapExecutionError("A sessão CUA foi aberta, mas a consulta das tabelas não foi executada.")
+
+    tables_executed = {q.get("table") for q in queries if q.get("executed") and q.get("filters_applied")}
+    source = str(result.get("source") or "").strip().upper()
+    dev_flow = source == "RFC_AGR_USERS" or "AGR_USERS" in tables_executed
+    master_flow = source in {"RFC_USER_MASTER", "CUA_USER_MASTER"} or "USR02" in tables_executed
+    cua_usla04_only = "USLA04" in tables_executed and "USZBVSYS" not in tables_executed
+
+    if code == "analysis_complete":
+        if master_flow:
+            required = {"USR02", "USR21", "USR04", "AGR_USERS"}
+        elif cua_usla04_only:
+            required = {"USLA04"}
+        elif dev_flow:
+            required = {"AGR_USERS", "AGR_TCODES"}
+        else:
+            required = {"USZBVSYS", "USLA04", "USL04"}
+        missing = required - tables_executed
+        if missing:
+            raise SapExecutionError(f"A consulta das tabelas obrigatórias está incompleta. Tabelas em falta: {', '.join(missing)}")
+
+    elif code in {"user_not_assigned_to_system", "user_not_found"}:
+        if master_flow:
+            required_table = "USR02"
+        elif cua_usla04_only:
+            required_table = "USLA04"
+        elif dev_flow:
+            required_table = "AGR_USERS"
+        else:
+            required_table = "USZBVSYS"
+        if required_table not in tables_executed:
+            raise SapExecutionError(f"A tabela {required_table} não foi consultada para confirmar a associação ao sistema.")
+
+
+def _authorization_uses_rfc(target_system_key: str, requested_execution_mode: str = "") -> bool:
+    if os.getenv("AUTHORIZATION_FORCE_RFC", "").strip().lower() in {"1", "true", "yes", "sim"}:
+        return True
+    req_mode = str(requested_execution_mode or "").strip().upper()
+    if req_mode == "RFC":
+        return True
+    if req_mode == "CUA":
+        return False
+
+    cua_key = str(os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+    system_key = str(target_system_key or "").strip().upper()
+    if system_key in {cua_key, "CUA", "SPA", "SPACLNT001"}:
+        return False
+
+    return True
+
+
+
+def _make_job_progress_logger(job_id: str):
+    api_url = os.environ.get("SAP_API_BASE_URL", "").strip()
+    token = os.environ.get("SAP_WORKER_TOKEN", "").strip()
+
+    def _log(line: str) -> None:
+        message = str(line or "").strip()
+        if not message or not api_url or not token:
+            return
+        try:
+            requests.post(
+                f"{api_url}/api/jobs/{job_id}/log",
+                headers={"X-Worker-Token": token},
+                json={"log_line": message},
+                timeout=5,
+            )
+        except Exception:
+            pass
+
+    return _log
+
+
+def _run_authorization_analyze_user_rfc(params: dict[str, Any], progress_logger: Any | None = None) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    target_user = str(params.get("target_user") or "").strip().upper()
+    target_system_key = str(params.get("target_system_key") or "").strip().upper()
+    analysis_type = str(params.get("analysis_type") or "").strip().lower()
+
+    if not target_user:
+        raise SapExecutionError("Utilizador a analisar não foi informado.")
+
+    if not target_system_key:
+        raise SapExecutionError("Sistema alvo da análise não foi informado.")
+
+    if analysis_type not in {"master_data", "authorizations"}:
+        raise SapExecutionError("Tipo de análise inválido.")
+
+    try:
+        if analysis_type == "master_data":
+            from .user_master_data_analysis import analyze_user_master_data_rfc
+        elif target_system_key.startswith(("S4D", "S4P", "S4Q", "DEV", "QAD", "PRD")):
+            from .authorization_rfc_dev_analysis import analyze_user_authorizations_rfc_dev
+        else:
+            from .authorization_rfc_analysis import analyze_user_authorizations_rfc
+    except ImportError:
+        if analysis_type == "master_data":
+            from user_master_data_analysis import analyze_user_master_data_rfc
+        elif target_system_key.startswith(("S4D", "S4P", "S4Q", "DEV", "QAD", "PRD")):
+            from authorization_rfc_dev_analysis import analyze_user_authorizations_rfc_dev
+        else:
+            from authorization_rfc_analysis import analyze_user_authorizations_rfc
+
+    if analysis_type == "master_data":
+        result = analyze_user_master_data_rfc(
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+            connection_params=params.get("rfc_connection") if isinstance(params.get("rfc_connection"), dict) else None,
+        )
+    elif target_system_key.startswith(("S4D", "S4P", "S4Q", "DEV", "QAD", "PRD")):
+        result = analyze_user_authorizations_rfc_dev(
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+            connection_params=params.get("rfc_connection") if isinstance(params.get("rfc_connection"), dict) else None,
+        )
     else:
-        load_dotenv()
+        result = analyze_user_authorizations_rfc(
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+            connection_params=params.get("rfc_connection") if isinstance(params.get("rfc_connection"), dict) else None,
+        )
+
+    validate_completed_analysis(result)
+
+    log_lines = [
+        "[AUTH RFC] Ligação RFC validada.",
+    ]
+
+    queries = result.get("queries", [])
+
+    if analysis_type == "master_data":
+        q_usr02 = next((q for q in queries if q["table"] == "USR02"), None)
+        if q_usr02:
+            log_lines.append("[AUTH RFC] Tabela USR02 informada.")
+            log_lines.append("[AUTH RFC] Filtros USR02 aplicados.")
+            log_lines.append("[AUTH RFC] Dados de validade e bloqueio lidos.")
+
+        q_usr21 = next((q for q in queries if q["table"] == "USR21"), None)
+        if q_usr21:
+            log_lines.append("[AUTH RFC] Tabela USR21 informada.")
+            log_lines.append("[AUTH RFC] Ligação do utilizador ao endereço lida.")
+
+        q_usr04 = next((q for q in queries if q["table"] == "USR04"), None)
+        if q_usr04:
+            log_lines.append("[AUTH RFC] Tabela USR04 informada.")
+            log_lines.append("[AUTH RFC] Perfis do utilizador lidos.")
+
+        q_roles = next((q for q in queries if q["table"] == "AGR_USERS"), None)
+        if q_roles:
+            log_lines.append("[AUTH RFC] Tabela AGR_USERS informada.")
+            log_lines.append("[AUTH RFC] Roles do utilizador lidas.")
+    else:
+        q_dev_users = next((q for q in queries if q["table"] == "AGR_USERS"), None)
+        if q_dev_users:
+            log_lines.append("[AUTH RFC] Tabela AGR_USERS informada.")
+            log_lines.append("[AUTH RFC] Filtros AGR_USERS aplicados.")
+            log_lines.append("[AUTH RFC] Roles lidas via AGR_USERS.")
+
+        q_sys = next((q for q in queries if q["table"] == "USZBVSYS"), None)
+        if q_sys:
+            log_lines.append("[AUTH RFC] Tabela USZBVSYS informada.")
+            log_lines.append("[AUTH RFC] Filtros USZBVSYS aplicados.")
+            log_lines.append("[AUTH RFC] Resultado USZBVSYS lido.")
+
+        if result.get("code") == "analysis_complete":
+            q_dev_tcodes = next((q for q in queries if q["table"] == "AGR_TCODES"), None)
+            if q_dev_tcodes:
+                log_lines.append("[AUTH RFC] Tabela AGR_TCODES informada.")
+                log_lines.append("[AUTH RFC] Filtros AGR_TCODES aplicados.")
+                log_lines.append("[AUTH RFC] Funções AGR_TCODES lidas.")
+
+            q_roles = next((q for q in queries if q["table"] == "USLA04"), None)
+            if q_roles:
+                log_lines.append("[AUTH RFC] Tabela USLA04 informada.")
+                log_lines.append("[AUTH RFC] Filtros USLA04 aplicados.")
+                log_lines.append("[AUTH RFC] Lista clássica USLA04 lida.")
+
+            q_profs = next((q for q in queries if q["table"] == "USL04"), None)
+            if q_profs:
+                log_lines.append("[AUTH RFC] Tabela USL04 informada.")
+                log_lines.append("[AUTH RFC] Filtros USL04 aplicados.")
+                log_lines.append("[AUTH RFC] Resultado USL04 lido.")
+
+    log_lines.append("[AUTH RFC] Análise concluída com sucesso.")
+
+    safe_log = "\n".join(log_lines)
+    return json.dumps(result, ensure_ascii=False), safe_log
+
+
+def _run_authorization_analyze_user(params: dict[str, Any], progress_logger: Any | None = None) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    target_user = str(params.get("target_user") or "").strip().upper()
+    target_system_key = str(params.get("target_system_key") or "").strip().upper()
+    analysis_type = str(params.get("analysis_type") or "").strip().lower()
+    cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+    subsystem_filter = str(params.get("subsystem_filter") or "").strip().upper()
+
+    if not target_user:
+        raise SapExecutionError("Utilizador a analisar não foi informado.")
+
+    if not target_system_key:
+        raise SapExecutionError("Sistema alvo da análise não foi informado.")
+
+    if analysis_type not in {"master_data", "authorizations"}:
+        raise SapExecutionError("Tipo de análise inválido.")
+
+    try:
+        from sap_session import ensure_sap_access_from_env, session_info
+
+        cua_session = ensure_sap_access_from_env(
+            key=cua_sap_key,
+            timeout_s=40,
+            load_env=True,
+        )
+        info = session_info(cua_session)
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível abrir a sessão SAP CUA: {exc}") from exc
+
+    expected_system = "SPA"
+    expected_client = "001"
+
+    if str(info.get("system_name") or "").strip().upper() != expected_system:
+        raise SapExecutionError("A sessão aberta não corresponde ao sistema CUA esperado (deve ser SPA).")
+
+    if str(info.get("client") or "").strip() != expected_client:
+        raise SapExecutionError("A sessão aberta não corresponde ao cliente CUA esperado (deve ser 001).")
+
+    import sys
+    import os
+    WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
+    if WORKER_DIR not in sys.path:
+        sys.path.insert(0, WORKER_DIR)
+
+    if analysis_type == "master_data":
+        try:
+            from .user_master_data_analysis import analyze_user_master_data
+        except ImportError:
+            from user_master_data_analysis import analyze_user_master_data
+
+        result = analyze_user_master_data(
+            session=cua_session,
+            target_user=target_user,
+            target_system_key=target_system_key,
+            progress_logger=progress_logger,
+        )
+    else:
+        try:
+            from .authorization_table_analysis import analyze_user_authorizations
+        except ImportError:
+            from authorization_table_analysis import analyze_user_authorizations
+
+        subsystem_filter = str(params.get("subsystem_filter") or "").strip().upper()
+        result = analyze_user_authorizations(
+            session=cua_session,
+            target_user=target_user,
+            target_system_key=target_system_key,
+            target_subsystem_key=subsystem_filter,
+            progress_logger=progress_logger,
+        )
+
+    validate_completed_analysis(result)
+
+    log_lines = [
+        "[AUTH] Sessão CUA validada: SPA/001."
+    ]
+
+    queries = result.get("queries", [])
+
+    if analysis_type == "master_data":
+        q_usr02 = next((q for q in queries if q["table"] == "USR02"), None)
+        if q_usr02:
+            log_lines.append("[AUTH] Tabela USR02 informada.")
+            log_lines.append("[AUTH] Filtros USR02 aplicados.")
+            log_lines.append("[AUTH] Dados de validade e bloqueio lidos.")
+
+        q_usr21 = next((q for q in queries if q["table"] == "USR21"), None)
+        if q_usr21:
+            log_lines.append("[AUTH] Tabela USR21 informada.")
+            log_lines.append("[AUTH] Ligação do utilizador ao endereço lida.")
+
+        q_usr04 = next((q for q in queries if q["table"] == "USR04"), None)
+        if q_usr04:
+            log_lines.append("[AUTH] Tabela USR04 informada.")
+            log_lines.append("[AUTH] Perfis do utilizador lidos.")
+
+        q_roles = next((q for q in queries if q["table"] == "AGR_USERS"), None)
+        if q_roles:
+            log_lines.append("[AUTH] Tabela AGR_USERS informada.")
+            log_lines.append("[AUTH] Roles do utilizador lidas.")
+    else:
+        q_sys = next((q for q in queries if q["table"] == "USZBVSYS"), None)
+        if q_sys:
+            log_lines.append("[AUTH] A abrir SE16.")
+            log_lines.append("[AUTH] Tabela USZBVSYS informada.")
+            log_lines.append("[AUTH] Filtros USZBVSYS aplicados.")
+            log_lines.append("[AUTH] Resultado USZBVSYS lido.")
+
+        if result.get("code") == "analysis_complete":
+            q_roles = next((q for q in queries if q["table"] == "USLA04"), None)
+            if q_roles:
+                sub_desc = subsystem_filter or "todos"
+                log_lines.append("[AUTH] Tabela USLA04 informada.")
+                log_lines.append(f"[AUTH] Filtros USLA04 aplicados (BNAME={target_user}, SUBSYSTEM={sub_desc}).")
+                log_lines.append(f"[AUTH] Lista clássica USLA04 lida para o subsistema {sub_desc}.")
+
+            q_profs = next((q for q in queries if q["table"] == "USL04"), None)
+            if q_profs:
+                log_lines.append("[AUTH] Tabela USL04 informada.")
+                log_lines.append("[AUTH] Filtros USL04 aplicados.")
+                log_lines.append("[AUTH] Resultado USL04 lido.")
+
+    log_lines.append("[AUTH] Análise concluída com sucesso.")
+    safe_log = "\n".join(log_lines)
+
+    return json.dumps(result, ensure_ascii=False), safe_log
+
+
+def _run_authorization_hr_search(params: dict[str, Any]) -> tuple[str, str]:
+    query = str(params.get("query") or "").strip()
+    system_key = str(params.get("target_system_key") or "S4PCLNT100").strip()
+    max_results = int(params.get("max_results") or 10)
+
+    try:
+        try:
+            from .hr_data_analysis import search_hr_user_data_rfc
+        except ImportError:
+            from hr_data_analysis import search_hr_user_data_rfc
+
+        res = search_hr_user_data_rfc(query=query, target_system_key=system_key, max_results=max_results)
+        log_json = json.dumps(res, ensure_ascii=False)
+        status = "succeeded" if res.get("success") else "failed"
+        return status, log_json
+    except Exception as exc:
+        err_res = {
+            "success": False,
+            "message": f"Erro ao executar a consulta de RH no Worker: {exc}",
+            "data": [],
+            "query": query,
+            "total": 0,
+        }
+        return "failed", json.dumps(err_res, ensure_ascii=False)
+
+
+def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    module_name = os.getenv("SAP_COCKPIT_MODULE", "sap_script_web_cockpit_v2.sap_cockpit_web_ready").strip()
+    try:
+        cockpit = importlib.import_module(module_name)
+        if hasattr(cockpit, "reload_project_env"):
+            cockpit.reload_project_env(force_override=True)
+        else:
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
+    except Exception:
+        try:
+            from sap_script_web_cockpit_v2.sap_cockpit_web_ready import reload_project_env
+            reload_project_env(force_override=True)
+        except Exception:
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
 
     task = job["task"]
     params = job.get("params", {}) or {}
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
-
     try:
+        if task == "authorization_hr_search":
+            status, log = _run_authorization_hr_search(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+        if task == "authorization_analyze_user":
+            os.environ["SAP_JOB_ID"] = str(job["id"])
+            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8010").rstrip("/")
+            os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
+            progress_logger = _make_job_progress_logger(str(job["id"]))
+            target_user = str(params.get("target_user") or "").strip().upper()
+            target_system_key = str(params.get("target_system_key") or "").strip().upper()
+            analysis_type = str(params.get("analysis_type") or "").strip().lower()
+            requested_execution_mode = str(params.get("execution_mode") or "").strip().upper()
+            uses_rfc = _authorization_uses_rfc(target_system_key, requested_execution_mode)
+            execution_mode = "RFC" if uses_rfc else "CUA"
+            cua_sap_key = str(params.get("cua_sap_key") or os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001")).strip().upper()
+            modo_label = f"modo={execution_mode}"
+            if requested_execution_mode and requested_execution_mode != execution_mode:
+                modo_label = f"modo_pedido={requested_execution_mode}, modo_execucao={execution_mode}"
+            progress_logger(
+                "[AUTH] Pedido recebido: "
+                f"utilizador={target_user or '<vazio>'}, "
+                f"sistema={target_system_key or '<vazio>'}, "
+                f"tipo={analysis_type or '<vazio>'}, "
+                f"{modo_label}, "
+                f"cua_sap_key={cua_sap_key}."
+            )
+            progress_logger(
+                f"[AUTH] A iniciar a análise no sistema {target_system_key}."
+                if not uses_rfc
+                else f"[AUTH RFC] A iniciar a ligação RFC ao sistema {target_system_key}."
+            )
+            if uses_rfc:
+                status, log = _run_authorization_analyze_user_rfc(params, progress_logger=progress_logger)
+            else:
+                status, log = _run_authorization_analyze_user(params, progress_logger=progress_logger)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "authorization_open_cua":
+            status, log = _run_authorization_open_cua(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
         if task == "sap_agent_analysis":
             status, log = _run_sap_agent_analysis(params)
             log_lines.append(log)
@@ -428,7 +986,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "sap_cockpit":
             os.environ["SAP_JOB_ID"] = str(job["id"])
-            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8010").rstrip("/")
             os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
 
             main_thread_id = threading.get_ident()
@@ -545,7 +1103,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                         r = requests.get(
                             f"{api_url}/api/jobs/{job['id']}",
                             headers={"X-Worker-Token": token},
-                            timeout=5
+                            timeout=15
                         )
                         if r.status_code == 200:
                             job_data = r.json()
@@ -566,14 +1124,18 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                                     if session:
                                         conn = session.Parent
                                         conn.CloseSession(session.Id)
+                                    # Fechar a própria conexão da sessão para fechar a janela SAP correspondente
                                 except Exception:
                                     pass
                                 _force_terminate_worker()
                                 break
                     except Exception as pe:
-                        print(f"\n[DEBUG POLLER] Erro ao consultar estado do job: {pe}")
+                        # Increment poller timeout counters
+                        os.environ["CURRENT_ROLE_POLLER_TIMEOUT"] = str(int(os.environ.get("CURRENT_ROLE_POLLER_TIMEOUT", 0)) + 1)
+                        os.environ["TOTAL_POLLER_TIMEOUT"] = str(int(os.environ.get("TOTAL_POLLER_TIMEOUT", 0)) + 1)
+                        print(f"\n[TECHNICAL WARN] [DEBUG POLLER] Erro ao consultar estado do job: {pe}")
                         sys.stdout.flush()
-                    cancel_event.wait(2.0)
+                    cancel_event.wait(5.0)
 
             poller_thread = threading.Thread(target=poll_status, daemon=True)
             poller_thread.start()
@@ -582,43 +1144,19 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             streamer = APILogStream(job["id"], orig_stdout, main_thread_id)
             sys.stdout = streamer
 
-            # ── Inicializar documentação de evidências ─────────────────────────────
-            documentation = None
-            doc_row_context: dict[str, str] = {}
-            try:
-                import importlib.util as _ilu
-                from pathlib import Path as _Path
-                _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
-                if _project_dir and _project_dir not in sys.path:
-                    sys.path.insert(0, _project_dir)
-                from workflow_documentation import WorkflowDocumentation  # type: ignore
-                _ticket_key = (
-                    str(params.get("jira_key") or "").strip().upper()
-                    or str(job.get("id", ""))[:8].upper()
-                )
-                _processo = str(params.get("processo") or "").strip()
-                _subprocesso = str(params.get("subprocesso") or "").strip()
-                _workflow_name = " | ".join(p for p in (_processo, _subprocesso) if p) or "sap_cockpit"
-                doc_row_context = {
-                    "ticket_key": _ticket_key,
-                    "categoria_sap": _processo,
-                    "request_number": str(params.get("request_number") or "").strip().upper(),
-                    "xlsx_path": str(params.get("caminho_ficheiro") or "").strip(),
-                    "ambiente": str(params.get("ambiente") or "").strip(),
-                }
-                documentation = WorkflowDocumentation.from_env(
-                    base_dir=_Path(_project_dir) if _project_dir else _Path("."),
-                    row_context=doc_row_context,
-                    workflow_name=_workflow_name,
-                )
-            except Exception as _doc_init_exc:
-                print(f"[DOC] Aviso: não foi possível inicializar documentação: {_doc_init_exc}")
+            # ── Guardar nome_pasta no ambiente para processos que suportam DOC ──────
+            # A documentação funcional é gerida internamente pelo processo (ex.: A. PFCG_CREATE.py).
+            # Aqui apenas verificamos se o subprocesso está na whitelist e, se não estiver,
+            # emitimos um log discreto para informar que a documentação foi ignorada.
+            _nome_pasta = str(params.get("nome_pasta") or "").strip()
+            _subprocesso_solicitado = str(params.get("subprocesso") or "").strip()
+            if _nome_pasta and _subprocesso_solicitado and _subprocesso_solicitado not in SUPPORTED_FUNCTIONAL_DOC_PROCESSES:
+                print(f"[DOC] Documentação funcional ignorada: subprocesso ainda não suportado ({_subprocesso_solicitado})")
             # ──────────────────────────────────────────────────────────────────────
 
-            _cockpit_ok = True
-            _cockpit_error = ""
+            success_val = True
             try:
-                status, log = _run_sap_cockpit(params)
+                status, log, success_val = _run_sap_cockpit(params)
             except JobCancelledException:
                 print("\n❌ Execução cancelada pelo utilizador. A abortar transações SAP...")
                 try:
@@ -648,34 +1186,11 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                 raise
             finally:
                 cancel_event.set()
-                # ── Gerar documento de evidências ──────────────────────────────────────
-                if documentation:
-                    try:
-                        _step_name = (
-                            str(params.get("subprocesso") or params.get("processo") or "Execução SAP")
-                        )
-                        documentation.capture_step(
-                            step_name=_step_name,
-                            row_context=doc_row_context,
-                            note="" if _cockpit_ok else f"Erro: {_cockpit_error}",
-                            allow_live_capture=_cockpit_ok,
-                        )
-                        _doc_path = documentation.finalize(
-                            row_context=doc_row_context,
-                            success=_cockpit_ok,
-                            error=_cockpit_error,
-                        )
-                        if _doc_path:
-                            print(f"[DOC] Documento de evidências gerado: {_doc_path}")
-                            log_lines.append(f"[DOC] Evidências: {_doc_path}")
-                    except Exception as _doc_fin_exc:
-                        print(f"[DOC] Aviso: falha ao gerar documento: {_doc_fin_exc}")
-                # ──────────────────────────────────────────────────────────────────────
                 sys.stdout = orig_stdout
                 streamer.close()
 
             log_lines.append(log)
-            return status or "Execucao concluida, mas STATUS veio vazio.", "\n".join(log_lines)
+            return status or "Execucao concluida, mas STATUS veio vazio.", "\n".join(log_lines), success_val
 
 
         raise SapExecutionError(f"Rotina desconhecida: {task}")

@@ -46,5 +46,14 @@
         ]
       }
     ]
+  },
+  "FI F110 UAT": {
+    "description": "Executa o fluxo completo da F110: criar documento, simular elegibilidade e seguir para proposta ou pagamento.",
+    "steps": [
+      {
+        "name": "Executar fluxo F110",
+        "script": "Processos/UAT Simulação/Executar F110.py"
+      }
+    ]
   }
 }

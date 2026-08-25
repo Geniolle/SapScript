@@ -168,21 +168,53 @@ def executar(
     # Localizar o cabeçalho
     header_row = None
     header_map = {}
+    
+    # Colunas que obrigatoriamente têm de existir inicialmente (dados de entrada)
+    COLUNAS_ENTRADA = {COL_ID, COL_AGR_NAME}
+    # Colunas de saída que podem ser criadas automaticamente
+    COLUNAS_SAIDA = {COL_STATUS: "STATUS", COL_MSG: "MSG", COL_TIMESTAMP: "TIMESTEMP"}
+    
     for r in range(1, SEARCH_HEADER_IN_FIRST_ROWS + 1):
         row_vals = [traduzir_nome_coluna(c.value) for c in ws[r]]
-        colunas_encontradas = set(row_vals).intersection(COLUNAS_OBRIGATORIAS)
+        colunas_entrada_encontradas = set(row_vals).intersection(COLUNAS_ENTRADA)
 
-        if len(colunas_encontradas) >= len(COLUNAS_OBRIGATORIAS):
+        if len(colunas_entrada_encontradas) == len(COLUNAS_ENTRADA):
             header_row = r
+            # Mapear colunas existentes
             for idx, name in enumerate(row_vals, start=1):
                 if name:
                     header_map[name] = idx
+            
+            # Verificar se faltam as colunas de saída e criá-las se necessário
+            modificou = False
+            last_col = 0
+            for idx, val in enumerate(row_vals, start=1):
+                if val:
+                    last_col = idx
+
+            for col_key, col_name in COLUNAS_SAIDA.items():
+                if col_key not in header_map:
+                    last_col += 1
+                    ws.cell(row=r, column=last_col, value=col_name)
+                    header_map[col_key] = last_col
+                    log(f"➕ Coluna '{col_name}' criada automaticamente na coluna {last_col}.")
+                    modificou = True
+            
+            if modificou:
+                try:
+                    wb.save(caminho_ficheiro)
+                    log("💾 Ficheiro Excel guardado com as novas colunas.")
+                except Exception as e:
+                    wb.close()
+                    log(f"❌ Erro ao guardar o ficheiro Excel com as novas colunas: {e}")
+                    log("💡 Certifique-se de que o ficheiro Excel não está aberto no Excel e tente novamente.")
+                    return "voltar"
             break
 
     if not header_row:
         wb.close()
         print(f"\n❌ Não encontrei as colunas obrigatórias nas primeiras {SEARCH_HEADER_IN_FIRST_ROWS} linhas.")
-        print(f"   Esperado: {', '.join(COLUNAS_OBRIGATORIAS)}")
+        print(f"   Esperado: {', '.join(COLUNAS_ENTRADA)}")
         return "voltar"
 
     # Extrair os dados para processamento
@@ -201,6 +233,18 @@ def executar(
         # Filtra logo linhas vazias ou já concluídas
         if not agr or status == "CONCLUÍDO" or status == "CONCLUIDO":
             continue
+
+        # Validar e remover espaços do nome da Role
+        if " " in agr:
+            orig = agr
+            agr = agr.replace(" ", "")
+            if COL_AGR_NAME in header_map:
+                ws.cell(row=r, column=header_map[COL_AGR_NAME], value=agr)
+                log(f"⚠️ Espaços detetados e removidos da Role: '{orig}' -> '{agr}' (atualizado no Excel)")
+                try:
+                    wb.save(caminho_ficheiro)
+                except Exception:
+                    pass
 
         records.append({
             "_row": r,
@@ -330,7 +374,8 @@ def executar(
                     include_requests=True,
                     use_new_mode=True,
                     minimize=True,
-                    close_after=True
+                    close_after=True,
+                    session=session
                 )
                 if resultados_pesquisa:
                     escolha = input("\n👉 Digite o número (N) da Request que deseja utilizar (ou Enter para cancelar): ").strip()

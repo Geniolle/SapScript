@@ -47,6 +47,7 @@ class RuntimeConfig:
     gerar_json: bool
     gerar_csv: bool
     consultas: list[dict[str, Any]]
+    metodo: str = "GUI"
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:
@@ -63,6 +64,11 @@ def normalizar_processo(config: dict[str, Any]) -> RuntimeConfig:
     sap_key = str(config.get("sap_key") or "S4DCLNT100").strip().upper()
     transaction = str(config.get("transaction") or "SE16H").strip().upper()
     consultas = list(config.get("consultas") or [])
+
+    metodo_raw = str(config.get("metodo") or "").strip().upper()
+    if not metodo_raw:
+        metodo_raw = "RFC" if _to_bool(config.get("use_rfc")) else "GUI"
+    metodo = "RFC" if metodo_raw == "RFC" else "GUI"
 
     if transaction not in {"SE16H", "SE16N"}:
         raise ValueError("A transação de leitura suportada deve ser SE16H ou SE16N.")
@@ -84,7 +90,9 @@ def normalizar_processo(config: dict[str, Any]) -> RuntimeConfig:
         gerar_json=_to_bool(config.get("gerar_json"), True),
         gerar_csv=_to_bool(config.get("gerar_csv"), False),
         consultas=consultas,
+        metodo=metodo,
     )
+
 
 
 def _wait_not_busy(session, timeout_s: float = 20.0) -> None:
@@ -533,16 +541,29 @@ def _print_query_header(cfg: dict[str, Any]) -> None:
     print("=" * 100)
 
 
-def _print_rows(rows: list[dict[str, str]]) -> None:
+def _print_rows(rows: list[dict[str, str]], max_preview: int = 25) -> None:
     if not rows:
         print("📭 Nenhum registo devolvido.")
         return
     headers = list(rows[0].keys())
     print(f"✅ {len(rows)} registo(s) devolvido(s).")
-    print(" | ".join(headers))
-    print("-" * min(180, max(80, len(" | ".join(headers)))))
-    for idx, row in enumerate(rows, start=1):
-        print(f"{idx:>4} | " + " | ".join(str(row.get(header, "")) for header in headers))
+
+    header_str = " | ".join(headers)
+    if len(header_str) > 160:
+        header_str = header_str[:157] + "..."
+    print(header_str)
+    print("-" * min(160, max(40, len(header_str))))
+
+    preview_rows = rows[:max_preview]
+    for idx, row in enumerate(preview_rows, start=1):
+        line = " | ".join(str(row.get(h, "")) for h in headers)
+        if len(line) > 160:
+            line = line[:157] + "..."
+        print(f"{idx:>4} | {line}")
+
+    if len(rows) > max_preview:
+        print(f"   ... e mais {len(rows) - max_preview} registo(s) (guardados no JSON/CSV).")
+
 
 
 def _cache_dir(runtime: RuntimeConfig) -> Path:
@@ -601,37 +622,165 @@ def _run_single_query(session, cfg: dict[str, Any], runtime: RuntimeConfig) -> d
     }
 
 
+def _obter_conexao_rfc(sap_key: str) -> tuple[Any, dict[str, str]]:
+    import os
+    try:
+        from pyrfc import Connection
+    except ImportError as exc:
+        raise RuntimeError("A biblioteca 'pyrfc' não está instalada neste ambiente Python.") from exc
+
+    key_upper = str(sap_key or "S4DCLNT100").upper().strip()
+
+    alias = "DEV"
+    if "QAD" in key_upper or "S4Q" in key_upper:
+        alias = "QAD"
+    elif "PRD" in key_upper or "S4P" in key_upper:
+        alias = "PRD"
+
+    ashost = os.getenv(f"SAP_ASHOST_{alias}") or os.getenv("SAP_ASHOST", "")
+    sysnr = os.getenv(f"SAP_SYSNR_{alias}") or os.getenv("SAP_SYSNR", "00")
+    client = os.getenv(f"SAP_CLIENT_{key_upper}") or os.getenv(f"SAP_CLIENT_{alias}") or os.getenv("SAP_CLIENT", "100")
+    user = os.getenv(f"SAP_USER_{alias}") or os.getenv("SAP_USER", "")
+    passwd = os.getenv(f"SAP_PASSWORD_{key_upper}") or os.getenv(f"SAP_PASSWORD_{alias}") or os.getenv("SAP_PASSWORD", "")
+    lang = os.getenv(f"SAP_LANGUAGE_{alias}") or os.getenv("SAP_LANGUAGE", "PT")
+
+    if not ashost:
+        raise RuntimeError(f"Falta definir SAP_ASHOST_{alias} no ficheiro .env.")
+    if not passwd:
+        raise RuntimeError(f"Falta definir a password RFC para {key_upper} / {alias} no .env.")
+
+    conn = Connection(
+        ashost=ashost,
+        sysnr=sysnr,
+        client=client,
+        user=user,
+        passwd=passwd,
+        lang=lang,
+    )
+    info = {
+        "system_name": alias,
+        "client": client,
+        "user": user,
+    }
+    return conn, info
+
+
+def _run_single_query_rfc(conn: Any, cfg: dict[str, Any], runtime: RuntimeConfig) -> dict[str, Any]:
+    table = str(cfg.get("tabela") or "").strip().upper()
+    _print_query_header(cfg)
+
+    clauses: list[str] = []
+    filtros = cfg.get("filtros") or []
+    for f in filtros:
+        campo = str(f.get("campo") or "").strip().upper()
+        valor = f.get("valor")
+        opcao = str(f.get("opcao") or "EQ").strip().upper()
+        if not campo or valor is None:
+            continue
+        if opcao == "EQ":
+            clause = f"{campo} = '{valor}'"
+        elif opcao == "NE":
+            clause = f"{campo} <> '{valor}'"
+        elif opcao == "LIKE":
+            clause = f"{campo} LIKE '{valor}'"
+        elif opcao == "IN":
+            if isinstance(valor, (list, tuple, set)):
+                vals_str = "', '".join(str(v) for v in valor)
+                clause = f"{campo} IN ('{vals_str}')"
+            else:
+                clause = f"{campo} = '{valor}'"
+        else:
+            clause = f"{campo} {opcao} '{valor}'"
+        clauses.append(clause)
+
+    options: list[dict[str, str]] = []
+    if clauses:
+        full_where = " AND ".join(clauses)
+        words = full_where.split(" ")
+        current_line = ""
+        for word in words:
+            if not current_line:
+                current_line = word
+            elif len(current_line) + 1 + len(word) <= 70:
+                current_line += " " + word
+            else:
+                options.append({"TEXT": current_line})
+                current_line = word
+        if current_line:
+            options.append({"TEXT": current_line})
+
+    requested_fields = cfg.get("campos_saida") or []
+    fields_input = [{"FIELDNAME": f.strip().upper()} for f in requested_fields if f.strip()]
+
+    max_rows = int(cfg.get("max_rows") or runtime.max_rows)
+
+    res = conn.call(
+        "RFC_READ_TABLE",
+        QUERY_TABLE=table,
+        OPTIONS=options,
+        FIELDS=fields_input,
+        DELIMITER="|",
+        ROWCOUNT=max_rows,
+    )
+
+    fields_meta = res.get("FIELDS") or []
+    headers = [f["FIELDNAME"].strip() for f in fields_meta]
+    raw_data = res.get("DATA") or []
+
+    rows: list[dict[str, str]] = []
+    for item in raw_data:
+        wa = str(item.get("WA") or "")
+        parts = wa.split("|")
+        row_dict: dict[str, str] = {}
+        for idx_h, h in enumerate(headers):
+            val = parts[idx_h].strip() if idx_h < len(parts) else ""
+            row_dict[h] = val
+        rows.append(row_dict)
+
+    _print_rows(rows)
+
+    return {
+        "name": cfg.get("nome") or table,
+        "table": table,
+        "filters": cfg.get("filtros") or [],
+        "requested_fields": requested_fields,
+        "row_count": len(rows),
+        "rows": rows,
+    }
+
+
 def executar_processo(config: dict[str, Any]) -> int:
     """Executa um processo declarativo definido em ``processos/*.py``."""
     runtime = normalizar_processo(config)
     print(f"SAP - {runtime.titulo}")
     print(f"Processo            : {runtime.processo_id}")
-    print(f"Transação de leitura : {runtime.transaction}")
+    print(f"Método              : {runtime.metodo}")
+    if runtime.metodo == "GUI":
+        print(f"Transação de leitura : {runtime.transaction}")
     print(f"SAP KEY             : {runtime.sap_key}")
     print(f"Máximo de linhas    : {runtime.max_rows}")
     print(f"Consultas           : {len(runtime.consultas)}")
 
     load_dotenv_manual()
-    base_session = ensure_sap_access_from_env(
-        key=runtime.sap_key,
-        timeout_s=40,
-        load_env=True,
-    )
-    info = session_info(base_session)
-    print(
-        "✅ SAP ligado | "
-        f"Sistema={info['system_name']} | Cliente={info['client']} | User={info['user']}"
-    )
-
-    analysis_session = _open_analysis_session(base_session, runtime)
     results: list[dict[str, Any]] = []
-    try:
+
+    if runtime.metodo == "RFC":
+        try:
+            conn, info = _obter_conexao_rfc(runtime.sap_key)
+            print(
+                "✅ SAP ligado (RFC) | "
+                f"Sistema={info['system_name']} | Cliente={info['client']} | User={info['user']}"
+            )
+        except Exception as exc_rfc:
+            print(f"❌ Erro ao ligar ao SAP via RFC: {exc_rfc}")
+            return 1
+
         for cfg in runtime.consultas:
             try:
-                results.append(_run_single_query(analysis_session, cfg, runtime))
+                results.append(_run_single_query_rfc(conn, cfg, runtime))
             except Exception as exc:
                 table = str(cfg.get("tabela") or "").upper()
-                print(f"❌ Erro na consulta {table}: {exc}")
+                print(f"❌ Erro na consulta RFC {table}: {exc}")
                 results.append(
                     {
                         "name": cfg.get("nome") or table,
@@ -643,19 +792,55 @@ def executar_processo(config: dict[str, Any]) -> int:
                         "error": str(exc),
                     }
                 )
-    finally:
-        if runtime.fechar_modo_no_fim and analysis_session is not base_session:
-            _close_session_window(analysis_session)
+        try:
+            conn.close()
+        except Exception:
+            pass
+    else:
+        base_session = ensure_sap_access_from_env(
+            key=runtime.sap_key,
+            timeout_s=40,
+            load_env=True,
+        )
+        info = session_info(base_session)
+        print(
+            "✅ SAP ligado (GUI) | "
+            f"Sistema={info['system_name']} | Cliente={info['client']} | User={info['user']}"
+        )
+
+        analysis_session = _open_analysis_session(base_session, runtime)
+        try:
+            for cfg in runtime.consultas:
+                try:
+                    results.append(_run_single_query(analysis_session, cfg, runtime))
+                except Exception as exc:
+                    table = str(cfg.get("tabela") or "").upper()
+                    print(f"❌ Erro na consulta {table}: {exc}")
+                    results.append(
+                        {
+                            "name": cfg.get("nome") or table,
+                            "table": table,
+                            "filters": cfg.get("filtros") or [],
+                            "requested_fields": cfg.get("campos_saida") or [],
+                            "row_count": 0,
+                            "rows": [],
+                            "error": str(exc),
+                        }
+                    )
+        finally:
+            if runtime.fechar_modo_no_fim and analysis_session is not base_session:
+                _close_session_window(analysis_session)
 
     payload = {
         "meta": {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "processo": runtime.processo_id,
             "titulo": runtime.titulo,
+            "metodo": runtime.metodo,
             "system": info.get("system_name", ""),
             "client": info.get("client", ""),
             "user": info.get("user", ""),
-            "transaction": runtime.transaction,
+            "transaction": runtime.transaction if runtime.metodo == "GUI" else "RFC_READ_TABLE",
             "max_rows": runtime.max_rows,
         },
         "results": results,
@@ -674,3 +859,4 @@ def executar_processo(config: dict[str, Any]) -> int:
         return 1
     print("✅ Análise concluída sem erros.")
     return 0
+

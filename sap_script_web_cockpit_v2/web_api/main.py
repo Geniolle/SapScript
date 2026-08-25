@@ -8,20 +8,109 @@ import sys
 import requests
 
 from uuid import uuid4
-from typing import Any
+from typing import Any, Optional
+from datetime import datetime
 import time
 
-last_worker_ping: float = 0.0
+import threading
+
+WORKER_OFFLINE_AFTER_SECONDS = float(os.getenv("WORKER_OFFLINE_AFTER_SECONDS", "60.0"))
+worker_last_seen: dict[str, float] = {}
+worker_last_seen_lock = threading.Lock()
+WORKER_HEARTBEAT_DEBUG = os.getenv("WORKER_HEARTBEAT_DEBUG", "false").strip().lower() in ("1", "true", "yes", "sim")
+delayed_heartbeats_count = 0
+delayed_heartbeats_lock = threading.Lock()
+
+def update_worker_ping(worker_name: str) -> None:
+    if not worker_name:
+        return
+    with worker_last_seen_lock:
+        worker_last_seen[worker_name] = time.time()
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, delete_all_jobs, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo, get_job_state
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
+from web_api.authorization_agent import get_analysis_types, get_execution_mode_for_system_key
 import asyncio
+import difflib
+import unicodedata
+from openpyxl import Workbook
+
+def update_worker_ping_for_job(job_id: str) -> None:
+    try:
+        job = get_job(job_id)
+        if job and job.get("worker_name"):
+            update_worker_ping(job["worker_name"])
+    except Exception:
+        pass
+
+WORKER_REQUIRED_TASKS = {
+    "authorization_open_cua",
+    "authorization_analyze_user",
+    "authorization_hr_search",
+    "sap_cockpit",
+    "sap_agent_analysis",
+    "sap_gui_chat_action",
+    "open_transaction",
+    "select_excel_file",
+    "ping_status",
+    "sap_search_requests",
+}
+
+def get_worker_runtime_status(worker_name: str | None = None) -> dict[str, Any]:
+    import time
+    now = time.time()
+    is_online = False
+    last_seen_seconds = None
+    with worker_last_seen_lock:
+        if worker_name:
+            last_seen = worker_last_seen.get(worker_name)
+            if last_seen is not None:
+                last_seen_seconds = now - last_seen
+                is_online = last_seen_seconds < WORKER_OFFLINE_AFTER_SECONDS
+        else:
+            if worker_last_seen:
+                most_recent = max(worker_last_seen.values())
+                last_seen_seconds = now - most_recent
+                is_online = last_seen_seconds < WORKER_OFFLINE_AFTER_SECONDS
+
+    if is_online:
+        return {
+            "online": True,
+            "state": "online",
+            "message": "Worker online.",
+            "last_seen_seconds": round(last_seen_seconds, 1) if last_seen_seconds is not None else None
+        }
+    else:
+        return {
+            "online": False,
+            "state": "offline",
+            "message": "O Worker Windows está desligado.",
+            "last_seen_seconds": round(last_seen_seconds, 1) if last_seen_seconds is not None else None
+        }
+
+def is_worker_online() -> bool:
+    return get_worker_runtime_status()["online"]
+
+def require_worker_online(task: str | None = None, message: str | None = None):
+    if task and task not in WORKER_REQUIRED_TASKS:
+        return
+    status = get_worker_runtime_status()
+    if not status["online"]:
+        msg = message or "O Worker Windows está desligado. Ligue o worker antes de iniciar a ação."
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "worker_offline",
+                "message": msg,
+            },
+        )
+
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 SAP_SCRIPT_PROJECT_DIR = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
@@ -203,10 +292,51 @@ def _resolve_process_path(processo: str) -> str | None:
     processos_dir_abs = os.path.abspath(processos_dir)
     caminho = os.path.abspath(os.path.join(processos_dir_abs, processo_normalizado))
 
+    def _normalizar_chave(valor: str) -> str:
+        texto = str(valor or "").strip()
+        if not texto:
+            return ""
+
+        candidatos = [texto]
+        for origem, destino in (("utf-8", "latin1"), ("utf-8", "cp1252")):
+            try:
+                candidatos.append(texto.encode(origem).decode(destino))
+            except Exception:
+                pass
+
+        melhor = ""
+        for candidato in candidatos:
+            base = unicodedata.normalize("NFKD", candidato)
+            base = "".join(ch for ch in base if not unicodedata.combining(ch))
+            base = re.sub(r"[^0-9a-z]+", "", base.casefold())
+            if len(base) > len(melhor):
+                melhor = base
+        return melhor
+
     if caminho != processos_dir_abs and not caminho.startswith(processos_dir_abs + os.sep):
         return None
 
     if not os.path.isdir(caminho):
+        processo_key = _normalizar_chave(processo_normalizado)
+        melhor_caminho = ""
+        melhor_score = 0.0
+
+        for nome in os.listdir(processos_dir_abs):
+            if nome == "__pycache__":
+                continue
+
+            candidato_path = os.path.join(processos_dir_abs, nome)
+            if not os.path.isdir(candidato_path):
+                continue
+
+            score = difflib.SequenceMatcher(None, processo_key, _normalizar_chave(nome)).ratio()
+            if score > melhor_score:
+                melhor_score = score
+                melhor_caminho = candidato_path
+
+        if melhor_caminho and melhor_score >= 0.75:
+            return melhor_caminho
+
         return None
 
     return caminho
@@ -219,8 +349,17 @@ def get_available_processes() -> list[dict[str, str]]:
         return []
 
     processos: list[dict[str, str]] = []
+    # ###################################################################################
+    # (1) PRIORIDADE VISUAL DOS PROCESSOS NO MENU
+    # ###################################################################################
+    prioridade_menu = {
+        "UAT Simulação": 0,
+    }
 
-    for nome in sorted(os.listdir(processos_dir), key=str.casefold):
+    def sort_key(nome: str) -> tuple[int, str]:
+        return prioridade_menu.get(nome, 1000), nome.casefold()
+
+    for nome in sorted(os.listdir(processos_dir), key=sort_key):
         if nome.startswith("~$"):
             continue
 
@@ -439,6 +578,11 @@ async def run_auto_trigger() -> dict[str, Any]:
         "entries": [],
     }
 
+    # Check if worker is online
+    if not is_worker_online():
+        print("[AUTO-TRIGGER] Worker Windows offline. Skipping auto-trigger execution.")
+        return result
+
     try:
         tickets = await asyncio.to_thread(fetch_auto_trigger_tickets)
     except Exception as exc:
@@ -612,14 +756,16 @@ def startup() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
+    context = {
+        "request": request,
+        "ambientes": get_available_environments(),
+        "processos": get_available_processes(),
+        "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
+    }
     response = templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "ambientes": get_available_environments(),
-            "processos": get_available_processes(),
-            "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
-        },
+        request=request,
+        name="index.html",
+        context=context,
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -813,6 +959,742 @@ async def api_get_ticket_details(ticket_key: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Autorizações SAP endpoints
+# ---------------------------------------------------------------------------
+
+def _find_authorization_env_file() -> Path | None:
+    """Localiza o ficheiro .env na ordem de prioridade definida."""
+    candidates: list[Path] = []
+
+    explicit_path = os.getenv("SAP_AUTH_ENV_FILE", "").strip()
+    if explicit_path:
+        candidates.append(Path(explicit_path))
+
+    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if project_dir:
+        candidates.append(Path(project_dir) / ".env")
+
+    candidates.append(Path("/sap-script/.env"))
+    candidates.append(Path.cwd() / ".env")
+
+    current_file = Path(__file__).resolve()
+    for parent in current_file.parents:
+        candidates.append(parent / ".env")
+
+    checked: set[str] = set()
+
+    for candidate in candidates:
+        try:
+            normalized = str(candidate.resolve())
+        except Exception:
+            normalized = str(candidate)
+
+        if normalized in checked:
+            continue
+
+        checked.add(normalized)
+
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+
+    return None
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Lê e parseia o .env de forma segura e em tempo de execução."""
+    resultado = {}
+    try:
+        with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            for line in f:
+                line_str = line.strip()
+                if not line_str or line_str.startswith("#"):
+                    continue
+                if "=" not in line_str:
+                    continue
+                parts = line_str.split("=", 1)
+                key = parts[0].strip()
+                val = parts[1].strip()
+                
+                # Remover aspas simples ou duplas se existirem
+                if len(val) >= 2 and ((val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'"))):
+                    val = val[1:-1]
+                resultado[key] = val
+    except Exception:
+        pass
+    return resultado
+
+
+def _authorization_env_alias(system_key: str) -> str:
+    cleaned = str(system_key or "").strip().upper()
+    if cleaned.startswith("S4D"):
+        return "DEV"
+    if cleaned.startswith("S4Q"):
+        return "QAD"
+    if cleaned.startswith("S4P"):
+        return "PRD"
+    if cleaned.startswith("SPA"):
+        return "CUA"
+    return ""
+
+
+def _authorization_system_short_name(system_key: str) -> str:
+    cleaned = str(system_key or "").strip().upper()
+    if "CLNT" in cleaned:
+        return cleaned.split("CLNT", 1)[0]
+    return cleaned
+
+
+def _first_env_value(env_data: dict[str, str], *names: str) -> str:
+    for name in names:
+        if not name:
+            continue
+        value = str(env_data.get(name, "")).strip()
+        if value:
+            return value
+    return ""
+
+
+def _authorization_uat_create_document_defaults(env_data: dict[str, str]) -> dict[str, str]:
+    today_yyyymmdd = datetime.now().strftime("%Y%m%d")
+
+    return {
+        "system_key": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_SYSTEM_KEY"),
+        "company_code": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_COMPANY_CODE"),
+        "vendor": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_VENDOR"),
+        "customer": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER"),
+        "customer_company_code": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_COMPANY_CODE"),
+        "customer_gl_account": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_GL_ACCOUNT"),
+        "customer_doc_type": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_DOC_TYPE"),
+        "vendor_payment_method": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_VENDOR_PAYMENT_METHOD"),
+        "customer_payment_method": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CUSTOMER_PAYMENT_METHOD"),
+        "gl_account": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_GL_ACCOUNT"),
+        "amount": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_AMOUNT"),
+        "currency": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_CURRENCY"),
+        "document_date": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_DOCUMENT_DATE") or today_yyyymmdd,
+        "posting_date": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_POSTING_DATE") or today_yyyymmdd,
+        "payment_method": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_PAYMENT_METHOD"),
+        "doc_type": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_DOC_TYPE"),
+        "reference": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_REFERENCE"),
+        "header_text": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_HEADER_TEXT"),
+        "item_text": _first_env_value(env_data, "AUTHORIZATION_UAT_CREATE_DOCUMENT_ITEM_TEXT"),
+    }
+
+
+def _build_authorization_rfc_connection(env_data: dict[str, str], target_system_key: str) -> dict[str, str]:
+    system_key = str(target_system_key or "").strip().upper()
+    system_alias = _authorization_env_alias(system_key)
+    system_name = system_key.split("CLNT", 1)[0]
+    client = system_key.split("CLNT", 1)[1] if "CLNT" in system_key else ""
+
+    connection = {
+        "ashost": _first_env_value(
+            env_data,
+            f"SAP_ASHOST_{system_key}",
+            f"SAP_ASHOST_{system_name}",
+            f"SAP_ASHOST_{system_alias}" if system_alias else "",
+            "SAP_ASHOST",
+        ),
+        "sysnr": _first_env_value(
+            env_data,
+            f"SAP_SYSNR_{system_key}",
+            f"SAP_SYSNR_{system_name}",
+            f"SAP_SYSNR_{system_alias}" if system_alias else "",
+            "SAP_SYSNR",
+        ) or "00",
+        "client": client,
+        "user": _first_env_value(
+            env_data,
+            f"SAP_USER_{system_key}",
+            f"SAP_USER_{system_name}",
+            f"SAP_USER_{system_alias}" if system_alias else "",
+            "SAP_USER",
+        ),
+        "passwd": _first_env_value(
+            env_data,
+            f"SAP_PASSWORD_{system_key}",
+            f"SAP_PASSWORD_{system_name}",
+            f"SAP_PASSWORD_{system_alias}" if system_alias else "",
+            "SAP_PASSWORD",
+        ),
+        "lang": _first_env_value(
+            env_data,
+            f"SAP_RFC_LANGUAGE_{system_key}",
+            f"SAP_RFC_LANGUAGE_{system_name}",
+            f"SAP_RFC_LANGUAGE_{system_alias}" if system_alias else "",
+            f"SAP_LANGUAGE_{system_key}",
+            f"SAP_LANGUAGE_{system_name}",
+            f"SAP_LANGUAGE_{system_alias}" if system_alias else "",
+            "SAP_RFC_LANGUAGE",
+            "SAP_LANGUAGE",
+        ) or "PT",
+    }
+    return connection
+
+@app.get("/api/authorizations/context")
+@app.get("/api/authorizations/config")
+def api_get_authorizations_context() -> dict[str, Any]:
+    """Retorna o contexto de autorizações atualizado relendo o .env do disco."""
+    import re
+    print("[AUTH CONFIG] Pedido recebido.")
+    
+    env_path = _find_authorization_env_file()
+    
+    # Logs de diagnóstico seguros
+    has_explicit = "sim" if os.getenv("SAP_AUTH_ENV_FILE") else "não"
+    print(f"[AUTH CONFIG] SAP_AUTH_ENV_FILE configurado: {has_explicit}")
+    print(f"[AUTH CONFIG] Caminho pesquisado: {env_path or '/sap-script/.env'}")
+    print(f"[AUTH CONFIG] Ficheiro encontrado: {'sim' if env_path else 'não'}")
+
+    if not env_path:
+        print("[AUTH CONFIG] Sistemas encontrados: 0.")
+        print("[AUTH CONFIG] Resposta concluída.")
+        return {
+            "success": False,
+            "user_sap": "",
+            "systems": [],
+            "env_found": False,
+            "message": "Ficheiro .env não encontrado no contentor.",
+            "create_document_defaults": _authorization_uat_create_document_defaults({}),
+            "diagnostic": {
+                "configured_path": os.getenv("SAP_AUTH_ENV_FILE", "/sap-script/.env"),
+                "project_directory_configured": bool(os.getenv("SAP_SCRIPT_PROJECT_DIR"))
+            }
+        }
+        
+    env_data = _parse_env_file(env_path)
+    user_sap = env_data.get("SAP_USER", "").strip()
+    
+    systems = []
+    regex = re.compile(r"^(?P<system>[A-Z0-9_]+)CLNT(?P<client>[0-9]+)$")
+    
+    for key, val in env_data.items():
+        if key.startswith("SAP_PASSWORD_"):
+            sufixo = key[len("SAP_PASSWORD_"):]
+            match = regex.match(sufixo)
+            if match:
+                sys_name = match.group("system")
+                clnt_num = match.group("client")
+                
+                # Procurar connection_name opcional
+                conn_key = f"SAP_CONNECTION_{sufixo}"
+                conn_name = env_data.get(conn_key, "").strip()
+                
+                # Montar label premium
+                if conn_name:
+                    label = f"{sys_name} — Cliente {clnt_num} — {conn_name}"
+                else:
+                    label = f"{sys_name} — Cliente {clnt_num}"
+                    
+                systems.append({
+                    "key": sufixo,
+                    "system": sys_name,
+                    "client": clnt_num,
+                    "connection_name": conn_name,
+                    "label": label,
+                    "execution_mode": get_execution_mode_for_system_key(sufixo)
+                })
+                
+    # Ordenar de forma previsível e remover duplicados
+    systems = sorted(systems, key=lambda x: x["key"])
+    
+    message = ""
+    if not user_sap:
+        message = "A variável SAP_USER não está configurada no .env."
+    elif not systems:
+        message = "Nenhum sistema SAP foi encontrado no .env."
+        
+    print(f"[AUTH CONFIG] Sistemas encontrados: {len(systems)}.")
+    print("[AUTH CONFIG] Resposta concluída.")
+    return {
+        "success": True,
+        "user_sap": user_sap,
+        "systems": systems,
+        "analysis_types": get_analysis_types(),
+        "env_found": True,
+        "create_document_defaults": _authorization_uat_create_document_defaults(env_data),
+        "message": message
+    }
+
+
+@app.get("/api/authorization/greeting")
+def api_authorization_greeting() -> dict[str, Any]:
+    """Gera uma saudação inicial dinâmica e abrangente para o Assistente SAP via Gemini (com fallback)."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        try:
+            import requests
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+            prompt = (
+                "És o Assistente Virtual SAP S/4HANA no Cockpit Web. "
+                "Gera uma frase curta, elegante e acolhedora de saudação inicial em Português de Portugal (1 frase). "
+                "Pergunta ao utilizador de forma aberta como o podes ajudar nos seus processos SAP hoje. "
+                "NÃO restrinjas a saudação a autorizações ou perfis. Mantém a pergunta completamente aberta para qualquer processo SAP."
+            )
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}]
+            }
+            res = requests.post(url, json=payload, timeout=6)
+            if res.status_code == 200:
+                data = res.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                    if text:
+                        return {"messages": [text]}
+        except Exception as e:
+            print(f"[AUTH GREETING] Aviso ao gerar saudação dinâmica via Gemini: {e}")
+
+    import random
+    fallbacks = [
+        ["Olá! Como posso ajudar nos seus processos SAP hoje?"],
+        ["Olá! Em que posso apoiar a gestão dos seus processos SAP?"],
+        ["Boas-vindas! De que forma posso apoiar as suas operações e processos no SAP hoje?"]
+    ]
+    return {"messages": random.choice(fallbacks)}
+
+
+class AuthorizationStartRequest(BaseModel):
+    target_user: str
+    target_system_key: str
+    analysis_type: str
+    subsystem_filter: Optional[str] = None
+
+
+class AuthorizationRemoveRequest(BaseModel):
+    target_user: str
+    target_system_key: str
+    roles: list[Any] = Field(default_factory=list)
+    opcao_processamento: str = "sistema_user"
+
+
+class HrSearchRequest(BaseModel):
+    query: str
+    target_system_key: Optional[str] = "S4PCLNT100"
+    max_results: Optional[int] = 10
+
+
+@app.post("/api/authorizations/hr-search")
+async def api_search_hr_user_data(payload: HrSearchRequest) -> dict[str, Any]:
+    query_text = (payload.query or "").strip()
+    if not query_text:
+        raise HTTPException(status_code=400, detail="Termo de pesquisa de RH não informado.")
+
+    system_key = (payload.target_system_key or "S4PCLNT100").strip().upper()
+    max_res = payload.max_results or 10
+
+    # 1. Tentar executar localmente (se o pyrfc estiver instalado no ambiente)
+    loop = asyncio.get_event_loop()
+
+    def _try_local_search():
+        try:
+            try:
+                from worker.hr_data_analysis import search_hr_user_data_rfc
+            except ImportError:
+                from hr_data_analysis import search_hr_user_data_rfc
+
+            res = search_hr_user_data_rfc(query=query_text, target_system_key=system_key, max_results=max_res)
+            return res
+        except Exception as exc:
+            return {"_failed_local": True, "error": str(exc)}
+
+    local_res = await loop.run_in_executor(None, _try_local_search)
+    if isinstance(local_res, dict) and not local_res.get("_failed_local") and local_res.get("success"):
+        return local_res
+
+    # 2. Se falhar localmente (ex: pyrfc indisponível dentro do contentor Linux Docker), delegar ao Worker Windows
+    require_worker_online(
+        "authorization_hr_search",
+        message="O Worker Windows está desligado. Ligue o worker para consultar a tabela de RH via RFC."
+    )
+
+    job_params = {
+        "query": query_text,
+        "target_system_key": system_key,
+        "max_results": max_res,
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "authorization_hr_search", job_params)
+        job_id = job["id"]
+
+        start_time = time.time()
+        while time.time() - start_time < 15.0:
+            await asyncio.sleep(0.5)
+            j_state = await asyncio.to_thread(get_job, job_id)
+            if not j_state:
+                continue
+
+            st = str(j_state.get("state") or "").lower()
+            if st in ("succeeded", "succeeded_with_warnings", "failed"):
+                raw_log = str(j_state.get("log") or "")
+                for line in reversed(raw_log.splitlines()):
+                    line_clean = line.strip()
+                    if line_clean.startswith("{") and line_clean.endswith("}"):
+                        try:
+                            parsed = json.loads(line_clean)
+                            if isinstance(parsed, dict) and "success" in parsed:
+                                return parsed
+                        except Exception:
+                            pass
+
+                if st == "failed":
+                    return {
+                        "success": False,
+                        "message": "A pesquisa no RH falhou no Worker Windows.",
+                        "data": [],
+                        "query": query_text,
+                        "total": 0,
+                    }
+
+        return {
+            "success": False,
+            "message": "Tempo limite excedido a aguardar resposta do Worker Windows.",
+            "data": [],
+            "query": query_text,
+            "total": 0,
+        }
+
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": f"Erro na pesquisa de RH: {exc}",
+            "data": [],
+            "query": query_text,
+            "total": 0,
+        }
+
+
+def is_any_worker_active() -> bool:
+    import time
+    now = time.time()
+    with worker_last_seen_lock:
+        for w_name, last_seen in worker_last_seen.items():
+            if now - last_seen <= WORKER_OFFLINE_AFTER_SECONDS:
+                return True
+    return False
+
+
+@app.post("/api/authorizations/start")
+async def api_start_authorization_analysis(payload: AuthorizationStartRequest) -> dict[str, Any]:
+    import re
+    cua_sap_key = os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001").strip().upper()
+    target_user = payload.target_user.strip().upper()
+    requested_system = payload.target_system_key.strip().upper()
+    requested_subsystem = (payload.subsystem_filter or "").strip().upper()
+
+    execution_mode = get_execution_mode_for_system_key(requested_system)
+
+    # SEPARAR TOTALMENTE O SISTEMA DE LOGON DO MANDANTE DE PESQUISA (SUBSYSTEM)
+    if execution_mode == "CUA" or requested_system == cua_sap_key:
+        target_system_key = cua_sap_key
+        if requested_subsystem and requested_subsystem != cua_sap_key:
+            subsystem_filter = requested_subsystem
+        elif requested_system and requested_system != cua_sap_key:
+            subsystem_filter = requested_system
+        else:
+            subsystem_filter = "S4DCLNT100"
+    else:
+        target_system_key = requested_system
+        subsystem_filter = requested_subsystem or requested_system
+
+    analysis_type = payload.analysis_type.strip().lower()
+
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Utilizador a analisar não foi informado.")
+    
+    if len(target_user) > 40:
+        raise HTTPException(status_code=400, detail="Utilizador a analisar excede o limite de 40 caracteres.")
+
+    if not re.match(r"^[A-Z0-9.\-_]+$", target_user):
+        raise HTTPException(status_code=400, detail="Utilizador contém caracteres inválidos.")
+
+    if not target_system_key:
+        raise HTTPException(status_code=400, detail="Sistema alvo da análise não foi informado.")
+
+    if not re.match(r"^[A-Z0-9_]+CLNT[0-9]+$", target_system_key):
+        raise HTTPException(status_code=400, detail="Formato de sistema lógico inválido.")
+
+    # 1. Validar se o sistema existe no contexto do .env
+    env_path = _find_authorization_env_file()
+    if not env_path:
+        raise HTTPException(status_code=400, detail="Ficheiro .env não encontrado no contentor.")
+    
+    env_data = _parse_env_file(env_path)
+    if f"SAP_PASSWORD_{target_system_key}" not in env_data:
+        raise HTTPException(status_code=400, detail=f"Sistema alvo '{target_system_key}' não está configurado no .env.")
+
+    # 2. Validar tipo de análise
+    from web_api.authorization_agent import validate_analysis_selection
+    if not validate_analysis_selection(analysis_type) or analysis_type not in {"master_data", "authorizations"}:
+        raise HTTPException(status_code=400, detail="Tipo de análise inválido.")
+
+    execution_mode = get_execution_mode_for_system_key(target_system_key)
+
+    # 3. Validar configuração da ligação SAP consoante o modo
+    cua_sap_key = os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001").strip().upper()
+    if execution_mode == "RFC":
+        rfc_connection = _build_authorization_rfc_connection(env_data, target_system_key)
+        if not rfc_connection["ashost"] or not rfc_connection["sysnr"] or not rfc_connection["user"] or not rfc_connection["passwd"]:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Configuração RFC para {target_system_key} incompleta. "
+                    "É necessário configurar o host, o número do sistema, o utilizador e a password no .env."
+                )
+            )
+    else:
+        if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env."
+            )
+
+    # 4. Validar se há pelo menos um worker disponível
+    require_worker_online(
+        "authorization_analyze_user",
+        message="O Worker Windows está desligado. Ligue o worker antes de iniciar a análise."
+    )
+
+    params = {
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "subsystem_filter": subsystem_filter,
+        "analysis_type": analysis_type,
+        "cua_sap_key": cua_sap_key,
+        "execution_mode": execution_mode,
+        "rfc_connection": _build_authorization_rfc_connection(env_data, target_system_key) if execution_mode == "RFC" else None,
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "authorization_analyze_user", params)
+        return {
+            "job_id": job["id"],
+            "state": job["state"],
+            "message": "Análise de autorizações iniciada."
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/authorizations/remove")
+async def api_remove_authorization_roles(payload: AuthorizationRemoveRequest) -> dict[str, Any]:
+    import re
+
+    target_user = payload.target_user.strip().upper()
+    target_system_key = payload.target_system_key.strip().upper()
+    opcao_processamento = str(payload.opcao_processamento or "sistema_user").strip().lower() or "sistema_user"
+    cua_sap_key = os.getenv("AUTHORIZATION_CUA_SAP_KEY", "SPACLNT001").strip().upper()
+
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Utilizador a remover não foi informado.")
+
+    if len(target_user) > 40:
+        raise HTTPException(status_code=400, detail="Utilizador a remover excede o limite de 40 caracteres.")
+
+    if not re.match(r"^[A-Z0-9.\-_]+$", target_user):
+        raise HTTPException(status_code=400, detail="Utilizador contém caracteres inválidos.")
+
+    if not target_system_key:
+        raise HTTPException(status_code=400, detail="Sistema alvo não foi informado.")
+
+    if not re.match(r"^[A-Z0-9_]+CLNT[0-9]+$", target_system_key):
+        raise HTTPException(status_code=400, detail="Formato de sistema lógico inválido.")
+
+    roles: list[str] = []
+    for item in payload.roles or []:
+        if isinstance(item, str):
+            raw_role = item
+        elif isinstance(item, dict):
+            raw_role = item.get("role") or item.get("function") or item.get("agr_name") or item.get("AGR_NAME") or item.get("name") or ""
+        else:
+            raw_role = ""
+
+        role = str(raw_role or "").strip().upper()
+        if role:
+            roles.append(role)
+
+    roles = list(dict.fromkeys(roles))
+    if not roles:
+        raise HTTPException(status_code=400, detail="Nenhuma função válida foi informada para remoção.")
+
+    if opcao_processamento not in {"sistema_user", "sistema"}:
+        raise HTTPException(status_code=400, detail="Opção de processamento inválida. Valores permitidos: sistema_user, sistema.")
+
+    env_path = _find_authorization_env_file()
+    if not env_path:
+        raise HTTPException(status_code=400, detail="Ficheiro .env não encontrado no contentor.")
+
+    env_data = _parse_env_file(env_path)
+    if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
+        raise HTTPException(status_code=400, detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env.")
+
+    ambiente = "CUA"
+
+    require_worker_online(
+        "sap_cockpit",
+        message="O Worker Windows está desligado. Ligue o worker antes de iniciar a remoção de funções."
+    )
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+    system_short = _authorization_system_short_name(target_system_key)
+    safe_name = _safe_upload_filename(f"CUA_REMOVE_{target_user}_{target_system_key}.xlsx")
+    container_path = UPLOADS_DIR / safe_name
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "CUA_REMOVE"
+    sheet.append(["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME", "STATUS", "MSG", "TIMESTEMP"])
+
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    for idx, role in enumerate(roles, start=1):
+        sheet.append([idx, target_user, target_system_key, role, "", "", now])
+
+    workbook.save(container_path)
+
+    job_params: dict[str, Any] = {
+        "ambiente": ambiente,
+        "processo": "Funções PFCG",
+        "subprocesso": "J. CUA_REMOVE.py",
+        "request_option": "4",
+        "request_number": "",
+        "request_desc": f"{target_user} | {target_system_key} | {len(roles)} funções a remover",
+        "request_type": "1",
+        "caminho_ficheiro": _windows_upload_path(safe_name),
+        "transacao": "",
+        "opcao_processamento": opcao_processamento,
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "cua_sap_key": cua_sap_key,
+        "roles": roles,
+        "source": "authorization_follow_up",
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
+        return {
+            "success": True,
+            "job_id": job["id"],
+            "state": job["state"],
+            "message": f"Job CUA_REMOVE criado com {len(roles)} funções.",
+            "caminho_ficheiro": _windows_upload_path(safe_name),
+            "ambiente": ambiente,
+            "system_short": system_short,
+            "roles_count": len(roles),
+            "cua_sap_key": cua_sap_key,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class AuthorizationEndDateRequest(BaseModel):
+    target_user: str
+    target_system_key: str
+    roles: list[Any]
+    valid_to: str = ""
+
+@app.post("/api/authorizations/enddate")
+async def api_authorizations_enddate(payload: AuthorizationEndDateRequest) -> dict[str, Any]:
+    target_user = str(payload.target_user or "").strip().upper()
+    target_system_key = str(payload.target_system_key or "").strip().upper()
+
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Utilizador alvo não foi informado.")
+
+    if not target_system_key:
+        raise HTTPException(status_code=400, detail="Sistema alvo não foi informado.")
+
+    roles: list[str] = []
+    for item in payload.roles or []:
+        if isinstance(item, str):
+            raw_role = item
+        elif isinstance(item, dict):
+            raw_role = item.get("role") or item.get("function") or item.get("agr_name") or item.get("AGR_NAME") or item.get("name") or ""
+        else:
+            raw_role = ""
+
+        role = str(raw_role or "").strip().upper()
+        if role:
+            roles.append(role)
+
+    roles = list(dict.fromkeys(roles))
+    if not roles:
+        raise HTTPException(status_code=400, detail="Nenhuma função válida foi informada para alteração de validade.")
+
+    cua_sap_key = os.getenv("CUA_SAP_KEY", "SPACLNT001").strip().upper()
+    env_path = _find_authorization_env_file()
+    if not env_path:
+        raise HTTPException(status_code=400, detail="Ficheiro .env não encontrado no contentor.")
+
+    env_data = _parse_env_file(env_path)
+    if f"SAP_PASSWORD_{cua_sap_key}" not in env_data and f"SAP_CONNECTION_{cua_sap_key}" not in env_data:
+        raise HTTPException(status_code=400, detail=f"Configuração do CUA ({cua_sap_key}) não foi encontrada no .env.")
+
+    require_worker_online(
+        "sap_cockpit",
+        message="O Worker Windows está desligado. Ligue o worker antes de iniciar a alteração de validade."
+    )
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    system_short = _authorization_system_short_name(target_system_key)
+    safe_name = _safe_upload_filename(f"CUA_ENDDATE_{target_user}_{target_system_key}.xlsx")
+    container_path = UPLOADS_DIR / safe_name
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "CUA_ENDDATE"
+    
+    headers = ["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME", "STATUS", "MSG", "TIMESTEMP"]
+    if payload.valid_to:
+        headers.insert(4, "UPDATE_TO_DAT")
+    sheet.append(headers)
+
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    for idx, role in enumerate(roles, start=1):
+        if payload.valid_to:
+            sheet.append([idx, target_user, target_system_key, role, payload.valid_to, "", "", now])
+        else:
+            sheet.append([idx, target_user, target_system_key, role, "", "", now])
+
+    workbook.save(container_path)
+
+    job_params: dict[str, Any] = {
+        "ambiente": "CUA",
+        "processo": "Funções PFCG",
+        "subprocesso": "I. CUA_ENDDATE.py",
+        "request_option": "4",
+        "request_number": "",
+        "request_desc": f"{target_user} | {target_system_key} | {len(roles)} funções a alterar validade",
+        "request_type": "1",
+        "caminho_ficheiro": _windows_upload_path(safe_name),
+        "transacao": "",
+        "target_user": target_user,
+        "target_system_key": target_system_key,
+        "cua_sap_key": cua_sap_key,
+        "roles": roles,
+        "source": "authorization_follow_up",
+    }
+
+    try:
+        job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
+        return {
+            "success": True,
+            "job_id": job["id"],
+            "state": job["state"],
+            "message": f"Job CUA_ENDDATE criado com {len(roles)} funções.",
+            "caminho_ficheiro": _windows_upload_path(safe_name),
+            "ambiente": "CUA",
+            "system_short": system_short,
+            "roles_count": len(roles),
+            "cua_sap_key": cua_sap_key,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
 # Auto-Trigger SAP endpoints
 # ---------------------------------------------------------------------------
 
@@ -876,6 +1758,7 @@ async def api_auto_trigger_force_run(payload: ForceRunRequest) -> dict[str, Any]
     Força a execução do auto-trigger para um único ticket específico,
     ignorando o status do ticket, mas validando os outros critérios.
     """
+    require_worker_online("sap_cockpit")
     ticket_key = payload.ticket_key.strip().upper()
     if not ticket_key:
         raise HTTPException(status_code=400, detail="Chave do ticket não fornecida.")
@@ -994,6 +1877,7 @@ def api_delete_auto_trigger_log_entry(entry_id: str) -> dict[str, Any]:
 @app.post("/api/sap-agent/analyze/{ticket_key}")
 def api_sap_agent_analyze(ticket_key: str) -> dict[str, Any]:
     """Cria um job técnico para o worker Windows executar a análise do Agente SAP no ticket indicado."""
+    require_worker_online("sap_agent_analysis")
     try:
         job = create_job("sap_agent_analysis", {"ticket_key": ticket_key})
         return {"job_id": job["id"], "state": job["state"]}
@@ -1025,12 +1909,37 @@ def api_sap_agent_chat(request: SapAgentChatRequest) -> dict[str, Any]:
             detail="GEMINI_API_KEY não configurada no ficheiro .env. Por favor, adicione a chave e reinicie o cockpit.",
         )
 
-    # 1. Obter detalhes do ticket no JIRA
+    # 1. Obter detalhes do ticket no JIRA (inclui anexos e textos extraídos)
     ticket_info = fetch_ticket_details(request.ticket_key)
     summary = ticket_info.get("summary") or "Sem sumário"
     description = ticket_info.get("description") or "Sem descrição"
     comments_list = ticket_info.get("comments") or []
     comments_text = "\n".join(comments_list) if comments_list else "Sem comentários"
+
+    # Contexto de anexos para o prompt
+    attachments_raw: list[dict] = ticket_info.get("attachments") or []
+    attachment_texts: list[str] = ticket_info.get("attachment_texts") or []
+
+    _ATTACH_TEXT_MAX = 3000  # chars por anexo enviados ao modelo
+
+    def _build_attachments_prompt(
+        raw: list[dict], texts: list[str]
+    ) -> str:
+        if not raw:
+            return "Nenhum anexo encontrado neste ticket."
+        names = [str(a.get("filename") or "") for a in raw if a.get("filename")]
+        lines = [f"Anexos ({len(names)} ficheiro(s)): " + ", ".join(names)]
+        if not texts:
+            lines.append("Sem texto extraído dos anexos.")
+        else:
+            lines.append("Conteúdo extraído dos anexos:")
+            for block in texts:
+                if len(block) > _ATTACH_TEXT_MAX:
+                    block = block[:_ATTACH_TEXT_MAX] + f"\n[... conteúdo truncado a {_ATTACH_TEXT_MAX} caracteres]"
+                lines.append(block)
+        return "\n".join(lines)
+
+    attachments_context = _build_attachments_prompt(attachments_raw, attachment_texts)
 
     # 2. Obter análise do Agente SAP da base de dados
     analysis_job = get_latest_sap_agent_analysis(request.ticket_key)
@@ -1084,6 +1993,8 @@ Abaixo está o contexto do ticket JIRA:
 {description}
 - Comentários:
 {comments_text}
+- Anexos:
+{attachments_context}
 
 Abaixo estão as evidências recolhidas pelo Agente SAP (no worker Windows local):
 - Sinais Identificados:
@@ -1261,6 +2172,7 @@ Ações disponíveis:
 
                     # Criar job no worker Windows para executar a ação SAP GUI
                     try:
+                        require_worker_online("sap_gui_chat_action")
                         job = create_job("sap_gui_chat_action", {
                             **fc_args,
                             "ticket_key": request.ticket_key,
@@ -1273,8 +2185,11 @@ Ações disponíveis:
                             "sap_action": fc_args,
                         }
                     except Exception as job_exc:
+                        error_msg = str(job_exc)
+                        if isinstance(job_exc, HTTPException) and isinstance(job_exc.detail, dict):
+                            error_msg = job_exc.detail.get("message", error_msg)
                         return {
-                            "reply": f"❌ Não foi possível criar job SAP: {job_exc}\n\nAcesso manual: {action_desc}"
+                            "reply": f"❌ Não foi possível criar job SAP: {error_msg}\n\nAcesso manual: {action_desc}"
                         }
 
             # Resposta de texto normal
@@ -1394,11 +2309,15 @@ def api_environments() -> dict[str, Any]:
         "environments": get_available_environments()
     }
 
+# WORKER_REQUIRED_TASKS, get_worker_runtime_status e require_worker_online foram movidos para o topo do ficheiro
+
+
 @app.get("/api/worker/status")
-def api_worker_status() -> dict[str, Any]:
-    global last_worker_ping
-    is_online = (time.time() - last_worker_ping) < 15.0
-    return {"status": "online" if is_online else "offline"}
+async def api_worker_status(worker_name: str = None) -> dict[str, Any]:
+    status_info = get_worker_runtime_status(worker_name)
+    # Add backward compatibility "status" key
+    status_info["status"] = status_info["state"]
+    return status_info
 
 
 @app.get("/api/processes")
@@ -1419,7 +2338,7 @@ def api_subprocesses(processo: str = "") -> dict[str, Any]:
 
 @app.post("/api/upload-file")
 async def api_upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
-    """
+    r"""
     Recebe ficheiro selecionado diretamente no browser.
 
     O ficheiro é guardado numa pasta montada no Windows:
@@ -1459,13 +2378,31 @@ _KNOWN_JOB_FORM_FIELDS = {
     "task", "ambiente", "processo", "subprocesso",
     "request_option", "request_number", "request_desc",
     "request_type", "caminho_ficheiro", "transacao",
-    "nome_pasta",
+    "nome_pasta", "opcao_processamento",
 }
+
+def _validar_e_ajustar_params(params: dict[str, Any]) -> None:
+    sub = str(params.get("subprocesso") or "").strip()
+    is_cua_remove = sub == "J. CUA_REMOVE.py" or sub == "cua_remove" or "cua_remove" in sub.lower()
+    
+    if is_cua_remove:
+        opcao = params.get("opcao_processamento")
+        if not opcao or not str(opcao).strip():
+            params["opcao_processamento"] = "sistema_user"
+        elif params["opcao_processamento"] not in {"sistema_user", "sistema"}:
+            raise ValueError(
+                f"Opção de processamento inválida para CUA_REMOVE.\n"
+                f"Valores permitidos: sistema_user, sistema."
+            )
+    else:
+        # Se não for CUA_REMOVE, não incluir o parâmetro
+        params.pop("opcao_processamento", None)
 
 @app.post("/jobs")
 async def create_job_from_form(request: Request) -> dict[str, Any]:
     form = await request.form()
     task = str(form.get("task") or "").strip()
+    require_worker_online(task)
     ambiente = str(form.get("ambiente") or "").strip().upper()
     processo = str(form.get("processo") or "").strip()
     subprocesso = str(form.get("subprocesso") or "").strip()
@@ -1476,6 +2413,7 @@ async def create_job_from_form(request: Request) -> dict[str, Any]:
     caminho_ficheiro = str(form.get("caminho_ficheiro") or "").strip()
     transacao = str(form.get("transacao") or "").strip()
     nome_pasta = str(form.get("nome_pasta") or "").strip()
+    opcao_processamento = str(form.get("opcao_processamento") or "").strip()
 
     params = {
         "ambiente": ambiente,
@@ -1488,11 +2426,17 @@ async def create_job_from_form(request: Request) -> dict[str, Any]:
         "caminho_ficheiro": caminho_ficheiro,
         "transacao": transacao,
         "nome_pasta": nome_pasta,
+        "opcao_processamento": opcao_processamento,
     }
 
     for key, value in form.multi_items():
         if key not in _KNOWN_JOB_FORM_FIELDS:
             params[key] = str(value).strip()
+
+    try:
+        _validar_e_ajustar_params(params)
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err)) from val_err
 
     return create_job(task=task, params=params)
 
@@ -1514,9 +2458,8 @@ def api_worker_claim_next_job(
     worker_name: str = "sap-worker",
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
-    global last_worker_ping
     validate_worker_token(x_worker_token)
-    last_worker_ping = time.time()
+    update_worker_ping(worker_name)
     job = claim_next_job(worker_name=worker_name)
     return {"job": job}
 
@@ -1525,9 +2468,8 @@ def api_claim_next_job(
     worker_name: str = "sap-worker",
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
-    global last_worker_ping
     validate_worker_token(x_worker_token)
-    last_worker_ping = time.time()
+    update_worker_ping(worker_name)
     job = claim_next_job(worker_name=worker_name)
     return {"job": job}
 
@@ -1547,8 +2489,7 @@ def api_complete_job(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
-    global last_worker_ping
-    last_worker_ping = time.time()
+    update_worker_ping_for_job(job_id)
     try:
         return complete_job(
             job_id=job_id,
@@ -1588,6 +2529,15 @@ def api_delete_job(job_id: str) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
+@app.post("/api/jobs/delete-all")
+def api_delete_all_jobs() -> dict[str, Any]:
+    try:
+        deleted = delete_all_jobs()
+        return {"status": "success", "message": "Todos os jobs foram eliminados com sucesso.", "deleted": deleted}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 class AppendLogRequest(BaseModel):
     log_line: str
 
@@ -1598,13 +2548,21 @@ def api_append_job_log(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
-    global last_worker_ping
-    last_worker_ping = time.time()
+    update_worker_ping_for_job(job_id)
     try:
-        job = get_job(job_id)
-        if job and job["state"] == "failed":
+        state = get_job_state(job_id)
+        if state is None:
+            raise HTTPException(status_code=404, detail="Job não encontrado")
+        if state == "failed":
             raise HTTPException(status_code=409, detail="Job has been cancelled or failed.")
-        return append_job_log(job_id=job_id, log_line=payload.log_line)
+        append_job_log(job_id=job_id, log_line=payload.log_line)
+        return {
+            "status": "ok",
+            "job_id": job_id,
+            "appended": True
+        }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1621,13 +2579,32 @@ def api_update_sap_metadata(
     x_worker_token: str = Header(default=""),
 ) -> dict[str, Any]:
     validate_worker_token(x_worker_token)
-    global last_worker_ping
-    last_worker_ping = time.time()
+    update_worker_ping_for_job(job_id)
     try:
         new_params = {
             "sap_system": payload.sap_system,
             "sap_client": payload.sap_client,
             "sap_user": payload.sap_user,
+        }
+        return update_job_params(job_id=job_id, new_params=new_params)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class SapLogonDebugRequest(BaseModel):
+    sap_logon_debug: dict[str, Any]
+
+@app.post("/api/jobs/{job_id}/sap-logon-debug")
+def api_update_sap_logon_debug(
+    job_id: str,
+    payload: SapLogonDebugRequest,
+    x_worker_token: str = Header(default=""),
+) -> dict[str, Any]:
+    validate_worker_token(x_worker_token)
+    update_worker_ping_for_job(job_id)
+    try:
+        new_params = {
+            "sap_logon_debug": payload.sap_logon_debug
         }
         return update_job_params(job_id=job_id, new_params=new_params)
     except Exception as exc:
@@ -1640,8 +2617,13 @@ class CreateJobRequest(BaseModel):
 
 @app.post("/api/jobs")
 def api_create_job(payload: CreateJobRequest) -> dict[str, Any]:
+    require_worker_online(payload.task)
     try:
-        return create_job(task=payload.task, params=payload.params or {})
+        params = payload.params or {}
+        _validar_e_ajustar_params(params)
+        return create_job(task=payload.task, params=params)
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err)) from val_err
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1649,6 +2631,53 @@ def api_create_job(payload: CreateJobRequest) -> dict[str, Any]:
 def validate_worker_token(token: str) -> None:
     if token != WORKER_TOKEN:
         raise HTTPException(status_code=401, detail="Worker token inválido")
+
+
+class HeartbeatRequest(BaseModel):
+    worker_name: str
+
+@app.post("/api/worker/heartbeat")
+async def api_worker_heartbeat(
+    payload: HeartbeatRequest,
+    x_worker_token: str = Header(default=""),
+) -> dict[str, Any]:
+    start_time = time.perf_counter()
+    validate_worker_token(x_worker_token)
+    
+    if not payload.worker_name or not payload.worker_name.strip():
+        raise HTTPException(status_code=400, detail="Worker name inválido")
+    
+    now = time.time()
+    
+    # Check if the previous ping was delayed
+    with worker_last_seen_lock:
+        prev_seen = worker_last_seen.get(payload.worker_name)
+        
+    is_delayed = False
+    if prev_seen is not None:
+        interval = now - prev_seen
+        # If interval between heartbeats > 7.5 seconds (HEARTBEAT_SECONDS * 1.5)
+        if interval > 7.5:
+            is_delayed = True
+            with delayed_heartbeats_lock:
+                global delayed_heartbeats_count
+                delayed_heartbeats_count += 1
+                
+    update_worker_ping(payload.worker_name)
+    
+    duration = time.perf_counter() - start_time
+    
+    if WORKER_HEARTBEAT_DEBUG:
+        now_str = datetime.now().isoformat()
+        with worker_last_seen_lock:
+            num_workers = len(worker_last_seen)
+        print(
+            f"[DEBUG HEARTBEAT] Recv: {now_str} | Worker: {payload.worker_name} | "
+            f"Duration: {duration:.6f}s | Active Workers: {num_workers} | "
+            f"Total Delayed: {delayed_heartbeats_count} (This ping delayed: {is_delayed})"
+        )
+        
+    return {"status": "success", "message": "Heartbeat received"}
 
 
 # ---------------------------------------------------------------------------

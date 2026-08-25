@@ -582,7 +582,7 @@ def _select_request_for_import(session, request_number: str, *, enter_delay_s: f
         return False
     row = row_match.group(2)
 
-    # Tenta focar a coluna de seleÃ§Ã£o da mesma linha e marcar com vKey 9.
+    # Tenta focar a coluna de seleção da mesma linha e marcar com vKey 9.
     candidate_cols = ["23", "24", "11", "10", "2", "3", "1", "0"]
     for col in candidate_cols:
         cid = f"wnd[0]/usr/lbl[{col},{row}]"
@@ -613,7 +613,7 @@ def _select_request_for_import(session, request_number: str, *, enter_delay_s: f
     except Exception:
         pass
 
-    # Fallback por botÃ£o da toolbar que normalmente marca a linha corrente.
+    # Fallback por botão da toolbar que normalmente marca a linha corrente.
     try:
         btn_mark = _safe_find(session, "wnd[0]/tbar[1]/btn[9]")
         if btn_mark:

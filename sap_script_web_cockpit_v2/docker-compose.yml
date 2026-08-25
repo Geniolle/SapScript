@@ -4,11 +4,17 @@ services:
     container_name: sap-script-web
     ports:
       - "8010:8000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
       - ../.env
     environment:
       DATA_DIR: /data
       SAP_SCRIPT_PROJECT_DIR: /sap-script
+      SAP_AUTH_ENV_FILE: /sap-script/.env
       UPLOADS_DIR: /uploads
       UPLOADS_WINDOWS_DIR: 'C:\workspace\sap-script\sap_script_uploads'
       JIRA_DOWNLOAD_DIR_CONTAINER: /data/jira

@@ -2,7 +2,7 @@
   "meta": {
     "system": "S4D",
     "user": "CSILVA",
-    "generated_at": "2026-06-17 15:26:38"
+    "generated_at": "2026-07-28 10:18:39"
   },
   "items": [
     {
@@ -29,11 +29,6 @@
       "idx": 5,
       "TRKORR": "S4DK953234",
       "AS4TEXT": "IZ-52936 - Projeto Perfil de autorização"
-    },
-    {
-      "idx": 6,
-      "TRKORR": "S4DK953299",
-      "AS4TEXT": "Erro chave de lançamento"
     }
   ]
 }

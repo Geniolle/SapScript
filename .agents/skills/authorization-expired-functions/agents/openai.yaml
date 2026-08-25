@@ -1,0 +1,7 @@
+interface:
+  display_name: "Authorization Expired Functions"
+  short_description: "Filter SAP authorization follow-ups"
+  default_prompt: "Use $authorization-expired-functions to list expired functions, active functions, direct or indirect assignments, or transactions/functions tied to a role from the final authorization analysis."
+
+policy:
+  allow_implicit_invocation: true

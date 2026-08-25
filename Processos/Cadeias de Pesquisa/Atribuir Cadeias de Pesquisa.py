@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 ###################################################################################
-# SCRIPT: LanÃ§ar Cadeias de Pesquisa (OTPM) â€” EBVGINT, PANAM 20 chars
-# VERSÃƒO ATUALIZADA:
-# 1. Z062 Ã© estritamente POSITIVO (+).
-# 2. Z063 Ã© estritamente NEGATIVO (-).
-# 3. Inclui lÃ³gica "CHAVE REF 1" -> EBFNAM2/EBFVAL2.
-# 4. NÃ£o pede mais a request por input(); usa o processo padrÃ£o de request do cockpit.
+# SCRIPT: Lançar Cadeias de Pesquisa (OTPM) — EBVGINT, PANAM 20 chars
+# VERSÃO ATUALIZADA:
+# 1. Z062 é estritamente POSITIVO (+).
+# 2. Z063 é estritamente NEGATIVO (-).
+# 3. Inclui lógica "CHAVE REF 1" -> EBFNAM2/EBFVAL2.
+# 4. Não pede mais a request por input(); usa o processo padrão de request do cockpit.
 ###################################################################################
 
 def executar(
@@ -19,7 +19,7 @@ def executar(
     cliente_sap=None,
     chamado_pelo_main=False
 ):
-    # BLOCO 1: IMPORTAÃ‡Ã•ES / CONFIG GERAL
+    # BLOCO 1: IMPORTAÇÕES / CONFIG GERAL
     ###################################################################################
     import re
     import os
@@ -95,14 +95,14 @@ def executar(
     CLIENTE_ESPERADO = str(cliente_sap or "").strip()
 
     if not SISTEMA_DESEJADO:
-        print(f"âŒ Ambiente invÃ¡lido: {ambiente_cockpit}")
+        print(f"❌ Ambiente inválido: {ambiente_cockpit}")
         return
 
     ###################################################################################
-    # BLOCO 2: HELPERS / UTILITÃRIOS
+    # BLOCO 2: HELPERS / UTILITÁRIOS
     ###################################################################################
     def norm(s: str) -> str:
-        """Remove acentos, normaliza espaÃ§os, trim e upper (para strings simples)."""
+        """Remove acentos, normaliza espaços, trim e upper (para strings simples)."""
         if s is None:
             return ""
         s = str(s)
@@ -116,7 +116,7 @@ def executar(
         return "" if pd.isna(val) or str(val).strip().lower() in {"nan", "none"} else str(val).strip()
 
     def series_to_upper_clean(s: pd.Series) -> pd.Series:
-        """NormalizaÃ§Ã£o robusta para Series: NaN-safe, strip e upper."""
+        """Normalização robusta para Series: NaN-safe, strip e upper."""
         return s.fillna("").astype(str).str.strip().str.upper()
 
     def map_sign_free(val: str) -> str:
@@ -175,7 +175,7 @@ def executar(
         return numero, desc
 
     # ----- Tabela fixa BASE -> sinal (apenas para EBVGINT) -----
-    # ATENÃ‡ÃƒO: Z062 fixo em + e Z063 fixo em -
+    # ATENÇÃO: Z062 fixo em + e Z063 fixo em -
     _base_sign_pairs = [
         ("CP0100000000000", "-"),
         ("Z001", "+"),
@@ -205,13 +205,13 @@ def executar(
     for b, s in _base_sign_pairs:
         BASE_TO_ALLOWED_SIGNS.setdefault(b.upper(), set()).add(s)
 
-    # ----- cabeÃ§alhos com sinÃ³nimos -----
+    # ----- cabeçalhos com sinónimos -----
     COL_NECESSARIAS = {
         "NOME CADEIA DE PESQUISA": {"NOME CADEIA DE PESQUISA", "NOME DA CADEIA DE PESQUISA", "NOME CADEIA PESQUISA"},
         "EMPRESA": {"EMPRESA", "BUKRS", "COMPANY CODE"},
         "BANCO": {"BANCO", "HBKID", "ID BANCO"},
         "ID CONTA": {"ID CONTA", "HKTID", "ID DA CONTA", "ID-CONTA"},
-        "OPERAÃ‡ÃƒO EXTERNA": {"OPERAÃ‡ÃƒO EXTERNA", "OPERACAO EXTERNA", "VGEXT", "OP EXTERNA"},
+        "OPERAÇÃO EXTERNA": {"OPERAÇÃO EXTERNA", "OPERACAO EXTERNA", "VGEXT", "OP EXTERNA"},
         "SINAL (+/-)": {"SINAL (+/-)", "SINAL", "VOZPM", "SINAL +-"},
         "NOME DO CAMPO DESTINO": {"NOME DO CAMPO DESTINO", "NOME CAMPO DESTINO", "ALVO", "DESTINO"},
         "CAMPO DESTINO": {"CAMPO DESTINO", "TARGFI", "CAMPO DE DESTINO"},
@@ -236,7 +236,7 @@ def executar(
         return resolvidas, faltantes
 
     def selecionar_ficheiro_excel() -> str:
-        print("ðŸ“ Selecione o ficheiro Excel (janela foi colocada em primeiro plano)...")
+        print("📁 Selecione o ficheiro Excel (janela foi colocada em primeiro plano)...")
         root = tk.Tk()
         root.withdraw()
         root.lift()
@@ -258,19 +258,19 @@ def executar(
         return caminho
 
     def abrir_excel_para_dataframe(caminho: str) -> pd.DataFrame:
-        # VersÃ£o segura para avisar se o ficheiro estiver aberto
+        # Versão segura para avisar se o ficheiro estiver aberto
         try:
             return pd.read_excel(caminho, sheet_name="Folha2", dtype=str).fillna("")
         except PermissionError:
-            print("\nâŒ ERRO: O ficheiro Excel estÃ¡ ABERTO.")
-            print("ðŸ‘‰ Por favor, feche o ficheiro Excel e execute o script novamente.")
+            print("\n❌ ERRO: O ficheiro Excel está ABERTO.")
+            print("👉 Por favor, feche o ficheiro Excel e execute o script novamente.")
             sys.exit()
         except Exception:
             try:
                 return pd.read_excel(caminho, dtype=str).fillna("")
             except PermissionError:
-                print("\nâŒ ERRO: O ficheiro Excel estÃ¡ ABERTO.")
-                print("ðŸ‘‰ Por favor, feche o ficheiro Excel e execute o script novamente.")
+                print("\n❌ ERRO: O ficheiro Excel está ABERTO.")
+                print("👉 Por favor, feche o ficheiro Excel e execute o script novamente.")
                 sys.exit()
 
     def sanitize_paname(v: str, maxlen: int = 20) -> str:
@@ -553,7 +553,7 @@ def executar(
                     pass
 
     ###################################################################################
-    # BLOCO 2.1: REQUEST RECEBIDA DO PROCESSO PADRÃƒO
+    # BLOCO 2.1: REQUEST RECEBIDA DO PROCESSO PADRÃO
     ###################################################################################
     request_number, request_desc = resolver_request_recebida(request_transporte, request_ctx)
 
@@ -628,34 +628,34 @@ def executar(
         return request_number
 
     ###################################################################################
-    # BLOCO 3: LEITURA / PREPARAÃ‡ÃƒO
+    # BLOCO 3: LEITURA / PREPARAÇÃO
     ###################################################################################
     if modo_nao_interativo and not caminho_ficheiro:
-        print("âŒ Em modo nao-interativo, informe --xlsx.")
+        print("❌ Em modo nao-interativo, informe --xlsx.")
         return
 
     if not caminho_ficheiro:
         caminho_ficheiro = selecionar_ficheiro_excel()
         if not caminho_ficheiro:
-            print("âŒ Nenhum ficheiro selecionado. A execuÃ§Ã£o foi cancelada.")
+            print("❌ Nenhum ficheiro selecionado. A execução foi cancelada.")
             return
 
-    print(f"âœ… Ficheiro a processar: {caminho_ficheiro}")
+    print(f"✅ Ficheiro a processar: {caminho_ficheiro}")
 
     df = abrir_excel_para_dataframe(caminho_ficheiro)
     cols_map, faltantes = resolver_colunas(df)
     if faltantes:
-        print("âŒ Colunas obrigatÃ³rias em falta apÃ³s normalizaÃ§Ã£o:")
+        print("❌ Colunas obrigatórias em falta após normalização:")
         for c in faltantes:
             print(f"   - {c}")
-        print("ðŸ”Ž CabeÃ§alhos detetados:", ", ".join(df.columns))
+        print("🔎 Cabeçalhos detetados:", ", ".join(df.columns))
         return
 
     C_NOME = cols_map["NOME CADEIA DE PESQUISA"]
     C_EMP = cols_map["EMPRESA"]
     C_BANCO = cols_map["BANCO"]
     C_IDCT = cols_map["ID CONTA"]
-    C_OPEXT = cols_map["OPERAÃ‡ÃƒO EXTERNA"]
+    C_OPEXT = cols_map["OPERAÇÃO EXTERNA"]
     C_SINAL = cols_map["SINAL (+/-)"]
     C_NDEST = cols_map["NOME DO CAMPO DESTINO"]
     C_DEST = cols_map["CAMPO DESTINO"]
@@ -772,19 +772,19 @@ def executar(
             print("INFO: Nenhuma linha nova para processar. Tudo concluido.")
         return
 
-    # normalizaÃ§Ãµes mÃ­nimas
+    # normalizações mínimas
     df_filtrado = df_filtrado.apply(lambda x: x.astype(str).apply(safe_value))
 
-    # PANAM efetivo (20 chars) para gravaÃ§Ã£o
+    # PANAM efetivo (20 chars) para gravação
     df_filtrado["PANAM_EFETIVO"] = df_filtrado[C_NOME].apply(lambda x: sanitize_paname(x, 20))
     truncados = df_filtrado[df_filtrado[C_NOME].str.upper() != df_filtrado["PANAM_EFETIVO"]]
     if not truncados.empty:
-        print("\nâš ï¸  Nomes normalizados/truncados para 20 chars (PANAM):")
+        print("\n⚠️  Nomes normalizados/truncados para 20 chars (PANAM):")
         for _, r in truncados.iterrows():
-            print(f"   - '{r[C_NOME]}'  âžœ  '{r['PANAM_EFETIVO']}'")
+            print(f"   - '{r[C_NOME]}'  ➜  '{r['PANAM_EFETIVO']}'")
 
     ###################################################################################
-    # BLOCO 4: CONSTRUÃ‡ÃƒO DAS LINHAS (REGRAS)
+    # BLOCO 4: CONSTRUÇÃO DAS LINHAS (REGRAS)
     ###################################################################################
     col_nome_dest_norm = df_filtrado[C_NDEST].apply(norm)
 
@@ -807,7 +807,7 @@ def executar(
     if not df_outros.empty:
         blocos.append(df_outros)
 
-    # 4.2 BP â†’ pares +/- (NOVA REGRA)
+    # 4.2 BP → pares +/- (NOVA REGRA)
     if not df_bp.empty:
         dd_keys_with_D = set()
         if not df_regra_cont.empty:
@@ -815,8 +815,8 @@ def executar(
 
             if C_BASE not in df_regra_cont_chk.columns:
                 raise KeyError(
-                    f"Coluna '{C_BASE}' nÃ£o encontrada em df_regra_cont (Regra de ContabilizaÃ§Ã£o). "
-                    f"CabeÃ§alhos: {list(df_regra_cont_chk.columns)}"
+                    f"Coluna '{C_BASE}' não encontrada em df_regra_cont (Regra de Contabilização). "
+                    f"Cabeçalhos: {list(df_regra_cont_chk.columns)}"
                 )
 
             df_regra_cont_chk[C_BASE] = series_to_upper_clean(df_regra_cont_chk[C_BASE])
@@ -859,7 +859,7 @@ def executar(
                 index=[t.name] * 4
             ))
 
-    # 4.3 CENTRO â†’ pares +/-
+    # 4.3 CENTRO → pares +/-
     if not df_centro.empty:
         for _, grupo in df_centro.groupby([C_NOME, C_EMP, C_BANCO, C_IDCT, C_OPEXT], dropna=False):
             t = grupo.iloc[0].copy()
@@ -881,7 +881,7 @@ def executar(
 
     # 4.3b CHAVE REF 1 -> EBFNAM2 / EBFVAL2
     if not df_xref1.empty:
-        print(f"ðŸ”Ž Processando 'Chave Ref 1' para EBFNAM2/EBFVAL2 ({len(df_xref1)} registos de origem)...")
+        print(f"🔎 Processando 'Chave Ref 1' para EBFNAM2/EBFVAL2 ({len(df_xref1)} registos de origem)...")
         for _, grupo in df_xref1.groupby([C_NOME, C_EMP, C_BANCO, C_IDCT, C_OPEXT], dropna=False):
             t = grupo.iloc[0].copy()
             base_original = t[C_BASE]
@@ -900,7 +900,7 @@ def executar(
                 index=[t.name] * 4
             ))
 
-    # 4.4 CENTRO DE LUCRO â†’ pares +/-
+    # 4.4 CENTRO DE LUCRO → pares +/-
     if not df_centro_lucro.empty:
         for _, grupo in df_centro_lucro.groupby([C_NOME, C_EMP, C_BANCO, C_IDCT, C_OPEXT], dropna=False):
             t = grupo.iloc[0].copy()
@@ -912,7 +912,7 @@ def executar(
 
     # 4.5 EBVGINT sem duplicar; sinal decidido pela BASE
     if not df_regra_cont.empty:
-        print("\nðŸ”Ž Processando 'Regra de ContabilizaÃ§Ã£o' (EBVGINT) com sinal pela BASE...")
+        print("\n🔎 Processando 'Regra de Contabilização' (EBVGINT) com sinal pela BASE...")
         tmp = df_regra_cont.copy()
         tmp[C_DEST] = "EBVGINT"
 
@@ -929,24 +929,24 @@ def executar(
 
         tmp[C_SINAL] = [decide_sign_from_base(b, s) for b, s in zip(tmp[C_BASE], tmp[C_SINAL])]
         blocos.append(tmp)
-        print(f"âœ… EBVGINT: {len(tmp)} linha(s) preparadas (sem duplicar).")
+        print(f"✅ EBVGINT: {len(tmp)} linha(s) preparadas (sem duplicar).")
 
     if not blocos:
-        print("âŒ Nenhum grupo vÃ¡lido encontrado para processar.")
+        print("❌ Nenhum grupo válido encontrado para processar.")
         return
 
     df_final = pd.concat(blocos, ignore_index=False)
 
     ###################################################################################
-    # BLOCO 5: DEDUP + PRÃ‰-VISUALIZAÃ‡ÃƒO
+    # BLOCO 5: DEDUP + PRÉ-VISUALIZAÇÃO
     ###################################################################################
     CHAVE = [C_EMP, C_BANCO, C_IDCT, C_OPEXT, C_SINAL, "PANAM_EFETIVO", C_DEST, C_BASE]
     df_final = df_final[(df_final[C_DEST].astype(str) != "") & (df_final[C_BASE].astype(str) != "")]
     df_final = df_final.drop_duplicates(subset=CHAVE, keep="first").reset_index()
 
     print("-" * 70)
-    print(f"\nðŸ“Š Total de linhas no ficheiro original: {len(df)}")
-    print(f"ðŸ“‹ Linhas a processar apÃ³s regras (antes da gravaÃ§Ã£o): {len(df_final)}")
+    print(f"\n📊 Total de linhas no ficheiro original: {len(df)}")
+    print(f"📋 Linhas a processar após regras (antes da gravação): {len(df_final)}")
 
     cols_out = [
         (C_NOME, 26),
@@ -994,22 +994,22 @@ def executar(
                 uniq.add(k)
 
             print("")
-            print("   âš™ï¸  Regra aplicada (EBAVKOA com PREFIX = 'D') para as chaves:")
+            print("   ⚙️  Regra aplicada (EBAVKOA com PREFIX = 'D') para as chaves:")
             for emp, bco, idc, opx in sorted(uniq):
                 emp = emp if emp else "-"
                 bco = bco if bco else "-"
                 idc = idc if idc else "-"
                 opx = opx if opx else "-"
-                print(f"      â€¢ EMP={emp} | BANCO={bco} | IDCONTA={idc} | OPEXT={opx}")
+                print(f"      • EMP={emp} | BANCO={bco} | IDCONTA={idc} | OPEXT={opx}")
 
     if pedir_confirmacao and not modo_nao_interativo:
-        resp = input("\nâž¡ï¸  Confirmar lanÃ§amento no SAP com a TABELA FINAL acima? [S/N]: ").strip().upper()
+        resp = input("\n➡️  Confirmar lançamento no SAP com a TABELA FINAL acima? [S/N]: ").strip().upper()
         if resp != "S":
-            print("âŒ LanÃ§amento cancelado pelo utilizador.")
+            print("❌ Lançamento cancelado pelo utilizador.")
             return
 
     ###################################################################################
-    # BLOCO 6: CONEXÃƒO SAP
+    # BLOCO 6: CONEXÃO SAP
     ###################################################################################
     try:
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
@@ -1027,18 +1027,18 @@ def executar(
                 break
 
         if not session:
-            print(f"âŒ Nenhuma sessÃ£o encontrada para o ambiente '{ambiente_cockpit}'.")
+            print(f"❌ Nenhuma sessão encontrada para o ambiente '{ambiente_cockpit}'.")
             return
 
-        print(f"\nâœ… Conectado ao SAP: {session.Info.SystemName} (ambiente {ambiente_cockpit})")
-        print(f"ðŸ‘¤ Utilizador SAP: {session.Info.User} | Cliente: {session.Info.Client}")
+        print(f"\n✅ Conectado ao SAP: {session.Info.SystemName} (ambiente {ambiente_cockpit})")
+        print(f"👤 Utilizador SAP: {session.Info.User} | Cliente: {session.Info.Client}")
         aplicar_modo_janela_sap(session)
     except Exception as e:
-        print(f"âŒ Erro ao conectar SAP: {e}")
+        print(f"❌ Erro ao conectar SAP: {e}")
         return
 
     ###################################################################################
-    # BLOCO 7: LANÃ‡AMENTO NO SAP (TARGFI ANTES DE PANAM + VALIDAÃ‡Ã•ES)
+    # BLOCO 7: LANÇAMENTO NO SAP (TARGFI ANTES DE PANAM + VALIDAÇÕES)
     ###################################################################################
     TBL = "wnd[0]/usr/tblSAPLPAMVTCTRL_V_T028P"
 
@@ -1129,9 +1129,9 @@ def executar(
     ###################################################################################
     try:
         df.to_excel(caminho_ficheiro, index=False)
-        print(f"\nðŸ’¾ Ficheiro de controlo atualizado com sucesso: {caminho_ficheiro}")
+        print(f"\n💾 Ficheiro de controlo atualizado com sucesso: {caminho_ficheiro}")
     except Exception as e:
-        print(f"âŒ Erro ao guardar o ficheiro de controlo: {e}")
+        print(f"❌ Erro ao guardar o ficheiro de controlo: {e}")
     if request_number:
         print(f"REQUEST_NUMBER={request_number}")
 
@@ -1142,7 +1142,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD"], required=True)
-    parser.add_argument("--request", help="Request opcional para execuÃ§Ã£o direta fora do cockpit.")
+    parser.add_argument("--request", help="Request opcional para execução direta fora do cockpit.")
     parser.add_argument("--request-description", default="", help="Descricao da request. Ex: Chave | Resumo")
     parser.add_argument("--xlsx")
     parser.add_argument("--auto", action="store_true")
