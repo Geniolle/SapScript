@@ -4901,6 +4901,7 @@
     let asiChatHistory = [];
     let asiChatInitialized = false;
     let asiChatMockTimer = null;
+    let asiChatMessageCounter = 0;
     let asiSelectedQuickAction = null;
     let asiSelectedQuickChild = null;
     const salsaAgentActions = [
@@ -4909,12 +4910,15 @@
             label: 'Configurações',
             icon: 'settings',
             prompt: 'Quero ajuda com configurações SAP.',
+            followupText: 'Escolha uma opção de Configurações:',
+            followupActionsSource: 'children',
             children: [
                 {
                     id: 'perfil-autorizacao',
                     label: 'Perfil de Autorização',
                     icon: 'authorization',
                     prompt: 'Quero trabalhar com Perfil de Autorização.',
+                    followupText: 'O que deseja fazer com o Perfil de Autorização?',
                     children: []
                 }
             ]
@@ -4981,7 +4985,20 @@
         return null;
     }
 
-    function asiRenderQuickActionButtons(actions, level = 0) {
+    function asiCreateMessage(role, text, options = {}) {
+        asiChatMessageCounter += 1;
+
+        return {
+            id: `asi-msg-${asiChatMessageCounter}`,
+            role,
+            text,
+            actions: Array.isArray(options.actions) ? options.actions : [],
+            actionLevel: Number(options.actionLevel || 0),
+            parentActionId: options.parentActionId || ''
+        };
+    }
+
+    function asiRenderQuickActionButtons(actions, level = 0, parentActionId = '') {
         if (!actions || actions.length === 0) return '';
         const isSubLevel = level > 0;
 
@@ -5000,6 +5017,7 @@
                             class="agent-salsa-quick-action${subClass}${selectedClass}"
                             data-agent-action-id="${escapeHtml(action.id)}"
                             data-agent-action-level="${level}"
+                            data-agent-parent-action-id="${escapeHtml(parentActionId)}"
                         >
                             <span class="agent-salsa-quick-action-icon">${asiQuickActionIcon(action.icon)}</span>
                             <span>${escapeHtml(action.label)}</span>
@@ -5011,17 +5029,7 @@
     }
 
     function asiRenderQuickActions() {
-        const selectedRootAction = asiFindQuickAction(asiSelectedQuickAction, salsaAgentActions);
-        const childActions = selectedRootAction && Array.isArray(selectedRootAction.children)
-            ? selectedRootAction.children
-            : [];
-
-        return `
-            <div class="agent-salsa-quick-actions-stack">
-                ${asiRenderQuickActionButtons(salsaAgentActions, 0)}
-                ${asiSelectedQuickAction === 'configuracoes' ? asiRenderQuickActionButtons(childActions, 1) : ''}
-            </div>
-        `;
+        return asiRenderQuickActionButtons(salsaAgentActions, 0);
     }
 
     function asiGetElements() {
@@ -5059,18 +5067,20 @@
         const { messages } = asiGetElements();
         if (!messages) return;
 
-        messages.innerHTML = asiChatHistory.map((msg, index) => {
+        messages.innerHTML = asiChatHistory.map((msg) => {
             const isUser = msg.role === 'user';
             const wrapperClass = isUser ? 'agent-salsa-message agent-salsa-message-user' : 'agent-salsa-message agent-salsa-message-assistant';
             const bubbleClass = isUser ? 'chat-msg-bubble chat-msg-user' : 'chat-msg-bubble chat-msg-bot';
             const label = isUser ? 'Utilizador' : 'Assistente';
-            const quickActionsHtml = !isUser && index === 0 ? asiRenderQuickActions() : '';
+            const actionsHtml = !isUser && Array.isArray(msg.actions) && msg.actions.length > 0
+                ? `<div class="agent-salsa-quick-actions-stack">${asiRenderQuickActionButtons(msg.actions, msg.actionLevel || 0, msg.parentActionId || '')}</div>`
+                : '';
 
             return `
                 <div class="${wrapperClass}">
                     <p class="agent-salsa-message-label">${label}</p>
                     <div class="${bubbleClass}">${escapeHtml(msg.text).replace(/\n/g, '<br>')}</div>
-                    ${quickActionsHtml}
+                    ${actionsHtml}
                 </div>
             `;
         }).join('');
@@ -5078,12 +5088,12 @@
         asiScrollToBottom();
     }
 
-    function asiAppendMessage(role, text) {
-        asiChatHistory.push({ role, text });
+    function asiAppendMessage(message) {
+        asiChatHistory.push(message);
         asiRenderMessages();
     }
 
-    function asiSendMessage(presetText = null) {
+    function asiSendMessage(presetText = null, options = {}) {
         const { input, send } = asiGetElements();
         if (!input || !send) return;
 
@@ -5094,25 +5104,38 @@
         }
 
         input.value = '';
-        asiAppendMessage('user', message);
+        asiAppendMessage(asiCreateMessage('user', message));
         asiUpdateComposerState();
         input.focus();
+
+        if (options.skipAssistantReply) return;
 
         if (asiChatMockTimer) {
             clearTimeout(asiChatMockTimer);
         }
 
+        const assistantReplyText = options.assistantText || asiMockReply();
+        const assistantReplyActions = Array.isArray(options.assistantActions) ? options.assistantActions : [];
+        const assistantActionLevel = Number(options.assistantActionLevel || 0);
+        const assistantParentActionId = options.assistantParentActionId || '';
+
         asiChatMockTimer = setTimeout(() => {
-            asiAppendMessage('assistant', asiMockReply());
+            asiAppendMessage(
+                asiCreateMessage('assistant', assistantReplyText, {
+                    actions: assistantReplyActions,
+                    actionLevel: assistantActionLevel,
+                    parentActionId: assistantParentActionId
+                })
+            );
             asiChatMockTimer = null;
         }, 420);
     }
 
-    function asiSendQuickMessage(prompt) {
-        asiSendMessage(prompt);
+    function asiSendQuickMessage(prompt, options = {}) {
+        asiSendMessage(prompt, options);
     }
 
-    function asiHandleQuickActionSelection(actionId, level) {
+    function asiHandleQuickActionSelection(actionId, level, parentActionId = '') {
         const numericLevel = Number(level);
         const action = asiFindQuickAction(actionId, salsaAgentActions);
         if (!action) return;
@@ -5121,11 +5144,25 @@
             asiSelectedQuickAction = action.id;
             asiSelectedQuickChild = null;
         } else {
+            if (parentActionId) {
+                asiSelectedQuickAction = parentActionId;
+            }
             asiSelectedQuickChild = action.id;
         }
 
         asiRenderMessages();
-        asiSendQuickMessage(action.prompt);
+
+        const sendOptions = {};
+        if (action.followupText) {
+            sendOptions.assistantText = action.followupText;
+        }
+        if (action.followupActionsSource === 'children' && Array.isArray(action.children) && action.children.length > 0) {
+            sendOptions.assistantActions = action.children;
+            sendOptions.assistantActionLevel = numericLevel + 1;
+            sendOptions.assistantParentActionId = action.id;
+        }
+
+        asiSendQuickMessage(action.prompt, sendOptions);
     }
 
     function asiBindChat() {
@@ -5154,7 +5191,8 @@
                 if (!quickAction) return;
                 const actionId = quickAction.getAttribute('data-agent-action-id') || '';
                 const level = quickAction.getAttribute('data-agent-action-level') || '0';
-                asiHandleQuickActionSelection(actionId, level);
+                const parentActionId = quickAction.getAttribute('data-agent-parent-action-id') || '';
+                asiHandleQuickActionSelection(actionId, level, parentActionId);
             });
             messages.dataset.bound = 'true';
         }
@@ -5165,7 +5203,12 @@
         asiBindChat();
 
         if (!asiChatInitialized) {
-            asiChatHistory = [{ role: 'assistant', text: asiDefaultGreeting() }];
+            asiChatHistory = [
+                asiCreateMessage('assistant', asiDefaultGreeting(), {
+                    actions: salsaAgentActions,
+                    actionLevel: 0
+                })
+            ];
             asiChatInitialized = true;
         }
 
