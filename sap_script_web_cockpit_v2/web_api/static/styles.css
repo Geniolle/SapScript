@@ -107,6 +107,20 @@ body {
   color: white;
   box-shadow: 0 4px 12px rgba(37,99,235,0.3);
 }
+.nav-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+.nav-item-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
 
 .sidebar-footer {
   margin-top: auto;
@@ -466,6 +480,379 @@ input, select {
   padding: 40px 20px;
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+.agent-salsa-shell {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.agent-salsa-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.agent-salsa-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #0f766e);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.2);
+  flex-shrink: 0;
+}
+
+.agent-salsa-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.agent-salsa-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+  margin-bottom: 8px;
+}
+
+.agent-salsa-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.agent-salsa-subtitle {
+  margin: 8px 0 0;
+  max-width: 680px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.agent-salsa-top-card {
+  padding: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 28%),
+    linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.agent-salsa-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.agent-salsa-summary-card {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  padding: 18px;
+  min-height: 112px;
+}
+
+.agent-salsa-summary-label {
+  margin: 0 0 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.agent-salsa-summary-value {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.agent-salsa-summary-copy {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.agent-salsa-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.14);
+}
+
+.agent-salsa-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.08);
+}
+
+.agent-salsa-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.95fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.agent-salsa-chat-panel {
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.agent-salsa-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.agent-salsa-panel-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.agent-salsa-panel-copy {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.agent-salsa-chat-surface {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 16px;
+  padding: 32px 28px;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 1));
+}
+
+.agent-salsa-preview-icon {
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(15, 118, 110, 0.12));
+  color: var(--primary);
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.agent-salsa-preview-icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.agent-salsa-empty-chat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.agent-salsa-placeholder-title {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.agent-salsa-placeholder-copy {
+  margin: 0;
+  max-width: 540px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.agent-salsa-disabled-composer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: rgba(248, 250, 252, 0.92);
+  padding: 14px 16px;
+}
+
+.agent-salsa-disabled-input {
+  flex: 1;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.agent-salsa-disabled-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 108px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #93c5fd;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.agent-salsa-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.agent-salsa-mini-card {
+  padding: 20px;
+}
+
+.agent-salsa-mini-title {
+  margin: 0 0 12px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.agent-salsa-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agent-salsa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.07);
+  color: #1d4ed8;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.agent-salsa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-salsa-list-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.agent-salsa-list-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.agent-salsa-list-text {
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.agent-salsa-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-salsa-stage-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.agent-salsa-stage-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.agent-salsa-stage-state {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+@media (max-width: 768px) {
+  .agent-salsa-top-card {
+    padding: 22px 20px;
+  }
+
+  .agent-salsa-summary-grid,
+  .agent-salsa-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-salsa-chat-panel {
+    min-height: 0;
+  }
+
+  .agent-salsa-chat-surface {
+    padding: 24px 20px;
+  }
+
+  .agent-salsa-disabled-composer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .agent-salsa-title,
+  .agent-salsa-placeholder-title {
+    font-size: 1.3rem;
+  }
+
+  .agent-salsa-subtitle,
+  .agent-salsa-placeholder-copy,
+  .agent-salsa-summary-copy {
+    font-size: 0.9rem;
+  }
 }
 
 /* Badge Tags & Outlines */
