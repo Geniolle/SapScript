@@ -1,7 +1,6 @@
 node_modules/
 dist/
 build/
-.env
 .venv/
 __pycache__/
 .DS_Store
@@ -9,11 +8,17 @@ __pycache__/
 cache/workflow_state*.json
 
 credentials.json
-.env
 *.key
 *.pem
 
+# Environment files containing secrets
+.env
+.env.*
+!.env.example
+!.env.enc
+
 # Local uploads and temporary files
 sap_script_uploads/
+sap_script_web_cockpit_v2/data/
 *.bak_*
 *.log

@@ -1,0 +1,4 @@
+creation_rules:
+  # SOPS evaluates the input path on encryption and decryption.
+  - path_regex: ^\.env(?:\.enc)?$
+    age: age1h4xrhfldxefjjcce8gkam2veypml0sukrdve8qzk7j7atr0qaqtsf6ut2e

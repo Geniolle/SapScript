@@ -798,8 +798,10 @@ def fetch_ticket_details(ticket_key: str) -> dict:
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
 
     if not jira_base or not jira_email or not jira_token:
-        print(f"[CHAT DETAILS] Credenciais JIRA não configuradas para {ticket_key}.")
-        return {"summary": "", "description": "", "comments": [], "categoria_sap": ""}
+        raise RuntimeError(
+            "Credenciais do Jira não configuradas. Preencha JIRA_DADOS_COMP_HASH, "
+            "JIRA_EMAIL e JIRA_TOKEN no ficheiro .env e reinicie a aplicação."
+        )
 
     auth = (jira_email, jira_token)
     headers = {"Accept": "application/json"}
@@ -844,9 +846,25 @@ def fetch_ticket_details(ticket_key: str) -> dict:
             "comments": comments,
             "categoria_sap": categoria_sap,
         }
-    except Exception as e:
-        print(f"[CHAT DETAILS] Erro ao obter detalhes de {ticket_key}: {e}")
-        return {"summary": "", "description": "", "comments": [], "categoria_sap": ""}
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        if status in (401, 403):
+            raise RuntimeError(
+                "O Jira recusou as credenciais (token inválido/expirado ou utilizador sem acesso). "
+                "Crie um novo API token Atlassian, atualize JIRA_EMAIL e JIRA_TOKEN no .env "
+                "e reinicie a aplicação."
+            ) from exc
+        if status == 404:
+            raise RuntimeError(
+                f"O ticket {ticket_key.upper().strip()} não existe ou o utilizador não tem acesso."
+            ) from exc
+        raise RuntimeError(f"O Jira devolveu o erro HTTP {status or 'desconhecido'}.") from exc
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            "Não foi possível ligar ao Jira. Verifique a internet, VPN/proxy e tente novamente."
+        ) from exc
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("O Jira devolveu uma resposta inválida.") from exc
 
 
 def fetch_single_ticket_for_trigger(key: str) -> dict | None:

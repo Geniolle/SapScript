@@ -1,5 +1,6 @@
 services:
   sap-script-web:
+    image: sap-script-web-cockpit:latest
     build: .
     container_name: sap-script-web
     ports:

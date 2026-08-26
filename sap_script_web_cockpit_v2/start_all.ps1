@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Continue"
 
-$ProjectDir = "C:\workspace\sap-script\sap_script_web_cockpit_v2"
+$ProjectDir = $PSScriptRoot
 $WorkerDir = Join-Path $ProjectDir "worker"
 $LogPath = Join-Path $ProjectDir "start_all.log"
 

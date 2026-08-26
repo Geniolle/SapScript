@@ -7965,9 +7965,13 @@
             let preview = null;
             try {
                 const previewRes = await fetch(`/api/jira/tickets/${encodeURIComponent(key)}/details`, { cache: 'no-store' });
-                preview = previewRes.ok ? await previewRes.json() : null;
-            } catch (_) {
-                preview = null;
+                const previewData = await previewRes.json().catch(() => ({}));
+                if (!previewRes.ok) {
+                    throw new Error(previewData.detail || `Falha ao consultar o Jira (HTTP ${previewRes.status}).`);
+                }
+                preview = previewData;
+            } catch (previewError) {
+                throw new Error(`Não foi possível receber as informações do Jira: ${previewError.message}`);
             }
 
             if (preview) {
@@ -8573,7 +8577,11 @@
                 `;
 
                 fetch(`/api/jira/tickets/${encodeURIComponent(key)}/details`)
-                    .then(r => r.ok ? r.json() : null)
+                    .then(async r => {
+                        const data = await r.json().catch(() => ({}));
+                        if (!r.ok) throw new Error(data.detail || `Erro HTTP ${r.status}`);
+                        return data;
+                    })
                     .then(d => {
                         if (activeTooltipKey !== key) return;
                         const desc = d && d.description ? d.description.trim() : null;
@@ -8582,7 +8590,7 @@
                     })
                     .catch(err => {
                         if (activeTooltipKey !== key) return;
-                        tooltipEl.textContent = 'Erro ao carregar descrição.';
+                        tooltipEl.textContent = `Erro ao carregar descrição: ${err.message}`;
                     });
             }
         });
