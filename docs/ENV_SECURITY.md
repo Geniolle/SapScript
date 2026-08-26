@@ -2,6 +2,20 @@
 
 O projeto mantém os valores reais apenas no `.env` local. O Git recebe somente o modelo sem segredos (`.env.example`) e o backup encriptado (`.env.enc`). A chave privada age nunca deve ser guardada no repositório.
 
+## Regra operacional
+
+O ficheiro `.env.enc` existe apenas como backup cifrado versionado. O runtime da aplicação continua a usar exclusivamente o `.env` local em texto.
+
+Não integrar `restore-env.ps1`, SOPS, age ou qualquer passo de desencriptação no arranque local, login do Windows, bootstrap automático, `start_all.ps1`, `start_web_local.ps1`, workers, tarefas agendadas ou serviços. Em máquinas corporativas, o Windows Defender pode bloquear esse tipo de automação e comprometer a operação.
+
+Quando for necessário recuperar credenciais após formatação, troca de máquina ou perda do `.env`, a restauração deve ser executada manualmente por um operador:
+
+```powershell
+.\scripts\restore-env.ps1
+```
+
+Após a restauração, a aplicação volta a arrancar normalmente usando o `.env` local. O backup cifrado não faz parte do fluxo normal de arranque.
+
 ## Configuração inicial no Windows
 
 1. Instale as ferramentas em PowerShell:
