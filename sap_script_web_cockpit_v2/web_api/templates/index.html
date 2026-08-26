@@ -1219,143 +1219,62 @@
       <!-- Agente Salsa IT View -->
       <div id="view-agent-salsa-it" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <section id="agent-salsa-it-section" class="agent-salsa-shell">
-          <div class="card agent-salsa-top-card">
-            <div class="agent-salsa-header">
-              <div class="agent-salsa-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="6.5" y="6.5" width="11" height="11" rx="3.5"></rect>
-                  <path d="M12 3v2.5"></path>
-                  <path d="M12 18.5V21"></path>
-                  <path d="M4 12h2.5"></path>
-                  <path d="M17.5 12H20"></path>
-                  <circle cx="9.75" cy="10.75" r="0.9" fill="currentColor" stroke="none"></circle>
-                  <circle cx="14.25" cy="10.75" r="0.9" fill="currentColor" stroke="none"></circle>
-                  <path d="M9.75 14c.7.55 1.45.82 2.25.82s1.55-.27 2.25-.82"></path>
-                </svg>
-              </div>
-              <div>
-                <div class="agent-salsa-eyebrow">Nova área do cockpit</div>
-                <h2 class="agent-salsa-title">Agente Salsa IT</h2>
-                <p class="agent-salsa-subtitle">Assistente operacional inteligente para processos SAP.</p>
-              </div>
-              <div style="margin-left:auto;">
-                <span class="agent-salsa-status">
-                  <span class="agent-salsa-status-dot" aria-hidden="true"></span>
-                  Em desenvolvimento
-                </span>
-              </div>
-            </div>
-
-            <div class="agent-salsa-summary-grid">
-              <div class="agent-salsa-summary-card">
-                <p class="agent-salsa-summary-label">Foco desta etapa</p>
-                <p class="agent-salsa-summary-value">Base visual e navegação</p>
-                <p class="agent-salsa-summary-copy">A área já está preparada para crescer sem alterar a arquitetura atual do cockpit.</p>
-              </div>
-              <div class="agent-salsa-summary-card">
-                <p class="agent-salsa-summary-label">Entrada futura</p>
-                <p class="agent-salsa-summary-value">Pedidos em linguagem natural</p>
-                <p class="agent-salsa-summary-copy">O layout reserva espaço para histórico, mensagens, plano de execução e confirmações.</p>
-              </div>
-              <div class="agent-salsa-summary-card">
-                <p class="agent-salsa-summary-label">Estado atual</p>
-                <p class="agent-salsa-summary-value">Sem backend ativo</p>
-                <p class="agent-salsa-summary-copy">Ainda não existem integrações com SAP, LLM, jobs, worker ou processamento operacional.</p>
-              </div>
-            </div>
+          <div class="agent-salsa-page-copy">
+            <h2 class="agent-salsa-title">Agente Salsa IT</h2>
+            <p class="agent-salsa-subtitle">Assistente operacional para processos SAP.</p>
           </div>
 
-          <div class="agent-salsa-workspace">
-            <div class="card agent-salsa-chat-panel">
-              <div class="agent-salsa-panel-header">
+          <div class="card agent-salsa-chat-card">
+            <div class="agent-salsa-chat-header">
+              <div class="agent-salsa-chat-header-main">
+                <div class="agent-salsa-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="6.5" y="6.5" width="11" height="11" rx="3.5"></rect>
+                    <path d="M12 3v2.5"></path>
+                    <path d="M12 18.5V21"></path>
+                    <path d="M4 12h2.5"></path>
+                    <path d="M17.5 12H20"></path>
+                    <circle cx="9.75" cy="10.75" r="0.9" fill="currentColor" stroke="none"></circle>
+                    <circle cx="14.25" cy="10.75" r="0.9" fill="currentColor" stroke="none"></circle>
+                    <path d="M9.75 14c.7.55 1.45.82 2.25.82s1.55-.27 2.25-.82"></path>
+                  </svg>
+                </div>
                 <div>
-                  <h3 class="agent-salsa-panel-title">Espaço do agente</h3>
-                  <p class="agent-salsa-panel-copy">Estrutura inicial pensada para a futura experiência conversacional.</p>
-                </div>
-                <span class="badge-tag blue">Preview</span>
-              </div>
-
-              <div class="agent-salsa-chat-surface">
-                <div class="agent-salsa-empty-chat">
-                  <div class="agent-salsa-preview-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 2l.9 2.74a2 2 0 0 0 1.24 1.24L17 7l-2.86 1.02a2 2 0 0 0-1.24 1.24L12 12l-1.02-2.74A2 2 0 0 0 9.74 8.02L7 7l2.74-1.02a2 2 0 0 0 1.24-1.24L12 2z"></path>
-                      <rect x="5.5" y="12" width="13" height="8.5" rx="3"></rect>
-                      <circle cx="10" cy="16.25" r="0.9" fill="currentColor" stroke="none"></circle>
-                      <circle cx="14" cy="16.25" r="0.9" fill="currentColor" stroke="none"></circle>
-                      <path d="M9.5 18.5c.75.45 1.58.68 2.5.68.92 0 1.75-.23 2.5-.68"></path>
-                    </svg>
-                  </div>
-
-                  <div>
-                    <h3 class="agent-salsa-placeholder-title">Agente Salsa IT</h3>
-                    <p class="agent-salsa-placeholder-copy">
-                      O seu assistente para consultar, preparar e executar processos automatizados do SAP Script.
-                    </p>
-                  </div>
-
-                  <p class="agent-salsa-placeholder-copy">
-                    Em breve poderá solicitar operações SAP em linguagem natural, acompanhar a execução e consultar resultados diretamente pelo agente.
-                  </p>
-                </div>
-
-                <div class="agent-salsa-disabled-composer" aria-disabled="true">
-                  <div class="agent-salsa-disabled-input">Caixa de mensagem disponível numa próxima etapa.</div>
-                  <div class="agent-salsa-disabled-button">Enviar</div>
+                  <div class="agent-salsa-chat-header-title">Agente Salsa IT</div>
+                  <p class="agent-salsa-chat-header-subtitle">Assistente pronto para ajudar</p>
                 </div>
               </div>
+
+              <span class="agent-salsa-status">
+                <span class="agent-salsa-status-dot" aria-hidden="true"></span>
+                Pré-visualização local
+              </span>
             </div>
 
-            <div class="agent-salsa-side-panel">
-              <div class="card agent-salsa-mini-card">
-                <h4 class="agent-salsa-mini-title">Preparado para receber</h4>
-                <div class="agent-salsa-chip-list">
-                  <span class="agent-salsa-chip">Histórico</span>
-                  <span class="agent-salsa-chip">Mensagens</span>
-                  <span class="agent-salsa-chip">Plano</span>
-                  <span class="agent-salsa-chip">Confirmações</span>
-                  <span class="agent-salsa-chip">Estado de jobs</span>
-                  <span class="agent-salsa-chip">Logs SAP</span>
-                </div>
-              </div>
+            <div id="agent-salsa-it-messages" class="agent-salsa-messages custom-scroll" aria-live="polite"></div>
 
-              <div class="card agent-salsa-mini-card">
-                <h4 class="agent-salsa-mini-title">Escopo desta fase</h4>
-                <div class="agent-salsa-list">
-                  <div class="agent-salsa-list-item">
-                    <span class="agent-salsa-list-dot" aria-hidden="true"></span>
-                    <div class="agent-salsa-list-text">Entrada principal na sidebar integrada no mecanismo atual de views.</div>
-                  </div>
-                  <div class="agent-salsa-list-item">
-                    <span class="agent-salsa-list-dot" aria-hidden="true"></span>
-                    <div class="agent-salsa-list-text">Página base responsiva, pronta para a futura implementação do agente.</div>
-                  </div>
-                  <div class="agent-salsa-list-item">
-                    <span class="agent-salsa-list-dot" aria-hidden="true"></span>
-                    <div class="agent-salsa-list-text">Sem alterações no backend, worker, SAP, RFC ou no antigo Agente SAP.</div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="card agent-salsa-mini-card">
-                <h4 class="agent-salsa-mini-title">Etapas previstas</h4>
-                <div class="agent-salsa-stage-list">
-                  <div class="agent-salsa-stage-item">
-                    <span class="agent-salsa-stage-name">Interface do agente</span>
-                    <span class="agent-salsa-stage-state">Concluído</span>
-                  </div>
-                  <div class="agent-salsa-stage-item">
-                    <span class="agent-salsa-stage-name">Fluxo conversacional</span>
-                    <span class="agent-salsa-stage-state">Pendente</span>
-                  </div>
-                  <div class="agent-salsa-stage-item">
-                    <span class="agent-salsa-stage-name">Orquestração SAP</span>
-                    <span class="agent-salsa-stage-state">Pendente</span>
-                  </div>
-                  <div class="agent-salsa-stage-item">
-                    <span class="agent-salsa-stage-name">Execução e logs</span>
-                    <span class="agent-salsa-stage-state">Pendente</span>
-                  </div>
+            <div class="agent-salsa-composer">
+              <div class="agent-salsa-composer-shell">
+                <textarea
+                  id="agent-salsa-it-input"
+                  class="agent-salsa-input"
+                  rows="1"
+                  placeholder="Escreva a sua mensagem..."
+                  aria-label="Mensagem para o Agente Salsa IT"
+                ></textarea>
+                <div class="agent-salsa-composer-actions">
+                  <button
+                    type="button"
+                    id="agent-salsa-it-send"
+                    class="agent-salsa-send-button"
+                    aria-label="Enviar mensagem"
+                    title="Enviar mensagem"
+                    disabled
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M17 11.5L11.2 5.7C10.81 5.31 10.18 5.31 9.79 5.7C9.4 6.09 9.4 6.72 9.79 7.11L13.88 11.2H6C5.45 11.2 5 11.65 5 12.2C5 12.75 5.45 13.2 6 13.2H13.88L9.79 17.29C9.4 17.68 9.4 18.31 9.79 18.7C10.18 19.09 10.81 19.09 11.2 18.7L17 12.9C17.39 12.51 17.39 11.88 17 11.5Z" fill="currentColor"></path>
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -4979,6 +4898,285 @@
         .replaceAll("'", '&#039;');
     }
 
+    let asiChatHistory = [];
+    let asiChatInitialized = false;
+    let asiChatMockTimer = null;
+    let asiSelectedQuickAction = null;
+    let asiSelectedQuickChild = null;
+    const salsaAgentActions = [
+        {
+            id: 'configuracoes',
+            label: 'Configurações',
+            icon: 'settings',
+            prompt: 'Quero ajuda com configurações SAP.',
+            children: [
+                {
+                    id: 'perfil-autorizacao',
+                    label: 'Perfil de Autorização',
+                    icon: 'authorization',
+                    prompt: 'Quero trabalhar com Perfil de Autorização.',
+                    children: []
+                }
+            ]
+        },
+        {
+            id: 'analise',
+            label: 'Análise',
+            icon: 'analysis',
+            prompt: 'Quero fazer uma análise.',
+            children: []
+        },
+        {
+            id: 'tickets',
+            label: 'Tickets',
+            icon: 'tickets',
+            prompt: 'Quero consultar ou analisar tickets.',
+            children: []
+        }
+    ];
+
+    function asiDefaultGreeting() {
+        return 'Olá Clayton, em que posso ajudá-lo?';
+    }
+
+    function asiMockReply() {
+        return 'Recebi a sua mensagem. Em breve esta área estará ligada ao motor do Agente Salsa IT.';
+    }
+
+    function asiQuickActionIcon(iconName) {
+        const icons = {
+            settings: `
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M9.6 3.25h4.8l.48 2.12c.4.13.78.29 1.15.48l1.94-1.03 3.39 3.39-1.03 1.94c.19.37.35.75.48 1.15l2.12.48v4.8l-2.12.48c-.13.4-.29.78-.48 1.15l1.03 1.94-3.39 3.39-1.94-1.03c-.37.19-.75.35-1.15.48l-.48 2.12H9.6l-.48-2.12a7.9 7.9 0 0 1-1.15-.48l-1.94 1.03-3.39-3.39 1.03-1.94a7.9 7.9 0 0 1-.48-1.15l-2.12-.48v-4.8l2.12-.48c.13-.4.29-.78.48-1.15L2.64 8.21l3.39-3.39 1.94 1.03c.37-.19.75-.35 1.15-.48L9.6 3.25Zm2.4 5.15a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z" fill="currentColor"></path>
+                </svg>
+            `,
+            analysis: `
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M10.2 4.25a5.95 5.95 0 1 1 0 11.9 5.95 5.95 0 0 1 0-11.9Zm0 1.9a4.05 4.05 0 1 0 0 8.1 4.05 4.05 0 0 0 0-8.1Zm7.56 9.97 4.01 4.01a1 1 0 0 1-1.42 1.41l-4-4v-.02l1.41-1.4Zm-8.85-6.1h2.05c.52 0 .95.42.95.95v2.2a.95.95 0 1 1-1.9 0v-1.25H8.91a.95.95 0 0 1 0-1.9Z" fill="currentColor"></path>
+                </svg>
+            `,
+            tickets: `
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M5 5.25h14c.97 0 1.75.78 1.75 1.75v3.2c-1.26.18-2.22 1.27-2.22 2.58 0 1.31.96 2.4 2.22 2.58V18A1.75 1.75 0 0 1 19 19.75H5A1.75 1.75 0 0 1 3.25 18v-2.64c1.26-.18 2.22-1.27 2.22-2.58 0-1.31-.96-2.4-2.22-2.58V7c0-.97.78-1.75 1.75-1.75Zm5.15 2.9a.95.95 0 0 0 0 1.9h3.7a.95.95 0 1 0 0-1.9h-3.7Zm0 5.8a.95.95 0 0 0 0 1.9h3.1a.95.95 0 1 0 0-1.9h-3.1Z" fill="currentColor"></path>
+                </svg>
+            `,
+            authorization: `
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 3.25l7 2.58v5.47c0 4.4-2.6 8.44-6.63 10.3L12 21.9l-.37-.16C7.6 19.88 5 15.84 5 11.3V5.83l7-2.58Zm0 2.03-5.1 1.88v4.14c0 3.53 2 6.76 5.1 8.42 3.1-1.66 5.1-4.89 5.1-8.42V7.16L12 5.28Zm-.9 4.12a.95.95 0 0 1 1.9 0v1.05h.45a1.8 1.8 0 0 1 1.8 1.8v2.4a1.8 1.8 0 0 1-1.8 1.8h-2.9a1.8 1.8 0 0 1-1.8-1.8v-2.4a1.8 1.8 0 0 1 1.8-1.8h.55V9.4Zm-.55 2.95v2h2.6v-2h-2.6Z" fill="currentColor"></path>
+                </svg>
+            `
+        };
+
+        return icons[iconName] || icons.analysis;
+    }
+
+    function asiFindQuickAction(actionId, actions = salsaAgentActions) {
+        for (const action of actions) {
+            if (action.id === actionId) return action;
+            if (action.children && action.children.length > 0) {
+                const childMatch = asiFindQuickAction(actionId, action.children);
+                if (childMatch) return childMatch;
+            }
+        }
+        return null;
+    }
+
+    function asiRenderQuickActionButtons(actions, level = 0) {
+        if (!actions || actions.length === 0) return '';
+        const isSubLevel = level > 0;
+
+        return `
+            <div class="agent-salsa-quick-actions ${isSubLevel ? 'agent-salsa-quick-actions-sub' : 'agent-salsa-quick-actions-root'}" role="group" aria-label="${isSubLevel ? 'Subopções do agente' : 'Ações rápidas do agente'}">
+                ${actions.map(action => {
+                    const isSelected = isSubLevel
+                        ? asiSelectedQuickChild === action.id
+                        : asiSelectedQuickAction === action.id;
+                    const selectedClass = isSelected ? ' selected' : '';
+                    const subClass = isSubLevel ? ' agent-salsa-quick-action-sub' : '';
+
+                    return `
+                        <button
+                            type="button"
+                            class="agent-salsa-quick-action${subClass}${selectedClass}"
+                            data-agent-action-id="${escapeHtml(action.id)}"
+                            data-agent-action-level="${level}"
+                        >
+                            <span class="agent-salsa-quick-action-icon">${asiQuickActionIcon(action.icon)}</span>
+                            <span>${escapeHtml(action.label)}</span>
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    function asiRenderQuickActions() {
+        const selectedRootAction = asiFindQuickAction(asiSelectedQuickAction, salsaAgentActions);
+        const childActions = selectedRootAction && Array.isArray(selectedRootAction.children)
+            ? selectedRootAction.children
+            : [];
+
+        return `
+            <div class="agent-salsa-quick-actions-stack">
+                ${asiRenderQuickActionButtons(salsaAgentActions, 0)}
+                ${asiSelectedQuickAction === 'configuracoes' ? asiRenderQuickActionButtons(childActions, 1) : ''}
+            </div>
+        `;
+    }
+
+    function asiGetElements() {
+        return {
+            messages: document.getElementById('agent-salsa-it-messages'),
+            input: document.getElementById('agent-salsa-it-input'),
+            send: document.getElementById('agent-salsa-it-send')
+        };
+    }
+
+    function asiScrollToBottom() {
+        const { messages } = asiGetElements();
+        if (!messages) return;
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    function asiAutoResizeInput() {
+        const { input } = asiGetElements();
+        if (!input) return;
+        const maxHeight = 160;
+        input.style.height = 'auto';
+        const nextHeight = Math.min(input.scrollHeight, maxHeight);
+        input.style.height = `${nextHeight}px`;
+        input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+
+    function asiUpdateComposerState() {
+        const { input, send } = asiGetElements();
+        if (!input || !send) return;
+        send.disabled = !input.value.trim();
+        asiAutoResizeInput();
+    }
+
+    function asiRenderMessages() {
+        const { messages } = asiGetElements();
+        if (!messages) return;
+
+        messages.innerHTML = asiChatHistory.map((msg, index) => {
+            const isUser = msg.role === 'user';
+            const wrapperClass = isUser ? 'agent-salsa-message agent-salsa-message-user' : 'agent-salsa-message agent-salsa-message-assistant';
+            const bubbleClass = isUser ? 'chat-msg-bubble chat-msg-user' : 'chat-msg-bubble chat-msg-bot';
+            const label = isUser ? 'Utilizador' : 'Assistente';
+            const quickActionsHtml = !isUser && index === 0 ? asiRenderQuickActions() : '';
+
+            return `
+                <div class="${wrapperClass}">
+                    <p class="agent-salsa-message-label">${label}</p>
+                    <div class="${bubbleClass}">${escapeHtml(msg.text).replace(/\n/g, '<br>')}</div>
+                    ${quickActionsHtml}
+                </div>
+            `;
+        }).join('');
+
+        asiScrollToBottom();
+    }
+
+    function asiAppendMessage(role, text) {
+        asiChatHistory.push({ role, text });
+        asiRenderMessages();
+    }
+
+    function asiSendMessage(presetText = null) {
+        const { input, send } = asiGetElements();
+        if (!input || !send) return;
+
+        const message = typeof presetText === 'string' ? presetText.trim() : input.value.trim();
+        if (!message) {
+            asiUpdateComposerState();
+            return;
+        }
+
+        input.value = '';
+        asiAppendMessage('user', message);
+        asiUpdateComposerState();
+        input.focus();
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+        }
+
+        asiChatMockTimer = setTimeout(() => {
+            asiAppendMessage('assistant', asiMockReply());
+            asiChatMockTimer = null;
+        }, 420);
+    }
+
+    function asiSendQuickMessage(prompt) {
+        asiSendMessage(prompt);
+    }
+
+    function asiHandleQuickActionSelection(actionId, level) {
+        const numericLevel = Number(level);
+        const action = asiFindQuickAction(actionId, salsaAgentActions);
+        if (!action) return;
+
+        if (numericLevel === 0) {
+            asiSelectedQuickAction = action.id;
+            asiSelectedQuickChild = null;
+        } else {
+            asiSelectedQuickChild = action.id;
+        }
+
+        asiRenderMessages();
+        asiSendQuickMessage(action.prompt);
+    }
+
+    function asiBindChat() {
+        const { input, send, messages } = asiGetElements();
+        if (!input || !send || !messages) return;
+
+        if (!input.dataset.bound) {
+            input.addEventListener('input', asiUpdateComposerState);
+            input.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    asiSendMessage();
+                }
+            });
+            input.dataset.bound = 'true';
+        }
+
+        if (!send.dataset.bound) {
+            send.addEventListener('click', asiSendMessage);
+            send.dataset.bound = 'true';
+        }
+
+        if (!messages.dataset.bound) {
+            messages.addEventListener('click', function(event) {
+                const quickAction = event.target.closest('[data-agent-action-id]');
+                if (!quickAction) return;
+                const actionId = quickAction.getAttribute('data-agent-action-id') || '';
+                const level = quickAction.getAttribute('data-agent-action-level') || '0';
+                asiHandleQuickActionSelection(actionId, level);
+            });
+            messages.dataset.bound = 'true';
+        }
+    }
+
+    function asiInitChat() {
+        const { input } = asiGetElements();
+        asiBindChat();
+
+        if (!asiChatInitialized) {
+            asiChatHistory = [{ role: 'assistant', text: asiDefaultGreeting() }];
+            asiChatInitialized = true;
+        }
+
+        asiRenderMessages();
+        asiUpdateComposerState();
+
+        if (input) {
+            input.focus();
+        }
+    }
+
     function renderKpiModalTable(filtered, tbody) {
         tbody.innerHTML = '';
 
@@ -5941,10 +6139,11 @@
             const defView = document.getElementById('view-definicoes');
             if (defView) defView.style.display = 'none';
             if (headerTitle) headerTitle.textContent = 'Agente Salsa IT';
-            if (headerSub) headerSub.textContent = 'Assistente operacional inteligente para processos SAP.';
+            if (headerSub) headerSub.textContent = 'Assistente operacional para processos SAP.';
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
             if (refreshBtn) refreshBtn.style.display = 'none';
             if (newJobBtn) newJobBtn.style.display = 'none';
+            asiInitChat();
         }
     }
 
