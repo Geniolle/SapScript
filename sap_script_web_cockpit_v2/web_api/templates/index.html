@@ -4897,8 +4897,189 @@
             id: 'testes-unitarios',
             label: 'Testes Unitários',
             icon: 'analysis',
-            prompt: 'Quero trabalhar com testes unitários.',
-            children: []
+            prompt: 'Quero ver os processos de testes unitários.',
+            followupText: 'Escolha um processo de Testes Unitários:',
+            followupActionsSource: 'children',
+            children: [
+                {
+                    id: 'testes-unitarios-criar-documento-fi',
+                    label: 'Criar Documento FI',
+                    icon: 'analysis',
+                    processo: 'Testes Unitários',
+                    prompt: 'Quero abrir o processo de Criar Documento FI.',
+                    followupText: 'Escolha o ambiente SAP:',
+                    followupActionsSource: 'children',
+                    children: [
+                        {
+                            id: 'testes-unitarios-criar-documento-fi-dev',
+                            label: 'DEV',
+                            icon: 'analysis',
+                            processo: 'Testes Unitários',
+                            environment: 'DEV',
+                            prompt: 'Quero trabalhar no ambiente DEV.',
+                            followupText: 'Escolha o tipo de documento FI (D/K/S):',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-dev-cliente',
+                                    label: 'D',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'DEV',
+                                    subprocesso: 'A1. Criar Documento FI - Cliente.py',
+                                    prompt: 'Quero criar um documento FI de Cliente.',
+                                    children: []
+                                },
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-dev-fornecedor',
+                                    label: 'K',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'DEV',
+                                    subprocesso: 'A2. Criar Documento FI - Fornecedor.py',
+                                    prompt: 'Quero criar um documento FI de Fornecedor.',
+                                    children: []
+                                },
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-dev-razao',
+                                    label: 'S',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'DEV',
+                                    subprocesso: 'A3. Criar Documento FI - Razao.py',
+                                    prompt: 'Quero criar um documento FI de Razão.',
+                                    children: []
+                                }
+                            ]
+                        },
+                        {
+                            id: 'testes-unitarios-criar-documento-fi-qad',
+                            label: 'QAD',
+                            icon: 'analysis',
+                            processo: 'Testes Unitários',
+                            environment: 'QAD',
+                            prompt: 'Quero trabalhar no ambiente QAD.',
+                            followupText: 'Escolha o tipo de documento FI:',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-qad-cliente',
+                                    label: 'D',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'QAD',
+                                    subprocesso: 'A1. Criar Documento FI - Cliente.py',
+                                    prompt: 'Quero criar um documento D no ambiente QAD.',
+                                    children: []
+                                },
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-qad-fornecedor',
+                                    label: 'K',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'QAD',
+                                    subprocesso: 'A2. Criar Documento FI - Fornecedor.py',
+                                    prompt: 'Quero criar um documento K no ambiente QAD.',
+                                    children: []
+                                },
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-qad-razao',
+                                    label: 'S',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'QAD',
+                                    subprocesso: 'A3. Criar Documento FI - Razao.py',
+                                    prompt: 'Quero criar um documento S no ambiente QAD.',
+                                    children: []
+                                }
+                            ]
+                        },
+                        {
+                            id: 'testes-unitarios-criar-documento-fi-prd',
+                            label: 'PRD',
+                            icon: 'analysis',
+                            processo: 'Testes Unitários',
+                            environment: 'PRD',
+                            prompt: 'Quero trabalhar no ambiente PRD.',
+                            followupText: 'Escolha o tipo de documento FI:',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-prd-cliente',
+                                    label: 'Cliente',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'PRD',
+                                    subprocesso: 'A1. Criar Documento FI - Cliente.py',
+                                    prompt: 'Quero criar um documento FI de Cliente.',
+                                    children: []
+                                },
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-prd-fornecedor',
+                                    label: 'Fornecedor',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'PRD',
+                                    subprocesso: 'A2. Criar Documento FI - Fornecedor.py',
+                                    prompt: 'Quero criar um documento FI de Fornecedor.',
+                                    children: []
+                                },
+                                {
+                                    id: 'testes-unitarios-criar-documento-fi-prd-razao',
+                                    label: 'Razão',
+                                    icon: 'analysis',
+                                    processo: 'Testes Unitários',
+                                    environment: 'PRD',
+                                    subprocesso: 'A3. Criar Documento FI - Razao.py',
+                                    prompt: 'Quero criar um documento FI de Razão.',
+                                    children: []
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'testes-unitarios-executar-f110',
+                    label: 'Executar F110',
+                    icon: 'analysis',
+                    processo: 'Testes Unitários',
+                    prompt: 'Quero abrir o processo de Executar F110.',
+                    followupText: 'Escolha o ambiente SAP:',
+                    followupActionsSource: 'children',
+                    children: [
+                        {
+                            id: 'testes-unitarios-executar-f110-dev',
+                            label: 'DEV',
+                            icon: 'analysis',
+                            processo: 'Testes Unitários',
+                            environment: 'DEV',
+                            subprocesso: 'B. Executar F110.py',
+                            prompt: 'Quero executar o F110 no ambiente DEV.',
+                            children: []
+                        },
+                        {
+                            id: 'testes-unitarios-executar-f110-qad',
+                            label: 'QAD',
+                            icon: 'analysis',
+                            processo: 'Testes Unitários',
+                            environment: 'QAD',
+                            subprocesso: 'B. Executar F110.py',
+                            prompt: 'Quero executar o F110 no ambiente QAD.',
+                            children: []
+                        },
+                        {
+                            id: 'testes-unitarios-executar-f110-prd',
+                            label: 'PRD',
+                            icon: 'analysis',
+                            processo: 'Testes Unitários',
+                            environment: 'PRD',
+                            subprocesso: 'B. Executar F110.py',
+                            prompt: 'Quero executar o F110 no ambiente PRD.',
+                            children: []
+                        }
+                    ]
+                }
+            ]
         }
     ];
 
