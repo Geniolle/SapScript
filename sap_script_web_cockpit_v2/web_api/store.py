@@ -570,14 +570,13 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                 ),
             )
 
-        # Only delete OPEN tickets that are not in the active sync set
+        # Remove any ticket that is not in the current active sync set.
         if active_keys:
             placeholders = ",".join("?" for _ in active_keys)
             conn.execute(
                 f"""
                 DELETE FROM jira_tickets
                 WHERE key NOT IN ({placeholders})
-                  AND lower(status) NOT IN ('done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled')
                 """,
                 (*active_keys,),
             )
@@ -585,7 +584,7 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
             conn.execute(
                 """
                 DELETE FROM jira_tickets
-                WHERE lower(status) NOT IN ('done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled')
+                WHERE 1 = 1
                 """
             )
         conn.commit()

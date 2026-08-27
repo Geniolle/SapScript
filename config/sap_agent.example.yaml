@@ -27,9 +27,8 @@ sap:
 
 jira:
   jql: >
-    project = SAP
-    AND status in ("To Do", "In Progress", "Open")
-    AND labels in ("SAP", "Erro")
+    project in ("IT - Salsa Jeans", "SAP - Desenvolvimento")
+    AND statusCategory != Done
     ORDER BY priority DESC, created ASC
   max_results: 10
   update_jira: false

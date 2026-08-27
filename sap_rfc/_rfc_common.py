@@ -18,6 +18,7 @@ REQUIRED_ENV_VARS = [
 ROLE_NAME_RE = re.compile(r"^[A-Z0-9_/\-:]+$")
 DELIMITER = "|"
 SYSTEM_NAME = "PRD"
+KNOWN_ENVIRONMENTS = ("DEV", "QAD", "PRD")
 
 
 def find_project_root() -> Path:
@@ -133,10 +134,48 @@ def build_connection_params() -> dict[str, str]:
     }
 
 
+def build_connection_params_for_env(environment: str) -> dict[str, str]:
+    """Generic multi-environment counterpart of `build_connection_params()` (PRD-only).
+
+    Reads `SAP_{ENV}_USER/PASSWD/ASHOST/SYSNR/CLIENT/LANG` for ENV in {DEV, QAD, PRD}.
+    """
+    env = str(environment or "").strip().upper()
+    if env not in KNOWN_ENVIRONMENTS:
+        raise ValueError(f"Ambiente desconhecido: {environment}")
+
+    required = [f"SAP_{env}_USER", f"SAP_{env}_PASSWD", f"SAP_{env}_ASHOST", f"SAP_{env}_SYSNR", f"SAP_{env}_CLIENT"]
+    missing = [name for name in required if not os.getenv(name, "").strip()]
+    if missing:
+        raise RuntimeError(f"Variáveis obrigatórias ausentes para {env}: {', '.join(missing)}")
+
+    return {
+        "user": os.environ[f"SAP_{env}_USER"],
+        "passwd": os.environ[f"SAP_{env}_PASSWD"],
+        "ashost": os.environ[f"SAP_{env}_ASHOST"],
+        "sysnr": os.environ[f"SAP_{env}_SYSNR"],
+        "client": os.environ[f"SAP_{env}_CLIENT"],
+        "lang": os.getenv(f"SAP_{env}_LANG", "PT").strip() or "PT",
+    }
+
+
 def make_read_only_guard(allowed_tables: tuple[str, ...]) -> SafetyGuard:
     return SafetyGuard.build(
         allow_write_operations=False,
         allowed_functions=("RFC_PING", "RFC_READ_TABLE"),
+        allowed_tables=allowed_tables,
+    )
+
+
+def make_write_guard(allowed_functions: tuple[str, ...], allowed_tables: tuple[str, ...]) -> SafetyGuard:
+    """Guard for RFC flows that legitimately need to call a whitelisted write function.
+
+    Unlike `make_read_only_guard`, `allow_write_operations=True` here — but this only
+    lifts the mutation-keyword block; the explicit `allowed_functions` whitelist still
+    fully controls exactly which RFC function names may be called.
+    """
+    return SafetyGuard.build(
+        allow_write_operations=True,
+        allowed_functions=allowed_functions,
         allowed_tables=allowed_tables,
     )
 

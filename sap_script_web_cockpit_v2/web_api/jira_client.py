@@ -1,6 +1,56 @@
 import os
 import re
 import requests
+
+DEFAULT_SYNC_PROJECTS = ("IT - Salsa Jeans", "SAP - Desenvolvimento")
+
+
+def _split_env_csv(value: str) -> list[str]:
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
+
+
+def get_jira_sync_projects() -> list[str]:
+    projects = _split_env_csv(os.getenv("JIRA_SYNC_PROJECTS", ""))
+    return projects or list(DEFAULT_SYNC_PROJECTS)
+
+
+def build_project_scope_jql(status_clause: str) -> str:
+    projects = get_jira_sync_projects()
+    if not projects:
+        return status_clause
+    project_clause = " OR ".join(f'project = "{project}"' for project in projects)
+    return f"({project_clause}) AND {status_clause}"
+
+
+def get_jira_auto_trigger_projects() -> list[str]:
+    projects = _split_env_csv(os.getenv("JIRA_AUTO_TRIGGER_PROJECTS", ""))
+    return projects or get_jira_sync_projects()
+
+
+def get_jira_auto_trigger_suppliers(default: str = "Evolutive") -> list[str]:
+    suppliers = _split_env_csv(os.getenv("JIRA_AUTO_TRIGGER_SUPPLIERS", ""))
+    if suppliers:
+        return suppliers
+    legacy_supplier = os.getenv("JIRA_AUTO_TRIGGER_SUPPLIER", default).strip()
+    return [legacy_supplier] if legacy_supplier else []
+
+
+def get_jira_auto_trigger_assignees(default: str = "Clayton Lopes") -> list[str]:
+    assignees = _split_env_csv(os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEES", ""))
+    if assignees:
+        return assignees
+    legacy_assignee = os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEE", default).strip()
+    return [legacy_assignee] if legacy_assignee else []
+
+
+def build_jql_or_clause(field: str, values: list[str]) -> str:
+    clean_values = [v.strip() for v in values if v and v.strip()]
+    if not clean_values:
+        return ""
+    if len(clean_values) == 1:
+        return f'{field} = "{clean_values[0]}"'
+    joined = " OR ".join(f'{field} = "{value}"' for value in clean_values)
+    return f"({joined})"
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -322,11 +372,10 @@ def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list
         )
         return []
 
-    # Query para buscar tickets abertos atribuídos ao usuário logado
+    # Query padrão: tickets relevantes dos projetos acompanhados pelo cockpit.
+    # O filtro por responsável foi removido para que o browser faça o recorte final.
     if not jql:
-        jql = os.getenv(
-            "JIRA_SYNC_JQL", "assignee = currentUser() AND statusCategory != Done"
-        )
+        jql = os.getenv("JIRA_SYNC_JQL") or build_project_scope_jql("statusCategory != Done")
 
     url = f"{jira_base}/{jira_api_path}/search/jql"
     auth = (jira_email, jira_token)
@@ -544,16 +593,15 @@ def transition_jira_issue(key: str, transition_id: str) -> bool:
 
 def fetch_auto_trigger_tickets(
     assignee_name: str = "",
-    status_name: str = "In Review",
     supplier_value: str = "Evolutive",
 ) -> list[dict]:
     """
     Consulta a API do JIRA em busca de tickets elegíveis para auto-trigger SAP.
 
     Critérios (configuráveis via .env):
-      - status    : JIRA_AUTO_TRIGGER_STATUS   (default: "In Review")
-      - supplier  : JIRA_AUTO_TRIGGER_SUPPLIER (default: "Evolutive")
-      - assignee  : JIRA_AUTO_TRIGGER_ASSIGNEE (default: "Clayton Lopes")
+      - project   : JIRA_AUTO_TRIGGER_PROJECTS  (CSV, fallback ao sync projects)
+      - supplier  : JIRA_AUTO_TRIGGER_SUPPLIERS  (CSV, default: "Evolutive")
+      - assignee  : JIRA_AUTO_TRIGGER_ASSIGNEES  (CSV, default: "Clayton Lopes")
         → filtrado em Python por displayName (pós-fetch)
 
     Retorna lista de dicts com: key, summary, status, assignee, process,
@@ -568,13 +616,14 @@ def fetch_auto_trigger_tickets(
         print("Jira auto-trigger: credenciais não configuradas.")
         return []
 
-    # Parâmetros configuráveis via env
-    env_status = os.getenv("JIRA_AUTO_TRIGGER_STATUS", status_name).strip()
-    env_supplier = os.getenv("JIRA_AUTO_TRIGGER_SUPPLIER", supplier_value).strip()
-    env_assignee = os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEE", assignee_name or "Clayton Lopes").strip()
+    # Parâmetros configuráveis via env, com suporte a listas separadas por vírgula.
+    project_clause = build_jql_or_clause("project", get_jira_auto_trigger_projects())
+    status_clause = "statusCategory != Done"
+    supplier_clause = build_jql_or_clause("cf[14595]", get_jira_auto_trigger_suppliers(supplier_value))
+    assignee_values = get_jira_auto_trigger_assignees(assignee_name or "Clayton Lopes")
 
-    # JQL: status + supplier (assignee filtrado em Python)
-    jql = f'status = "{env_status}" AND cf[14595] = "{env_supplier}"'
+    clauses = [clause for clause in [project_clause, status_clause, supplier_clause] if clause]
+    jql = " AND ".join(clauses)
 
     url = f"{jira_base}/{jira_api_path}/search/jql"
     auth = (jira_email, jira_token)
@@ -628,8 +677,8 @@ def fetch_auto_trigger_tickets(
                 or ""
             )
 
-            # Filtro de assignee em Python (comparação case-insensitive)
-            if env_assignee and env_assignee.lower() not in raw_assignee.lower():
+            # Filtro de assignee em Python (comparação case-insensitive com lista)
+            if assignee_values and not any(name.lower() in raw_assignee.lower() for name in assignee_values):
                 continue
 
             # Abreviar nome se necessário

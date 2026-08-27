@@ -9,6 +9,26 @@ import yaml
 from dotenv import load_dotenv
 
 
+def _split_env_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _quote_jql_value(value: str) -> str:
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def build_project_scope_jql(projects: list[str], status_clause: str = "statusCategory != Done") -> str:
+    project_names = [project for project in projects if project]
+    if not project_names:
+        base = status_clause.strip()
+        return f"{base} ORDER BY priority DESC, created ASC" if base else "ORDER BY priority DESC, created ASC"
+
+    clauses = [f"project in ({', '.join(_quote_jql_value(project) for project in project_names)})"]
+    if status_clause.strip():
+        clauses.append(status_clause.strip())
+    return " AND ".join(clauses) + " ORDER BY priority DESC, created ASC"
+
+
 @dataclass(frozen=True)
 class SapConnectionConfig:
     """SAP RFC connection settings.
@@ -69,11 +89,22 @@ class JiraConfig:
         missing = [key for key in required_env if not os.getenv(key)]
         if missing:
             raise RuntimeError(f"Missing JIRA environment variables: {', '.join(missing)}")
+
+        sync_jql = os.getenv("JIRA_SYNC_JQL", "").strip()
+        if sync_jql:
+            jql = sync_jql
+        else:
+            sync_projects = _split_env_csv(os.getenv("JIRA_SYNC_PROJECTS", ""))
+            if sync_projects:
+                jql = build_project_scope_jql(sync_projects)
+            else:
+                jql = str(jira_data.get("jql", ""))
+
         return cls(
             base_url=os.environ["JIRA_BASE_URL"].rstrip("/"),
             email=os.environ["JIRA_EMAIL"],
             api_token=os.environ["JIRA_API_TOKEN"],
-            jql=jira_data.get("jql", ""),
+            jql=jql,
             max_results=int(jira_data.get("max_results", 10)),
             update_jira=bool(jira_data.get("update_jira", False)),
         )

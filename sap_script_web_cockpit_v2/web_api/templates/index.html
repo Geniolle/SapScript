@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="pt">
 <head>
   <meta charset="utf-8">
@@ -1019,19 +1019,7 @@
         </div>
       </div>
       <nav class="nav-menu">
-        <a class="nav-item active" id="nav-item-visao-geral" onclick="switchView('visao-geral')">Visão geral</a>
-        <div class="nav-sub-wrapper">
-          <a class="nav-item-toggle" id="nav-jira-toggle" onclick="toggleJiraMenu()">
-            <span>JIRA</span>
-            <span class="nav-toggle-arrow">&#9660;</span>
-          </a>
-          <div class="nav-sub-list" id="nav-jira-sub">
-            <a class="nav-item" id="nav-item-sap-agent" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('sap-agent')">🤖 Agente SAP</a>
-            <a class="nav-item" id="nav-item-jira" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira')">🎫 Tickets</a>
-            <a class="nav-item" id="nav-item-jira-dashboard" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
-            <a class="nav-item" id="nav-item-auto-trigger" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" onclick="switchView('auto-trigger')">⚡ Auto-Trigger SAP</a>
-          </div>
-        </div>
+        <a class="nav-item active" id="nav-item-jira" onclick="switchView('jira')">🎫 Tickets</a>
         <div class="nav-sub-wrapper">
           <a class="nav-item-toggle" id="nav-sap-toggle" onclick="toggleSapMenu()">
             <span>SAP</span>
@@ -1064,8 +1052,9 @@
           </span>
           <span>Agente Salsa IT</span>
         </a>
-        <a class="nav-item" onclick="switchView('visao-geral')">Requests</a>
-        <a class="nav-item" onclick="switchView('visao-geral')">Ficheiros</a>
+        <a class="nav-item" id="nav-item-jira-dashboard" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
+        <a class="nav-item" id="nav-item-auto-trigger" onclick="switchView('auto-trigger')">⚡ Auto-Trigger SAP</a>
+        <a class="nav-item" id="nav-item-visao-geral" onclick="switchView('visao-geral')">Visão geral</a>
         <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
         <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')">⚙️ Definições</a>
       </nav>
@@ -1091,12 +1080,12 @@
       <!-- Top Header -->
       <header class="top-header">
         <div class="header-titles">
-          <h2>Cockpit SAP Script</h2>
-          <p>Monitorização moderna dos workers, jobs e logs SAP GUI Scripting.</p>
+          <h2>Fila de Tickets</h2>
+          <p>Tickets em aberto e sincronização automática.</p>
         </div>
         <div class="header-actions" style="display: flex; align-items: center; gap: 16px;">
-          <div id="jira-sync-wrapper" style="display: none; align-items: center; gap: 10px;">
-            <button type="button" id="jira-sync-btn" class="btn-icon" title="Sincronizar com JIRA">
+          <div id="jira-sync-wrapper" style="display: inline-flex; align-items: center; gap: 10px;">
+            <button type="button" id="jira-sync-btn" class="btn-icon" title="Sincronizar Tickets">
               <span id="jira-sync-icon" style="display: inline-block; transition: transform 0.6s ease;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
               </span>
@@ -1106,13 +1095,13 @@
               <span id="jira-last-sync-text">Nunca sincronizado</span>
             </span>
           </div>
-          <button type="button" id="refresh-button" class="btn btn-secondary" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
-          <button type="button" id="new-job-btn" class="btn btn-primary">+ Novo job</button>
+          <button type="button" id="refresh-button" class="btn btn-secondary" style="display: none;" title="Forçar atualização imediata do estado dos jobs">↻ Atualizar</button>
+          <button type="button" id="new-job-btn" class="btn btn-primary" style="display: none;">+ Novo job</button>
         </div>
       </header>
 
       <!-- Visão Geral View -->
-      <div id="view-visao-geral" style="flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
+      <div id="view-visao-geral" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <!-- KPIs -->
         <section class="kpi-grid">
           <div class="kpi-card" onclick="openKpiJobsModal('running')">
@@ -1219,11 +1208,6 @@
       <!-- Agente Salsa IT View -->
       <div id="view-agent-salsa-it" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
         <section id="agent-salsa-it-section" class="agent-salsa-shell">
-          <div class="agent-salsa-page-copy">
-            <h2 class="agent-salsa-title">Agente Salsa IT</h2>
-            <p class="agent-salsa-subtitle">Assistente operacional para processos SAP.</p>
-          </div>
-
           <div class="card agent-salsa-chat-card">
             <div class="agent-salsa-chat-header">
               <div class="agent-salsa-chat-header-main">
@@ -1283,7 +1267,7 @@
       </div>
 
       <!-- JIRA View -->
-      <div id="view-jira" style="display: none; flex: 1; min-height: 0; flex-direction: column;">
+      <div id="view-jira" style="display: flex; flex: 1; min-height: 0; flex-direction: column;">
         <div id="view-jira-tickets-wrapper" style="display: flex; flex-direction: column; height: 100%; padding-bottom: 24px;">
           <!-- Jira KPIs -->
         <section class="kpi-grid" id="jira-kpi-grid" style="margin-bottom: 24px; flex-shrink: 0;">
@@ -1646,230 +1630,6 @@
           </div>
         </div>
         <!-- ====== END AUTO-TRIGGER VIEW ====== -->
-
-        <!-- ====== SAP AGENT VIEW ====== -->
-        <div id="view-sap-agent" style="display: none;">
-          <div style="width: 100%;">
-
-            <!-- Header -->
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-              <div style="display: flex; align-items: center; gap: 14px;">
-                <div style="width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #10b981, #059669); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(16,185,129,0.35);">🤖</div>
-                <div>
-                  <h2 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: var(--text-primary);">Agente SAP</h2>
-                  <p style="margin: 0; font-size: 0.75rem; color: var(--text-secondary);">Análise interativa e depuração de erros SAP com inteligência artificial.</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Two-column layout: Filter Sidebar + Analysis Area -->
-            <div style="display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start;">
-
-              <!-- LEFT COLUMN: Filter Panel -->
-              <div style="display: flex; flex-direction: column; gap: 12px;">
-
-                <!-- Filter Card -->
-                <div class="card" style="padding: 16px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
-                  <!-- Card Header -->
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f1f5f9;">
-                    <div style="display: flex; align-items: center; gap: 7px;">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
-                      <span style="font-size: 0.78rem; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.06em;">Filtros</span>
-                    </div>
-                    <button type="button" id="sa-filter-clear-btn" onclick="saClearFilters()" style="font-size: 0.68rem; color: #94a3b8; background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.15s;" onmouseover="this.style.color='#ef4444';this.style.background='rgba(239,68,68,0.08)'" onmouseout="this.style.color='#94a3b8';this.style.background='none'">
-                      &#x2715; Limpar
-                    </button>
-                  </div>
-
-                  <!-- Search Input -->
-                  <div style="margin-bottom: 10px; position: relative;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); pointer-events: none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="text" id="sa-filter-search" placeholder="Pesquisar ticket ou resumo..." oninput="saApplyFilters()" style="width: 100%; padding: 8px 10px 8px 30px; font-size: 0.78rem; border: 1px solid #e2e8f0; border-radius: 9px; color: #334155; background: #f8fafc; outline: none; box-sizing: border-box; transition: all 0.2s;" onfocus="this.style.borderColor='#6366f1';this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.12)'" onblur="this.style.borderColor='#e2e8f0';this.style.boxShadow='none'">
-                  </div>
-
-                  <!-- Status Filter -->
-                  <div style="margin-bottom: 8px;">
-                    <label style="display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;">
-                      <span style="display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #6366f1; opacity: 0.7;"></span>Status
-                    </label>
-                    <select id="sa-filter-status" onchange="saApplyFilters()" style="width: 100%; padding: 7px 30px 7px 10px; font-size: 0.78rem; font-weight: 500; color: #334155; background-color: #f8fafc; background-image: url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e'); background-repeat: no-repeat; background-position: right 8px center; background-size: 12px; border: 1px solid #e2e8f0; border-radius: 9px; appearance: none; -webkit-appearance: none; outline: none; cursor: pointer; transition: all 0.2s;">
-                      <option value="">Todos os status</option>
-                    </select>
-                  </div>
-
-                  <!-- Type Filter -->
-                  <div style="margin-bottom: 8px;">
-                    <label style="display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;">
-                      <span style="display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #6366f1; opacity: 0.7;"></span>Tipo
-                    </label>
-                    <select id="sa-filter-type" onchange="saApplyFilters()" style="width: 100%; padding: 7px 30px 7px 10px; font-size: 0.78rem; font-weight: 500; color: #334155; background-color: #f8fafc; background-image: url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e'); background-repeat: no-repeat; background-position: right 8px center; background-size: 12px; border: 1px solid #e2e8f0; border-radius: 9px; appearance: none; -webkit-appearance: none; outline: none; cursor: pointer; transition: all 0.2s;">
-                      <option value="">Todos os tipos</option>
-                    </select>
-                  </div>
-
-                  <!-- Stream Filter -->
-                  <div style="margin-bottom: 8px;">
-                    <label style="display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;">
-                      <span style="display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #6366f1; opacity: 0.7;"></span>Stream
-                    </label>
-                    <select id="sa-filter-stream" onchange="saApplyFilters()" style="width: 100%; padding: 7px 30px 7px 10px; font-size: 0.78rem; font-weight: 500; color: #334155; background-color: #f8fafc; background-image: url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e'); background-repeat: no-repeat; background-position: right 8px center; background-size: 12px; border: 1px solid #e2e8f0; border-radius: 9px; appearance: none; -webkit-appearance: none; outline: none; cursor: pointer; transition: all 0.2s;">
-                      <option value="">Todos os streams</option>
-                    </select>
-                  </div>
-
-                  <!-- Assignee Filter -->
-                  <div style="margin-bottom: 12px;">
-                    <label style="display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;">
-                      <span style="display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #6366f1; opacity: 0.7;"></span>Responsável
-                    </label>
-                    <select id="sa-filter-assignee" onchange="saApplyFilters()" style="width: 100%; padding: 7px 30px 7px 10px; font-size: 0.78rem; font-weight: 500; color: #334155; background-color: #f8fafc; background-image: url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e'); background-repeat: no-repeat; background-position: right 8px center; background-size: 12px; border: 1px solid #e2e8f0; border-radius: 9px; appearance: none; -webkit-appearance: none; outline: none; cursor: pointer; transition: all 0.2s;">
-                      <option value="">Todos os responsáveis</option>
-                    </select>
-                  </div>
-
-                  <!-- Ticket Count Badge -->
-                  <div id="sa-filter-count" style="font-size: 0.72rem; color: #64748b; text-align: center; padding: 6px 0; border-top: 1px solid #f1f5f9; font-weight: 600;"></div>
-                </div>
-
-                <!-- Ticket List -->
-                <div class="card" style="padding: 0; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); overflow: hidden;">
-                  <!-- List Header -->
-                  <div style="padding: 12px 14px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 7px; background: linear-gradient(135deg, rgba(99,102,241,0.05), rgba(16,185,129,0.03));">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                    <span style="font-size: 0.73rem; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.06em;">Tickets</span>
-                  </div>
-                  <!-- Scrollable Ticket List -->
-                  <div id="sa-ticket-list" style="max-height: 480px; overflow-y: auto; display: flex; flex-direction: column;">
-                    <div id="sa-ticket-list-loading" style="padding: 24px; text-align: center; color: #94a3b8; font-size: 0.78rem;">
-                      <div style="font-size: 1.4rem; margin-bottom: 8px;">&#x231B;</div>
-                      A carregar tickets...
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-              <!-- END LEFT COLUMN -->
-
-              <!-- RIGHT COLUMN: Analysis Area -->
-              <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0;">
-
-                <!-- Main Control Panel -->
-                <div class="card" style="padding: 20px;">
-                  <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 0.95rem; color: var(--text-primary); font-weight: 700;">Pesquisar e Analisar Ticket</h3>
-                  <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
-                    <div style="flex: 1; min-width: 250px;">
-                      <label for="sa-ticket-key" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600;">Chave do Ticket JIRA</label>
-                      <input type="text" id="sa-ticket-key" placeholder="Ex: SAP-81, IZ-52938" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text-primary); font-size: 0.85rem;" onkeydown="if(event.key === 'Enter') saRunAnalysis()">
-                    </div>
-                    <button class="btn btn-primary" onclick="saRunAnalysis()" id="sa-btn-analyze" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 700; height: 38px;">
-                      <span>&#x1F50D; Analisar</span>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Result Card -->
-                <div id="sa-result-card" class="card" style="padding: 24px; display: none; background: var(--surface);">
-                  
-                  <!-- Header -->
-                  <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 18px;">
-                    <h3 style="margin: 0; font-size: 1rem; color: var(--text-primary); font-weight: 800;" id="sa-result-title">Relat&#xF3;rio de An&#xE1;lise</h3>
-                    <span id="sa-confidence-badge" style="font-size: 0.7rem; font-weight: 700; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;"></span>
-                  </div>
-
-                  <!-- Ticket Description Banner -->
-                  <div id="sa-ticket-description-box" style="display:none; margin-bottom: 18px; background: linear-gradient(135deg, rgba(16,185,129,0.06), rgba(59,130,246,0.04)); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 16px 20px;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8"/><line x1="12" y1="12" x2="12" y2="16"/></svg>
-                      <span style="font-size: 0.78rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">Motivo de Abertura do Ticket</span>
-                    </div>
-                    <div id="sa-ticket-description-text" style="font-size: 0.85rem; color: var(--text-primary); line-height: 1.65; white-space: pre-wrap; max-height: 160px; overflow-y: auto; padding-right: 4px;"></div>
-                  </div>
-
-                  <!-- 2-Column Grid: Report & Chat -->
-                  <div style="display: grid; grid-template-columns: 1.8fr 1.2fr; gap: 24px; min-height: 500px; align-items: stretch;" id="sa-columns-grid">
-                    
-                    <!-- Left Column: Report sections -->
-                    <div style="display: flex; flex-direction: column; gap: 20px;">
-                      
-                      <!-- Technical Info -->
-                      <div style="background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
-                        <h4 style="margin: 0 0 12px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">&#x1F50D; Sinais Identificados</h4>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;" id="sa-signals-list">
-                          <!-- Dynamic fields -->
-                        </div>
-
-                        <div id="sa-attachment-texts-container" style="display: none; margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
-                            <details>
-                                <summary style="font-size: 0.8rem; color: var(--text-secondary); cursor: pointer; user-select: none;">&#x1F4C4; Ver texto extra&#xED;do dos anexos</summary>
-                                <pre id="sa-attachment-texts" style="margin-top: 10px; font-size: 0.75rem; color: var(--text-primary); background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; white-space: pre-wrap; max-height: 250px; overflow-y: auto;"></pre>
-                            </details>
-                        </div>
-                      </div>
-
-                      <!-- RFC Evidences -->
-                      <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
-                        <h4 style="margin: 0 0 12px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">&#x1F4BE; Evid&#xEA;ncias de Leitura SAP</h4>
-                        <div style="display: flex; flex-direction: column; gap: 10px;" id="sa-evidences-list">
-                          <!-- Dynamic fields -->
-                        </div>
-                      </div>
-
-                      <!-- Explanation & Diagnosis -->
-                      <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
-                        <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">&#x26A0;&#xFE0F; Poss&#xED;vel Causa</h4>
-                        <p id="sa-possible-cause" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
-                      </div>
-
-                      <!-- Proposed Solution -->
-                      <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
-                        <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">&#x1F4A1; Pr&#xE9;via de Solu&#xE7;&#xE3;o</h4>
-                        <p id="sa-proposed-solution" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
-                      </div>
-
-                      <!-- Suggested Tests -->
-                      <div style="display: none; background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 10px; padding: 16px;">
-                        <h4 style="margin: 0 0 8px 0; font-size: 0.85rem; font-weight: 700; color: var(--primary);">&#x1F9EA; Testes/Valida&#xE7;&#xF5;es Sugeridos</h4>
-                        <p id="sa-suggested-tests" style="margin: 0; font-size: 0.85rem; color: var(--text-primary); line-height: 1.5; white-space: pre-line;"></p>
-                      </div>
-
-                    </div>
-
-                    <!-- Right Column: Interactive Chat -->
-                    <div style="background: var(--surface-raised, rgba(0,0,0,0.15)); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; height: 100%; min-height: 500px; justify-content: space-between;">
-                      <!-- Chat Header -->
-                      <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: space-between;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                          <span style="font-size: 1rem;">&#x1F4AC;</span>
-                          <strong style="font-size: 0.85rem; color: var(--text-primary); font-weight: 700;">Explorar com IA</strong>
-                        </div>
-                        <button class="btn btn-secondary" onclick="saClearChatHistory()" style="padding: 3px 8px; font-size: 0.68rem; border-color: rgba(255,255,255,0.08); background: rgba(255,255,255,0.02);">Limpar</button>
-                      </div>
-                      
-                      <!-- Chat Messages Area -->
-                      <div id="sa-chat-messages" style="flex: 1; padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; max-height: 480px; font-size: 0.82rem; line-height: 1.45; background: rgba(0,0,0,0.05);">
-                        <!-- Messages dynamically loaded -->
-                      </div>
-                      
-                      <!-- Chat Input Area -->
-                      <div style="padding: 12px 14px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.2); display: flex; gap: 8px;">
-                        <input type="text" id="sa-chat-input" placeholder="Pergunte ou proponha solu&#xE7;&#xF5;es..." style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text-primary); font-size: 0.78rem;" onkeydown="if(event.key === 'Enter') saSendChatMessage()">
-                        <button class="btn btn-primary" onclick="saSendChatMessage()" id="sa-chat-btn-send" style="padding: 6px 14px; font-size: 0.78rem; font-weight: 700; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
-                          <span>Enviar</span>
-                        </button>
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
-
-              </div>
-              <!-- END RIGHT COLUMN -->
-
-            </div>
-            <!-- END TWO-COLUMN LAYOUT -->
-
-          </div>
-        </div>
         <!-- ====== DEFINIÇÕES VIEW ====== -->
         <div id="view-definicoes" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
           <div style="width: 100%;">
@@ -2624,6 +2384,7 @@
         return { title: text, sub: `Etapa ${index + 1}` };
     }
     const STORAGE_KEY_EXCEL_PATH = 'sap_script_web_last_excel_path';
+    const JIRA_POLL_SECONDS = {{ poll_seconds | default(60) | int }};
     let allJobs = [];
     let isConnectingWorker = false;
     let connectingTimeout = null;
@@ -2637,17 +2398,6 @@
       sapMenuOpen = !sapMenuOpen;
       toggle.classList.toggle('open', sapMenuOpen);
       sub.classList.toggle('open', sapMenuOpen);
-    }
-
-    // --- Sidebar: JIRA Dropdown ---
-    let jiraMenuOpen = false;
-
-    function toggleJiraMenu() {
-      const toggle = document.getElementById('nav-jira-toggle');
-      const sub = document.getElementById('nav-jira-sub');
-      jiraMenuOpen = !jiraMenuOpen;
-      toggle.classList.toggle('open', jiraMenuOpen);
-      sub.classList.toggle('open', jiraMenuOpen);
     }
 
     // --- Sidebar: Processos Dropdown (2 níveis) ---
@@ -4916,10 +4666,18 @@
     // Estado do último resultado EXISTE de análise de função PFCG.
     // Mantido fora de asiConversationState para sobreviver a resets de navegação (ex.: "Voltar").
     let asiPfcgRoleState = null;
+    // Nome da última função PFCG analisada, independentemente do status (EXISTE/NAO_EXISTE).
+    // Aditivo: ao contrário de asiPfcgRoleState (só EXISTE), este é usado pelo fluxo
+    // "Criar Individualmente" para nunca voltar a perguntar o nome da função.
+    let asiLastAnalyzedPfcgRole = '';
     let asiPfcgSubPollingTimer = null;
     let asiPfcgSubPollingInFlight = false;
     const ASI_PFCG_SUB_POLL_INTERVAL_MS = 1000;
     const ASI_PFCG_SUB_POLL_TIMEOUT_MS = 60000;
+    let asiPfcgIndividualPollingTimer = null;
+    let asiPfcgIndividualPollingInFlight = false;
+    let asiPfcgTransportSearchPollingTimer = null;
+    let asiPfcgTransportSearchPollingInFlight = false;
 
     const ASI_PFCG_ROLE_BACK_ACTION = { id: 'pfcg-role-back', label: '← Voltar', icon: 'analysis' };
     const ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION = { id: 'pfcg-role-analyze-transactions', label: 'Analisar por Transação', icon: 'analysis' };
@@ -4930,11 +4688,28 @@
         ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION,
         ASI_PFCG_ROLE_ANALYZE_USERS_ACTION
     ];
+    const ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT = 'pfcg_individual_description';
+    const ASI_PFCG_INDIVIDUAL_TCODES_INPUT = 'pfcg_individual_tcodes';
+    const ASI_PFCG_INDIVIDUAL_DESCRIPTION_PLACEHOLDER = 'Ex.: Acesso a relatórios de vendas';
+    const ASI_PFCG_INDIVIDUAL_TCODES_PLACEHOLDER = 'Ex.: VA01, VA02, MM03';
+    const ASI_PFCG_INDIVIDUAL_BACK_ACTION = { id: 'pfcg-create-individual-back', label: '← Voltar', icon: 'analysis' };
+    const ASI_PFCG_INDIVIDUAL_CONFIRM_ACTION = { id: 'pfcg-create-individual-confirm', label: 'Confirmar criação', icon: 'shield-plus' };
+    const ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT = 'pfcg_transport_create_description';
+    const ASI_PFCG_TRANSPORT_LOCAL_ACTION = { id: 'pfcg-transport-local', label: 'Sem transporte (Local)', icon: 'analysis' };
+    const ASI_PFCG_TRANSPORT_CREATE_ACTION = { id: 'pfcg-transport-create', label: 'Criar nova Request', icon: 'shield-plus' };
+    const ASI_PFCG_TRANSPORT_EXISTING_ACTION = { id: 'pfcg-transport-existing', label: 'Usar Request existente', icon: 'analysis' };
+    const ASI_PFCG_TRANSPORT_BACK_ACTION = { id: 'pfcg-transport-back', label: '← Voltar', icon: 'analysis' };
     const ASI_PFCG_DYNAMIC_ACTION_IDS = new Set([
         'pfcg-role-back',
         'pfcg-role-back-to-card',
         'pfcg-role-analyze-transactions',
-        'pfcg-role-analyze-users'
+        'pfcg-role-analyze-users',
+        'pfcg-create-individual-back',
+        'pfcg-create-individual-confirm',
+        'pfcg-transport-local',
+        'pfcg-transport-create',
+        'pfcg-transport-existing',
+        'pfcg-transport-back'
     ]);
 
     function asiDefaultConversationState() {
@@ -4952,6 +4727,14 @@
             pendingExcelAnalyzeJobId: '',
             pendingExcelMessageId: '',
             pendingExcelFileName: '',
+            pfcgCreateRoleName: '',
+            pfcgCreateDescription: '',
+            pfcgCreateTcodes: [],
+            pfcgCreateTransportMode: '',
+            pfcgCreateTransportRequestNumber: '',
+            pfcgCreateTransportRequestDescription: '',
+            pfcgCreatePreviewJobId: '',
+            pfcgCreateMessageId: '',
             isBusy: false
         };
     }
@@ -5014,6 +4797,17 @@
                                             processo: 'Funções PFCG',
                                             subprocesso: 'A. PFCG_CREATE.py',
                                             prompt: 'Selecionar Excel',
+                                            followupText: '',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'pfcg-create-individual',
+                                            label: 'Criar Individualmente',
+                                            icon: 'shield-plus',
+                                            mode: 'create_individual',
+                                            processo: 'Funções PFCG',
+                                            subprocesso: 'A. PFCG_CREATE.py',
+                                            prompt: 'Quero criar o Perfil de Autorização individualmente via RFC.',
                                             followupText: '',
                                             children: []
                                         }
@@ -5097,6 +4891,13 @@
             label: 'Tickets',
             icon: 'tickets',
             prompt: 'Quero consultar ou analisar tickets.',
+            children: []
+        },
+        {
+            id: 'testes-unitarios',
+            label: 'Testes Unitários',
+            icon: 'analysis',
+            prompt: 'Quero trabalhar com testes unitários.',
             children: []
         }
     ];
@@ -5260,9 +5061,34 @@
     }
 
     function asiGetComposerPlaceholder() {
-        return asiConversationState.awaitingInput === ASI_PFCG_AWAITING_INPUT
-            ? ASI_PFCG_PLACEHOLDER
-            : ASI_DEFAULT_PLACEHOLDER;
+        if (asiConversationState.awaitingInput === ASI_PFCG_AWAITING_INPUT) {
+            return ASI_PFCG_PLACEHOLDER;
+        }
+        if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT) {
+            return ASI_PFCG_INDIVIDUAL_DESCRIPTION_PLACEHOLDER;
+        }
+        if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_TCODES_INPUT) {
+            return ASI_PFCG_INDIVIDUAL_TCODES_PLACEHOLDER;
+        }
+        return ASI_DEFAULT_PLACEHOLDER;
+    }
+
+    function asiNormalizePfcgTcodes(raw) {
+        const text = String(raw || '').replace(/\r/g, '\n').replace(/\t/g, ' ');
+        const parts = text.split(/[;,\n ]+/);
+        const out = [];
+        const seen = new Set();
+        for (const part of parts) {
+            let value = String(part || '').trim().toUpperCase();
+            if (!value) continue;
+            if (value.startsWith('/N') || value.startsWith('/O')) {
+                value = value.slice(2).trim();
+            }
+            if (!value || seen.has(value)) continue;
+            seen.add(value);
+            out.push(value);
+        }
+        return out;
     }
 
     function asiNormalizePfcgRoleName(value) {
@@ -5510,6 +5336,95 @@
                     <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray: 1, 150; stroke-dashoffset: 0; animation: dash 1.5s ease-in-out infinite;"></circle>
                 </svg>
                 <span style="font-weight:600;">${escapeHtml(message)}</span>
+            </div>
+        `;
+    }
+
+    function asiPfcgTransportModeLabel(mode) {
+        const normalized = String(mode || 'LOCAL').toUpperCase();
+        if (normalized === 'CREATE_REQUEST') return 'Nova Request';
+        if (normalized === 'EXISTING_REQUEST') return 'Request existente';
+        return 'Local (sem transporte)';
+    }
+
+    function asiBuildPfcgIndividualPreviewHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const tcodes = Array.isArray(result.tcodes) ? result.tcodes : [];
+        const transport = result.transport || {};
+        const transportLabel = asiPfcgTransportModeLabel(transport.transport_mode);
+        const transportValue = transport.request_number
+            ? `${transportLabel} — ${transport.request_number}`
+            : transportLabel;
+        const rowFields = [
+            asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+            asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+            asiBuildPfcgResultField('Descrição', result.description),
+            asiBuildPfcgResultField('Transações', tcodes.join(', ')),
+            asiBuildPfcgResultField('Total', result.tcodes_count != null ? result.tcodes_count : tcodes.length),
+            asiBuildPfcgResultField('Transporte', transportValue)
+        ].join('');
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#f59e0b;">⚠ Confirme antes de criar em DEV</div>
+                    <span class="asi-pfcg-result-pill asi-pfcg-result-pill--warning">PREVIEW</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-row asi-pfcg-result-row--compact" style="grid-template-columns: 1fr;">
+                        ${rowFields}
+                    </div>
+                    <div class="asi-pfcg-result-note">Esta ação cria uma função PFCG real em DEV via RFC (sem SAP GUI). Reveja os dados antes de confirmar.</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgIndividualResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const ok = result.ok === true;
+        const status = String(result.status || (ok ? 'CREATED' : 'ERROR'));
+        const isPartial = status === 'PARTIAL_FAILURE';
+        const accent = ok ? '#16a34a' : (isPartial ? '#f59e0b' : '#dc2626');
+        const heading = ok ? '✓ Função criada em DEV' : (isPartial ? '⚠ Criação parcial em DEV' : '✗ Falha na criação em DEV');
+        const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
+
+        const resultTransportLabel = asiPfcgTransportModeLabel(result.transport_mode);
+        const resultTransportValue = result.transport_request
+            ? `${resultTransportLabel} — ${result.transport_request}`
+            : resultTransportLabel;
+        const rowFields = ok
+            ? [
+                asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Descrição', result.description),
+                asiBuildPfcgResultField('Transações pedidas', result.tcodes_requested),
+                asiBuildPfcgResultField('Transações criadas', result.tcodes_created),
+                asiBuildPfcgResultField('Perfil gerado', result.profile_generated === true ? 'Sim' : (result.profile_generated === false ? 'Não' : '')),
+                asiBuildPfcgResultField('Transporte', resultTransportValue)
+            ].join('')
+            : [
+                asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Tipo de erro', result.error_type)
+            ].join('');
+
+        const message = !ok && result.message
+            ? `<div class="asi-pfcg-result-note">${escapeHtml(String(result.message))}</div>`
+            : '';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${accent};">${heading}</div>
+                    <span class="asi-pfcg-result-pill ${pillClass}">${escapeHtml(status)}</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-row asi-pfcg-result-row--compact" style="grid-template-columns: 1fr;">
+                        ${rowFields}
+                    </div>
+                    ${message}
+                </div>
             </div>
         `;
     }
@@ -5951,6 +5866,7 @@
                     ...result,
                     role: result.role || roleName
                 };
+                asiLastAnalyzedPfcgRole = normalizedResult.role;
                 const isExisting = normalizedResult.status === 'EXISTE';
                 asiUpdateMessage(messageId, {
                     text: isExisting
@@ -6693,6 +6609,625 @@
         }));
     }
 
+    function asiStopPfcgIndividualPolling() {
+        if (asiPfcgIndividualPollingTimer) {
+            clearInterval(asiPfcgIndividualPollingTimer);
+            asiPfcgIndividualPollingTimer = null;
+        }
+        asiPfcgIndividualPollingInFlight = false;
+    }
+
+    function asiStartPfcgIndividualCreate() {
+        const roleName = String(asiLastAnalyzedPfcgRole || '').trim();
+        if (!roleName) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Antes de criar individualmente, analise primeiro o nome do Perfil de Autorização em "Analisar".'
+            ));
+            return;
+        }
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgCreateRoleName: roleName,
+            pfcgCreateDescription: '',
+            pfcgCreateTcodes: [],
+            pfcgCreateTransportMode: '',
+            pfcgCreateTransportRequestNumber: '',
+            pfcgCreateTransportRequestDescription: '',
+            pfcgCreatePreviewJobId: '',
+            awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
+            isBusy: false
+        };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            `Vamos criar a função ${roleName} individualmente via RFC em DEV. Qual é a descrição do Perfil de Autorização?`
+        ));
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
+    async function asiPollPfcgIndividualPreview(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgIndividualPolling();
+        asiPfcgIndividualPollingTimer = setInterval(async () => {
+            if (asiPfcgIndividualPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgIndividualPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A pré-visualização está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A pré-visualização está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgIndividualPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/create/rfc/preview/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgIndividualPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a pré-visualização da criação em DEV.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não foi possível concluir a pré-visualização da criação em DEV.',
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const safeDetail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível preparar a criação em DEV.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível preparar a criação em DEV.', safeDetail),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: 'Confirme os dados antes de criar a função em DEV.',
+                    html: asiBuildPfcgIndividualPreviewHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [ASI_PFCG_INDIVIDUAL_BACK_ACTION, ASI_PFCG_INDIVIDUAL_CONFIRM_ACTION],
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__pfcg_individual_preview__'
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopPfcgIndividualPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a pré-visualização da criação em DEV.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a pré-visualização da criação em DEV.'),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgIndividualPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    function asiStopPfcgTransportSearchPolling() {
+        if (asiPfcgTransportSearchPollingTimer) {
+            clearInterval(asiPfcgTransportSearchPollingTimer);
+            asiPfcgTransportSearchPollingTimer = null;
+        }
+        asiPfcgTransportSearchPollingInFlight = false;
+    }
+
+    function asiAskPfcgTransportMode() {
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'Como deseja gerir o transporte desta função em DEV?',
+            {
+                actions: [ASI_PFCG_TRANSPORT_LOCAL_ACTION, ASI_PFCG_TRANSPORT_CREATE_ACTION, ASI_PFCG_TRANSPORT_EXISTING_ACTION],
+                actionLevel: 0,
+                parentActionId: '',
+                selectionGroupKey: '__pfcg_transport_mode__'
+            }
+        ));
+        asiConversationState = { ...asiConversationState, isBusy: false };
+        asiUpdateComposerState();
+    }
+
+    function asiSelectPfcgTransportLocal() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', 'Sem transporte (Local)'));
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgCreateTransportMode: 'LOCAL',
+            pfcgCreateTransportRequestNumber: '',
+            pfcgCreateTransportRequestDescription: '',
+            isBusy: true
+        };
+        asiUpdateComposerState();
+        asiStartPfcgIndividualPreview();
+    }
+
+    function asiAskPfcgTransportCreateDescription() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', 'Criar nova Request'));
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT,
+            isBusy: false
+        };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'Qual é a descrição da nova Request de transporte a criar em DEV?'
+        ));
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
+    function asiBuildPfcgTransportListHtml(result) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const requests = Array.isArray(result.requests) ? result.requests : [];
+        const count = Number(result.requests_count != null ? result.requests_count : requests.length);
+        const bodyHtml = requests.length
+            ? requests.map((item) => {
+                const requestNumber = String(item.request || '');
+                const onclickArg = escapeHtml(JSON.stringify(requestNumber));
+                return `
+                    <tr>
+                        <td>${escapeHtml(requestNumber)}</td>
+                        <td>${escapeHtml(item.description || '-')}</td>
+                        <td>${escapeHtml(item.target_system || '-')}</td>
+                        <td><button type="button" class="btn btn-primary" style="padding:3px 10px;font-size:11px;border-radius:6px;" onclick="asiSelectPfcgTransportRequest(${onclickArg})">Selecionar</button></td>
+                    </tr>
+                `;
+            }).join('')
+            : `<tr><td colspan="4" class="asi-pfcg-list-empty">Não foram encontradas Requests abertas para este utilizador em DEV.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">Requests abertas em DEV (${count})</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead>
+                                    <tr><th>Request</th><th>Descrição</th><th>Sistema</th><th></th></tr>
+                                </thead>
+                                <tbody>${bodyHtml}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiSelectPfcgTransportRequest(requestNumber) {
+        const normalized = String(requestNumber || '').trim();
+        if (!normalized) return;
+        asiStopPfcgTransportSearchPolling();
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', `Usar a Request ${normalized}`));
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgCreateTransportMode: 'EXISTING_REQUEST',
+            pfcgCreateTransportRequestNumber: normalized,
+            pfcgCreateTransportRequestDescription: '',
+            isBusy: true
+        };
+        asiUpdateComposerState();
+        asiStartPfcgIndividualPreview();
+    }
+
+    async function asiPollPfcgTransportSearch(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgTransportSearchPolling();
+        asiPfcgTransportSearchPollingTimer = setInterval(async () => {
+            if (asiPfcgTransportSearchPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgTransportSearchPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A procura de Requests está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A procura de Requests está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgTransportSearchPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/transport/search/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgTransportSearchPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a procura de Requests em DEV.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a procura de Requests em DEV.', data.message || ''),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const safeDetail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível obter as Requests de transporte em DEV.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível obter as Requests de transporte em DEV.', safeDetail),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: 'Selecione a Request de transporte a utilizar.',
+                    html: asiBuildPfcgTransportListHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [ASI_PFCG_TRANSPORT_BACK_ACTION],
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__pfcg_transport_list__'
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopPfcgTransportSearchPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a procura de Requests em DEV.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a procura de Requests em DEV.'),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgTransportSearchPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartPfcgTransportSearch() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', 'Usar Request existente'));
+
+        const processingMessage = asiCreateMessage('assistant', 'A procurar Requests de transporte abertas em DEV...', {
+            html: asiBuildPfcgGenericProcessingHtml('A procurar Requests de transporte abertas em DEV...'),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/transport/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollPfcgTransportSearch(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível procurar as Requests de transporte em DEV.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível procurar as Requests de transporte em DEV.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiStartPfcgIndividualPreview() {
+        const { input } = asiGetElements();
+        const roleName = String(asiConversationState.pfcgCreateRoleName || '').trim();
+        const description = String(asiConversationState.pfcgCreateDescription || '').trim();
+        const tcodes = Array.isArray(asiConversationState.pfcgCreateTcodes) ? asiConversationState.pfcgCreateTcodes : [];
+
+        const processingMessage = asiCreateMessage('assistant', 'A validar os dados em DEV...', {
+            html: asiBuildPfcgGenericProcessingHtml('A validar função, descrição e transações em DEV...'),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgCreateMessageId: processingMessage.id,
+            isBusy: true
+        };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/create/rfc/preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    role_name: roleName,
+                    description,
+                    tcodes,
+                    transport_mode: String(asiConversationState.pfcgCreateTransportMode || 'LOCAL').trim().toUpperCase(),
+                    request_number: String(asiConversationState.pfcgCreateTransportRequestNumber || '').trim(),
+                    request_description: String(asiConversationState.pfcgCreateTransportRequestDescription || '').trim()
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreatePreviewJobId: jobId,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiPollPfcgIndividualPreview(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível preparar a pré-visualização da criação em DEV.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível preparar a pré-visualização da criação em DEV.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    function asiHandlePfcgIndividualBack() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiStopPfcgIndividualPolling();
+        asiAppendMessage(asiCreateMessage('user', 'Quero rever os dados da criação individual.'));
+        asiStartPfcgIndividualCreate();
+    }
+
+    async function asiPollPfcgIndividualConfirm(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgIndividualPolling();
+        asiPfcgIndividualPollingTimer = setInterval(async () => {
+            if (asiPfcgIndividualPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgIndividualPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A criação está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A criação está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgIndividualPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/create/rfc/confirm/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgIndividualPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a criação da função em DEV.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não foi possível concluir a criação da função em DEV.',
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : {};
+                const ok = result.ok === true;
+
+                asiUpdateMessage(messageId, {
+                    text: ok
+                        ? `Função ${result.role} criada com sucesso em DEV.`
+                        : 'Não foi possível concluir a criação da função em DEV.',
+                    html: asiBuildPfcgIndividualResultHtml(result),
+                    isProcessing: false,
+                    wide: true
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopPfcgIndividualPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a criação da função em DEV.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a criação da função em DEV.'),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgIndividualPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiHandlePfcgIndividualConfirm() {
+        const { input } = asiGetElements();
+        const previewJobId = String(asiConversationState.pfcgCreatePreviewJobId || '').trim();
+        if (!previewJobId) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Não foi possível localizar a pré-visualização. Repita a preparação da criação individual.'
+            ));
+            return;
+        }
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiAppendMessage(asiCreateMessage('user', 'Confirmar criação'));
+        const processingMessage = asiCreateMessage('assistant', 'A criar a função em DEV via RFC...', {
+            html: asiBuildPfcgGenericProcessingHtml('A criar a função em DEV via RFC...'),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/create/rfc/confirm', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ preview_job_id: previewJobId })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollPfcgIndividualConfirm(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível concluir a criação da função em DEV.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível concluir a criação da função em DEV.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
     function asiHandlePfcgRoleDynamicAction(actionId) {
         if (actionId === 'pfcg-role-back') {
             asiHandlePfcgRoleBack();
@@ -6708,6 +7243,30 @@
         }
         if (actionId === 'pfcg-role-analyze-users') {
             asiStartPfcgRoleUsersAnalysis();
+            return;
+        }
+        if (actionId === 'pfcg-create-individual-back') {
+            asiHandlePfcgIndividualBack();
+            return;
+        }
+        if (actionId === 'pfcg-create-individual-confirm') {
+            asiHandlePfcgIndividualConfirm();
+            return;
+        }
+        if (actionId === 'pfcg-transport-local') {
+            asiSelectPfcgTransportLocal();
+            return;
+        }
+        if (actionId === 'pfcg-transport-create') {
+            asiAskPfcgTransportCreateDescription();
+            return;
+        }
+        if (actionId === 'pfcg-transport-existing') {
+            asiStartPfcgTransportSearch();
+            return;
+        }
+        if (actionId === 'pfcg-transport-back') {
+            asiAskPfcgTransportMode();
             return;
         }
     }
@@ -6746,6 +7305,87 @@
             }
 
             await asiStartPfcgAnalysis(normalizedRoleName);
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT) {
+            const description = rawMessage.trim();
+            if (!description) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe uma descrição válida para o Perfil de Autorização.'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreateDescription: description,
+                awaitingInput: ASI_PFCG_INDIVIDUAL_TCODES_INPUT,
+                isBusy: false
+            };
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Quais transações (TCODEs) deseja atribuir? Pode indicar várias, separadas por espaço, vírgula ou quebra de linha.'
+            ));
+            asiUpdateComposerState();
+            input.focus();
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_TCODES_INPUT) {
+            const tcodes = asiNormalizePfcgTcodes(rawMessage);
+            if (tcodes.length === 0) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe pelo menos uma transação válida.'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_INDIVIDUAL_TCODES_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreateTcodes: tcodes,
+                awaitingInput: '',
+                isBusy: false
+            };
+            asiUpdateComposerState();
+            asiAskPfcgTransportMode();
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
+            const requestDescription = rawMessage.trim();
+            if (!requestDescription) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe uma descrição válida para a nova Request de transporte.'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreateTransportMode: 'CREATE_REQUEST',
+                pfcgCreateTransportRequestDescription: requestDescription,
+                pfcgCreateTransportRequestNumber: '',
+                awaitingInput: '',
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiStartPfcgIndividualPreview();
             return;
         }
 
@@ -6843,6 +7483,17 @@
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiStartPfcgCreateExcelSelection();
+            return;
+        }
+
+        if (action.id === 'pfcg-create-individual') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartPfcgIndividualCreate();
             return;
         }
 
@@ -7708,28 +8359,18 @@
             if (newJobBtn) newJobBtn.style.display = 'inline-flex';
         } else if (viewName === 'jira') {
             document.getElementById('nav-item-jira').classList.add('active');
-            // Ensure JIRA dropdown is open when navigating to this view
-            if (!jiraMenuOpen) {
-                jiraMenuOpen = true;
-                const jiraToggle = document.getElementById('nav-jira-toggle');
-                const jiraSub = document.getElementById('nav-jira-sub');
-                if (jiraToggle) jiraToggle.classList.add('open');
-                if (jiraSub) jiraSub.classList.add('open');
-            }
             visaoGeralView.style.display = 'none';
             jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
             const atView = document.getElementById('view-auto-trigger');
             if (atView) atView.style.display = 'none';
-            const saView = document.getElementById('view-sap-agent');
-            if (saView) saView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'flex';
             if (agentSalsaItView) agentSalsaItView.style.display = 'none';
             if (historicoView) historicoView.style.display = 'none';
-            if (headerTitle) headerTitle.textContent = 'Fila de Tickets JIRA';
-            if (headerSub) headerSub.textContent = 'Tickets em aberto e sincronização automática a cada minuto.';
+            if (headerTitle) headerTitle.textContent = 'Fila de Tickets';
+            if (headerSub) headerSub.textContent = 'Tickets em aberto e sincronização automática.';
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'inline-flex';
             if (refreshBtn) refreshBtn.style.display = 'none';
             if (newJobBtn) newJobBtn.style.display = 'none';
@@ -7737,21 +8378,13 @@
         } else if (viewName === 'jira-dashboard') {
             const navItem = document.getElementById('nav-item-jira-dashboard');
             if (navItem) navItem.classList.add('active');
-            // Ensure JIRA dropdown is open
-            if (!jiraMenuOpen) {
-                jiraMenuOpen = true;
-                const jiraToggle = document.getElementById('nav-jira-toggle');
-                const jiraSub = document.getElementById('nav-jira-sub');
-                if (jiraToggle) jiraToggle.classList.add('open');
-                if (jiraSub) jiraSub.classList.add('open');
-            }
             visaoGeralView.style.display = 'none';
             jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'flex';
             if (agentSalsaItView) agentSalsaItView.style.display = 'none';
             if (historicoView) historicoView.style.display = 'none';
-            if (headerTitle) headerTitle.textContent = 'Dashboard JIRA';
+            if (headerTitle) headerTitle.textContent = 'Dashboard de Tickets';
             if (headerSub) headerSub.textContent = 'Visão gráfica e analítica dos tickets de suporte.';
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
             if (refreshBtn) refreshBtn.style.display = 'none';
@@ -7780,22 +8413,12 @@
         } else if (viewName === 'auto-trigger') {
             const navItem = document.getElementById('nav-item-auto-trigger');
             if (navItem) navItem.classList.add('active');
-            // Ensure JIRA dropdown is open
-            if (!jiraMenuOpen) {
-                jiraMenuOpen = true;
-                const jiraToggle = document.getElementById('nav-jira-toggle');
-                const jiraSub = document.getElementById('nav-jira-sub');
-                if (jiraToggle) jiraToggle.classList.add('open');
-                if (jiraSub) jiraSub.classList.add('open');
-            }
             visaoGeralView.style.display = 'none';
             jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
             const atView = document.getElementById('view-auto-trigger');
             if (atView) atView.style.display = 'flex';
-            const saView = document.getElementById('view-sap-agent');
-            if (saView) saView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'none';
             if (agentSalsaItView) agentSalsaItView.style.display = 'none';
@@ -7806,40 +8429,6 @@
             if (refreshBtn) refreshBtn.style.display = 'none';
             if (newJobBtn) newJobBtn.style.display = 'none';
             atInit();
-        } else if (viewName === 'sap-agent') {
-            const navItem = document.getElementById('nav-item-sap-agent');
-            if (navItem) navItem.classList.add('active');
-            // Ensure JIRA dropdown is open
-            if (!jiraMenuOpen) {
-                jiraMenuOpen = true;
-                const jiraToggle = document.getElementById('nav-jira-toggle');
-                const jiraSub = document.getElementById('nav-jira-sub');
-                if (jiraToggle) jiraToggle.classList.add('open');
-                if (jiraSub) jiraSub.classList.add('open');
-            }
-            visaoGeralView.style.display = 'none';
-            jiraView.style.display = 'flex';
-            const dashView = document.getElementById('view-jira-dashboard');
-            if (dashView) dashView.style.display = 'none';
-            const atView = document.getElementById('view-auto-trigger');
-            if (atView) atView.style.display = 'none';
-            const twrapper = document.getElementById('view-jira-tickets-wrapper');
-            if (twrapper) twrapper.style.display = 'none';
-            const saView = document.getElementById('view-sap-agent');
-            if (saView) saView.style.display = 'flex';
-            if (agentSalsaItView) agentSalsaItView.style.display = 'none';
-            if (historicoView) historicoView.style.display = 'none';
-            if (headerTitle) headerTitle.textContent = 'Agente SAP';
-            if (headerSub) headerSub.textContent = 'Análise interativa e depuração de erros SAP com inteligência artificial.';
-            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
-            if (refreshBtn) refreshBtn.style.display = 'none';
-            if (newJobBtn) newJobBtn.style.display = 'none';
-            // Load ticket list for the filter sidebar
-            if (saAllTickets.length === 0) {
-                saLoadTicketList();
-            } else {
-                saApplyFilters();
-            }
         } else if (viewName === 'definicoes') {
             const navItem = document.getElementById('nav-item-definicoes');
             if (navItem) navItem.classList.add('active');
@@ -7851,8 +8440,6 @@
             if (atView) atView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'none';
-            const saView = document.getElementById('view-sap-agent');
-            if (saView) saView.style.display = 'none';
             if (agentSalsaItView) agentSalsaItView.style.display = 'none';
             if (historicoView) historicoView.style.display = 'none';
             const defView = document.getElementById('view-definicoes');
@@ -7876,8 +8463,6 @@
             if (atView) atView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'none';
-            const saView = document.getElementById('view-sap-agent');
-            if (saView) saView.style.display = 'none';
             const defView = document.getElementById('view-definicoes');
             if (defView) defView.style.display = 'none';
             if (headerTitle) headerTitle.textContent = 'Agente Salsa IT';
@@ -8561,18 +9146,14 @@
             });
         }
 
-        // ── Auto-sync JIRA tickets every 60 seconds ──────────────────────
+        // ── Auto-sync JIRA tickets on a configurable interval ────────────
         setInterval(async () => {
-            const jiraView = document.getElementById('view-jira');
             const ticketsWrapper = document.getElementById('view-jira-tickets-wrapper');
-            // Only refresh when the Jira tickets view is visible
-            if (
-                jiraView && jiraView.style.display !== 'none' &&
-                ticketsWrapper && ticketsWrapper.style.display !== 'none'
-            ) {
+            // Only refresh when the Tickets list is visible
+            if (ticketsWrapper && ticketsWrapper.style.display !== 'none') {
                 await loadJiraTickets(true);
             }
-        }, 60000);
+        }, JIRA_POLL_SECONDS * 1000);
         // ─────────────────────────────────────────────────────────────────
 
         // Set up Dashboard filter listeners
@@ -10741,6 +11322,7 @@
 
     loadJobs().then(() => {
         startPolling();
+        switchView('jira');
     });
   </script>
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->

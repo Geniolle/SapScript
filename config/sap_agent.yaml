@@ -27,8 +27,8 @@ sap:
 
 jira:
   jql: >
-    assignee = currentUser()
-    AND status = "In Review"
+    project in ("IT - Salsa Jeans", "SAP - Desenvolvimento")
+    AND statusCategory != Done
     ORDER BY priority DESC, created ASC
   max_results: 10
   update_jira: false

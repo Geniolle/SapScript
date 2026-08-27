@@ -63,6 +63,8 @@ Abrir:
 http://localhost:8000
 ```
 
+Se houver alterações no `web_api` ou em ficheiros carregados pelo container, o Docker precisa ser reiniciado para aplicar as mudanças. Nesses casos, o reinício deve ser executado aqui no terminal por quem estiver a fazer a alteração, sem depender de ação manual do utilizador final.
+
 ## 3. Preparar o worker Windows
 
 No Windows:
@@ -85,8 +87,19 @@ $env:API_BASE_URL = "http://localhost:8000"
 $env:WORKER_TOKEN = "change-me"
 $env:SAP_SCRIPT_PROJECT_DIR = "C:\\Users\\teu_user\\Documents\\SAP_SCRIPT"
 $env:SAP_COCKPIT_MODULE = "sap_cockpit_web_ready"
+$env:JIRA_SYNC_PROJECTS = "IT - Salsa Jeans, SAP - Desenvolvimento"
+$env:JIRA_SYNC_JQL = ""
+$env:JIRA_AUTO_TRIGGER_PROJECTS = "IT - Salsa Jeans, SAP - Desenvolvimento"
+$env:JIRA_AUTO_TRIGGER_SUPPLIERS = "Evolutive"
+$env:JIRA_AUTO_TRIGGER_ASSIGNEES = "Clayton Lopes"
 python worker.py
 ```
+
+`JIRA_SYNC_PROJECTS` aceita múltiplos projetos separados por vírgula. Se `JIRA_SYNC_JQL` estiver preenchido, ele substitui a JQL automática.
+
+O intervalo de sincronização em background é controlado por `POLL_SECONDS`. Exemplo: `60` para 1 minuto, `30` para 30 segundos.
+
+A sincronização JIRA corre automaticamente em background quando a aplicação web arranca.
 
 ## 5. Como executar pela web
 

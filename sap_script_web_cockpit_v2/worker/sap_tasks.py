@@ -645,6 +645,130 @@ def _run_pfcg_role_users_analysis(params: dict[str, Any]) -> tuple[str, str]:
     )
 
 
+def _run_pfcg_role_create_preview(params: dict[str, Any]) -> tuple[str, str]:
+    """Pré-visualização (read-only) da criação individual de função PFCG via RFC.
+
+    Aceita EXCLUSIVAMENTE environment/role_name/description/tcodes/transport_mode/
+    request_number/request_description vindos de `params`. Nenhuma outra chave do
+    payload é usada; a função SAP a chamar é decidida apenas dentro de
+    sap_rfc.pfcg_role_create_service, nunca pelo pedido do frontend.
+    """
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    role_name = str(params.get("role_name") or "").strip()
+    description = str(params.get("description") or "").strip()
+    raw_tcodes = params.get("tcodes") or []
+    tcodes = [str(t).strip() for t in raw_tcodes if str(t).strip()] if isinstance(raw_tcodes, list) else []
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip()
+    request_description = str(params.get("request_description") or "").strip()
+
+    try:
+        from pfcg.pfcg_create_rfc_service import preview_pfcg_role_create_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de pré-visualização PFCG: {exc}") from exc
+
+    try:
+        payload = preview_pfcg_role_create_rfc(
+            environment, role_name, description, tcodes, transport_mode, request_number, request_description
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de pré-visualização PFCG (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Pré-visualização de criação individual PFCG (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Role: {role_name}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_pfcg_role_create_rfc(params: dict[str, Any]) -> tuple[str, str]:
+    """Criação individual REAL de função PFCG via RFC. Só é permitida em DEV.
+
+    Aceita EXCLUSIVAMENTE environment/role_name/description/tcodes/transport_mode/
+    request_number/request_description vindos de `params` — o frontend nunca pode
+    enviar function_module/command/script/executable/module/table/shell/python_path;
+    esta função ignora qualquer chave além dessas sete.
+    """
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    role_name = str(params.get("role_name") or "").strip()
+    description = str(params.get("description") or "").strip()
+    raw_tcodes = params.get("tcodes") or []
+    tcodes = [str(t).strip() for t in raw_tcodes if str(t).strip()] if isinstance(raw_tcodes, list) else []
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip()
+    request_description = str(params.get("request_description") or "").strip()
+
+    try:
+        from pfcg.pfcg_create_rfc_service import create_pfcg_role_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de criação PFCG: {exc}") from exc
+
+    try:
+        payload = create_pfcg_role_rfc(
+            environment, role_name, description, tcodes, transport_mode, request_number, request_description
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de criação PFCG (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Criação individual PFCG (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Role: {role_name}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_pfcg_transport_search(params: dict[str, Any]) -> tuple[str, str]:
+    """Pesquisa (read-only via RFC) das Requests de transporte abertas do utilizador RFC.
+
+    Aceita EXCLUSIVAMENTE environment vindo de `params`. Substitui, para o fluxo
+    "Criar Individualmente", a pesquisa GUI/SE16H de Processos/pesquisar_request.py por
+    uma chamada RFC real (CTS_WBO_SELECT_REQUESTS) com o mesmo critério funcional
+    (Requests abertas pertencentes ao utilizador).
+    """
+    _prepare_project_imports()
+
+    environment = str(params.get("environment") or "").strip().upper()
+
+    try:
+        from pfcg.pfcg_create_rfc_service import search_transport_requests_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de pesquisa de Requests: {exc}") from exc
+
+    try:
+        payload = search_transport_requests_rfc(environment)
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de pesquisa de Requests (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Pesquisa de Requests de transporte abertas (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Status: {payload.get('status', '-')}",
+        f"Requests encontradas: {payload.get('requests_count', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
     """Executa uma ação SAP GUI solicitada pelo chat (Gemini function calling).
 
@@ -728,6 +852,21 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "pfcg_create_excel_analysis":
             status, log = _run_pfcg_create_excel_analysis(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_role_create_preview":
+            status, log = _run_pfcg_role_create_preview(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_role_create_rfc":
+            status, log = _run_pfcg_role_create_rfc(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_transport_search":
+            status, log = _run_pfcg_transport_search(params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 

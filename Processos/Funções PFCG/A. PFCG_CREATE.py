@@ -20,10 +20,72 @@ def executar(
     caminho_ficheiro=None,
     request_transporte=None,
     modo_nao_interativo=False,
-    pedir_confirmacao=True
+    pedir_confirmacao=True,
+    metodo="GUI",
+    role_name=None,
+    description=None,
+    tcodes=None,
+    transport_mode="LOCAL",
+    request_number=None,
+    request_description=None,
 ):
     import sys
     import os
+
+    # --- CORREÇÃO DA ESTRUTURA DE PASTAS ---
+    dir_atual = os.path.dirname(os.path.abspath(__file__))
+    dir_processos = os.path.dirname(dir_atual)
+    dir_projeto = os.path.dirname(dir_processos)
+    if dir_processos not in sys.path:
+        sys.path.insert(0, dir_processos)
+    if dir_projeto not in sys.path:
+        sys.path.insert(0, dir_projeto)
+    # ---------------------------------------
+
+    metodo_normalizado = str(metodo or "GUI").strip().upper()
+    if metodo_normalizado not in ("GUI", "RFC"):
+        raise ValueError(f"Método inválido: '{metodo}'. Use GUI ou RFC.")
+
+    if metodo_normalizado == "RFC":
+        # Modo RFC: criação individual sem SAP GUI. Não importa tkinter/win32com/openpyxl
+        # aqui — toda a chamada SAP real vive isolada em sap_rfc.pfcg_role_create_service
+        # (executada num subprocesso .venv-rfc através de pfcg.pfcg_create_rfc_service),
+        # nunca duplicada neste ficheiro.
+        from pfcg.pfcg_create_rfc_service import create_pfcg_role_rfc
+
+        ambiente = str(ambiente_cockpit or "").strip().upper()
+        nome_role = str(role_name or "").strip()
+        desc_role = str(description or "").strip()
+
+        if tcodes is None:
+            tcodes_list = []
+        elif isinstance(tcodes, str):
+            tcodes_list = [t for t in tcodes.replace(",", " ").split() if t]
+        else:
+            tcodes_list = [str(t).strip() for t in tcodes if str(t).strip()]
+
+        if not nome_role or not desc_role or not tcodes_list:
+            raise ValueError(
+                "Modo RFC exige role_name, description e tcodes (lista não vazia)."
+            )
+
+        modo_transporte = str(transport_mode or "LOCAL").strip().upper()
+        numero_request = str(request_number or "").strip()
+        desc_request = str(request_description or "").strip()
+
+        print(f"▶ Criação individual via RFC | Ambiente: {ambiente} | Role: {nome_role} | Transporte: {modo_transporte}")
+        resultado = create_pfcg_role_rfc(
+            ambiente, nome_role, desc_role, tcodes_list, modo_transporte, numero_request, desc_request
+        )
+
+        if resultado.get("ok"):
+            print(f"🟢 SUCESSO: {resultado}")
+        else:
+            print(f"🔴 ERRO/FALHA: {resultado}")
+
+        return resultado
+
+    # ==================== A PARTIR DAQUI: MODO GUI (LEGADO, INTACTO) ====================
     import time
     import re
     import unicodedata
@@ -37,13 +99,6 @@ def executar(
     from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 
     tempo_inicio_total = time.time()
-
-    # --- CORREÇÃO DA ESTRUTURA DE PASTAS ---
-    dir_atual = os.path.dirname(os.path.abspath(__file__))
-    dir_processos = os.path.dirname(dir_atual)
-    if dir_processos not in sys.path:
-        sys.path.insert(0, dir_processos)
-    # ---------------------------------------
 
     NOME_SHEET = "PFCG_CREATE"
     SEARCH_HEADER_IN_FIRST_ROWS = 20
@@ -927,18 +982,42 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD"])
+    parser.add_argument("--metodo", choices=["GUI", "RFC"], default="GUI")
     parser.add_argument("--xlsx")
     parser.add_argument("--request", help="Número da Request de Transporte (Opcional)")
     parser.add_argument("--auto", action="store_true")
     parser.add_argument("--no-confirm", action="store_true")
+    parser.add_argument("--role-name", help="[Modo RFC] Nome da função PFCG a criar.")
+    parser.add_argument("--description", help="[Modo RFC] Descrição do Perfil de Autorização.")
+    parser.add_argument("--tcode", dest="tcodes", action="append", default=[], help="[Modo RFC] Transação a incluir (repetível).")
+    parser.add_argument(
+        "--transport-mode",
+        choices=["LOCAL", "CREATE_REQUEST", "EXISTING_REQUEST"],
+        default="LOCAL",
+        help="[Modo RFC] Modo de transporte da função a criar.",
+    )
+    parser.add_argument("--request-number", help="[Modo RFC] Número da Request existente (modo EXISTING_REQUEST).")
+    parser.add_argument("--request-description", help="[Modo RFC] Descrição da nova Request a criar (modo CREATE_REQUEST).")
     args = parser.parse_args()
 
     env_cli = args.ambiente or (input("Ambiente (DEV/QAD/PRD): ").strip().upper() or "DEV")
 
-    executar(
-        ambiente_cockpit=env_cli,
-        caminho_ficheiro=args.xlsx,
-        request_transporte=args.request,
-        modo_nao_interativo=bool(args.auto),
-        pedir_confirmacao=(not args.no_confirm)
-    )
+    if args.metodo == "RFC":
+        executar(
+            ambiente_cockpit=env_cli,
+            metodo="RFC",
+            role_name=args.role_name,
+            description=args.description,
+            tcodes=args.tcodes,
+            transport_mode=args.transport_mode,
+            request_number=args.request_number,
+            request_description=args.request_description,
+        )
+    else:
+        executar(
+            ambiente_cockpit=env_cli,
+            caminho_ficheiro=args.xlsx,
+            request_transporte=args.request,
+            modo_nao_interativo=bool(args.auto),
+            pedir_confirmacao=(not args.no_confirm)
+        )

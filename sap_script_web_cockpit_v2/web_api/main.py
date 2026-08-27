@@ -3,6 +3,7 @@ import dataclasses
 import importlib
 import json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 import sys
 import requests
@@ -20,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
-from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
+from web_api.jira_client import build_project_scope_jql, fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces, get_jira_auto_trigger_assignees, get_jira_auto_trigger_projects, get_jira_auto_trigger_suppliers
 import asyncio
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
@@ -32,6 +33,9 @@ UPLOADS_WINDOWS_DIR = os.getenv("UPLOADS_WINDOWS_DIR", "").strip()
 AUTO_TRIGGER_INTERVAL_SECONDS = int(os.getenv("AUTO_TRIGGER_INTERVAL_SECONDS", "300"))
 AUTO_TRIGGER_AMBIENTE = os.getenv("AUTO_TRIGGER_AMBIENTE", "PRD").strip().upper()
 AUTO_TRIGGER_ENABLED = os.getenv("AUTO_TRIGGER_ENABLED", "true").strip().lower() in ("1", "true", "yes", "sim")
+
+# Intervalo do loop de sincronização JIRA em segundo plano.
+POLL_SECONDS = max(1, int(os.getenv("POLL_SECONDS", "60")))
 
 # Diretório de download de anexos JIRA
 # No container Docker: /data/jira  (montado a partir de C:\Jira no host Windows)
@@ -57,7 +61,22 @@ def _load_category_map() -> dict[str, dict]:
         print(f"[AUTO-TRIGGER] Erro ao carregar AUTO_TRIGGER_CATEGORY_MAP: {exc}")
         return json.loads(_DEFAULT_CATEGORY_MAP)
 
-app = FastAPI(title="SAP Script Web")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    background_tasks = [asyncio.create_task(sync_jira_tickets_loop())]
+    if AUTO_TRIGGER_ENABLED:
+        background_tasks.append(asyncio.create_task(auto_trigger_loop()))
+    try:
+        yield
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+
+
+app = FastAPI(title="SAP Script Web", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="web_api/static"), name="static")
 templates = Jinja2Templates(directory="web_api/templates")
 
@@ -345,34 +364,9 @@ def _windows_upload_path(saved_name: str) -> str:
     return str(UPLOADS_DIR / saved_name)
 
 def _fetch_all_sync_tickets() -> list[dict]:
-    # 1. Fetch standard tickets (open tickets based on JIRA_SYNC_JQL)
-    open_tickets = fetch_jira_tickets_from_api()
-    
-    # 2. Fetch resolved tickets for current year (2026 onwards)
-    jql = os.getenv("JIRA_SYNC_JQL", "assignee = currentUser() AND statusCategory != Done")
-    if "statusCategory != Done" in jql:
-        resolved_jql = jql.replace("statusCategory != Done", "statusCategory = Done")
-    else:
-        resolved_jql = "(project = 'IT - Salsa Jeans' OR project = 'SAP - Desenvolvimento') AND statusCategory = Done"
-    
-    # Restrict to current year resolves for performance
-    resolved_jql += ' AND resolved >= "2026-01-01"'
-    
-    try:
-        resolved_tickets = fetch_jira_tickets_from_api(jql=resolved_jql)
-    except Exception as exc:
-        print(f"[JIRA SYNC] Erro ao buscar tickets resolvidos: {exc}")
-        resolved_tickets = []
-        
-    combined = {}
-    for t in open_tickets:
-        if t.get("key"):
-            combined[t["key"]] = t
-    for t in resolved_tickets:
-        if t.get("key"):
-            combined[t["key"]] = t
-            
-    return list(combined.values())
+    # Importação ampla: apenas tickets ativos dos projetos configurados.
+    # Tickets resolvidos/concluídos ficam fora da sync e não são preservados na BD.
+    return fetch_jira_tickets_from_api()
 
 
 async def sync_jira_tickets_loop() -> None:
@@ -387,38 +381,16 @@ async def sync_jira_tickets_loop() -> None:
             await asyncio.to_thread(save_jira_tickets_to_db, tickets)
         except Exception as exc:
             print(f"[JIRA SYNC LOOP ERROR]: {exc}")
-        await asyncio.sleep(60)
+        await asyncio.sleep(POLL_SECONDS)
 
 
 async def historical_jira_sync() -> None:
     """
-    Sincronização histórica executada em segundo plano.
-    Busca tickets resolvidos de anos anteriores (antes de 2026) e salva em lotes na BD local.
+    Sincronização histórica desativada.
+    Tickets resolvidos/concluídos não são importados pelo cockpit.
     """
-    print("[JIRA HISTORICAL SYNC] A verificar necessidade de sincronização histórica...")
-    try:
-        from web_api.store import get_connection, save_jira_ticket_batch_only
-        with get_connection() as conn:
-            row = conn.execute(
-                "SELECT count(*) FROM jira_tickets WHERE resolved_at IS NOT NULL AND resolved_at != '' AND resolved_at < '2026-01-01'"
-            ).fetchone()
-            count = row[0] if row else 0
-
-        if count >= 100:
-            print(f"[JIRA HISTORICAL SYNC] Encontrados {count} tickets históricos na BD. Sincronização histórica ignorada.")
-            return
-
-        print("[JIRA HISTORICAL SYNC] A iniciar sincronização histórica (tickets resolvidos antes de 2026)...")
-        historical_jql = '(project = "IT - Salsa Jeans" OR project = "SAP - Desenvolvimento") AND statusCategory = Done AND resolved < "2026-01-01"'
-
-        def save_batch(batch):
-            save_jira_ticket_batch_only(batch)
-            print(f"[JIRA HISTORICAL SYNC] Gravados {len(batch)} tickets históricos na BD.")
-
-        await asyncio.to_thread(fetch_jira_tickets_from_api, historical_jql, save_batch)
-        print("[JIRA HISTORICAL SYNC] Sincronização histórica concluída com sucesso!")
-    except Exception as exc:
-        print(f"[JIRA HISTORICAL SYNC ERROR]: {exc}")
+    print("[JIRA HISTORICAL SYNC] Desativada: apenas tickets ativos são importados.")
+    return
 
 
 async def run_auto_trigger() -> dict[str, Any]:
@@ -600,16 +572,6 @@ async def auto_trigger_loop() -> None:
         await asyncio.sleep(AUTO_TRIGGER_INTERVAL_SECONDS)
 
 
-
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
-    asyncio.create_task(sync_jira_tickets_loop())
-    asyncio.create_task(historical_jira_sync())
-    if AUTO_TRIGGER_ENABLED:
-        asyncio.create_task(auto_trigger_loop())
-
-
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     response = templates.TemplateResponse(
@@ -619,6 +581,7 @@ def index(request: Request) -> HTMLResponse:
             "ambientes": get_available_environments(),
             "processos": get_available_processes(),
             "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
+            "poll_seconds": POLL_SECONDS,
         },
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -823,9 +786,10 @@ def api_auto_trigger_config() -> dict[str, Any]:
         "enabled": AUTO_TRIGGER_ENABLED,
         "interval_seconds": AUTO_TRIGGER_INTERVAL_SECONDS,
         "ambiente": AUTO_TRIGGER_AMBIENTE,
-        "assignee": os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEE", "Clayton Lopes"),
-        "status_filter": os.getenv("JIRA_AUTO_TRIGGER_STATUS", "In Review"),
-        "supplier_filter": os.getenv("JIRA_AUTO_TRIGGER_SUPPLIER", "Evolutive"),
+        "projects": ", ".join(get_jira_auto_trigger_projects()),
+        "assignee": ", ".join(get_jira_auto_trigger_assignees()),
+        "status_filter": "statusCategory != Done",
+        "supplier_filter": ", ".join(get_jira_auto_trigger_suppliers()),
         "processo": os.getenv("AUTO_TRIGGER_PROCESSO", ""),
         "subprocesso": os.getenv("AUTO_TRIGGER_SUBPROCESSO", ""),
     }
@@ -1024,7 +988,27 @@ class SalsaItPfcgCreateAnalyzeRequest(BaseModel):
     role_name: str
 
 
+class SalsaItPfcgCreateRfcPreviewRequest(BaseModel):
+    role_name: str
+    description: str
+    tcodes: list[str] = []
+    transport_mode: str = "LOCAL"
+    request_number: str = ""
+    request_description: str = ""
+
+
+class SalsaItPfcgCreateRfcConfirmRequest(BaseModel):
+    preview_job_id: str
+
+
 PFCG_EXCEL_SELECTIONS: dict[str, dict[str, str]] = {}
+
+# Guarda, por job_id da pré-visualização, os dados EXATOS já validados pelo backend
+# (ambiente/role/descrição/tcodes). O endpoint de confirmação nunca aceita estes
+# valores diretamente do pedido do cliente — só reutiliza o que foi validado aqui.
+PFCG_RFC_CREATE_PREVIEWS: dict[str, dict[str, Any]] = {}
+
+PFCG_RFC_CREATE_ENVIRONMENT = "DEV"
 
 
 def _validate_pfcg_role_name_or_400(role_name: str) -> str:
@@ -1400,6 +1384,248 @@ def api_salsa_it_pfcg_create_analyze_job(job_id: str) -> JSONResponse:
     }
     if result.get("role_in_excel") is not None:
         safe_result["role_in_excel"] = result.get("role_in_excel")
+    return _json_no_store({
+        "state": "succeeded",
+        "result": safe_result,
+    })
+
+
+def _safe_pfcg_rfc_create_result(result: dict[str, Any]) -> dict[str, Any]:
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "environment": result.get("environment"),
+        "role": result.get("role"),
+    }
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+        if result.get("missing_tcodes"):
+            safe_result["missing_tcodes"] = result.get("missing_tcodes")
+        return safe_result
+
+    # Campos apenas do fluxo de sucesso (preview e/ou criação real)
+    for field in (
+        "description",
+        "tcodes",
+        "tcodes_count",
+        "tcodes_requested",
+        "tcodes_created",
+        "profile_generated",
+        "transport",
+        "transport_mode",
+        "transport_request",
+        "transport_request_created",
+    ):
+        if field in result:
+            safe_result[field] = result.get(field)
+    return safe_result
+
+
+def _safe_pfcg_transport_search_result(result: dict[str, Any]) -> dict[str, Any]:
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "environment": result.get("environment"),
+    }
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+        return safe_result
+
+    safe_result["owner"] = result.get("owner")
+    safe_result["requests_count"] = result.get("requests_count")
+    safe_result["requests"] = [
+        {
+            "request": row.get("request"),
+            "description": row.get("description"),
+            "trtype": row.get("trtype"),
+            "target_system": row.get("target_system"),
+            "state": row.get("state"),
+        }
+        for row in (result.get("requests") or [])
+        if isinstance(row, dict)
+    ]
+    return safe_result
+
+
+@app.post("/api/salsa-it-agent/pfcg/create/rfc/preview")
+def api_salsa_it_pfcg_create_rfc_preview(payload: SalsaItPfcgCreateRfcPreviewRequest) -> JSONResponse:
+    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    description = str(payload.description or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="Informe uma descrição para o Perfil de Autorização.")
+
+    try:
+        job = create_job(
+            "pfcg_role_create_preview",
+            {
+                "environment": PFCG_RFC_CREATE_ENVIRONMENT,
+                "role_name": role_name,
+                "description": description,
+                "tcodes": list(payload.tcodes or []),
+                "transport_mode": str(payload.transport_mode or "LOCAL").strip().upper(),
+                "request_number": str(payload.request_number or "").strip(),
+                "request_description": str(payload.request_description or "").strip(),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_name": role_name,
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/create/rfc/preview/{job_id}")
+def api_salsa_it_pfcg_create_rfc_preview_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_create_preview":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pré-visualização de criação PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result = _safe_pfcg_rfc_create_result(result)
+
+    if safe_result.get("ok") and safe_result.get("status") == "PREVIEW_READY":
+        transport_preview = result.get("transport") or {}
+        PFCG_RFC_CREATE_PREVIEWS[job_id] = {
+            "environment": result.get("environment"),
+            "role_name": result.get("role"),
+            "description": result.get("description"),
+            "tcodes": list(result.get("tcodes") or []),
+            "transport_mode": str(transport_preview.get("transport_mode") or "LOCAL"),
+            "request_number": str(transport_preview.get("request_number") or ""),
+            "request_description": str(transport_preview.get("request_description") or ""),
+        }
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/create/rfc/confirm")
+def api_salsa_it_pfcg_create_rfc_confirm(payload: SalsaItPfcgCreateRfcConfirmRequest) -> JSONResponse:
+    preview_job_id = str(payload.preview_job_id or "").strip()
+    if not preview_job_id:
+        raise HTTPException(status_code=400, detail="Identificador da pré-visualização em falta.")
+
+    validated = PFCG_RFC_CREATE_PREVIEWS.get(preview_job_id)
+    if not validated:
+        raise HTTPException(
+            status_code=404,
+            detail="Pré-visualização não encontrada ou expirada. Repita a preparação antes de confirmar.",
+        )
+
+    try:
+        job = create_job("pfcg_role_create_rfc", dict(validated))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_name": validated.get("role_name"),
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/create/rfc/confirm/{job_id}")
+def api_salsa_it_pfcg_create_rfc_confirm_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_create_rfc":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à criação individual PFCG (RFC).")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result = _safe_pfcg_rfc_create_result(result)
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/transport/search")
+def api_salsa_it_pfcg_transport_search() -> JSONResponse:
+    """Pesquisa (read-only via RFC) das Requests de transporte abertas do utilizador RFC em DEV.
+
+    Endpoint de propósito fixo: não aceita nenhum parâmetro do cliente — o ambiente é sempre
+    PFCG_RFC_CREATE_ENVIRONMENT (DEV) e a função RFC a chamar é decidida inteiramente dentro
+    de sap_rfc.pfcg_transport_service.
+    """
+    try:
+        job = create_job("pfcg_transport_search", {"environment": PFCG_RFC_CREATE_ENVIRONMENT})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"]})
+
+
+@app.get("/api/salsa-it-agent/pfcg/transport/search/{job_id}")
+def api_salsa_it_pfcg_transport_search_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_transport_search":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pesquisa de Requests PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result = _safe_pfcg_transport_search_result(result)
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
