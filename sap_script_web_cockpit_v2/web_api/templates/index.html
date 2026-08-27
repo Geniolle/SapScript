@@ -4902,13 +4902,37 @@
     let asiChatInitialized = false;
     let asiChatMockTimer = null;
     let asiChatMessageCounter = 0;
+    let asiPfcgPollingTimer = null;
+    let asiPfcgPollingInFlight = false;
     let asiSelectedActions = { '__root__': null };
-    let asiConversationState = {
-        processo: '',
-        subprocesso: '',
-        actionId: '',
-        mode: ''
-    };
+    const ASI_DEFAULT_PLACEHOLDER = 'Escreva a sua mensagem...';
+    const ASI_PFCG_PLACEHOLDER = 'Ex.: Z_AUTHORITY_LISTADEPRECOS';
+    const ASI_PFCG_AWAITING_INPUT = 'pfcg_role_analysis_name';
+    const ASI_PFCG_POLL_INTERVAL_MS = 1000;
+    const ASI_PFCG_POLL_TIMEOUT_MS = 60000;
+    const ASI_PFCG_INVALID_MESSAGE = 'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".';
+    const ASI_PFCG_ROLE_PATTERN = /^[A-Z0-9_/:-]+$/;
+
+    function asiDefaultConversationState() {
+        return {
+            processo: '',
+            subprocesso: '',
+            actionId: '',
+            mode: '',
+            awaitingInput: '',
+            pendingJobId: '',
+            pendingRoleName: '',
+            pendingMessageId: '',
+            lastPfcgRoleName: '',
+            pendingExcelSelectionJobId: '',
+            pendingExcelAnalyzeJobId: '',
+            pendingExcelMessageId: '',
+            pendingExcelFileName: '',
+            isBusy: false
+        };
+    }
+
+    let asiConversationState = asiDefaultConversationState();
     const salsaAgentActions = [
         {
             id: 'configuracoes',
@@ -4944,19 +4968,32 @@
                                     processo: 'Funções PFCG',
                                     subprocesso: 'A. PFCG_CREATE.py',
                                     prompt: 'Quero analisar a criação do Perfil de Autorização.',
-                                    followupText: 'Certo. Vamos analisar a criação do Perfil de Autorização.',
+                                    followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
                                     children: []
                                 },
                                 {
                                     id: 'pfcg-create-execute',
-                                    label: 'Criar Perfil',
+                                    label: 'Preparar criação',
                                     icon: 'shield-plus',
-                                    mode: 'execute',
+                                    mode: 'prepare',
                                     processo: 'Funções PFCG',
                                     subprocesso: 'A. PFCG_CREATE.py',
-                                    prompt: 'Quero prosseguir com a criação do Perfil de Autorização.',
-                                    followupText: 'Certo. Vamos preparar a criação do Perfil de Autorização.',
-                                    children: []
+                                    prompt: 'Quero preparar a criação do Perfil de Autorização.',
+                                    followupText: 'Para preparar a criação, selecione o ficheiro Excel com a configuração do Perfil de Autorização.',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'pfcg-create-select-excel',
+                                            label: 'Selecionar Excel',
+                                            icon: 'upload',
+                                            mode: 'select_excel',
+                                            processo: 'Funções PFCG',
+                                            subprocesso: 'A. PFCG_CREATE.py',
+                                            prompt: 'Selecionar Excel',
+                                            followupText: '',
+                                            children: []
+                                        }
+                                    ]
                                 }
                             ]
                         },
@@ -5140,6 +5177,8 @@
             id: `asi-msg-${asiChatMessageCounter}`,
             role,
             text,
+            html: typeof options.html === 'string' ? options.html : '',
+            isProcessing: Boolean(options.isProcessing),
             actions: Array.isArray(options.actions) ? options.actions : [],
             actionLevel: Number(options.actionLevel || 0),
             parentActionId: options.parentActionId || '',
@@ -5188,9 +5227,356 @@
         };
     }
 
+    function asiStopPfcgPolling() {
+        if (asiPfcgPollingTimer) {
+            clearInterval(asiPfcgPollingTimer);
+            asiPfcgPollingTimer = null;
+        }
+        asiPfcgPollingInFlight = false;
+    }
+
+    function asiGetComposerPlaceholder() {
+        return asiConversationState.awaitingInput === ASI_PFCG_AWAITING_INPUT
+            ? ASI_PFCG_PLACEHOLDER
+            : ASI_DEFAULT_PLACEHOLDER;
+    }
+
+    function asiNormalizePfcgRoleName(value) {
+        return String(value || '').trim().toUpperCase();
+    }
+
+    function asiIsValidPfcgRoleName(roleName) {
+        return Boolean(roleName) && ASI_PFCG_ROLE_PATTERN.test(roleName);
+    }
+
+    function asiBuildPfcgProcessingHtml(roleName) {
+        return `
+            <div style="display:flex;align-items:center;gap:10px;">
+                <svg width="14" height="14" viewBox="0 0 50 50" aria-hidden="true" style="flex:0 0 auto;animation: spin 1s linear infinite;color:#94a3b8;">
+                    <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray: 1, 150; stroke-dashoffset: 0; animation: dash 1.5s ease-in-out infinite;"></circle>
+                </svg>
+                <span style="font-weight:600;">A analisar ${escapeHtml(roleName)} no SAP PRD...</span>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgDetailRow(label, value) {
+        if (value === null || value === undefined || value === '') return '';
+        return `
+            <div style="display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start;margin-top:10px;">
+                <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-secondary);">${escapeHtml(label)}</div>
+                <div style="font-size:0.84rem;font-weight:600;color:var(--text-primary);word-break:break-word;">${escapeHtml(String(value))}</div>
+            </div>
+        `;
+    }
+
+    function asiEnsurePfcgResultStyles() {
+        if (document.getElementById('asi-pfcg-result-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'asi-pfcg-result-styles';
+        style.textContent = `
+            .asi-pfcg-result-card {
+                white-space: normal;
+            }
+
+            .asi-pfcg-result-shell {
+                margin-top: 6px;
+                padding-top: 6px;
+                border-top: 1px solid rgba(148, 163, 184, 0.18);
+            }
+
+            .asi-pfcg-result-heading-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            .asi-pfcg-result-row {
+                display: grid;
+                grid-template-columns:
+                    195px
+                    minmax(140px, 1fr)
+                    50px
+                    55px
+                    55px;
+                column-gap: 14px;
+                row-gap: 2px;
+                margin-top: 0;
+                align-items: start;
+                width: 100%;
+            }
+
+            .asi-pfcg-result-row--compact {
+                grid-template-columns:
+                    195px
+                    55px
+                    55px;
+            }
+
+            .asi-pfcg-result-field {
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+
+            .asi-pfcg-result-value--nowrap {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .asi-pfcg-result-label {
+                display: block;
+                margin: 0 0 2px;
+                font-size: 0.72rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                line-height: 1.15;
+            }
+
+            .asi-pfcg-result-value {
+                display: block;
+                margin: 0;
+                font-size: 0.82rem;
+                font-weight: 600;
+                color: var(--text-primary);
+                line-height: 1.2;
+                word-break: break-word;
+                overflow-wrap: anywhere;
+            }
+
+            .asi-pfcg-result-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 2px 7px;
+                line-height: 1;
+                border-radius: 999px;
+                font-size: 0.68rem;
+                font-weight: 800;
+                letter-spacing: 0.03em;
+                text-transform: uppercase;
+                background: rgba(148, 163, 184, 0.12);
+                color: var(--text-secondary);
+                white-space: nowrap;
+            }
+
+            .asi-pfcg-result-pill--success {
+                background: rgba(22, 163, 74, 0.12);
+                color: #16a34a;
+            }
+
+            .asi-pfcg-result-pill--warning {
+                background: rgba(245, 158, 11, 0.12);
+                color: #f59e0b;
+            }
+
+            .asi-pfcg-result-heading {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.86rem;
+                font-weight: 700;
+                line-height: 1.2;
+            }
+
+            .asi-pfcg-result-note {
+                margin-top: 6px;
+                font-size: 0.78rem;
+                line-height: 1.3;
+                color: var(--text-secondary);
+            }
+
+            @media (max-width: 850px) {
+                .asi-pfcg-result-row,
+                .asi-pfcg-result-row--compact {
+                    grid-template-columns: 1fr 1fr;
+                }
+
+                .asi-pfcg-result-value--nowrap {
+                    white-space: normal;
+                    overflow: visible;
+                    text-overflow: clip;
+                }
+            }
+
+            @media (max-width: 550px) {
+                .asi-pfcg-result-row,
+                .asi-pfcg-result-row--compact {
+                    grid-template-columns: 1fr;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function asiBuildPfcgResultField(label, value, extraValueClass) {
+        if (value === null || value === undefined || value === '') return '';
+        const valueClass = extraValueClass ? `asi-pfcg-result-value ${extraValueClass}` : 'asi-pfcg-result-value';
+        return `
+            <div class="asi-pfcg-result-field">
+                <span class="asi-pfcg-result-label">${escapeHtml(label)}</span>
+                <span class="${valueClass}">${escapeHtml(String(value))}</span>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgSuccessHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const isExisting = result.status === 'EXISTE';
+        const heading = isExisting
+            ? '✓ Função encontrada em PRD'
+            : '○ Função não encontrada em PRD';
+        const accent = isExisting ? '#16a34a' : '#f59e0b';
+        const roleInExcel = result.role_in_excel || result.role || '';
+        const topRightStatus = `<span class="asi-pfcg-result-pill ${isExisting ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning'}">${escapeHtml(result.status || '')}</span>`;
+        const note = result.status === 'NAO_EXISTE'
+            ? `<div class="asi-pfcg-result-note">Podemos continuar com a preparação para criação do Perfil de Autorização.</div>`
+            : '';
+
+        const rowFields = isExisting
+            ? [
+                asiBuildPfcgResultField('Função', result.role || roleInExcel, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Descrição', result.description),
+                asiBuildPfcgResultField('Idioma', result.language),
+                asiBuildPfcgResultField('Sistema', result.system),
+                asiBuildPfcgResultField('Cliente', result.client)
+            ].join('')
+            : [
+                asiBuildPfcgResultField('Função', result.role || roleInExcel, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Sistema', result.system),
+                asiBuildPfcgResultField('Cliente', result.client)
+            ].join('');
+
+        const rowClass = isExisting ? 'asi-pfcg-result-row' : 'asi-pfcg-result-row asi-pfcg-result-row--compact';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${accent};">${heading}</div>
+                    ${topRightStatus}
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="${rowClass}">
+                        ${rowFields}
+                    </div>
+                    ${note}
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgErrorHtml(message, detail = '') {
+        const safeDetail = detail ? `<div style="margin-top:10px;font-size:0.78rem;color:var(--text-secondary);">${escapeHtml(detail)}</div>` : '';
+        return `
+            <div>
+                <div style="font-weight:700;color:#dc2626;">${escapeHtml(message)}</div>
+                ${safeDetail}
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgExcelProcessingHtml(fileName = '', message = 'A abrir o seletor de ficheiros Excel...') {
+        return `
+            <div style="display:flex;align-items:center;gap:10px;">
+                <svg width="14" height="14" viewBox="0 0 50 50" aria-hidden="true" style="flex:0 0 auto;animation: spin 1s linear infinite;color:#94a3b8;">
+                    <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray: 1, 150; stroke-dashoffset: 0; animation: dash 1.5s ease-in-out infinite;"></circle>
+                </svg>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                    <span style="font-weight:600;">${escapeHtml(message)}</span>
+                    ${fileName ? `<span style="font-size:0.76rem;color:var(--text-secondary);">Ficheiro: ${escapeHtml(fileName)}</span>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgExcelSummaryHtml(summary) {
+        if (!summary || typeof summary !== 'object') return '';
+        const entries = Object.entries(summary).filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '');
+        if (!entries.length) return '';
+        return `
+            <div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.2);">
+                ${entries.map(([key, value]) => asiBuildPfcgDetailRow(key.replaceAll('_', ' '), value)).join('')}
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgExcelWarningsHtml(items, title) {
+        if (!Array.isArray(items) || !items.length) return '';
+        return `
+            <div style="margin-top:14px;">
+                <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-secondary);">${escapeHtml(title)}</div>
+                <ul style="margin:8px 0 0 18px;padding:0;color:var(--text-primary);font-size:0.82rem;line-height:1.5;">
+                    ${items.map((item) => `<li>${escapeHtml(String(item))}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgExcelResultHtml(result, fileName) {
+        const status = String(result?.status || '').toUpperCase();
+        const roleInExcel = result?.role_in_excel || result?.role || '';
+        const heading = status === 'VALID'
+            ? '✓ Ficheiro analisado com sucesso.'
+            : 'Não é possível preparar a criação.';
+        const accent = status === 'VALID' ? '#16a34a' : '#dc2626';
+        const roleMatches = result?.role && roleInExcel && result.role !== roleInExcel
+            ? `<div style="margin-top:10px;font-size:0.82rem;color:#f59e0b;font-weight:600;">O Perfil informado no Excel não corresponde ao Perfil analisado em PRD.</div>`
+            : '';
+        const description = result?.description ? asiBuildPfcgDetailRow('Descrição', result.description) : '';
+        const summaryHtml = asiBuildPfcgExcelSummaryHtml(result?.summary);
+        const warningsHtml = asiBuildPfcgExcelWarningsHtml(result?.warnings || [], 'Avisos');
+        const errorsHtml = status === 'VALID'
+            ? ''
+            : asiBuildPfcgExcelWarningsHtml(result?.errors || [], 'Problemas encontrados');
+        const finalNote = status === 'VALID'
+            ? `<div style="margin-top:14px;font-size:0.84rem;color:var(--text-secondary);font-weight:600;">O Perfil está pronto para preparação da execução.</div>`
+            : '';
+
+        return `
+            <div>
+                <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:${accent};">${heading}</div>
+                <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.2);">
+                    ${asiBuildPfcgDetailRow('Perfil', result?.role || roleInExcel)}
+                    ${asiBuildPfcgDetailRow('Ficheiro', fileName)}
+                    ${description}
+                    ${asiBuildPfcgDetailRow('Sistema', result?.system)}
+                    ${asiBuildPfcgDetailRow('Cliente', result?.client)}
+                    ${asiBuildPfcgDetailRow('Sheet', result?.sheet)}
+                </div>
+                ${roleMatches}
+                ${summaryHtml}
+                ${warningsHtml}
+                ${errorsHtml}
+                ${finalNote}
+            </div>
+        `;
+    }
+
+    function asiUpdateMessage(messageId, updates = {}) {
+        const messageIndex = asiChatHistory.findIndex((msg) => msg.id === messageId);
+        if (messageIndex === -1) return null;
+        asiChatHistory[messageIndex] = {
+            ...asiChatHistory[messageIndex],
+            ...updates
+        };
+        asiRenderMessages();
+        return asiChatHistory[messageIndex];
+    }
+
     function asiScrollToBottom() {
         const { messages } = asiGetElements();
         if (!messages) return;
+        if (typeof messages.scrollTo === 'function') {
+            messages.scrollTo({
+                top: messages.scrollHeight,
+                behavior: 'smooth'
+            });
+            return;
+        }
         messages.scrollTop = messages.scrollHeight;
     }
 
@@ -5207,7 +5593,9 @@
     function asiUpdateComposerState() {
         const { input, send } = asiGetElements();
         if (!input || !send) return;
-        send.disabled = !input.value.trim();
+        input.placeholder = asiGetComposerPlaceholder();
+        input.disabled = Boolean(asiConversationState.isBusy);
+        send.disabled = Boolean(asiConversationState.isBusy) || !input.value.trim();
         asiAutoResizeInput();
     }
 
@@ -5217,9 +5605,16 @@
 
         messages.innerHTML = asiChatHistory.map((msg) => {
             const isUser = msg.role === 'user';
-            const wrapperClass = isUser ? 'agent-salsa-message agent-salsa-message-user' : 'agent-salsa-message agent-salsa-message-assistant';
-            const bubbleClass = isUser ? 'chat-msg-bubble chat-msg-user' : 'chat-msg-bubble chat-msg-bot';
+            const wrapperClass = isUser
+                ? 'agent-salsa-message agent-salsa-message-user'
+                : `agent-salsa-message agent-salsa-message-assistant${msg.wide ? ' agent-salsa-message--wide' : ''}`;
+            const bubbleClass = isUser
+                ? 'chat-msg-bubble chat-msg-user'
+                : `chat-msg-bubble chat-msg-bot${msg.wide ? ' chat-msg-bubble--pfcg' : ''}`;
             const label = isUser ? 'Utilizador' : 'Assistente';
+            const bubbleContent = msg.html
+                ? msg.html
+                : escapeHtml(msg.text).replace(/\n/g, '<br>');
             const actionsHtml = !isUser && Array.isArray(msg.actions) && msg.actions.length > 0
                 ? `<div class="agent-salsa-quick-actions-stack">${asiRenderQuickActionButtons(msg.actions, msg.actionLevel || 0, msg.parentActionId || '', msg.selectionGroupKey || '__root__')}</div>`
                 : '';
@@ -5227,7 +5622,7 @@
             return `
                 <div class="${wrapperClass}">
                     <p class="agent-salsa-message-label">${label}</p>
-                    <div class="${bubbleClass}">${escapeHtml(msg.text).replace(/\n/g, '<br>')}</div>
+                    <div class="${bubbleClass}">${bubbleContent}</div>
                     ${actionsHtml}
                 </div>
             `;
@@ -5241,20 +5636,594 @@
         asiRenderMessages();
     }
 
-    function asiSendMessage(presetText = null, options = {}) {
+    function asiResetPfcgInteraction(options = {}) {
+        asiStopPfcgPolling();
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: options.awaitingInput || '',
+            pendingJobId: '',
+            pendingRoleName: '',
+            pendingMessageId: '',
+            pendingExcelSelectionJobId: '',
+            pendingExcelAnalyzeJobId: '',
+            pendingExcelMessageId: '',
+            pendingExcelFileName: '',
+            isBusy: false
+        };
+        asiUpdateComposerState();
+    }
+
+    async function asiStartPfcgPolling(jobId, roleName, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A análise está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A análise está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                return;
+            }
+
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/analyze/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do Perfil de Autorização em PRD.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não foi possível concluir a análise do Perfil de Autorização em PRD.',
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const safeDetail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do Perfil de Autorização em PRD.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não foi possível concluir a análise do Perfil de Autorização em PRD.',
+                            safeDetail
+                        ),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                const normalizedResult = {
+                    ...result,
+                    role: result.role || roleName
+                };
+                asiUpdateMessage(messageId, {
+                    text: normalizedResult.status === 'EXISTE'
+                        ? 'A função já existe em PRD.'
+                        : 'A função não existe em PRD.',
+                    html: asiBuildPfcgSuccessHtml(normalizedResult),
+                    isProcessing: false,
+                    wide: true
+                });
+                asiResetPfcgInteraction();
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a análise do Perfil de Autorização em PRD.',
+                    html: asiBuildPfcgErrorHtml(
+                        'Não foi possível concluir a análise do Perfil de Autorização em PRD.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartPfcgAnalysis(roleName) {
+        const { input } = asiGetElements();
+        const processingMessage = asiCreateMessage('assistant', `A analisar ${roleName} no SAP PRD...`, {
+            html: asiBuildPfcgProcessingHtml(roleName),
+            isProcessing: true
+        });
+
+        asiAppendMessage(processingMessage);
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: '',
+            pendingRoleName: roleName,
+            pendingMessageId: processingMessage.id,
+            pendingJobId: '',
+            lastPfcgRoleName: roleName,
+            isBusy: true
+        };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    role_name: roleName
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                const detail = data && typeof data.detail === 'string' ? data.detail : '';
+                if (response.status === 400) {
+                    asiUpdateMessage(processingMessage.id, {
+                        text: ASI_PFCG_INVALID_MESSAGE,
+                        html: asiBuildPfcgErrorHtml(
+                            'O nome do Perfil de Autorização contém caracteres inválidos.',
+                            'Utilize apenas letras, números, "_", "-", "/" ou ":".'
+                        ),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction({
+                        awaitingInput: ASI_PFCG_AWAITING_INPUT
+                    });
+                    if (input) input.focus();
+                    return;
+                }
+                throw new Error(detail || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pendingJobId: jobId,
+                pendingRoleName: roleName,
+                pendingMessageId: processingMessage.id,
+                lastPfcgRoleName: roleName,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiStartPfcgPolling(jobId, roleName, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível concluir a análise do Perfil de Autorização em PRD.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível concluir a análise do Perfil de Autorização em PRD.'
+                ),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiStartPfcgCreateExcelSelection() {
+        const { input } = asiGetElements();
+        const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
+        if (!roleName) {
+            asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível identificar a função analisada em PRD. Volte a analisar a função e tente novamente.'));
+            return;
+        }
+
+        const processingMessage = asiCreateMessage('assistant', 'A abrir o seletor de ficheiros Excel...', {
+            html: asiBuildPfcgExcelProcessingHtml('', 'A abrir o seletor de ficheiros Excel...'),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = {
+            ...asiConversationState,
+            pendingRoleName: roleName,
+            lastPfcgRoleName: roleName,
+            pendingExcelMessageId: processingMessage.id,
+            pendingExcelSelectionJobId: '',
+            pendingExcelAnalyzeJobId: '',
+            pendingExcelFileName: '',
+            isBusy: true
+        };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/create/select-excel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pendingExcelSelectionJobId: jobId,
+                pendingExcelMessageId: processingMessage.id,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiStartPfcgCreateExcelSelectionPolling(jobId, roleName, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível iniciar a preparação do Excel.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível iniciar a preparação do Excel.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            asiConversationState = {
+                ...asiConversationState,
+                lastPfcgRoleName: roleName
+            };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiStartPfcgCreateExcelSelectionPolling(jobId, roleName, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A seleção do ficheiro Excel está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A seleção do ficheiro Excel está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                asiConversationState = {
+                    ...asiConversationState,
+                    lastPfcgRoleName: roleName
+                };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/create/select-excel/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível selecionar o ficheiro Excel.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não foi possível selecionar o ficheiro Excel.',
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    asiConversationState = {
+                        ...asiConversationState,
+                        lastPfcgRoleName: roleName
+                    };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const fileName = String(data.file_name || '').trim();
+                const selectionId = String(data.selection_id || jobId).trim();
+                if (!fileName || !selectionId) {
+                    throw new Error('Seleção de Excel concluída sem dados válidos.');
+                }
+
+                asiConversationState = {
+                    ...asiConversationState,
+                    pendingExcelSelectionJobId: selectionId,
+                    pendingExcelFileName: fileName,
+                    pendingExcelMessageId: messageId,
+                    lastPfcgRoleName: roleName,
+                    isBusy: true
+                };
+                asiUpdateMessage(messageId, {
+                    text: `A analisar o ficheiro ${fileName}...`,
+                    html: asiBuildPfcgExcelProcessingHtml(fileName, `A analisar o ficheiro ${fileName}...`),
+                    isProcessing: true
+                });
+                asiUpdateComposerState();
+                asiStartPfcgCreateExcelAnalysis(roleName, selectionId, fileName, messageId).catch((error) => {
+                    console.error(error);
+                });
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível selecionar o ficheiro Excel.',
+                    html: asiBuildPfcgErrorHtml(
+                        'Não foi possível selecionar o ficheiro Excel.',
+                        error.message || ''
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                asiConversationState = {
+                    ...asiConversationState,
+                    lastPfcgRoleName: roleName
+                };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartPfcgCreateExcelAnalysis(roleName, selectionId, fileName, messageId) {
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/create/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    role_name: roleName,
+                    selection_id: selectionId
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pendingExcelAnalyzeJobId: jobId,
+                pendingExcelFileName: fileName,
+                pendingExcelMessageId: messageId,
+                lastPfcgRoleName: roleName,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiStartPfcgCreateExcelAnalysisPolling(jobId, roleName, fileName, messageId);
+        } catch (error) {
+            asiUpdateMessage(messageId, {
+                text: 'Não foi possível analisar o ficheiro Excel.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível analisar o ficheiro Excel.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            asiConversationState = {
+                ...asiConversationState,
+                lastPfcgRoleName: roleName
+            };
+            asiUpdateComposerState();
+        }
+    }
+
+    async function asiStartPfcgCreateExcelAnalysisPolling(jobId, roleName, fileName, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A análise do ficheiro Excel está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A análise do ficheiro Excel está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                asiConversationState = {
+                    ...asiConversationState,
+                    lastPfcgRoleName: roleName
+                };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/create/analyze/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não é possível preparar a criação.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não é possível preparar a criação.',
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    asiConversationState = {
+                        ...asiConversationState,
+                        lastPfcgRoleName: roleName
+                    };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const safeDetail = result && Array.isArray(result.errors) && result.errors.length
+                        ? result.errors.join('\n')
+                        : (result && typeof result.message === 'string' ? result.message : '');
+                    asiUpdateMessage(messageId, {
+                        text: 'Não é possível preparar a criação.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não é possível preparar a criação.',
+                            safeDetail
+                        ),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    asiConversationState = {
+                        ...asiConversationState,
+                        lastPfcgRoleName: roleName
+                    };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                if (String(result.status || '').toUpperCase() === 'VALID') {
+                    asiUpdateMessage(messageId, {
+                        text: 'O Perfil está pronto para preparação da execução.',
+                        html: asiBuildPfcgExcelResultHtml(result, fileName),
+                        isProcessing: false
+                    });
+                } else {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não é possível preparar a criação.',
+                        html: asiBuildPfcgExcelResultHtml(result, fileName),
+                        isProcessing: false
+                    });
+                }
+                asiResetPfcgInteraction();
+                asiConversationState = {
+                    ...asiConversationState,
+                    lastPfcgRoleName: roleName
+                };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não é possível preparar a criação.',
+                    html: asiBuildPfcgErrorHtml(
+                        'Não é possível preparar a criação.',
+                        error.message || ''
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                asiConversationState = {
+                    ...asiConversationState,
+                    lastPfcgRoleName: roleName
+                };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiSendMessage(presetText = null, options = {}) {
         const { input, send } = asiGetElements();
         if (!input || !send) return;
 
-        const message = typeof presetText === 'string' ? presetText.trim() : input.value.trim();
-        if (!message) {
+        const rawMessage = typeof presetText === 'string' ? String(presetText).trim() : input.value.trim();
+        if (!rawMessage) {
             asiUpdateComposerState();
             return;
         }
 
         input.value = '';
-        asiAppendMessage(asiCreateMessage('user', message));
+        const awaitingRoleName = asiConversationState.awaitingInput === ASI_PFCG_AWAITING_INPUT;
+        const normalizedRoleName = awaitingRoleName ? asiNormalizePfcgRoleName(rawMessage) : rawMessage;
+        const isValidRoleName = awaitingRoleName ? asiIsValidPfcgRoleName(normalizedRoleName) : true;
+        const displayMessage = awaitingRoleName && isValidRoleName ? normalizedRoleName : rawMessage;
+
+        asiAppendMessage(asiCreateMessage('user', displayMessage));
         asiUpdateComposerState();
         input.focus();
+
+        if (awaitingRoleName) {
+            if (!isValidRoleName) {
+                asiAppendMessage(asiCreateMessage('assistant', ASI_PFCG_INVALID_MESSAGE));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_AWAITING_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            await asiStartPfcgAnalysis(normalizedRoleName);
+            return;
+        }
 
         if (options.skipAssistantReply) return;
 
@@ -5306,23 +6275,47 @@
 
         asiSelectedActions = nextSelectedActions;
 
+        const nextConversationState = asiDefaultConversationState();
         if (action.processo && action.subprocesso) {
-            asiConversationState = {
+            Object.assign(nextConversationState, {
                 processo: action.processo,
                 subprocesso: action.subprocesso,
                 actionId: action.id,
                 mode: action.mode || ''
-            };
-        } else {
-            asiConversationState = {
-                processo: '',
-                subprocesso: '',
-                actionId: '',
-                mode: ''
-            };
+            });
         }
+        asiConversationState = nextConversationState;
 
         asiRenderMessages();
+
+        if (action.id === 'pfcg-create-analyze') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?'));
+            asiConversationState = {
+                ...asiConversationState,
+                awaitingInput: ASI_PFCG_AWAITING_INPUT
+            };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'pfcg-create-select-excel') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartPfcgCreateExcelSelection();
+            return;
+        }
 
         const sendOptions = {};
         if (action.followupText) {
@@ -5377,6 +6370,8 @@
         asiBindChat();
 
         if (!asiChatInitialized) {
+            asiStopPfcgPolling();
+            asiConversationState = asiDefaultConversationState();
             asiChatHistory = [
                 asiCreateMessage('assistant', asiDefaultGreeting(), {
                     actions: salsaAgentActions,

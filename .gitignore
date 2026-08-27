@@ -22,3 +22,4 @@ sap_script_uploads/
 sap_script_web_cockpit_v2/data/
 *.bak_*
 *.log
+*.trc

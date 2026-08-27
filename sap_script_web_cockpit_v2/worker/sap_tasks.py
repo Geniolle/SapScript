@@ -3,13 +3,22 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import subprocess
 import sys
 import time
 import traceback
+from pathlib import Path
 from typing import Any
 
 import pythoncom
 import win32com.client
+from pathlib import Path
+
+_project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+if _project_dir and _project_dir not in sys.path:
+    sys.path.insert(0, _project_dir)
+
+from pfcg.pfcg_create_excel_analyzer import analyze_pfcg_create_excel
 import queue
 import threading
 import requests
@@ -26,12 +35,47 @@ class JobCancelledException(BaseException):
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKER_STATE_PATH = os.path.join(WORKER_DIR, ".sap_script_web_worker_state.json")
+RFC_VENV_RELATIVE_PYTHON = Path(".venv-rfc") / "Scripts" / "python.exe"
+RFC_SDK_HOME = r"C:\nwrfcsdk"
+RFC_ALLOWED_EXIT_CODES = {0, 1}
 
 
 def _prepare_project_imports() -> None:
     project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
     if project_dir and project_dir not in sys.path:
         sys.path.insert(0, project_dir)
+
+
+def _parse_env_line(raw: str) -> tuple[str | None, str | None]:
+    line = str(raw or "").strip()
+    if not line or line.startswith("#") or "=" not in line:
+        return None, None
+
+    key, value = line.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+    if not key:
+        return None, None
+
+    if len(value) >= 2 and (
+        (value.startswith('"') and value.endswith('"'))
+        or (value.startswith("'") and value.endswith("'"))
+    ):
+        value = value[1:-1]
+
+    return key, value
+
+
+def _load_project_env_manual(project_dir: str) -> None:
+    env_path = Path(project_dir) / ".env"
+    if not env_path.exists():
+        return
+
+    with env_path.open("r", encoding="utf-8-sig") as file_obj:
+        for raw in file_obj:
+            key, value = _parse_env_line(raw)
+            if key and key not in os.environ:
+                os.environ[key] = value or ""
 
 
 def _load_worker_state() -> dict[str, Any]:
@@ -140,6 +184,25 @@ def select_excel_file_on_windows(params: dict[str, Any] | None = None) -> tuple[
     )
 
     return selected_path, log
+
+
+def _run_pfcg_create_excel_analysis(params: dict[str, Any]) -> tuple[str, str]:
+    excel_path = str(params.get("excel_path") or "").strip()
+    role_name = str(params.get("role_name") or "").strip()
+    result = analyze_pfcg_create_excel(excel_path=excel_path, expected_role_name=role_name)
+    if result.get("ok") is True:
+        log = (
+            "Analise read-only do Excel concluida com sucesso.\n"
+            f"Role: {result.get('role')}\n"
+            f"Ficheiro: {Path(excel_path).name if excel_path else ''}"
+        )
+    else:
+        log = (
+            "Analise read-only do Excel terminou com problemas.\n"
+            f"Role: {result.get('role')}\n"
+            f"Erro: {result.get('message') or ', '.join(result.get('errors') or [])}"
+        )
+    return json.dumps(result, ensure_ascii=False), log
 
 
 def get_first_available_session() -> Any:
@@ -331,6 +394,133 @@ def _run_sap_agent_analysis(params: dict[str, Any]) -> tuple[str, str]:
         raise SapExecutionError(f"Erro ao executar análise do Agente SAP: {exc}")
 
 
+def _get_project_dir() -> Path:
+    project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if not project_dir:
+        raise SapExecutionError("SAP_SCRIPT_PROJECT_DIR não definido.")
+    path = Path(project_dir).resolve()
+    if not path.exists():
+        raise SapExecutionError(f"SAP_SCRIPT_PROJECT_DIR não existe: {path}")
+    return path
+
+
+def _build_rfc_bridge_env(project_dir: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    sdk_home = (
+        str(env.get("SAP_NWRFC_HOME") or "").strip()
+        or str(env.get("SAPNWRFC_HOME") or "").strip()
+        or RFC_SDK_HOME
+    )
+    env["SAP_SCRIPT_PROJECT_DIR"] = str(project_dir)
+    env["SAPNWRFC_HOME"] = sdk_home
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    sdk_lib = str(Path(sdk_home) / "lib")
+    current_path = env.get("PATH", "")
+    if sdk_lib.lower() not in current_path.lower():
+        path_entries = [sdk_lib]
+        if current_path:
+            path_entries.append(current_path)
+        env["PATH"] = os.pathsep.join(path_entries)
+    return env
+
+
+def _run_pfcg_role_analysis(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    try:
+        from sap_rfc.pfcg_role_service import validate_role_name
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar a validação PFCG: {exc}") from exc
+
+    project_dir = _get_project_dir()
+    raw_role_name = str(params.get("role_name") or "")
+    try:
+        role_name = validate_role_name(raw_role_name)
+    except ValueError as exc:
+        payload = {
+            "ok": False,
+            "status": "ERRO",
+            "role": raw_role_name.strip().upper(),
+            "error_type": "INVALID_INPUT",
+            "message": str(exc),
+            "system": "PRD",
+            "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
+        }
+        log = (
+            "Análise PFCG rejeitada antes da bridge RFC.\n"
+            f"Role: {raw_role_name}\n"
+            f"Motivo: {exc}"
+        )
+        return json.dumps(payload, ensure_ascii=False), log
+
+    rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
+    if not rfc_python.exists():
+        raise SapExecutionError(f"Python RFC não encontrado: {rfc_python}")
+
+    env = _build_rfc_bridge_env(project_dir)
+    command = [
+        str(rfc_python),
+        "-m",
+        "sap_rfc.pfcg_role_cli",
+        "--role-name",
+        role_name,
+    ]
+
+    try:
+        run = subprocess.run(
+            command,
+            cwd=str(project_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            check=False,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SapExecutionError(
+            f"Timeout ao executar análise RFC PFCG para a função {role_name}."
+        ) from exc
+
+    stdout = str(run.stdout or "").strip()
+    stderr = str(run.stderr or "").strip()
+
+    if run.returncode not in RFC_ALLOWED_EXIT_CODES:
+        raise SapExecutionError(
+            f"Bridge RFC PFCG falhou com exit code {run.returncode}."
+        )
+    if not stdout:
+        raise SapExecutionError("Bridge RFC PFCG não devolveu JSON em stdout.")
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise SapExecutionError("Bridge RFC PFCG devolveu JSON inválido.") from exc
+
+    if not isinstance(payload, dict):
+        raise SapExecutionError("Bridge RFC PFCG devolveu payload inválido.")
+
+    log_lines = [
+        "Análise PFCG executada via subprocesso RFC controlado.",
+        f"Role: {role_name}",
+        f"Python RFC: {rfc_python}",
+        f"Exit code: {run.returncode}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+    if payload.get("warning"):
+        log_lines.append(f"Aviso: {payload['warning']}")
+    if stderr:
+        log_lines.append(f"stderr: {stderr}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
     """Executa uma ação SAP GUI solicitada pelo chat (Gemini function calling).
 
@@ -383,12 +573,9 @@ def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
 
 
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
-    from dotenv import load_dotenv
     _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
     if _project_dir:
-        load_dotenv(os.path.join(_project_dir, ".env"))
-    else:
-        load_dotenv()
+        _load_project_env_manual(_project_dir)
 
     task = job["task"]
     params = job.get("params", {}) or {}
@@ -397,6 +584,16 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     try:
         if task == "sap_agent_analysis":
             status, log = _run_sap_agent_analysis(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_role_analysis":
+            status, log = _run_pfcg_role_analysis(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_create_excel_analysis":
+            status, log = _run_pfcg_create_excel_analysis(params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 
@@ -591,7 +788,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                 _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
                 if _project_dir and _project_dir not in sys.path:
                     sys.path.insert(0, _project_dir)
-                from workflow_documentation import WorkflowDocumentation  # type: ignore
+                from workflow.documentation import WorkflowDocumentation  # type: ignore
                 _ticket_key = (
                     str(params.get("jira_key") or "").strip().upper()
                     or str(job.get("id", ""))[:8].upper()

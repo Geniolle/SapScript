@@ -11,7 +11,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 from sap_session import ensure_sap_access_from_env, load_dotenv_manual, session_info
-from workflow_engine import execute_workflows
+from workflow.engine import execute_workflows
 
 load_dotenv_manual()
 

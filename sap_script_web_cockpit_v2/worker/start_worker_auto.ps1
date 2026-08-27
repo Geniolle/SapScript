@@ -1,13 +1,24 @@
 $ErrorActionPreference = "Continue"
 
-$ProjectDir = "C:\workspace\sap-script"
-$WorkerDir = "$ProjectDir\sap_script_web_cockpit_v2\worker"
+$WorkerDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$CockpitDir = Split-Path -Parent $WorkerDir
+$ProjectDir = Split-Path -Parent $CockpitDir
 $LogPath = Join-Path $WorkerDir "worker_auto.log"
+$EnvFile = Join-Path $ProjectDir ".env"
+$PythonCandidates = @(
+    (Join-Path $WorkerDir ".venv\Scripts\python.exe"),
+    (Join-Path $CockpitDir ".venv\Scripts\python.exe"),
+    (Join-Path $ProjectDir ".venv\Scripts\python.exe")
+)
+$PythonExe = $PythonCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 
-Set-Location $WorkerDir
+if (-not $PythonExe) {
+    throw "Python do ambiente virtual não encontrado. Verifique .venv em '$WorkerDir', '$CockpitDir' ou '$ProjectDir'."
+}
+
+Set-Location -LiteralPath $WorkerDir
 
 # Ler WORKER_TOKEN do .env uma vez antes do loop
-$EnvFile = "$ProjectDir\.env"
 $TokenFromEnv = "change-me"
 if (Test-Path $EnvFile) {
     Get-Content $EnvFile | ForEach-Object {
@@ -34,8 +45,6 @@ while ($true) {
             Start-Sleep -Seconds 1
         }
 
-        & ".\.venv\Scripts\Activate.ps1"
-
         chcp 65001 > $null
         $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
@@ -49,7 +58,7 @@ while ($true) {
 
         "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Iniciando worker (token lido do .env)..." | Out-File $LogPath -Append -Encoding UTF8
 
-        python -u worker.py *>> $LogPath
+        & $PythonExe -u "worker.py" *>> $LogPath
     }
     catch {
         "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] ERRO: $_" | Out-File $LogPath -Append -Encoding UTF8

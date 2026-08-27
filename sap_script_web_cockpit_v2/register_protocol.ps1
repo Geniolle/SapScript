@@ -1,16 +1,20 @@
 $ErrorActionPreference = "Stop"
 
 $ProtocolName = "sap-worker"
-$ProjectDir = "C:\workspace\sap-script\sap_script_web_cockpit_v2"
-$WorkerScript = "$ProjectDir\worker\start_worker_auto.ps1"
+$ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$WorkerScript = Join-Path $ProjectDir "worker\start_worker_auto.ps1"
+$PowerShellExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 
-if (-not (Test-Path $WorkerScript)) {
+if (-not (Test-Path -LiteralPath $PowerShellExe)) {
+    $PowerShellExe = "powershell.exe"
+}
+
+if (-not (Test-Path -LiteralPath $WorkerScript)) {
     Write-Host "ERRO: O script do worker não foi encontrado em: $WorkerScript" -ForegroundColor Red
-    Pause
     exit 1
 }
 
-$Command = "powershell.exe -WindowStyle Minimized -ExecutionPolicy Bypass -File `"$WorkerScript`""
+$Command = "`"$PowerShellExe`" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WorkerScript`""
 
 $RegistryPath = "HKCU:\Software\Classes\$ProtocolName"
 $CommandPath = "$RegistryPath\shell\open\command"
@@ -36,5 +40,4 @@ if (-not (Test-Path $CommandPath)) {
 Set-ItemProperty -Path $CommandPath -Name "(Default)" -Value $Command
 
 Write-Host "Registo concluído com sucesso!" -ForegroundColor Green
-Write-Host "Agora podes clicar no botão 'Ligar Worker' no browser e o Windows abrirá a janela do PowerShell." -ForegroundColor Yellow
-Pause
+Write-Host "Agora podes clicar no botão 'Ligar Worker' no browser." -ForegroundColor Yellow

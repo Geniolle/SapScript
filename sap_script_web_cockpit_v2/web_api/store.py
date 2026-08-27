@@ -7,13 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+_DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+DATA_DIR = Path(os.getenv("DATA_DIR", str(_DEFAULT_DATA_DIR)))
 DB_PATH = DATA_DIR / "sap_script_jobs.sqlite3"
 
 INTERNAL_TASKS = {
     "select_excel_file",
     "sap_search_requests",
     "sap_agent_analysis",
+    "pfcg_role_analysis",
 }
 
 

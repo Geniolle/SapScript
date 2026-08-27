@@ -1015,6 +1015,245 @@ class SapQueryRequest(BaseModel):
     company_code: str = ""
 
 
+class SalsaItPfcgAnalyzeRequest(BaseModel):
+    role_name: str
+
+
+class SalsaItPfcgCreateAnalyzeRequest(BaseModel):
+    selection_id: str
+    role_name: str
+
+
+PFCG_EXCEL_SELECTIONS: dict[str, dict[str, str]] = {}
+
+
+def _validate_pfcg_role_name_or_400(role_name: str) -> str:
+    try:
+        _prepare_project_imports()
+        from sap_rfc import validate_role_name
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível carregar a validação PFCG no backend.",
+        ) from exc
+
+    try:
+        return validate_role_name(role_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _safe_pfcg_failed_message() -> str:
+    return "Não foi possível concluir a análise PFCG."
+
+
+@app.post("/api/salsa-it-agent/pfcg/analyze")
+def api_salsa_it_pfcg_analyze(payload: SalsaItPfcgAnalyzeRequest) -> JSONResponse:
+    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+
+    try:
+        job = create_job("pfcg_role_analysis", {"role_name": role_name})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store(
+        {
+            "job_id": job["id"],
+            "state": job["state"],
+            "role_name": role_name,
+        }
+    )
+
+
+@app.get("/api/salsa-it-agent/pfcg/analyze/{job_id}")
+def api_salsa_it_pfcg_analyze_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_analysis":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à análise PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state == "failed":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    if state != "succeeded":
+        return _json_no_store({"state": state, "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    if not status_raw:
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    try:
+        result = json.loads(status_raw)
+    except Exception:
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "role": str(result.get("role") or ""),
+        "description": result.get("description"),
+        "language": result.get("language"),
+        "system": result.get("system"),
+        "client": result.get("client"),
+    }
+
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/create/select-excel")
+def api_salsa_it_pfcg_create_select_excel() -> JSONResponse:
+    try:
+        job = create_job("select_excel_file", {})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar job de seleção de Excel: {str(exc)}")
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/create/select-excel/{job_id}")
+def api_salsa_it_pfcg_create_select_excel_job(job_id: str) -> JSONResponse:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+
+    if job.get("task") != "select_excel_file":
+        raise HTTPException(status_code=400, detail="O job não pertence ao fluxo de seleção de Excel.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        failure_message = str(job.get("status") or "Não foi possível selecionar o ficheiro Excel.").strip()
+        return _json_no_store({
+            "state": "failed",
+            "message": failure_message,
+        })
+
+    selected_path = str(job.get("status") or "").strip()
+    if not selected_path:
+        return _json_no_store({
+            "state": "failed",
+            "message": "Seleção de ficheiro Excel cancelada ou vazia.",
+        })
+
+    selection_id = job_id
+    PFCG_EXCEL_SELECTIONS[selection_id] = {
+        "excel_path": selected_path,
+        "file_name": Path(selected_path).name,
+    }
+    return _json_no_store({
+        "state": "succeeded",
+        "selection_id": selection_id,
+        "file_name": Path(selected_path).name,
+    })
+
+
+@app.post("/api/salsa-it-agent/pfcg/create/analyze")
+def api_salsa_it_pfcg_create_analyze(payload: SalsaItPfcgCreateAnalyzeRequest) -> JSONResponse:
+    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    selection_id = str(payload.selection_id or "").strip()
+    if not selection_id:
+        raise HTTPException(status_code=400, detail="Seleção de Excel inválida.")
+
+    selection = PFCG_EXCEL_SELECTIONS.get(selection_id)
+    if not selection:
+        raise HTTPException(status_code=404, detail="Seleção de Excel não encontrada.")
+
+    excel_path = selection.get("excel_path", "")
+    if not excel_path:
+        raise HTTPException(status_code=400, detail="Caminho do Excel indisponível.")
+
+    try:
+        job = create_job(
+            "pfcg_create_excel_analysis",
+            {
+                "excel_path": excel_path,
+                "role_name": role_name,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar job de análise do Excel: {str(exc)}")
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_name": role_name,
+        "file_name": selection.get("file_name") or Path(excel_path).name,
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/create/analyze/{job_id}")
+def api_salsa_it_pfcg_create_analyze_job(job_id: str) -> JSONResponse:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+
+    if job.get("task") != "pfcg_create_excel_analysis":
+        raise HTTPException(status_code=400, detail="O job não pertence ao fluxo de preparação do Excel.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        failure_message = str(job.get("status") or "Não foi possível concluir a preparação do Perfil de Autorização.").strip()
+        return _json_no_store({
+            "state": "failed",
+            "message": failure_message,
+        })
+
+    raw_status = job.get("status")
+    try:
+        result = json.loads(raw_status) if isinstance(raw_status, str) else raw_status
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({
+            "state": "failed",
+            "message": "Resultado de análise inválido.",
+        })
+
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": result.get("status"),
+        "role": result.get("role"),
+        "description": result.get("description"),
+        "language": result.get("language"),
+        "system": result.get("system"),
+        "client": result.get("client"),
+        "sheet": result.get("sheet"),
+        "summary": result.get("summary"),
+        "warnings": result.get("warnings") or [],
+        "errors": result.get("errors") or [],
+    }
+    if result.get("role_in_excel") is not None:
+        safe_result["role_in_excel"] = result.get("role_in_excel")
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
 @app.post("/api/sap-agent/chat")
 def api_sap_agent_chat(request: SapAgentChatRequest) -> dict[str, Any]:
     """Conversação interativa com o Gemini com base no contexto do ticket e nos sinais SAP extraídos."""

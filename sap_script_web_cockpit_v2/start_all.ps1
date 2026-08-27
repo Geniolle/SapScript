@@ -27,9 +27,9 @@ if ($ExistingWorker) {
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Iniciando worker automatico..." | Out-File $LogPath -Append -Encoding UTF8
 
 Start-Process powershell.exe -ArgumentList @(
-    "-NoExit",
+    "-NoProfile",
     "-ExecutionPolicy", "Bypass",
     "-File", "`"$WorkerDir\start_worker_auto.ps1`""
-) -WindowStyle Minimized
+) -WindowStyle Hidden
 
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Processo concluido." | Out-File $LogPath -Append -Encoding UTF8
