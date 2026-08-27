@@ -735,6 +735,76 @@ def _run_pfcg_role_create_rfc(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_pfcg_role_delete_preview(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    role_name = str(params.get("role_name") or "").strip()
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip()
+    request_description = str(params.get("request_description") or "").strip()
+
+    try:
+        from pfcg.pfcg_delete_rfc_service import preview_pfcg_role_delete_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de pré-visualização de eliminação PFCG: {exc}") from exc
+
+    try:
+        payload = preview_pfcg_role_delete_rfc(
+            environment, role_name, transport_mode, request_number, request_description
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de pré-visualização de eliminação PFCG (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Pré-visualização de eliminação PFCG (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Role: {role_name}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_pfcg_role_delete_rfc(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    role_name = str(params.get("role_name") or "").strip()
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip()
+    request_description = str(params.get("request_description") or "").strip()
+
+    try:
+        from pfcg.pfcg_delete_rfc_service import delete_pfcg_role_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de eliminação PFCG: {exc}") from exc
+
+    try:
+        payload = delete_pfcg_role_rfc(
+            environment, role_name, transport_mode, request_number, request_description
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de eliminação PFCG (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Eliminação individual PFCG (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Role: {role_name}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_pfcg_transport_search(params: dict[str, Any]) -> tuple[str, str]:
     """Pesquisa (read-only via RFC) das Requests de transporte abertas do utilizador RFC.
 
@@ -862,6 +932,16 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "pfcg_role_create_rfc":
             status, log = _run_pfcg_role_create_rfc(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_role_delete_preview":
+            status, log = _run_pfcg_role_delete_preview(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_role_delete_rfc":
+            status, log = _run_pfcg_role_delete_rfc(params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 

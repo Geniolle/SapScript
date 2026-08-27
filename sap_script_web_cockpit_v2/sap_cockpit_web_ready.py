@@ -187,22 +187,55 @@ def _carregar_dotenv():
         warn("Ficheiro .env nao encontrado nos caminhos esperados.")
 
 
-def _obter_credenciais_env(sistema_desejado: str, cliente_esperado: str) -> tuple[str, str, str, str]:
-    _carregar_dotenv()
+def _resolver_prefixo_ambiente(ambiente_cockpit: str, sistema_desejado: str) -> str:
+    ambiente = str(ambiente_cockpit or "").strip().upper()
+    if ambiente in {"DEV", "QAD", "PRD", "CUA"}:
+        return ambiente
 
     sistema = str(sistema_desejado or "").strip().upper()
-    cliente = str(cliente_esperado or "").strip()
-    usuario = os.getenv("SAP_USER", "").strip()
-    idioma = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
+    return {
+        "S4D": "DEV",
+        "S4Q": "QAD",
+        "S4P": "PRD",
+        "SPA": "CUA",
+    }.get(sistema, ambiente or sistema or "PRD")
 
-    chave_password = f"SAP_PASSWORD_{sistema}CLNT{cliente}"
+
+def _obter_credenciais_env(
+    ambiente_cockpit: str,
+    sistema_desejado: str,
+    cliente_esperado: str,
+) -> tuple[str, str, str, str]:
+    _carregar_dotenv()
+
+    ambiente_prefixo = _resolver_prefixo_ambiente(ambiente_cockpit, sistema_desejado)
+    sistema = str(sistema_desejado or "").strip().upper()
+    cliente = str(cliente_esperado or "").strip()
+    usuario = os.getenv(f"SAP_{ambiente_prefixo}_USER", "").strip() or os.getenv("SAP_USER", "").strip()
+    idioma = (
+        os.getenv(f"SAP_{ambiente_prefixo}_LANG", "").strip()
+        or os.getenv("SAP_LANGUAGE", "PT").strip()
+        or "PT"
+    )
+
+    chave_password = f"SAP_{ambiente_prefixo}_PASSWD"
     senha = os.getenv(chave_password, "").strip()
+    if not senha:
+        chave_password = f"SAP_PASSWORD_{sistema}CLNT{cliente}"
+        senha = os.getenv(chave_password, "").strip()
+    if not senha:
+        chave_password = "SAP_PASSWORD"
+        senha = os.getenv(chave_password, "").strip()
 
     if not usuario:
-        raise RuntimeError("Variavel SAP_USER nao encontrada ou vazia no ficheiro .env.")
+        raise RuntimeError(
+            f"Variavel SAP_{ambiente_prefixo}_USER nao encontrada ou vazia no ficheiro .env."
+        )
 
     if not senha:
-        raise RuntimeError(f"Variavel '{chave_password}' nao encontrada ou vazia no ficheiro .env.")
+        raise RuntimeError(
+            f"Variavel '{chave_password}' nao encontrada ou vazia no ficheiro .env."
+        )
 
     return usuario, senha, idioma, chave_password
 
@@ -877,9 +910,22 @@ def _executar_um_script(
     )
 
     try:
-        exec_fn(ambiente_cockpit, **kwargs)
+        resultado_exec = exec_fn(ambiente_cockpit, **kwargs)
     except TypeError:
-        exec_fn(ambiente_cockpit)
+        resultado_exec = exec_fn(ambiente_cockpit)
+
+    if isinstance(resultado_exec, dict):
+        doc_number = str(
+            resultado_exec.get("document_number")
+            or resultado_exec.get("documento")
+            or resultado_exec.get("belnr")
+            or ""
+        ).strip()
+        status = str(resultado_exec.get("status") or resultado_exec.get("message") or "").strip()
+        if doc_number and doc_number not in status:
+            status = f"{status} | Documento FI: {doc_number}" if status else f"Documento FI: {doc_number}"
+        if status:
+            return status
 
     return read_sbar_status(session)
 
@@ -1089,10 +1135,79 @@ def _reportar_metadata_sap(session, interactive: bool = False):
         pass
 
 
+def _obter_nomes_logon_candidatos(ambiente_cockpit: str, sistema_desejado: str, nome_logon_padrao: str) -> list[str]:
+    candidatos = []
+
+    def adicionar(nome):
+        n = str(nome or "").strip()
+        if n and n not in candidatos:
+            candidatos.append(n)
+
+    # 1. Override explicito em variavel de ambiente (.env)
+    for env_var in (
+        f"SAP_{ambiente_cockpit}_LOGON_NAME",
+        f"SAP_{sistema_desejado}_LOGON_NAME",
+        f"SAP_LOGON_{ambiente_cockpit}",
+        f"SAP_LOGON_{sistema_desejado}",
+    ):
+        val = os.getenv(env_var, "").strip()
+        if val:
+            adicionar(val)
+
+    # 2. Leitura dinamica de SAPUILandscape.xml
+    try:
+        import xml.etree.ElementTree as ET
+        for base_p in (
+            os.environ.get("APPDATA", ""),
+            os.environ.get("LOCALAPPDATA", ""),
+        ):
+            if not base_p:
+                continue
+            for fname in ("SAPUILandscape.xml", "SAPUILandscapeGlobal.xml"):
+                xml_file = Path(base_p) / "SAP" / "Common" / fname
+                if not xml_file.exists():
+                    continue
+                try:
+                    tree = ET.parse(xml_file)
+                    root = tree.getroot()
+                    for elem in root.iter():
+                        name = elem.get("name")
+                        sid = (elem.get("systemid") or elem.get("sid") or "").strip().upper()
+                        if not name:
+                            continue
+                        name_clean = name.strip()
+                        if sid and (sid == str(sistema_desejado).upper() or sid == str(ambiente_cockpit).upper()):
+                            adicionar(name_clean)
+                        elif str(sistema_desejado).upper() in name_clean.upper():
+                            adicionar(name_clean)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 3. Lista pre-definida de aliases comuns na Salsa e S4H
+    mapa_predefinido = {
+        "QAD": ["SAP S4F QAS", "SALSA QAD", "QUALIDADE (S4H)", "QAD", "QAS", "S4Q", "QUALIDADE"],
+        "DEV": ["SAP S4F DEV", "DESENVOLVIMENTO (S4H)", "SALSA DEV", "DEV", "S4D", "DESENVOLVIMENTO"],
+        "PRD": ["SAP S4F PRD", "PRODUÇÃO (S4H)", "PRODUCAO (S4H)", "SALSA PRD", "PRD", "S4P", "PRODUÇÃO", "PRODUCAO"],
+        "CUA": ["CUA (PRD)", "SPA", "CUA", "SALSA CUA"],
+    }
+    for alias in mapa_predefinido.get(str(ambiente_cockpit).upper(), []):
+        adicionar(alias)
+
+    # 4. Fallback padrao
+    adicionar(nome_logon_padrao)
+    adicionar(str(nome_logon_padrao).split(" (", 1)[0].strip())
+    adicionar(ambiente_cockpit)
+    adicionar(sistema_desejado)
+
+    return candidatos
+
 def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
     sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
     cliente_esperado = CLIENTES_POR_AMBIENTE.get(ambiente_cockpit, "100")
     nome_logon = dict((v[0], v[1]) for v in AMBIENTES.values()).get(ambiente_cockpit, ambiente_cockpit)
+    nomes_logon_candidatos = _obter_nomes_logon_candidatos(ambiente_cockpit, sistema_desejado, nome_logon)
 
     if interactive:
         mostrar_titulo(
@@ -1130,6 +1245,7 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
         credenciais_ok = False
         try:
             usuario, senha, idioma, chave_password = _obter_credenciais_env(
+                ambiente_cockpit=ambiente_cockpit,
                 sistema_desejado=sistema_desejado,
                 cliente_esperado=cliente_esperado
             )
@@ -1140,8 +1256,24 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
         if credenciais_ok:
             try:
                 info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
-                info(f"Abrindo conexao: {nome_logon}...")
-                connection = application.OpenConnection(nome_logon, True)
+                connection = None
+                ultimo_erro_abertura = None
+                for candidato_logon in nomes_logon_candidatos:
+                    info(f"Abrindo conexao: {candidato_logon}...")
+                    try:
+                        connection = application.OpenConnection(candidato_logon, True)
+                        nome_logon = candidato_logon
+                        break
+                    except Exception as exc:
+                        ultimo_erro_abertura = exc
+                        continue
+
+                if connection is None:
+                    _raise_or_exit(
+                        f"Nao foi possivel encontrar uma entrada SAP Logon para o ambiente '{ambiente_cockpit}'.",
+                        interactive,
+                        ultimo_erro_abertura,
+                    )
 
                 tentativas = 0
                 while connection.Children.Count == 0 and tentativas < 20:

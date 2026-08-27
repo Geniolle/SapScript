@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="pt">
 <head>
   <meta charset="utf-8">
@@ -2385,6 +2385,7 @@
     }
     const STORAGE_KEY_EXCEL_PATH = 'sap_script_web_last_excel_path';
     const JIRA_POLL_SECONDS = {{ poll_seconds | default(60) | int }};
+    const FI_DEFAULTS = {{ fi_defaults | tojson | safe }};
     let allJobs = [];
     let isConnectingWorker = false;
     let connectingTimeout = null;
@@ -4666,9 +4667,6 @@
     // Estado do último resultado EXISTE de análise de função PFCG.
     // Mantido fora de asiConversationState para sobreviver a resets de navegação (ex.: "Voltar").
     let asiPfcgRoleState = null;
-    // Nome da última função PFCG analisada, independentemente do status (EXISTE/NAO_EXISTE).
-    // Aditivo: ao contrário de asiPfcgRoleState (só EXISTE), este é usado pelo fluxo
-    // "Criar Individualmente" para nunca voltar a perguntar o nome da função.
     let asiLastAnalyzedPfcgRole = '';
     let asiPfcgSubPollingTimer = null;
     let asiPfcgSubPollingInFlight = false;
@@ -4688,10 +4686,12 @@
         ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION,
         ASI_PFCG_ROLE_ANALYZE_USERS_ACTION
     ];
+    const ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT = 'pfcg_individual_role_name';
+    const ASI_PFCG_INDIVIDUAL_ROLE_NAME_PLACEHOLDER = 'Ex.: Z_FI_CLIENTES';
     const ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT = 'pfcg_individual_description';
     const ASI_PFCG_INDIVIDUAL_TCODES_INPUT = 'pfcg_individual_tcodes';
     const ASI_PFCG_INDIVIDUAL_DESCRIPTION_PLACEHOLDER = 'Ex.: Acesso a relatórios de vendas';
-    const ASI_PFCG_INDIVIDUAL_TCODES_PLACEHOLDER = 'Ex.: VA01, VA02, MM03';
+    const ASI_PFCG_INDIVIDUAL_TCODES_PLACEHOLDER = 'Ex.: FB01, VL03N';
     const ASI_PFCG_INDIVIDUAL_BACK_ACTION = { id: 'pfcg-create-individual-back', label: '← Voltar', icon: 'analysis' };
     const ASI_PFCG_INDIVIDUAL_CONFIRM_ACTION = { id: 'pfcg-create-individual-confirm', label: 'Confirmar criação', icon: 'shield-plus' };
     const ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT = 'pfcg_transport_create_description';
@@ -4699,6 +4699,14 @@
     const ASI_PFCG_TRANSPORT_CREATE_ACTION = { id: 'pfcg-transport-create', label: 'Criar nova Request', icon: 'shield-plus' };
     const ASI_PFCG_TRANSPORT_EXISTING_ACTION = { id: 'pfcg-transport-existing', label: 'Usar Request existente', icon: 'analysis' };
     const ASI_PFCG_TRANSPORT_BACK_ACTION = { id: 'pfcg-transport-back', label: '← Voltar', icon: 'analysis' };
+    const ASI_PFCG_DELETE_ROLE_NAME_INPUT = 'pfcg_delete_role_name';
+    const ASI_PFCG_DELETE_ROLE_NAME_PLACEHOLDER = 'Ex.: Z_FI_CLIENTES';
+    const ASI_PFCG_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT = 'pfcg_delete_transport_create_description';
+    const ASI_PFCG_DELETE_BACK_ACTION = { id: 'pfcg-delete-individual-back', label: '← Voltar', icon: 'analysis' };
+    const ASI_PFCG_DELETE_CONFIRM_ACTION = { id: 'pfcg-delete-individual-confirm', label: 'Confirmar eliminação', icon: 'trash' };
+    const ASI_PFCG_DELETE_TRANSPORT_LOCAL_ACTION = { id: 'pfcg-delete-transport-local', label: 'Sem transporte (Local)', icon: 'analysis' };
+    const ASI_PFCG_DELETE_TRANSPORT_CREATE_ACTION = { id: 'pfcg-delete-transport-create', label: 'Criar nova Request', icon: 'shield-plus' };
+    const ASI_PFCG_DELETE_TRANSPORT_EXISTING_ACTION = { id: 'pfcg-delete-transport-existing', label: 'Usar Request existente', icon: 'analysis' };
     const ASI_PFCG_DYNAMIC_ACTION_IDS = new Set([
         'pfcg-role-back',
         'pfcg-role-back-to-card',
@@ -4709,7 +4717,12 @@
         'pfcg-transport-local',
         'pfcg-transport-create',
         'pfcg-transport-existing',
-        'pfcg-transport-back'
+        'pfcg-transport-back',
+        'pfcg-delete-individual-back',
+        'pfcg-delete-individual-confirm',
+        'pfcg-delete-transport-local',
+        'pfcg-delete-transport-create',
+        'pfcg-delete-transport-existing'
     ]);
 
     function asiDefaultConversationState() {
@@ -4735,6 +4748,11 @@
             pfcgCreateTransportRequestDescription: '',
             pfcgCreatePreviewJobId: '',
             pfcgCreateMessageId: '',
+            pfcgDeleteRoleName: '',
+            pfcgDeleteTransportMode: '',
+            pfcgDeleteTransportRequestNumber: '',
+            pfcgDeleteTransportRequestDescription: '',
+            pfcgDeletePreviewJobId: '',
             isBusy: false
         };
     }
@@ -4822,8 +4840,32 @@
                             processo: 'Funções PFCG',
                             subprocesso: 'B. PFCG_DELETE.py',
                             prompt: 'Quero eliminar um Perfil de Autorização.',
-                            followupText: 'Certo. Vamos preparar a eliminação do Perfil de Autorização.',
-                            children: []
+                            followupText: 'Como deseja prosseguir com a eliminação?',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'pfcg-delete-select-excel',
+                                    label: 'Selecionar Excel',
+                                    icon: 'upload',
+                                    mode: 'select_excel_delete',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'B. PFCG_DELETE.py',
+                                    prompt: 'Selecionar Excel para eliminação em massa.',
+                                    followupText: '',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-delete-individual',
+                                    label: 'Eliminar Individualmente',
+                                    icon: 'trash',
+                                    mode: 'delete_individual',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'B. PFCG_DELETE.py',
+                                    prompt: 'Quero eliminar o Perfil de Autorização individualmente via RFC.',
+                                    followupText: '',
+                                    children: []
+                                }
+                            ]
                         },
                         {
                             id: 'pfcg-authority',
@@ -4881,9 +4923,9 @@
         },
         {
             id: 'analise',
-            label: 'Análise',
+            label: 'Análise Geral',
             icon: 'analysis',
-            prompt: 'Quero fazer uma análise.',
+            prompt: 'Quero fazer uma análise geral.',
             children: []
         },
         {
@@ -4959,38 +5001,110 @@
                             processo: 'Testes Unitários',
                             environment: 'QAD',
                             prompt: 'Quero trabalhar no ambiente QAD.',
-                            followupText: 'Escolha o tipo de documento FI para validar em QAD:',
+                            followupText: 'Escolha o tipo de conta para validar em QAD:',
                             followupActionsSource: 'children',
                             children: [
                                 {
                                     id: 'testes-unitarios-criar-documento-fi-qad-cliente',
-                                    label: 'D',
+                                    label: 'Cliente',
                                     icon: 'analysis',
                                     processo: 'Testes Unitários',
                                     environment: 'QAD',
-                                    subprocesso: 'A1. Criar Documento FI - Cliente - QAD.py',
-                                    prompt: 'Quero validar um documento D no ambiente QAD.',
-                                    children: []
+                                    prompt: 'Quero validar um documento de Cliente no ambiente QAD.',
+                                    followupText: 'Escolha as informações de teste:',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'testes-unitarios-criar-documento-fi-qad-cliente-default',
+                                            label: 'Default',
+                                            icon: 'analysis',
+                                            processo: 'Testes Unitários',
+                                            environment: 'QAD',
+                                            subprocesso: 'A1. Criar Documento FI - Cliente - QAD.py',
+                                            mode: 'default',
+                                            prompt: 'Usar informações Default.',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'testes-unitarios-criar-documento-fi-qad-cliente-manual',
+                                            label: 'Manual',
+                                            icon: 'analysis',
+                                            processo: 'Testes Unitários',
+                                            environment: 'QAD',
+                                            subprocesso: 'A1. Criar Documento FI - Cliente - QAD.py',
+                                            mode: 'manual',
+                                            prompt: 'Vou informar os campos manualmente.',
+                                            children: []
+                                        }
+                                    ]
                                 },
                                 {
                                     id: 'testes-unitarios-criar-documento-fi-qad-fornecedor',
-                                    label: 'K',
+                                    label: 'Fornecedor',
                                     icon: 'analysis',
                                     processo: 'Testes Unitários',
                                     environment: 'QAD',
-                                    subprocesso: 'A2. Criar Documento FI - Fornecedor - QAD.py',
-                                    prompt: 'Quero validar um documento K no ambiente QAD.',
-                                    children: []
+                                    prompt: 'Quero validar um documento de Fornecedor no ambiente QAD.',
+                                    followupText: 'Escolha as informações de teste:',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'testes-unitarios-criar-documento-fi-qad-fornecedor-default',
+                                            label: 'Default',
+                                            icon: 'analysis',
+                                            processo: 'Testes Unitários',
+                                            environment: 'QAD',
+                                            subprocesso: 'A2. Criar Documento FI - Fornecedor - QAD.py',
+                                            mode: 'default',
+                                            prompt: 'Usar informações Default.',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'testes-unitarios-criar-documento-fi-qad-fornecedor-manual',
+                                            label: 'Manual',
+                                            icon: 'analysis',
+                                            processo: 'Testes Unitários',
+                                            environment: 'QAD',
+                                            subprocesso: 'A2. Criar Documento FI - Fornecedor - QAD.py',
+                                            mode: 'manual',
+                                            prompt: 'Vou informar os campos manualmente.',
+                                            children: []
+                                        }
+                                    ]
                                 },
                                 {
                                     id: 'testes-unitarios-criar-documento-fi-qad-razao',
-                                    label: 'S',
+                                    label: 'Razão',
                                     icon: 'analysis',
                                     processo: 'Testes Unitários',
                                     environment: 'QAD',
-                                    subprocesso: 'A3. Criar Documento FI - Razao - QAD.py',
-                                    prompt: 'Quero validar um documento S no ambiente QAD.',
-                                    children: []
+                                    prompt: 'Quero validar um documento de Razão no ambiente QAD.',
+                                    followupText: 'Escolha as informações de teste:',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'testes-unitarios-criar-documento-fi-qad-razao-default',
+                                            label: 'Default',
+                                            icon: 'analysis',
+                                            processo: 'Testes Unitários',
+                                            environment: 'QAD',
+                                            subprocesso: 'A3. Criar Documento FI - Razao - QAD.py',
+                                            mode: 'default',
+                                            prompt: 'Usar informações Default.',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'testes-unitarios-criar-documento-fi-qad-razao-manual',
+                                            label: 'Manual',
+                                            icon: 'analysis',
+                                            processo: 'Testes Unitários',
+                                            environment: 'QAD',
+                                            subprocesso: 'A3. Criar Documento FI - Razao - QAD.py',
+                                            mode: 'manual',
+                                            prompt: 'Vou informar os campos manualmente.',
+                                            children: []
+                                        }
+                                    ]
                                 }
                             ]
                         },
@@ -5245,11 +5359,23 @@
         if (asiConversationState.awaitingInput === ASI_PFCG_AWAITING_INPUT) {
             return ASI_PFCG_PLACEHOLDER;
         }
+        if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT) {
+            return ASI_PFCG_INDIVIDUAL_ROLE_NAME_PLACEHOLDER;
+        }
         if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT) {
             return ASI_PFCG_INDIVIDUAL_DESCRIPTION_PLACEHOLDER;
         }
         if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_TCODES_INPUT) {
             return ASI_PFCG_INDIVIDUAL_TCODES_PLACEHOLDER;
+        }
+        if (asiConversationState.awaitingInput === ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
+            return 'Ex.: Criação de função PFCG em DEV';
+        }
+        if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
+            return ASI_PFCG_DELETE_ROLE_NAME_PLACEHOLDER;
+        }
+        if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
+            return 'Ex.: Eliminação de função PFCG em DEV';
         }
         return ASI_DEFAULT_PLACEHOLDER;
     }
@@ -5308,11 +5434,12 @@
         style.textContent = `
             .asi-pfcg-result-card {
                 white-space: normal;
+                width: 100%;
             }
 
             .asi-pfcg-result-shell {
-                margin-top: 6px;
-                padding-top: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
                 border-top: 1px solid rgba(148, 163, 184, 0.18);
             }
 
@@ -5320,35 +5447,27 @@
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                gap: 10px;
+                gap: 12px;
                 flex-wrap: wrap;
             }
 
-            .asi-pfcg-result-row {
+            .asi-pfcg-result-grid {
                 display: grid;
-                grid-template-columns:
-                    195px
-                    minmax(140px, 1fr)
-                    50px
-                    55px
-                    55px;
-                column-gap: 14px;
-                row-gap: 2px;
-                margin-top: 0;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                column-gap: 20px;
+                row-gap: 14px;
+                margin-top: 8px;
                 align-items: start;
                 width: 100%;
-            }
-
-            .asi-pfcg-result-row--compact {
-                grid-template-columns:
-                    195px
-                    55px
-                    55px;
             }
 
             .asi-pfcg-result-field {
                 min-width: 0;
                 overflow-wrap: anywhere;
+            }
+
+            .asi-pfcg-result-field--span2 {
+                grid-column: span 2;
             }
 
             .asi-pfcg-result-value--nowrap {
@@ -5360,9 +5479,9 @@
             .asi-pfcg-result-label {
                 display: block;
                 margin: 0 0 2px;
-                font-size: 0.72rem;
+                font-size: 0.7rem;
                 font-weight: 700;
-                letter-spacing: 0.04em;
+                letter-spacing: 0.05em;
                 text-transform: uppercase;
                 color: var(--text-secondary);
                 line-height: 1.15;
@@ -5371,10 +5490,10 @@
             .asi-pfcg-result-value {
                 display: block;
                 margin: 0;
-                font-size: 0.82rem;
+                font-size: 0.84rem;
                 font-weight: 600;
                 color: var(--text-primary);
-                line-height: 1.2;
+                line-height: 1.25;
                 word-break: break-word;
                 overflow-wrap: anywhere;
             }
@@ -5415,40 +5534,36 @@
             }
 
             .asi-pfcg-result-note {
-                margin-top: 6px;
+                margin-top: 8px;
                 font-size: 0.78rem;
                 line-height: 1.3;
                 color: var(--text-secondary);
             }
 
-            @media (max-width: 850px) {
-                .asi-pfcg-result-row,
-                .asi-pfcg-result-row--compact {
-                    grid-template-columns: 1fr 1fr;
-                }
-
-                .asi-pfcg-result-value--nowrap {
-                    white-space: normal;
-                    overflow: visible;
-                    text-overflow: clip;
+            @media (max-width: 900px) {
+                .asi-pfcg-result-grid {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
             }
 
             @media (max-width: 550px) {
-                .asi-pfcg-result-row,
-                .asi-pfcg-result-row--compact {
+                .asi-pfcg-result-grid {
                     grid-template-columns: 1fr;
+                }
+                .asi-pfcg-result-field--span2 {
+                    grid-column: span 1;
                 }
             }
         `;
         document.head.appendChild(style);
     }
 
-    function asiBuildPfcgResultField(label, value, extraValueClass) {
+    function asiBuildPfcgResultField(label, value, extraValueClass, isSpan2 = false) {
         if (value === null || value === undefined || value === '') return '';
         const valueClass = extraValueClass ? `asi-pfcg-result-value ${extraValueClass}` : 'asi-pfcg-result-value';
+        const spanClass = isSpan2 ? ' asi-pfcg-result-field--span2' : '';
         return `
-            <div class="asi-pfcg-result-field">
+            <div class="asi-pfcg-result-field${spanClass}">
                 <span class="asi-pfcg-result-label">${escapeHtml(label)}</span>
                 <span class="${valueClass}">${escapeHtml(String(value))}</span>
             </div>
@@ -5471,7 +5586,7 @@
         const rowFields = isExisting
             ? [
                 asiBuildPfcgResultField('Função', result.role || roleInExcel, 'asi-pfcg-result-value--nowrap'),
-                asiBuildPfcgResultField('Descrição', result.description),
+                asiBuildPfcgResultField('Descrição', result.description, '', true),
                 asiBuildPfcgResultField('Idioma', result.language),
                 asiBuildPfcgResultField('Sistema', result.system),
                 asiBuildPfcgResultField('Cliente', result.client)
@@ -5482,8 +5597,6 @@
                 asiBuildPfcgResultField('Cliente', result.client)
             ].join('');
 
-        const rowClass = isExisting ? 'asi-pfcg-result-row' : 'asi-pfcg-result-row asi-pfcg-result-row--compact';
-
         return `
             <div class="asi-pfcg-result-card">
                 <div class="asi-pfcg-result-heading-row">
@@ -5491,7 +5604,7 @@
                     ${topRightStatus}
                 </div>
                 <div class="asi-pfcg-result-shell">
-                    <div class="${rowClass}">
+                    <div class="asi-pfcg-result-grid">
                         ${rowFields}
                     </div>
                     ${note}
@@ -5521,6 +5634,19 @@
         `;
     }
 
+    function asiBuildThinkingDotsHtml(message) {
+        return `
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="display:inline-flex;align-items:center;gap:4px;">
+                    <span class="wizard-dot"></span>
+                    <span class="wizard-dot" style="animation-delay:0.15s;"></span>
+                    <span class="wizard-dot" style="animation-delay:0.3s;"></span>
+                </div>
+                <span style="font-weight:600;">${escapeHtml(message)}</span>
+            </div>
+        `;
+    }
+
     function asiPfcgTransportModeLabel(mode) {
         const normalized = String(mode || 'LOCAL').toUpperCase();
         if (normalized === 'CREATE_REQUEST') return 'Nova Request';
@@ -5540,9 +5666,9 @@
             asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
             asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
             asiBuildPfcgResultField('Descrição', result.description),
-            asiBuildPfcgResultField('Transações', tcodes.join(', ')),
             asiBuildPfcgResultField('Total', result.tcodes_count != null ? result.tcodes_count : tcodes.length),
-            asiBuildPfcgResultField('Transporte', transportValue)
+            asiBuildPfcgResultField('Transações', tcodes.join(', '), '', true),
+            asiBuildPfcgResultField('Transporte', transportValue, '', true)
         ].join('');
 
         return `
@@ -5552,10 +5678,93 @@
                     <span class="asi-pfcg-result-pill asi-pfcg-result-pill--warning">PREVIEW</span>
                 </div>
                 <div class="asi-pfcg-result-shell">
-                    <div class="asi-pfcg-result-row asi-pfcg-result-row--compact" style="grid-template-columns: 1fr;">
+                    <div class="asi-pfcg-result-grid">
                         ${rowFields}
                     </div>
                     <div class="asi-pfcg-result-note">Esta ação cria uma função PFCG real em DEV via RFC (sem SAP GUI). Reveja os dados antes de confirmar.</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgDeletePreviewHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const tcodes = Array.isArray(result.tcodes) ? result.tcodes : [];
+        const transport = result.transport || {};
+        const transportLabel = asiPfcgTransportModeLabel(transport.transport_mode);
+        const transportValue = transport.request_number
+            ? `${transportLabel} — ${transport.request_number}`
+            : transportLabel;
+        const usersCount = Number(result.users_count || 0);
+        const usersValue = usersCount > 0
+            ? `<span style="color:#dc2626;font-weight:700;">⚠ ${usersCount} utilizador(es) atribuído(s)</span>`
+            : '0 utilizadores';
+
+        const rowFields = [
+            asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+            asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+            asiBuildPfcgResultField('Descrição', result.description),
+            asiBuildPfcgResultField('Utilizadores', usersValue),
+            asiBuildPfcgResultField('Transações', tcodes.length ? tcodes.join(', ') : '(Nenhuma)', '', true),
+            asiBuildPfcgResultField('Transporte', transportValue, '', true)
+        ].join('');
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#dc2626;">⚠ Confirme a eliminação em DEV</div>
+                    <span class="asi-pfcg-result-pill asi-pfcg-result-pill--warning" style="background:rgba(220,38,38,0.12);color:#dc2626;">DELETE PREVIEW</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">
+                        ${rowFields}
+                    </div>
+                    <div class="asi-pfcg-result-note" style="color:#dc2626;font-weight:600;">Esta ação ELIMINA permanentemente a função PFCG em DEV via RFC. Reveja com atenção antes de confirmar.</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgDeleteResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const ok = result.ok === true;
+        const status = String(result.status || (ok ? 'DELETED' : 'ERROR'));
+        const accent = ok ? '#16a34a' : '#dc2626';
+        const heading = ok ? '✓ Função eliminada em DEV' : '✗ Falha na eliminação em DEV';
+        const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
+
+        const resultTransportLabel = asiPfcgTransportModeLabel(result.transport_mode);
+        const resultTransportValue = result.transport_request
+            ? `${resultTransportLabel} — ${result.transport_request}`
+            : resultTransportLabel;
+
+        const rowFields = ok
+            ? [
+                asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)
+            ].join('')
+            : [
+                asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Tipo de erro', result.error_type, '', true)
+            ].join('');
+
+        const message = !ok && result.message
+            ? `<div class="asi-pfcg-result-note">${escapeHtml(String(result.message))}</div>`
+            : '';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${accent};">${heading}</div>
+                    <span class="asi-pfcg-result-pill ${pillClass}">${escapeHtml(status)}</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">
+                        ${rowFields}
+                    </div>
+                    ${message}
                 </div>
             </div>
         `;
@@ -5579,15 +5788,15 @@
                 asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
                 asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
                 asiBuildPfcgResultField('Descrição', result.description),
+                asiBuildPfcgResultField('Perfil gerado', result.profile_generated === true ? 'Sim' : (result.profile_generated === false ? 'Não' : '')),
                 asiBuildPfcgResultField('Transações pedidas', result.tcodes_requested),
                 asiBuildPfcgResultField('Transações criadas', result.tcodes_created),
-                asiBuildPfcgResultField('Perfil gerado', result.profile_generated === true ? 'Sim' : (result.profile_generated === false ? 'Não' : '')),
-                asiBuildPfcgResultField('Transporte', resultTransportValue)
+                asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)
             ].join('')
             : [
                 asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
                 asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
-                asiBuildPfcgResultField('Tipo de erro', result.error_type)
+                asiBuildPfcgResultField('Tipo de erro', result.error_type, '', true)
             ].join('');
 
         const message = !ok && result.message
@@ -5601,7 +5810,7 @@
                     <span class="asi-pfcg-result-pill ${pillClass}">${escapeHtml(status)}</span>
                 </div>
                 <div class="asi-pfcg-result-shell">
-                    <div class="asi-pfcg-result-row asi-pfcg-result-row--compact" style="grid-template-columns: 1fr;">
+                    <div class="asi-pfcg-result-grid">
                         ${rowFields}
                     </div>
                     ${message}
@@ -5902,6 +6111,18 @@
         messages.scrollTop = messages.scrollHeight;
     }
 
+    function asiScrollToBottomAfterPaint() {
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => {
+                asiScrollToBottom();
+                window.requestAnimationFrame(() => asiScrollToBottom());
+            });
+            return;
+        }
+
+        setTimeout(() => asiScrollToBottom(), 0);
+    }
+
     function asiAutoResizeInput() {
         const { input } = asiGetElements();
         if (!input) return;
@@ -5950,7 +6171,7 @@
             `;
         }).join('');
 
-        asiScrollToBottom();
+        asiScrollToBottomAfterPaint();
     }
 
     function asiAppendMessage(message) {
@@ -6766,6 +6987,18 @@
         asiUpdateComposerState();
     }
 
+    function asiPresentConfiguracoesMenu() {
+        const configAction = asiFindQuickAction('configuracoes', salsaAgentActions);
+        const text = (configAction && configAction.followupText) || 'Escolha uma opção de Configurações:';
+        const actions = (configAction && Array.isArray(configAction.children)) ? configAction.children : [];
+        asiAppendMessage(asiCreateMessage('assistant', text, {
+            actions: actions,
+            actionLevel: 1,
+            parentActionId: 'configuracoes',
+            selectionGroupKey: 'configuracoes'
+        }));
+    }
+
     function asiHandlePfcgRoleBackToCard() {
         if (!asiPfcgRoleState || !asiPfcgRoleState.role) {
             asiAppendMessage(asiCreateMessage(
@@ -6799,15 +7032,6 @@
     }
 
     function asiStartPfcgIndividualCreate() {
-        const roleName = String(asiLastAnalyzedPfcgRole || '').trim();
-        if (!roleName) {
-            asiAppendMessage(asiCreateMessage(
-                'assistant',
-                'Antes de criar individualmente, analise primeiro o nome do Perfil de Autorização em "Analisar".'
-            ));
-            return;
-        }
-
         if (asiChatMockTimer) {
             clearTimeout(asiChatMockTimer);
             asiChatMockTimer = null;
@@ -6815,19 +7039,19 @@
 
         asiConversationState = {
             ...asiConversationState,
-            pfcgCreateRoleName: roleName,
+            pfcgCreateRoleName: '',
             pfcgCreateDescription: '',
             pfcgCreateTcodes: [],
             pfcgCreateTransportMode: '',
             pfcgCreateTransportRequestNumber: '',
             pfcgCreateTransportRequestDescription: '',
             pfcgCreatePreviewJobId: '',
-            awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
+            awaitingInput: ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT,
             isBusy: false
         };
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            `Vamos criar a função ${roleName} individualmente via RFC em DEV. Qual é a descrição do Perfil de Autorização?`
+            'Envie o Nome do perfil que vamos criar'
         ));
         asiUpdateComposerState();
         const { input } = asiGetElements();
@@ -6938,7 +7162,7 @@
     function asiAskPfcgTransportMode() {
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Como deseja gerir o transporte desta função em DEV?',
+            'Deseja utilizar ordem de transporte em DEV?',
             {
                 actions: [ASI_PFCG_TRANSPORT_LOCAL_ACTION, ASI_PFCG_TRANSPORT_CREATE_ACTION, ASI_PFCG_TRANSPORT_EXISTING_ACTION],
                 actionLevel: 0,
@@ -6980,7 +7204,7 @@
         };
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Qual é a descrição da nova Request de transporte a criar em DEV?'
+            'Envie a descrição/nome para a nova Request de transporte a criar em DEV:'
         ));
         asiUpdateComposerState();
         const { input } = asiGetElements();
@@ -7037,6 +7261,20 @@
             asiChatMockTimer = null;
         }
         asiAppendMessage(asiCreateMessage('user', `Usar a Request ${normalized}`));
+
+        if (asiConversationState.pfcgDeleteRoleName) {
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgDeleteTransportMode: 'EXISTING_REQUEST',
+                pfcgDeleteTransportRequestNumber: normalized,
+                pfcgDeleteTransportRequestDescription: '',
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            asiStartPfcgDeletePreview();
+            return;
+        }
+
         asiConversationState = {
             ...asiConversationState,
             pfcgCreateTransportMode: 'EXISTING_REQUEST',
@@ -7333,6 +7571,9 @@
                 });
                 asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
                 asiUpdateComposerState();
+                setTimeout(() => {
+                    asiPresentConfiguracoesMenu();
+                }, 400);
             } catch (error) {
                 asiStopPfcgIndividualPolling();
                 asiUpdateMessage(messageId, {
@@ -7409,7 +7650,446 @@
         }
     }
 
+    let asiPfcgDeletePollingTimer = null;
+    let asiPfcgDeletePollingInFlight = false;
+
+    function asiStopPfcgDeletePolling() {
+        if (asiPfcgDeletePollingTimer) {
+            clearInterval(asiPfcgDeletePollingTimer);
+            asiPfcgDeletePollingTimer = null;
+        }
+        asiPfcgDeletePollingInFlight = false;
+    }
+
+    function asiStartPfcgIndividualDelete() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgDeleteRoleName: '',
+            pfcgDeleteTransportMode: '',
+            pfcgDeleteTransportRequestNumber: '',
+            pfcgDeleteTransportRequestDescription: '',
+            pfcgDeletePreviewJobId: '',
+            awaitingInput: ASI_PFCG_DELETE_ROLE_NAME_INPUT,
+            isBusy: false
+        };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'Envie o Nome do perfil que vamos eliminar'
+        ));
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
+    function asiAskPfcgDeleteTransportMode() {
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'Deseja utilizar ordem de transporte em DEV?',
+            {
+                actions: [ASI_PFCG_DELETE_TRANSPORT_LOCAL_ACTION, ASI_PFCG_DELETE_TRANSPORT_CREATE_ACTION, ASI_PFCG_DELETE_TRANSPORT_EXISTING_ACTION],
+                actionLevel: 0,
+                parentActionId: '',
+                selectionGroupKey: '__pfcg_delete_transport_mode__'
+            }
+        ));
+        asiConversationState = { ...asiConversationState, isBusy: false };
+        asiUpdateComposerState();
+    }
+
+    function asiSelectPfcgDeleteTransportLocal() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', 'Sem transporte (Local)'));
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgDeleteTransportMode: 'LOCAL',
+            pfcgDeleteTransportRequestNumber: '',
+            pfcgDeleteTransportRequestDescription: '',
+            isBusy: true
+        };
+        asiUpdateComposerState();
+        asiStartPfcgDeletePreview();
+    }
+
+    function asiAskPfcgDeleteTransportCreateDescription() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', 'Criar nova Request'));
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: ASI_PFCG_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT,
+            isBusy: false
+        };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'Envie a descrição/nome para a nova Request de transporte a criar em DEV:'
+        ));
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
+    async function asiStartPfcgDeletePreview() {
+        const { input } = asiGetElements();
+        const roleName = String(asiConversationState.pfcgDeleteRoleName || '').trim();
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        const processingMessage = asiCreateMessage('assistant', 'A validar dados para eliminação da função em DEV...', {
+            html: asiBuildPfcgGenericProcessingHtml('A validar dados para eliminação da função em DEV...'),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/delete/rfc/preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    role_name: roleName,
+                    transport_mode: String(asiConversationState.pfcgDeleteTransportMode || 'LOCAL').trim().toUpperCase(),
+                    request_number: String(asiConversationState.pfcgDeleteTransportRequestNumber || '').trim(),
+                    request_description: String(asiConversationState.pfcgDeleteTransportRequestDescription || '').trim()
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgDeletePreviewJobId: jobId,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiPollPfcgDeletePreview(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível preparar a pré-visualização da eliminação em DEV.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível preparar a pré-visualização da eliminação em DEV.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollPfcgDeletePreview(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgDeletePolling();
+        asiPfcgDeletePollingTimer = setInterval(async () => {
+            if (asiPfcgDeletePollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A validação está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A validação está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgDeletePollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/delete/rfc/preview/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgDeletePolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível validar os dados da função em DEV.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não foi possível validar os dados da função em DEV.',
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : {};
+                if (!result.ok && result.status === 'NOT_FOUND') {
+                    asiUpdateMessage(messageId, {
+                        text: result.message || `A função não existe no ambiente DEV.`,
+                        html: asiBuildPfcgErrorHtml(
+                            'Função não encontrada em DEV',
+                            result.message || 'A função informada não existe no ambiente DEV.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    setTimeout(() => {
+                        asiPresentConfiguracoesMenu();
+                    }, 400);
+                    return;
+                }
+
+                if (!result.ok) {
+                    asiUpdateMessage(messageId, {
+                        text: result.message || 'A validação da função em DEV devolveu erro.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não é possível eliminar a função em DEV',
+                            result.message || 'Verifique as mensagens de erro antes de prosseguir.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: 'Confirme os dados antes de eliminar a função em DEV.',
+                    html: asiBuildPfcgDeletePreviewHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [ASI_PFCG_DELETE_BACK_ACTION, ASI_PFCG_DELETE_CONFIRM_ACTION],
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__pfcg_delete_preview__'
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível validar os dados da função em DEV.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível validar os dados da função em DEV.'),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgDeletePollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiHandlePfcgDeleteConfirm() {
+        const { input } = asiGetElements();
+        const previewJobId = String(asiConversationState.pfcgDeletePreviewJobId || '').trim();
+        if (!previewJobId) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Não foi possível localizar a pré-visualização. Repita a preparação da eliminação individual.'
+            ));
+            return;
+        }
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiAppendMessage(asiCreateMessage('user', 'Confirmar eliminação'));
+        const processingMessage = asiCreateMessage('assistant', 'A eliminar a função em DEV via RFC...', {
+            html: asiBuildPfcgGenericProcessingHtml('A eliminar a função em DEV via RFC...'),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/delete/rfc/confirm', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ preview_job_id: previewJobId })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollPfcgDeleteConfirm(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível concluir a eliminação da função em DEV.',
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível concluir a eliminação da função em DEV.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollPfcgDeleteConfirm(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgDeletePolling();
+        asiPfcgDeletePollingTimer = setInterval(async () => {
+            if (asiPfcgDeletePollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A eliminação está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A eliminação está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgDeletePollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/delete/rfc/confirm/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgDeletePolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a eliminação da função em DEV.',
+                        html: asiBuildPfcgErrorHtml(
+                            'Não foi possível concluir a eliminação da função em DEV.',
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : {};
+                const ok = result.ok === true;
+
+                asiUpdateMessage(messageId, {
+                    text: ok
+                        ? `Função ${result.role} eliminada com sucesso em DEV.`
+                        : 'Não foi possível concluir a eliminação da função em DEV.',
+                    html: asiBuildPfcgDeleteResultHtml(result),
+                    isProcessing: false,
+                    wide: true
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiUpdateComposerState();
+                setTimeout(() => {
+                    asiPresentConfiguracoesMenu();
+                }, 400);
+            } catch (error) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a eliminação da função em DEV.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a eliminação da função em DEV.'),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgDeletePollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    function asiHandlePfcgDeleteBack() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiStopPfcgDeletePolling();
+        asiAppendMessage(asiCreateMessage('user', 'Quero rever os dados da eliminação individual.'));
+        asiStartPfcgIndividualDelete();
+    }
+
     function asiHandlePfcgRoleDynamicAction(actionId) {
+        if (actionId === 'pfcg-delete-individual-back') {
+            asiHandlePfcgDeleteBack();
+            return;
+        }
+        if (actionId === 'pfcg-delete-individual-confirm') {
+            asiHandlePfcgDeleteConfirm();
+            return;
+        }
+        if (actionId === 'pfcg-delete-transport-local') {
+            asiSelectPfcgDeleteTransportLocal();
+            return;
+        }
+        if (actionId === 'pfcg-delete-transport-create') {
+            asiAskPfcgDeleteTransportCreateDescription();
+            return;
+        }
+        if (actionId === 'pfcg-delete-transport-existing') {
+            asiStartPfcgTransportSearch();
+            return;
+        }
         if (actionId === 'pfcg-role-back') {
             asiHandlePfcgRoleBack();
             return;
@@ -7489,10 +8169,168 @@
             return;
         }
 
+        if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
+            const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
+            if (!normalizedRoleName) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Envie o Nome do perfil que vamos eliminar'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_DELETE_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (normalizedRoleName.length > 30) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    `O nome do Perfil de Autorização não pode ultrapassar o tamanho máximo de 30 caracteres (tem ${normalizedRoleName.length} caracteres).\nPor favor, corrija o nome e envie novamente.`
+                ));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_DELETE_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (!asiIsValidPfcgRoleName(normalizedRoleName)) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".\nPor favor, corrija o nome e envie novamente.'
+                ));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_DELETE_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgDeleteRoleName: normalizedRoleName,
+                awaitingInput: '',
+                isBusy: false
+            };
+            asiUpdateComposerState();
+            asiAskPfcgDeleteTransportMode();
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
+            const requestDescription = rawMessage.trim();
+            if (!requestDescription) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe uma descrição válida para a nova Request de transporte.'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgDeleteTransportMode: 'CREATE_REQUEST',
+                pfcgDeleteTransportRequestDescription: requestDescription,
+                pfcgDeleteTransportRequestNumber: '',
+                awaitingInput: '',
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiStartPfcgDeletePreview();
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT) {
+            const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
+            if (!normalizedRoleName) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Envie o Nome do perfil que vamos criar'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (normalizedRoleName.length > 30) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    `O nome do Perfil de Autorização não pode ultrapassar o tamanho máximo de 30 caracteres (tem ${normalizedRoleName.length} caracteres).\nPor favor, corrija o nome e envie novamente.`
+                ));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (!asiIsValidPfcgRoleName(normalizedRoleName)) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".\nPor favor, corrija o nome e envie novamente.'
+                ));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiLastAnalyzedPfcgRole = normalizedRoleName;
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreateRoleName: normalizedRoleName,
+                pfcgCreateDescription: '',
+                awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
+                isBusy: false
+            };
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Qual é a descrição do Perfil de Autorização?'
+            ));
+            asiUpdateComposerState();
+            input.focus();
+            return;
+        }
+
         if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT) {
             const description = rawMessage.trim();
             if (!description) {
                 asiAppendMessage(asiCreateMessage('assistant', 'Informe uma descrição válida para o Perfil de Autorização.'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (description.length > 80) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    `A descrição não pode ultrapassar o tamanho máximo de 80 caracteres (tem ${description.length} caracteres).\nPor favor, corrija e envie novamente.`
+                ));
                 asiConversationState = {
                     ...asiConversationState,
                     awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
@@ -7511,7 +8349,7 @@
             };
             asiAppendMessage(asiCreateMessage(
                 'assistant',
-                'Quais transações (TCODEs) deseja atribuir? Pode indicar várias, separadas por espaço, vírgula ou quebra de linha.'
+                'Quais as transações a atribuir à função? Se for mais de uma transação, separe por vírgula (ex.: FB01, VL03N).'
             ));
             asiUpdateComposerState();
             input.focus();
@@ -7521,7 +8359,7 @@
         if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_TCODES_INPUT) {
             const tcodes = asiNormalizePfcgTcodes(rawMessage);
             if (tcodes.length === 0) {
-                asiAppendMessage(asiCreateMessage('assistant', 'Informe pelo menos uma transação válida.'));
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe pelo menos uma transação válida. Se for mais de uma transação, separe por vírgula (ex.: FB01, VL03N).'));
                 asiConversationState = {
                     ...asiConversationState,
                     awaitingInput: ASI_PFCG_INDIVIDUAL_TCODES_INPUT,
@@ -7599,6 +8437,297 @@
         asiSendMessage(prompt, options);
     }
 
+    function asiIsFiDefaultQuickAction(action) {
+        const processo = String(action && action.processo ? action.processo : '').trim().toLowerCase();
+        const subprocesso = String(action && action.subprocesso ? action.subprocesso : '').trim().toLowerCase();
+        const mode = String(action && action.mode ? action.mode : '').trim().toLowerCase();
+        const environment = String(action && action.environment ? action.environment : '').trim().toUpperCase();
+
+        return (
+            mode === 'default' &&
+            environment === 'QAD' &&
+            processo === 'testes unitários' &&
+            subprocesso.includes('criar documento fi')
+        );
+    }
+
+    function asiExtractJobStatusText(job) {
+        const rawStatus = String(job && job.status ? job.status : '').trim();
+        if (!rawStatus) return '';
+        try {
+            const parsed = JSON.parse(rawStatus);
+            if (parsed && typeof parsed === 'object') {
+                return String(parsed.message || parsed.status || rawStatus).trim();
+            }
+        } catch (_) {
+            // Texto simples.
+        }
+        return rawStatus;
+    }
+
+    async function asiPollGenericJob(jobId, messageId, successTitle, failureTitle) {
+        const startedAt = Date.now();
+        const timeoutMs = 120000;
+        const pollIntervalMs = 2000;
+
+        const pollTimer = setInterval(async () => {
+            if ((Date.now() - startedAt) >= timeoutMs) {
+                clearInterval(pollTimer);
+                asiUpdateMessage(messageId, {
+                    text: failureTitle,
+                    html: escapeHtml(failureTitle),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const job = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error((job && job.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                const state = String(job.state || '').trim().toLowerCase();
+                if (state === 'pending' || state === 'running') {
+                    return;
+                }
+
+                clearInterval(pollTimer);
+
+                if (state === 'failed') {
+                    const failDetail = String(job.status || job.log || '').trim();
+                    const failText = failDetail
+                        ? `${failureTitle}\n${failDetail}`
+                        : failureTitle;
+                    asiUpdateMessage(messageId, {
+                        text: failText,
+                        html: failDetail
+                            ? `${escapeHtml(failureTitle)}<br><span style="color: var(--danger);">${escapeHtml(failDetail).replace(/\n/g, '<br>')}</span>`
+                            : escapeHtml(failureTitle),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const jobStatusText = asiExtractJobStatusText(job);
+                const successText = jobStatusText
+                    ? `${successTitle}\n${jobStatusText}`
+                    : successTitle;
+                asiUpdateMessage(messageId, {
+                    text: successText,
+                    html: jobStatusText
+                        ? `${escapeHtml(successTitle)}<br><span style="color: var(--text-secondary);">${escapeHtml(jobStatusText).replace(/\n/g, '<br>')}</span>`
+                        : escapeHtml(successTitle),
+                    isProcessing: false,
+                    wide: true
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                clearInterval(pollTimer);
+                const failText = `${failureTitle}\n${error.message || 'Falha desconhecida.'}`;
+                asiUpdateMessage(messageId, {
+                    text: failText,
+                    html: `${escapeHtml(failureTitle)}<br><span style="color: var(--danger);">${escapeHtml(error.message || 'Falha desconhecida.').replace(/\n/g, '<br>')}</span>`,
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            }
+        }, pollIntervalMs);
+    }
+
+    async function asiStartFiDefaultJob(action) {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        const userPrompt = String(action && action.prompt ? action.prompt : 'Usar informações Default.').trim();
+        const processo = String(action && action.processo ? action.processo : 'Testes Unitários').trim();
+        const subprocesso = String(action && action.subprocesso ? action.subprocesso : '').trim();
+        const ambiente = String(action && action.environment ? action.environment : 'QAD').trim().toUpperCase();
+
+        asiAppendMessage(asiCreateMessage('user', userPrompt));
+
+        const processingMessage = asiCreateMessage('assistant', 'A criar o documento FI via RFC com os dados Default...', {
+            html: asiBuildThinkingDotsHtml('A criar o documento FI via RFC com os dados Default...'),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    task: 'sap_cockpit',
+                    params: {
+                        ambiente,
+                        environment: ambiente,
+                        processo,
+                        subprocesso,
+                        data_mode: 'default'
+                    }
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = String(data && data.id ? data.id : '').trim();
+            if (!jobId) {
+                throw new Error('Resposta do backend sem id de job.');
+            }
+
+            await asiPollGenericJob(
+                jobId,
+                processingMessage.id,
+                `Documento FI enviado para execução em ${ambiente}.`,
+                `Não foi possível executar o documento FI em ${ambiente}.`
+            );
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível executar o documento FI em ${ambiente}.`,
+                html: `${escapeHtml(`Não foi possível executar o documento FI em ${ambiente}.`)}<br><span style="color: var(--danger);">${escapeHtml(error.message || 'Falha desconhecida.').replace(/\n/g, '<br>')}</span>`,
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
+    function asiGetFiActionContext(action) {
+        const actionId = String(action?.id || '').toLowerCase();
+        const environment = actionId.includes('-dev-') ? 'DEV'
+            : actionId.includes('-prd-') ? 'PRD'
+            : actionId.includes('-qad-') ? 'QAD'
+            : 'QAD';
+        const branch = actionId.includes('fornecedor') ? 'fornecedor'
+            : actionId.includes('razao') ? 'razao'
+            : 'cliente';
+        return { environment, branch };
+    }
+
+    function asiBuildFiDefaultPayload(action) {
+        const { environment, branch } = asiGetFiActionContext(action);
+        const defaults = FI_DEFAULTS || {};
+        const common = defaults.common || {};
+        const branchDefaults = (defaults.branches || {})[branch] || {};
+        const payload = {
+            environment,
+            data_mode: 'default',
+            company_code: common.company_code || '',
+            posting_date: common.posting_date || '',
+            document_date: common.document_date || '',
+            currency: common.currency || 'EUR',
+            header_text: common.header_text || '',
+            reference: '',
+            username: '',
+            amount: common.amount || '',
+            tax_code: common.tax_code || '',
+            tax_amount: common.tax_amount || '0',
+            tax_rate: common.tax_rate || '',
+            tax_gl_account: common.tax_gl_account || '',
+            item_text: common.item_text || common.header_text || '',
+            customer_account: '',
+            revenue_gl_account: '',
+            vendor_account: '',
+            expense_gl_account: '',
+            debit_gl_account: '',
+            credit_gl_account: '',
+            tax_direction: common.tax_direction || 'credit',
+        };
+
+        if (branch === 'cliente') {
+            payload.customer_account = branchDefaults.account || '';
+            payload.revenue_gl_account = branchDefaults.counterparty || '';
+        } else if (branch === 'fornecedor') {
+            payload.vendor_account = branchDefaults.account || '';
+            payload.expense_gl_account = branchDefaults.counterparty || '';
+        } else if (branch === 'razao') {
+            payload.debit_gl_account = branchDefaults.debit_gl_account || '';
+            payload.credit_gl_account = branchDefaults.credit_gl_account || '';
+        }
+
+        return payload;
+    }
+
+    async function asiStartFiDefaultJob(action) {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        const { environment, branch } = asiGetFiActionContext(action);
+        const branchLabel = branch === 'cliente' ? 'Cliente' : branch === 'fornecedor' ? 'Fornecedor' : 'Razão';
+        const userPrompt = action?.prompt || 'Usar informações Default.';
+        asiAppendMessage(asiCreateMessage('user', userPrompt));
+
+        const processingMessage = asiCreateMessage('assistant', `A criar o documento FI de ${branchLabel} em ${environment} via RFC com os dados Default...`, {
+            html: asiBuildThinkingDotsHtml(`A criar o documento FI de ${branchLabel} em ${environment} via RFC com os dados Default...`),
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/fi/default-document', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(asiBuildFiDefaultPayload(action)),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false || data.status === 'ERRO') {
+                throw new Error(data.message || `Falha HTTP ${response.status}`);
+            }
+
+            const documentNumber = String(data.document_number || '').trim();
+            const successHtml = `
+                <div style="margin-top:8px;padding:12px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);">
+                    <div style="font-weight:700;color:#10b981;margin-bottom:6px;">Documento FI executado via RFC</div>
+                    <div style="font-size:0.82rem;color:var(--text-primary);line-height:1.5;">
+                        <div><strong>Ambiente:</strong> ${escapeHtml(environment)}</div>
+                        <div><strong>Tipo:</strong> ${escapeHtml(branchLabel)}</div>
+                        <div><strong>Estado:</strong> ${escapeHtml(String(data.status || 'SUCESSO'))}</div>
+                        ${documentNumber ? `<div><strong>Documento:</strong> ${escapeHtml(documentNumber)}</div>` : ''}
+                        <div style="margin-top:6px;">${escapeHtml(String(data.message || 'Documento processado com sucesso.'))}</div>
+                    </div>
+                </div>`;
+
+            asiUpdateMessage(processingMessage.id, {
+                text: `Documento FI concluído em ${environment} (${branchLabel}).${documentNumber ? ` Documento ${documentNumber}.` : ''}`,
+                html: successHtml,
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            return;
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível executar o documento FI em ${environment}.`,
+                html: `${escapeHtml(`Não foi possível executar o documento FI em ${environment}.`)}<br><span style="color: var(--danger);">${escapeHtml(error.message || 'Falha desconhecida.').replace(/\n/g, '<br>')}</span>`,
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
     function asiHandleQuickActionSelection(actionId, level, parentActionId = '', selectionGroupKey = '__root__') {
         if (ASI_PFCG_DYNAMIC_ACTION_IDS.has(actionId)) {
             asiHandlePfcgRoleDynamicAction(actionId);
@@ -7638,6 +8767,11 @@
 
         asiRenderMessages();
 
+        if (asiIsFiDefaultQuickAction(action)) {
+            asiStartFiDefaultJob(action);
+            return;
+        }
+
         if (action.id === 'pfcg-create-analyze') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
@@ -7675,6 +8809,17 @@
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiStartPfcgIndividualCreate();
+            return;
+        }
+
+        if (action.id === 'pfcg-delete-individual') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartPfcgIndividualDelete();
             return;
         }
 

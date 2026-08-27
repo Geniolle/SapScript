@@ -1,5 +1,7 @@
 # SAP Script Web Cockpit
 
+Repositório GitHub: https://github.com/Geniolle/SapScript.git
+
 Este pacote liga uma pagina web em Docker ao teu SAP Cockpit atual, sem executar SAP GUI dentro do container.
 
 ## Arquitetura
@@ -100,6 +102,12 @@ python worker.py
 O intervalo de sincronização em background é controlado por `POLL_SECONDS`. Exemplo: `60` para 1 minuto, `30` para 30 segundos.
 
 A sincronização JIRA corre automaticamente em background quando a aplicação web arranca.
+
+## Headroom
+
+Referência de comandos e variáveis para o proxy local:
+
+- [docs/HEADROOM.md](docs/HEADROOM.md)
 
 ## 5. Como executar pela web
 

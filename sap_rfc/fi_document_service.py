@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import re
+from datetime import date
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -77,6 +79,11 @@ def _env_default(environment: str, field_name: str, default: str = "") -> str:
     return default
 
 
+def _env_user(environment: str, default: str = "") -> str:
+    env = _normalize_environment(environment)
+    return str(os.getenv(f"SAP_{env}_USER", default) or default).strip()
+
+
 def _sequence_store_path() -> Path:
     data_dir = Path(__file__).resolve().parents[1] / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -84,7 +91,9 @@ def _sequence_store_path() -> Path:
 
 
 def _next_reference(prefix: str) -> str:
-    safe_prefix = str(prefix or "RFC-Test-v1").strip() or "RFC-Test-v1"
+    safe_prefix = str(prefix or "RFC-TEST").strip().upper() or "RFC-TEST"
+    match = re.match(r"^(.*?)-V(\d+)$", safe_prefix)
+    base_prefix = match.group(1) if match else safe_prefix
     db_path = _sequence_store_path()
     connection = sqlite3.connect(db_path)
     try:
@@ -94,29 +103,29 @@ def _next_reference(prefix: str) -> str:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
             "SELECT next_value FROM reference_sequence WHERE name = ?",
-            (safe_prefix,),
+            (base_prefix,),
         ).fetchone()
         current = int(row[0]) if row else 1
         next_value = current + 1
         if row:
             connection.execute(
                 "UPDATE reference_sequence SET next_value = ? WHERE name = ?",
-                (next_value, safe_prefix),
+                (next_value, base_prefix),
             )
         else:
             connection.execute(
                 "INSERT INTO reference_sequence (name, next_value) VALUES (?, ?)",
-                (safe_prefix, next_value),
+                (base_prefix, next_value),
             )
         connection.commit()
-        return f"{safe_prefix}-{current:06d}"
+        return f"{base_prefix}-V{current}"
     finally:
         connection.close()
 
 
 def _apply_default_payload(environment: str, branch: str, payload: dict[str, Any]) -> dict[str, Any]:
     mode = str(payload.get("data_mode") or "manual").strip().lower()
-    if mode != "default":
+    if mode not in {"default", "env"}:
         return payload
 
     merged = dict(payload)
@@ -186,7 +195,7 @@ def _apply_default_payload(environment: str, branch: str, payload: dict[str, Any
         merged[field_name] = _env_default(environment, field_name, fallback)
     if not str(merged.get("reference") or "").strip():
         merged["reference"] = _next_reference(
-            _env_default(environment, "reference_prefix", "RFC-Test-v1")
+            _env_default(environment, "reference_prefix", "RFC-TEST")
         )
     return merged
 
@@ -206,14 +215,33 @@ def _to_amount_text(value: Any) -> str:
     return f"{amount:.2f}"
 
 
+def _to_date(value: Any) -> date:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("date value required")
+    return date.fromisoformat(raw)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _build_header(payload: dict[str, Any], *, doc_type: str) -> dict[str, Any]:
     posting_date = str(payload.get("posting_date") or "").strip()
     document_date = str(payload.get("document_date") or "").strip()
+    posting_date_value = _to_date(posting_date)
+    document_date_value = _to_date(document_date)
     company_code = str(payload.get("company_code") or "").strip().upper()
     currency = str(payload.get("currency") or "EUR").strip().upper()
     header_text = str(payload.get("header_text") or "").strip()
     reference = str(payload.get("reference") or "").strip()
-    username = str(payload.get("username") or os.getenv("SAP_RFC_USER") or os.getenv("USERNAME") or "").strip()
+    username = str(payload.get("username") or _env_user(payload.get("environment"), "")).strip()
 
     if not posting_date:
         raise ValueError("posting_date é obrigatório.")
@@ -225,13 +253,12 @@ def _build_header(payload: dict[str, Any], *, doc_type: str) -> dict[str, Any]:
     return {
         "USERNAME": username,
         "COMP_CODE": company_code,
-        "DOC_DATE": document_date,
-        "PSTNG_DATE": posting_date,
+        "DOC_DATE": document_date_value,
+        "PSTNG_DATE": posting_date_value,
         "DOC_TYPE": doc_type,
         "HEADER_TXT": header_text,
         "REF_DOC_NO": reference,
-        "FISC_YEAR": posting_date[:4] if len(posting_date) >= 4 else "",
-        "CURRENCY": currency,
+        "FISC_YEAR": f"{posting_date_value.year}",
         "BUS_ACT": "RFBU",
     }
 
@@ -252,7 +279,6 @@ def _build_tax_line(
     line = {
         "ITEMNO_ACC": str(itemno),
         "TAX_CODE": tax_code,
-        "TAX_AMT": _to_amount_text(tax_amount),
     }
     if str(tax_rate or "").strip():
         line["TAX_RATE"] = str(tax_rate).strip()
@@ -340,7 +366,7 @@ def _build_customer_payload(environment: str, payload: dict[str, Any]) -> dict[s
         _base_currency_row(1, currency, gross_amount),
         _base_currency_row(2, currency, -net_amount),
     ]
-    if tax_amount:
+    if tax_line:
         currencyamount.append(_base_currency_row(3, currency, -tax_amount))
 
     return {
@@ -399,7 +425,7 @@ def _build_vendor_payload(environment: str, payload: dict[str, Any]) -> dict[str
         _base_currency_row(1, currency, -gross_amount),
         _base_currency_row(2, currency, net_amount),
     ]
-    if tax_amount:
+    if tax_line:
         currencyamount.append(_base_currency_row(3, currency, tax_amount))
 
     return {
@@ -457,7 +483,7 @@ def _build_gl_payload(environment: str, payload: dict[str, Any]) -> dict[str, An
         _base_currency_row(1, currency, amount),
         _base_currency_row(2, currency, -amount),
     ]
-    if tax_amount:
+    if tax_line:
         currencyamount.append(_base_currency_row(3, currency, tax_line_amount))
 
     return {
@@ -515,7 +541,7 @@ def post_fi_document(environment: str, branch: str, payload: dict[str, Any]) -> 
                 branch=branch,
                 company_code=str(payload.get("company_code") or "").strip().upper(),
                 check_return=check_return,
-                payload=bapi_payload,
+                payload=_json_safe(bapi_payload),
             )
 
         post_response = _call_bapi(connection, "BAPI_ACC_DOCUMENT_POST", bapi_payload)
@@ -529,7 +555,7 @@ def post_fi_document(environment: str, branch: str, payload: dict[str, Any]) -> 
                 company_code=str(payload.get("company_code") or "").strip().upper(),
                 check_return=check_return,
                 post_return=post_return,
-                payload=bapi_payload,
+                payload=_json_safe(bapi_payload),
             )
 
         commit_response = _call_bapi(connection, "BAPI_TRANSACTION_COMMIT", {"WAIT": "X"})
@@ -547,7 +573,7 @@ def post_fi_document(environment: str, branch: str, payload: dict[str, Any]) -> 
             check_return=check_return,
             post_return=post_return,
             commit_return=commit_return,
-            payload=bapi_payload,
+            payload=_json_safe(bapi_payload),
         )
     finally:
         try:

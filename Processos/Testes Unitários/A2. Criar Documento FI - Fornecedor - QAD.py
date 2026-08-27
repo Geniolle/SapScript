@@ -32,7 +32,7 @@ WEB_PARAMS = [
         "required": True,
         "default": "manual",
         "options": [
-            {"value": "default", "label": "Dados Default do .env"},
+            {"value": "default", "label": "Default"},
             {"value": "manual", "label": "Dados Manuais"},
         ],
     },

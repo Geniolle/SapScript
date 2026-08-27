@@ -1,8 +1,39 @@
 import os
 import re
+from pathlib import Path
+
 import requests
+from dotenv import load_dotenv
 
 DEFAULT_SYNC_PROJECTS = ("IT - Salsa Jeans", "SAP - Desenvolvimento")
+
+
+def _load_project_env() -> None:
+    """
+    Carrega o .env do projeto a partir de caminhos previsíveis no host e no container.
+    Isto evita depender do working directory do Docker.
+    """
+    module_dir = Path(__file__).resolve().parent
+    project_root = module_dir.parent
+    candidate_paths = [
+        project_root / ".env",
+        project_root.parent / ".env",
+        Path("/sap-script/.env"),
+        Path("/srv/sap-script-web/.env"),
+    ]
+
+    for env_path in candidate_paths:
+        try:
+            if env_path.is_file():
+                load_dotenv(dotenv_path=env_path, override=False)
+                return
+        except Exception:
+            continue
+
+    load_dotenv(override=False)
+
+
+_load_project_env()
 
 
 def _split_env_csv(value: str) -> list[str]:
@@ -51,12 +82,6 @@ def build_jql_or_clause(field: str, values: list[str]) -> str:
         return f'{field} = "{clean_values[0]}"'
     joined = " OR ".join(f'{field} = "{value}"' for value in clean_values)
     return f"({joined})"
-from dotenv import load_dotenv
-from pathlib import Path
-
-load_dotenv()
-
-
 def _safe_filename(filename: str) -> str:
     """Sanitiza o nome do ficheiro removendo caracteres inválidos."""
     sanitized = re.sub(r'[<>:"/\\|?*]+', "_", str(filename or "").strip())

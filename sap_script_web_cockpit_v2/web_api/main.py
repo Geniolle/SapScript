@@ -154,6 +154,46 @@ def get_available_environments() -> list[dict[str, str]]:
     return result
 
 
+def _get_fi_default_context() -> dict[str, Any]:
+    def env(name: str, default: str = "") -> str:
+        return str(os.getenv(name, default) or default).strip()
+
+    return {
+        "common": {
+            "company_code": env("SAP_FI_COMPANY_CODE", "2010"),
+            "posting_date": env("SAP_FI_POSTING_DATE"),
+            "document_date": env("SAP_FI_DOCUMENT_DATE"),
+            "currency": env("SAP_FI_CURRENCY", "EUR"),
+            "amount": env("SAP_FI_AMOUNT", "1.00"),
+            "header_text": env("SAP_FI_HEADER_TEXT", "RFC-TEST"),
+            "item_text": env("SAP_FI_ITEM_TEXT", "RFC-TEST"),
+            "reference_prefix": env("SAP_FI_REFERENCE_PREFIX", "RFC-TEST"),
+            "tax_code": env("SAP_FI_TAX_CODE"),
+            "tax_amount": env("SAP_FI_TAX_AMOUNT", "0.00"),
+            "tax_rate": env("SAP_FI_TAX_RATE"),
+            "tax_gl_account": env("SAP_FI_TAX_GL_ACCOUNT"),
+            "tax_direction": env("SAP_FI_TAX_DIRECTION", "credit"),
+        },
+        "branches": {
+            "cliente": {
+                "doc_type": env("SAP_FI_DOC_TYPE_CLIENTE", "DR"),
+                "account": env("SAP_FI_CUSTOMER_ACCOUNT", "0010002949"),
+                "counterparty": env("SAP_FI_REVENUE_GL_ACCOUNT", "0012990100"),
+            },
+            "fornecedor": {
+                "doc_type": env("SAP_FI_DOC_TYPE_FORNECEDOR", "KR"),
+                "account": env("SAP_FI_VENDOR_ACCOUNT", "0010000040"),
+                "counterparty": env("SAP_FI_EXPENSE_GL_ACCOUNT", "0012010731"),
+            },
+            "razao": {
+                "doc_type": env("SAP_FI_DOC_TYPE_RAZAO", "SA"),
+                "debit_gl_account": env("SAP_FI_DEBIT_GL_ACCOUNT", "0012010741"),
+                "credit_gl_account": env("SAP_FI_CREDIT_GL_ACCOUNT", "0012010741"),
+            },
+        },
+    }
+
+
 def _candidate_process_dirs() -> list[str]:
     candidatos: list[str] = []
 
@@ -580,6 +620,7 @@ def index(request: Request) -> HTMLResponse:
             "request": request,
             "ambientes": get_available_environments(),
             "processos": get_available_processes(),
+            "fi_defaults": _get_fi_default_context(),
             "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
             "poll_seconds": POLL_SECONDS,
         },
@@ -1001,6 +1042,17 @@ class SalsaItPfcgCreateRfcConfirmRequest(BaseModel):
     preview_job_id: str
 
 
+class SalsaItPfcgDeleteRfcPreviewRequest(BaseModel):
+    role_name: str
+    transport_mode: str = "LOCAL"
+    request_number: str = ""
+    request_description: str = ""
+
+
+class SalsaItPfcgDeleteRfcConfirmRequest(BaseModel):
+    preview_job_id: str
+
+
 PFCG_EXCEL_SELECTIONS: dict[str, dict[str, str]] = {}
 
 # Guarda, por job_id da pré-visualização, os dados EXATOS já validados pelo backend
@@ -1009,6 +1061,8 @@ PFCG_EXCEL_SELECTIONS: dict[str, dict[str, str]] = {}
 PFCG_RFC_CREATE_PREVIEWS: dict[str, dict[str, Any]] = {}
 
 PFCG_RFC_CREATE_ENVIRONMENT = "DEV"
+PFCG_RFC_DELETE_PREVIEWS: dict[str, dict[str, Any]] = {}
+PFCG_RFC_DELETE_ENVIRONMENT = "DEV"
 
 
 def _validate_pfcg_role_name_or_400(role_name: str) -> str:
@@ -1390,6 +1444,24 @@ def api_salsa_it_pfcg_create_analyze_job(job_id: str) -> JSONResponse:
     })
 
 
+
+def _safe_pfcg_rfc_delete_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or "ERROR"),
+        "environment": str(result.get("environment") or PFCG_RFC_DELETE_ENVIRONMENT),
+        "role": str(result.get("role") or ""),
+        "description": result.get("description"),
+        "tcodes": result.get("tcodes") or [],
+        "tcodes_count": result.get("tcodes_count"),
+        "users_count": result.get("users_count"),
+        "transport": result.get("transport"),
+        "transport_mode": result.get("transport_mode"),
+        "transport_request": result.get("transport_request"),
+        "error_type": result.get("error_type"),
+        "message": result.get("message"),
+    }
+
 def _safe_pfcg_rfc_create_result(result: dict[str, Any]) -> dict[str, Any]:
     safe_result: dict[str, Any] = {
         "ok": bool(result.get("ok")),
@@ -1447,6 +1519,132 @@ def _safe_pfcg_transport_search_result(result: dict[str, Any]) -> dict[str, Any]
         if isinstance(row, dict)
     ]
     return safe_result
+
+
+
+
+@app.post("/api/salsa-it-agent/pfcg/delete/rfc/preview")
+def api_salsa_it_pfcg_delete_rfc_preview(payload: SalsaItPfcgDeleteRfcPreviewRequest) -> JSONResponse:
+    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+
+    try:
+        job = create_job(
+            "pfcg_role_delete_preview",
+            {
+                "environment": PFCG_RFC_DELETE_ENVIRONMENT,
+                "role_name": role_name,
+                "transport_mode": str(payload.transport_mode or "LOCAL").strip().upper(),
+                "request_number": str(payload.request_number or "").strip(),
+                "request_description": str(payload.request_description or "").strip(),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_name": role_name,
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/delete/rfc/preview/{job_id}")
+def api_salsa_it_pfcg_delete_rfc_preview_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_delete_preview":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pré-visualização de eliminação PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result = _safe_pfcg_rfc_delete_result(result)
+
+    if safe_result.get("ok") and safe_result.get("status") == "PREVIEW_READY":
+        transport_preview = result.get("transport") or {}
+        PFCG_RFC_DELETE_PREVIEWS[job_id] = {
+            "environment": result.get("environment"),
+            "role_name": result.get("role"),
+            "transport_mode": str(transport_preview.get("transport_mode") or "LOCAL"),
+            "request_number": str(transport_preview.get("request_number") or ""),
+            "request_description": str(transport_preview.get("request_description") or ""),
+        }
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/delete/rfc/confirm")
+def api_salsa_it_pfcg_delete_rfc_confirm(payload: SalsaItPfcgDeleteRfcConfirmRequest) -> JSONResponse:
+    preview_job_id = str(payload.preview_job_id or "").strip()
+    if not preview_job_id:
+        raise HTTPException(status_code=400, detail="Identificador da pré-visualização em falta.")
+
+    validated = PFCG_RFC_DELETE_PREVIEWS.get(preview_job_id)
+    if not validated:
+        raise HTTPException(
+            status_code=404,
+            detail="Pré-visualização não encontrada ou expirada. Repita a preparação antes de confirmar.",
+        )
+
+    try:
+        job = create_job("pfcg_role_delete_rfc", dict(validated))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_name": validated.get("role_name"),
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/delete/rfc/confirm/{job_id}")
+def api_salsa_it_pfcg_delete_rfc_confirm_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_delete_rfc":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à confirmação de eliminação PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    return _json_no_store({"state": "succeeded", "result": _safe_pfcg_rfc_delete_result(result)})
 
 
 @app.post("/api/salsa-it-agent/pfcg/create/rfc/preview")
@@ -2256,6 +2454,61 @@ class CreateJobRequest(BaseModel):
 def api_create_job(payload: CreateJobRequest) -> dict[str, Any]:
     try:
         return create_job(task=payload.task, params=payload.params or {})
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class FiDefaultDocumentRequest(BaseModel):
+    environment: str
+    branch: str
+    payload: dict[str, Any] = None
+
+
+@app.post("/api/fi/default-document")
+def api_create_fi_default_document(payload: FiDefaultDocumentRequest) -> JSONResponse:
+    try:
+        _prepare_project_imports()
+        from sap_rfc.fi_document_service import post_fi_document
+
+        result = post_fi_document(
+            payload.environment,
+            payload.branch,
+            payload.payload or {"data_mode": "default"},
+        )
+        return _json_no_store(dataclasses.asdict(result))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class F110ProposalRequest(BaseModel):
+    environment: str
+    operation_type: str
+    company_code: str
+    payment_method: str
+    account_number: str
+    posting_date: str
+    next_due_date: str
+    document_number: str = ""
+
+
+@app.post("/api/f110/proposal")
+def api_run_f110_proposal(payload: F110ProposalRequest) -> JSONResponse:
+    """Executa apenas a PROPOSTA (Vorlauf) do F110 via RFF110S. Nunca dispara o pagamento/cobrança real."""
+    try:
+        _prepare_project_imports()
+        from sap_rfc.f110_service import run_f110_proposal
+
+        result = run_f110_proposal(
+            payload.environment,
+            payload.operation_type,
+            company_code=payload.company_code,
+            payment_method=payload.payment_method,
+            account_number=payload.account_number,
+            posting_date=payload.posting_date,
+            next_due_date=payload.next_due_date,
+            document_number=payload.document_number,
+        )
+        return _json_no_store(dataclasses.asdict(result))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
