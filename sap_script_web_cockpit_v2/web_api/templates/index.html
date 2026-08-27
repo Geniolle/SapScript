@@ -4913,6 +4913,30 @@
     const ASI_PFCG_INVALID_MESSAGE = 'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".';
     const ASI_PFCG_ROLE_PATTERN = /^[A-Z0-9_/:-]+$/;
 
+    // Estado do último resultado EXISTE de análise de função PFCG.
+    // Mantido fora de asiConversationState para sobreviver a resets de navegação (ex.: "Voltar").
+    let asiPfcgRoleState = null;
+    let asiPfcgSubPollingTimer = null;
+    let asiPfcgSubPollingInFlight = false;
+    const ASI_PFCG_SUB_POLL_INTERVAL_MS = 1000;
+    const ASI_PFCG_SUB_POLL_TIMEOUT_MS = 60000;
+
+    const ASI_PFCG_ROLE_BACK_ACTION = { id: 'pfcg-role-back', label: '← Voltar', icon: 'analysis' };
+    const ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION = { id: 'pfcg-role-analyze-transactions', label: 'Analisar por Transação', icon: 'analysis' };
+    const ASI_PFCG_ROLE_ANALYZE_USERS_ACTION = { id: 'pfcg-role-analyze-users', label: 'Analisar por Utilizador', icon: 'user-plus' };
+    const ASI_PFCG_ROLE_BACK_TO_CARD_ACTION = { id: 'pfcg-role-back-to-card', label: '← Voltar para função', icon: 'analysis' };
+    const ASI_PFCG_ROLE_RESULT_ACTIONS = [
+        ASI_PFCG_ROLE_BACK_ACTION,
+        ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION,
+        ASI_PFCG_ROLE_ANALYZE_USERS_ACTION
+    ];
+    const ASI_PFCG_DYNAMIC_ACTION_IDS = new Set([
+        'pfcg-role-back',
+        'pfcg-role-back-to-card',
+        'pfcg-role-analyze-transactions',
+        'pfcg-role-analyze-users'
+    ]);
+
     function asiDefaultConversationState() {
         return {
             processo: '',
@@ -5479,6 +5503,208 @@
         `;
     }
 
+    function asiBuildPfcgGenericProcessingHtml(message) {
+        return `
+            <div style="display:flex;align-items:center;gap:10px;">
+                <svg width="14" height="14" viewBox="0 0 50 50" aria-hidden="true" style="flex:0 0 auto;animation: spin 1s linear infinite;color:#94a3b8;">
+                    <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray: 1, 150; stroke-dashoffset: 0; animation: dash 1.5s ease-in-out infinite;"></circle>
+                </svg>
+                <span style="font-weight:600;">${escapeHtml(message)}</span>
+            </div>
+        `;
+    }
+
+    function asiEnsurePfcgListStyles() {
+        if (document.getElementById('asi-pfcg-list-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'asi-pfcg-list-styles';
+        style.textContent = `
+            .asi-pfcg-list-wrap {
+                margin-top: 6px;
+            }
+
+            .asi-pfcg-list-scroll {
+                max-height: 300px;
+                overflow-y: auto;
+                border: 1px solid rgba(148, 163, 184, 0.18);
+                border-radius: 8px;
+            }
+
+            .asi-pfcg-list-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            .asi-pfcg-list-table th,
+            .asi-pfcg-list-table td {
+                padding: 6px 10px;
+                font-size: 0.78rem;
+                text-align: left;
+                border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+                overflow-wrap: anywhere;
+            }
+
+            .asi-pfcg-list-table th {
+                position: sticky;
+                top: 0;
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                background: var(--bg-secondary, #f8fafc);
+            }
+
+            .asi-pfcg-list-table td {
+                color: var(--text-primary);
+                font-weight: 600;
+            }
+
+            .asi-pfcg-list-table tbody tr:last-child td {
+                border-bottom: none;
+            }
+
+            .asi-pfcg-list-footer {
+                margin-top: 8px;
+                font-size: 0.78rem;
+                font-weight: 700;
+                color: var(--text-secondary);
+            }
+
+            .asi-pfcg-list-empty {
+                padding: 14px 10px;
+                font-size: 0.82rem;
+                color: var(--text-secondary);
+                text-align: center;
+            }
+
+            .asi-pfcg-status-pill {
+                display: inline-flex;
+                align-items: center;
+                padding: 1px 7px;
+                border-radius: 999px;
+                font-size: 0.66rem;
+                font-weight: 800;
+                letter-spacing: 0.03em;
+                text-transform: uppercase;
+                white-space: nowrap;
+            }
+
+            .asi-pfcg-status-pill--ativo { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
+            .asi-pfcg-status-pill--futuro { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
+            .asi-pfcg-status-pill--expirado { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function asiPfcgStatusPillHtml(status) {
+        const normalized = String(status || '').toUpperCase();
+        const cls = normalized === 'ATIVO' ? 'asi-pfcg-status-pill--ativo'
+            : normalized === 'FUTURO' ? 'asi-pfcg-status-pill--futuro'
+            : normalized === 'EXPIRADO' ? 'asi-pfcg-status-pill--expirado'
+            : '';
+        return `<span class="asi-pfcg-status-pill ${cls}">${escapeHtml(normalized || '-')}</span>`;
+    }
+
+    function asiBuildPfcgRoleCompositeNoteHtml(result) {
+        if (!result || !result.is_composite) return '';
+        const members = Array.isArray(result.composite_members) ? result.composite_members : [];
+        return `<div class="asi-pfcg-result-note">Função composta — componentes considerados: ${escapeHtml(members.join(', '))}</div>`;
+    }
+
+    function asiBuildPfcgRoleWarningNoteHtml(result) {
+        if (!result || !result.warning) return '';
+        return `<div class="asi-pfcg-result-note">${escapeHtml(result.warning)}</div>`;
+    }
+
+    function asiBuildPfcgTransactionsResultHtml(result, roleName) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const role = result.role || roleName;
+        const transactions = Array.isArray(result.transactions) ? result.transactions : [];
+        const count = Number(result.count != null ? result.count : transactions.length);
+        const bodyHtml = transactions.length
+            ? transactions.map((item) => `
+                <tr>
+                    <td>${escapeHtml(item.tcode || '')}</td>
+                    <td>${escapeHtml(item.description || '-')}</td>
+                </tr>
+            `).join('')
+            : `<tr><td colspan="2" class="asi-pfcg-list-empty">Nenhuma transação encontrada para esta função.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">✓ Foram encontradas ${count} transações na função.</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
+                        <span class="asi-pfcg-result-label">Função</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(role)}</span>
+                    </div>
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead>
+                                    <tr><th>Transação</th><th>Descrição</th></tr>
+                                </thead>
+                                <tbody>${bodyHtml}</tbody>
+                            </table>
+                        </div>
+                        <div class="asi-pfcg-list-footer">Total: ${count} transações</div>
+                    </div>
+                    ${asiBuildPfcgRoleCompositeNoteHtml(result)}
+                    ${asiBuildPfcgRoleWarningNoteHtml(result)}
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgUsersResultHtml(result, roleName) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const role = result.role || roleName;
+        const users = Array.isArray(result.users) ? result.users : [];
+        const count = Number(result.count != null ? result.count : users.length);
+        const bodyHtml = users.length
+            ? users.map((item) => `
+                <tr>
+                    <td>${escapeHtml(item.username || '')}</td>
+                    <td>${escapeHtml(item.valid_from || '-')}</td>
+                    <td>${escapeHtml(item.valid_to || '-')}</td>
+                    <td>${asiPfcgStatusPillHtml(item.assignment_status)}</td>
+                </tr>
+            `).join('')
+            : `<tr><td colspan="4" class="asi-pfcg-list-empty">Nenhum utilizador atribuído a esta função.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">✓ Foram encontrados ${count} utilizadores atribuídos à função.</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
+                        <span class="asi-pfcg-result-label">Função</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(role)}</span>
+                    </div>
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead>
+                                    <tr><th>Utilizador</th><th>Válido de</th><th>Válido até</th><th>Estado</th></tr>
+                                </thead>
+                                <tbody>${bodyHtml}</tbody>
+                            </table>
+                        </div>
+                        <div class="asi-pfcg-list-footer">Total: ${count} utilizadores</div>
+                    </div>
+                    ${asiBuildPfcgRoleCompositeNoteHtml(result)}
+                    ${asiBuildPfcgRoleWarningNoteHtml(result)}
+                </div>
+            </div>
+        `;
+    }
+
     function asiBuildPfcgExcelProcessingHtml(fileName = '', message = 'A abrir o seletor de ficheiros Excel...') {
         return `
             <div style="display:flex;align-items:center;gap:10px;">
@@ -5725,14 +5951,30 @@
                     ...result,
                     role: result.role || roleName
                 };
+                const isExisting = normalizedResult.status === 'EXISTE';
                 asiUpdateMessage(messageId, {
-                    text: normalizedResult.status === 'EXISTE'
+                    text: isExisting
                         ? 'A função já existe em PRD.'
                         : 'A função não existe em PRD.',
                     html: asiBuildPfcgSuccessHtml(normalizedResult),
                     isProcessing: false,
-                    wide: true
+                    wide: true,
+                    actions: isExisting ? ASI_PFCG_ROLE_RESULT_ACTIONS : [],
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__pfcg_role_result__'
                 });
+                if (isExisting) {
+                    asiPfcgRoleState = {
+                        role: normalizedResult.role,
+                        description: normalizedResult.description,
+                        language: normalizedResult.language,
+                        system: normalizedResult.system,
+                        client: normalizedResult.client
+                    };
+                } else {
+                    asiPfcgRoleState = null;
+                }
                 asiResetPfcgInteraction();
             } catch (error) {
                 asiStopPfcgPolling();
@@ -6188,6 +6430,288 @@
         }, ASI_PFCG_POLL_INTERVAL_MS);
     }
 
+    function asiStopPfcgSubPolling() {
+        if (asiPfcgSubPollingTimer) {
+            clearInterval(asiPfcgSubPollingTimer);
+            asiPfcgSubPollingTimer = null;
+        }
+        asiPfcgSubPollingInFlight = false;
+    }
+
+    function asiPfcgSubAnalysisFailMessage(kind) {
+        return kind === 'transactions'
+            ? 'Não foi possível concluir a análise de transações da função em PRD.'
+            : 'Não foi possível concluir a análise de utilizadores da função em PRD.';
+    }
+
+    async function asiPollPfcgSubAnalysis(jobId, roleName, messageId, kind) {
+        const startedAt = Date.now();
+        const pollUrl = kind === 'transactions'
+            ? `/api/salsa-it-agent/pfcg/transactions/analyze/${encodeURIComponent(jobId)}`
+            : `/api/salsa-it-agent/pfcg/users/analyze/${encodeURIComponent(jobId)}`;
+        const failMessage = asiPfcgSubAnalysisFailMessage(kind);
+
+        asiStopPfcgSubPolling();
+        asiPfcgSubPollingTimer = setInterval(async () => {
+            if (asiPfcgSubPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_SUB_POLL_TIMEOUT_MS) {
+                asiStopPfcgSubPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A análise está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A análise está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgSubPollingInFlight = true;
+            try {
+                const response = await fetch(pollUrl, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgSubPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: failMessage,
+                        html: asiBuildPfcgErrorHtml(failMessage, data.message || ''),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const safeDetail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: failMessage,
+                        html: asiBuildPfcgErrorHtml(failMessage, safeDetail),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                if (result.status === 'NAO_EXISTE') {
+                    asiUpdateMessage(messageId, {
+                        text: 'A função não existe em PRD.',
+                        html: asiBuildPfcgErrorHtml(
+                            'A função não existe em PRD.',
+                            'Não é possível consultar transações/utilizadores de uma função inexistente.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const count = Number(result.count || 0);
+                const html = kind === 'transactions'
+                    ? asiBuildPfcgTransactionsResultHtml(result, roleName)
+                    : asiBuildPfcgUsersResultHtml(result, roleName);
+                const successText = kind === 'transactions'
+                    ? `✓ Foram encontradas ${count} transações na função.`
+                    : `✓ Foram encontrados ${count} utilizadores atribuídos à função.`;
+                const footerActions = kind === 'transactions'
+                    ? [ASI_PFCG_ROLE_BACK_TO_CARD_ACTION, ASI_PFCG_ROLE_ANALYZE_USERS_ACTION]
+                    : [ASI_PFCG_ROLE_BACK_TO_CARD_ACTION, ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION];
+
+                asiUpdateMessage(messageId, {
+                    text: successText,
+                    html,
+                    isProcessing: false,
+                    wide: true,
+                    actions: footerActions,
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: `__pfcg_role_${kind}__`
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopPfcgSubPolling();
+                asiUpdateMessage(messageId, {
+                    text: failMessage,
+                    html: asiBuildPfcgErrorHtml(failMessage),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgSubPollingInFlight = false;
+            }
+        }, ASI_PFCG_SUB_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartPfcgRoleSubAnalysis(kind) {
+        const roleName = asiPfcgRoleState && asiPfcgRoleState.role
+            ? String(asiPfcgRoleState.role).trim()
+            : '';
+        if (!roleName) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Não foi possível identificar a função analisada em PRD. Volte a analisar a função e tente novamente.'
+            ));
+            return;
+        }
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        const userText = kind === 'transactions'
+            ? `Quero analisar as transações da função ${roleName}.`
+            : `Quero analisar os utilizadores atribuídos à função ${roleName}.`;
+        const processingText = kind === 'transactions'
+            ? 'A consultar as transações atribuídas à função no SAP PRD...'
+            : 'A consultar os utilizadores atribuídos à função no SAP PRD...';
+        const endpoint = kind === 'transactions'
+            ? '/api/salsa-it-agent/pfcg/transactions/analyze'
+            : '/api/salsa-it-agent/pfcg/users/analyze';
+
+        asiAppendMessage(asiCreateMessage('user', userText));
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ role_name: roleName })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                const detail = data && typeof data.detail === 'string' ? data.detail : '';
+                throw new Error(detail || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollPfcgSubAnalysis(jobId, roleName, processingMessage.id, kind);
+        } catch (error) {
+            const failMessage = asiPfcgSubAnalysisFailMessage(kind);
+            asiUpdateMessage(processingMessage.id, {
+                text: failMessage,
+                html: asiBuildPfcgErrorHtml(failMessage),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
+    function asiStartPfcgRoleTransactionsAnalysis() {
+        return asiStartPfcgRoleSubAnalysis('transactions');
+    }
+
+    function asiStartPfcgRoleUsersAnalysis() {
+        return asiStartPfcgRoleSubAnalysis('users');
+    }
+
+    function asiHandlePfcgRoleBack() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiStopPfcgSubPolling();
+        asiAppendMessage(asiCreateMessage('user', 'Quero voltar às opções do Perfil de Autorização.'));
+
+        const pfcgCreateNode = asiFindQuickAction('pfcg-create');
+        const children = pfcgCreateNode && Array.isArray(pfcgCreateNode.children) ? pfcgCreateNode.children : [];
+        asiAppendMessage(asiCreateMessage('assistant', 'Como deseja prosseguir?', {
+            actions: children,
+            actionLevel: 2,
+            parentActionId: 'pfcg-create',
+            selectionGroupKey: 'pfcg-create'
+        }));
+
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: '',
+            pendingJobId: '',
+            pendingRoleName: '',
+            pendingMessageId: '',
+            isBusy: false
+        };
+        asiUpdateComposerState();
+    }
+
+    function asiHandlePfcgRoleBackToCard() {
+        if (!asiPfcgRoleState || !asiPfcgRoleState.role) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Não foi possível recuperar os dados da função analisada. Volte a analisar a função.'
+            ));
+            return;
+        }
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiAppendMessage(asiCreateMessage('assistant', 'A função já existe em PRD.', {
+            html: asiBuildPfcgSuccessHtml({ status: 'EXISTE', ...asiPfcgRoleState }),
+            wide: true,
+            actions: ASI_PFCG_ROLE_RESULT_ACTIONS,
+            actionLevel: 0,
+            parentActionId: '',
+            selectionGroupKey: '__pfcg_role_result__'
+        }));
+    }
+
+    function asiHandlePfcgRoleDynamicAction(actionId) {
+        if (actionId === 'pfcg-role-back') {
+            asiHandlePfcgRoleBack();
+            return;
+        }
+        if (actionId === 'pfcg-role-back-to-card') {
+            asiHandlePfcgRoleBackToCard();
+            return;
+        }
+        if (actionId === 'pfcg-role-analyze-transactions') {
+            asiStartPfcgRoleTransactionsAnalysis();
+            return;
+        }
+        if (actionId === 'pfcg-role-analyze-users') {
+            asiStartPfcgRoleUsersAnalysis();
+            return;
+        }
+    }
+
     async function asiSendMessage(presetText = null, options = {}) {
         const { input, send } = asiGetElements();
         if (!input || !send) return;
@@ -6255,6 +6779,11 @@
     }
 
     function asiHandleQuickActionSelection(actionId, level, parentActionId = '', selectionGroupKey = '__root__') {
+        if (ASI_PFCG_DYNAMIC_ACTION_IDS.has(actionId)) {
+            asiHandlePfcgRoleDynamicAction(actionId);
+            return;
+        }
+
         const numericLevel = Number(level);
         const action = asiFindQuickAction(actionId, salsaAgentActions);
         if (!action) return;

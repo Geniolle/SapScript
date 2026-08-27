@@ -521,6 +521,130 @@ def _run_pfcg_role_analysis(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_pfcg_role_sub_analysis(
+    params: dict[str, Any],
+    *,
+    cli_module: str,
+    label: str,
+) -> tuple[str, str]:
+    """Executa uma sub-análise PFCG (transações/utilizadores) via bridge RFC isolada.
+
+    Aceita EXCLUSIVAMENTE `role_name` de `params` — qualquer outra chave (task,
+    script, module, executable, command, table, ...) vinda do frontend/job é
+    ignorada; a tabela SAP consultada é decidida apenas pelo serviço Python
+    invocado (sap_rfc.*), nunca pelo payload do pedido.
+    """
+    _prepare_project_imports()
+
+    try:
+        from sap_rfc.pfcg_role_service import validate_role_name
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar a validação PFCG: {exc}") from exc
+
+    project_dir = _get_project_dir()
+    raw_role_name = str(params.get("role_name") or "")
+    try:
+        role_name = validate_role_name(raw_role_name)
+    except ValueError as exc:
+        payload = {
+            "ok": False,
+            "status": "ERRO",
+            "role": raw_role_name.strip().upper(),
+            "error_type": "INVALID_INPUT",
+            "message": str(exc),
+            "system": "PRD",
+            "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
+        }
+        log = (
+            f"Análise PFCG ({label}) rejeitada antes da bridge RFC.\n"
+            f"Role: {raw_role_name}\n"
+            f"Motivo: {exc}"
+        )
+        return json.dumps(payload, ensure_ascii=False), log
+
+    rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
+    if not rfc_python.exists():
+        raise SapExecutionError(f"Python RFC não encontrado: {rfc_python}")
+
+    env = _build_rfc_bridge_env(project_dir)
+    command = [
+        str(rfc_python),
+        "-m",
+        cli_module,
+        "--role-name",
+        role_name,
+    ]
+
+    try:
+        run = subprocess.run(
+            command,
+            cwd=str(project_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            check=False,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SapExecutionError(
+            f"Timeout ao executar análise PFCG ({label}) para a função {role_name}."
+        ) from exc
+
+    stdout = str(run.stdout or "").strip()
+    stderr = str(run.stderr or "").strip()
+
+    if run.returncode not in RFC_ALLOWED_EXIT_CODES:
+        raise SapExecutionError(
+            f"Bridge RFC PFCG ({label}) falhou com exit code {run.returncode}."
+        )
+    if not stdout:
+        raise SapExecutionError(f"Bridge RFC PFCG ({label}) não devolveu JSON em stdout.")
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise SapExecutionError(f"Bridge RFC PFCG ({label}) devolveu JSON inválido.") from exc
+
+    if not isinstance(payload, dict):
+        raise SapExecutionError(f"Bridge RFC PFCG ({label}) devolveu payload inválido.")
+
+    log_lines = [
+        f"Análise PFCG ({label}) executada via subprocesso RFC controlado.",
+        f"Role: {role_name}",
+        f"Python RFC: {rfc_python}",
+        f"Exit code: {run.returncode}",
+        f"Status: {payload.get('status', '-')}",
+        f"Count: {payload.get('count', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+    if payload.get("warning"):
+        log_lines.append(f"Aviso: {payload['warning']}")
+    if stderr:
+        log_lines.append(f"stderr: {stderr}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_pfcg_role_transactions_analysis(params: dict[str, Any]) -> tuple[str, str]:
+    return _run_pfcg_role_sub_analysis(
+        params,
+        cli_module="sap_rfc.pfcg_role_transactions_cli",
+        label="transações",
+    )
+
+
+def _run_pfcg_role_users_analysis(params: dict[str, Any]) -> tuple[str, str]:
+    return _run_pfcg_role_sub_analysis(
+        params,
+        cli_module="sap_rfc.pfcg_role_users_cli",
+        label="utilizadores",
+    )
+
+
 def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
     """Executa uma ação SAP GUI solicitada pelo chat (Gemini function calling).
 
@@ -589,6 +713,16 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "pfcg_role_analysis":
             status, log = _run_pfcg_role_analysis(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_role_transactions_analysis":
+            status, log = _run_pfcg_role_transactions_analysis(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_role_users_analysis":
+            status, log = _run_pfcg_role_users_analysis(params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 

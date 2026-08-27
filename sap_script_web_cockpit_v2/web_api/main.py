@@ -1118,6 +1118,155 @@ def api_salsa_it_pfcg_analyze_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
+def _safe_pfcg_sub_result(result: dict[str, Any], *, items_key: str, item_fields: tuple[str, ...]) -> dict[str, Any]:
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "role": str(result.get("role") or ""),
+        "count": result.get("count"),
+        "system": result.get("system"),
+        "client": result.get("client"),
+        "is_composite": bool(result.get("is_composite")),
+    }
+    if safe_result["is_composite"]:
+        composite_members = result.get("composite_members")
+        safe_result["composite_members"] = composite_members if isinstance(composite_members, list) else []
+    if result.get("warning"):
+        safe_result["warning"] = result.get("warning")
+
+    raw_items = result.get(items_key)
+    if isinstance(raw_items, list):
+        safe_result[items_key] = [
+            {field: item.get(field) for field in item_fields}
+            for item in raw_items
+            if isinstance(item, dict)
+        ]
+    else:
+        safe_result[items_key] = []
+
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+
+    return safe_result
+
+
+@app.post("/api/salsa-it-agent/pfcg/transactions/analyze")
+def api_salsa_it_pfcg_transactions_analyze(payload: SalsaItPfcgAnalyzeRequest) -> JSONResponse:
+    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+
+    try:
+        job = create_job("pfcg_role_transactions_analysis", {"role_name": role_name})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store(
+        {
+            "job_id": job["id"],
+            "state": job["state"],
+            "role_name": role_name,
+        }
+    )
+
+
+@app.get("/api/salsa-it-agent/pfcg/transactions/analyze/{job_id}")
+def api_salsa_it_pfcg_transactions_analyze_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_transactions_analysis":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à análise de transações PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state == "failed":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    if state != "succeeded":
+        return _json_no_store({"state": state, "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    if not status_raw:
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    try:
+        result = json.loads(status_raw)
+    except Exception:
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result = _safe_pfcg_sub_result(result, items_key="transactions", item_fields=("tcode", "description"))
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/users/analyze")
+def api_salsa_it_pfcg_users_analyze(payload: SalsaItPfcgAnalyzeRequest) -> JSONResponse:
+    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+
+    try:
+        job = create_job("pfcg_role_users_analysis", {"role_name": role_name})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store(
+        {
+            "job_id": job["id"],
+            "state": job["state"],
+            "role_name": role_name,
+        }
+    )
+
+
+@app.get("/api/salsa-it-agent/pfcg/users/analyze/{job_id}")
+def api_salsa_it_pfcg_users_analyze_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_users_analysis":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à análise de utilizadores PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state == "failed":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    if state != "succeeded":
+        return _json_no_store({"state": state, "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    if not status_raw:
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    try:
+        result = json.loads(status_raw)
+    except Exception:
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result = _safe_pfcg_sub_result(
+        result,
+        items_key="users",
+        item_fields=("username", "valid_from", "valid_to", "assignment_status"),
+    )
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
 @app.post("/api/salsa-it-agent/pfcg/create/select-excel")
 def api_salsa_it_pfcg_create_select_excel() -> JSONResponse:
     try:
