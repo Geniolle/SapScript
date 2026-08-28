@@ -113,6 +113,9 @@ READ_ONLY_TABLE_WHITELIST: frozenset[str] = frozenset(
         "T549Q",            # definição de períodos de contabilização
         "T500L",            # país/agrupamento -> MOLGA, RELID do cluster
         "T52RELID",         # RELIDs do PCL2
+        # Catálogo de rubricas salariais (customizing de texto, só leitura)
+        "T512T",            # textos das rubricas (MOLGA/SPRSL/LGART -> LGTXT)
+        "T512W",            # avaliação/atributos da rubrica (validade BEGDA/ENDDA)
         "T100",             # textos de mensagens (para documentar exceções)
         # Fase 3 — tabelas transparentes de resultados de Payroll ("Payroll
         # Results Tables"). Descobertas por DDIC; neste sistema estão VAZIAS

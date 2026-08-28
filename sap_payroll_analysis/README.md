@@ -1,7 +1,9 @@
-# sap_payroll_analysis — diagnóstico READ-ONLY Payroll (RH) → FI
+# sap_payroll_analysis
 
-Investiga divergências entre o que o Payroll lançou (posting da PCP0) e o que
-ficou contabilizado em FI numa conta do Razão.
+Diagnóstico read-only de Payroll (RH) → FI.
+
+Investiga divergências entre o que o Payroll lançou na PCP0 e o que ficou
+contabilizado em FI numa conta do Razão.
 
 **Todo o pacote é estritamente de leitura.** Nenhuma função que escreva,
 altere, elimine, faça `COMMIT`, poste documentos ou execute jobs é chamada.
@@ -325,17 +327,43 @@ com o valor levado às tabelas `REGU*`. Só R/3:
 > — **nunca** cai no fallback `SAP_DEV_*` (que aponta para outro sistema sem estes dados).
 
 Passos: DDIC de `REGUH/REGUP/REGUV` → descoberta de payment runs na janela
-`AAAAMM01 … (mês+1)15` → escolha por **múltiplas evidências** (empresa, período,
-nº de beneficiários ~ nº de colaboradores, moeda, run real vs proposta; o total
-tem **peso mínimo**) com `HIGH/MEDIUM/LOW_CONFIDENCE` → identidade do colaborador
-(`PERNR` directo / `EMPFG` = PERNR / via `LIFNR` = `HYPOTHESIS`) → valor RH
-esperado (`/559` do SEQNO mais recente transferido; `/559` com `TSLIN=0` =
-`PREVIOUS_VERSION`, não soma) → matching em níveis → `STATUS` por PERNR
-(`EXACT_MATCH`/`DIFFERENCE`/`RH_ONLY`/`REGU_ONLY`/`AMBIGUOUS`) com tolerância
-**0,00**. `427,74` só é referido como `[CANDIDATE]` se surgir naturalmente.
+`AAAAMM01 … (mês+1)15` (filtro `LAUFD` empurrado para o SELECT — filtrar só por
+empresa em `REGUH` rebenta com `TSV_TNEW_PAGE_ALLOC_FAILED`) → escolha por
+**múltiplas evidências** (empresa, período, nº de beneficiários ~ nº de
+colaboradores, moeda, run real vs proposta; o total tem **peso mínimo**) com
+`HIGH/MEDIUM/LOW_CONFIDENCE` → **conjunto de runs** (`select_payment_run_set`):
+o pagamento pode estar dividido por vários `LAUFI` (lotes no mesmo dia +
+pagamentos *off-cycle* individuais); parte do run âncora e junta, *greedy*, os
+runs cuja **soma REGU por PERNR reproduz o `/559`** sem introduzir divergências
+→ identidade do colaborador (`PERNR` directo / `EMPFG` = PERNR / via `LIFNR` =
+`HYPOTHESIS`) → valor RH esperado (`/559` do SEQNO mais recente transferido;
+`/559` com `TSLIN=0` = `PREVIOUS_VERSION`, não soma) → matching em níveis →
+`STATUS` por PERNR (`EXACT_MATCH`/`DIFFERENCE`/`RH_ONLY`/`REGU_ONLY`/`AMBIGUOUS`)
+com tolerância **0,00**. Montantes `REGUH.RBETR/RWBTR` vêm com sinal à direita
+(`1854.80-`) → parse via `sap_str_to_decimal` + `abs()`. `427,74` só é referido
+como `[CANDIDATE]` se surgir naturalmente.
 
-Output: `output/payroll_regu_reconciliation_0000001298.json` / `.csv`.
-Conclusão: `EXACT_MATCH` / `DIFFERENCE` / `PARTIAL`.
+Output: `output/payroll_regu_reconciliation_0000001298.json` (inclui
+`selected_payment_run_set`) / `.csv`. Conclusão: `EXACT_MATCH` / `DIFFERENCE`
+/ `PARTIAL`.
+
+### Resultado (run 0000001298, empresa 1010, período 202606) — `[PROVED]`
+
+| | |
+|---|---|
+| Payment runs | `10243P` + `10311P` (ambos `LAUFD 20260625`) + 5 runs *off-cycle* de 1 pagamento (`09454P` 12/06, `10475P` 17/06, `10595P` 23/06, `11044P` 30/06, `10085P` 02/07) |
+| Identidade | `REGUH.PERNR` directo (`PERNR_FIELD`, 541/541 coincidem) — `PERNR == LIFNR` numérico |
+| RH esperado (Σ `/559` corrente) | **724.033,67 EUR** — 324 colaboradores |
+| REGU pago (Σ `RBETR`) | **724.033,67 EUR** — 324 beneficiários |
+| Diferença | **0,00** |
+| `EXACT_MATCH` | **324 / 324** — 0 `DIFFERENCE`, 0 `RH_ONLY`, 0 `REGU_ONLY` |
+| Múltiplos pagamentos por PERNR | 0 (os 2 lotes de 25/06 particionam a população; não há net dividido) |
+| `427,74` | não aplicável — reconciliação fecha a 0,00 |
+
+**RH × REGU: `EXACT_MATCH`.** O que o RH mandou pagar por colaborador (`/559`
+corrente) é exactamente o que o programa de pagamentos levou às `REGU*`.
+Os runs `10260P` (16.128,84) e `10320P` (9.778,23) de 25/06 **não** são o net do
+payroll (pagamentos de outra natureza) e são correctamente excluídos.
 
 ## Próximo passo
 

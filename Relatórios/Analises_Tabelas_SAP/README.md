@@ -1,8 +1,8 @@
 # Análises de Tabelas SAP
 
-Estrutura reutilizável para consultas **somente de leitura** no SAP através de SAP GUI Scripting e SE16H/SE16N.
+Consultas read-only de tabelas SAP via SAP GUI Scripting e SE16H/SE16N.
 
-## Objetivo
+## Visão Geral
 
 Não alterar ou apagar uma análise existente quando surgir uma necessidade nova. Cada assunto fica isolado num ficheiro próprio dentro de `processos/`, enquanto toda a lógica de login, navegação, filtros, leitura do ALV e exportação fica centralizada em `engine.py`.
 
@@ -62,7 +62,7 @@ Cada ficheiro representa uma análise independente. É aqui que ficam os valores
 - quantidade máxima de linhas;
 - geração de JSON/CSV.
 
-## Criar uma nova análise
+## Criar uma Nova Análise
 
 1. Copiar `processos/_template.py`.
 2. Renomear, por exemplo, para `okb9.py`, `sepa_ct_v9.py` ou `centros_custo.py`.
@@ -87,7 +87,7 @@ CONSULTAS = [
 
 Um mesmo processo pode consultar várias tabelas. Basta acrescentar novos blocos na lista `CONSULTAS`.
 
-## Regras
+## Regras de Uso
 
 - O motor é somente de leitura.
 - Não guardar utilizadores, passwords ou dados sensíveis nos ficheiros de processo.

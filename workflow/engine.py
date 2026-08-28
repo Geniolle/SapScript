@@ -195,6 +195,25 @@ def _resolve_sap_runtime_context() -> Dict[str, str]:
     }
 
 
+def _resolve_workflow_python_exec() -> str:
+    configured = os.getenv("WORKFLOW_PYTHON_EXEC", "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.exists():
+            return str(candidate)
+        raise RuntimeError(
+            f"WORKFLOW_PYTHON_EXEC aponta para um executável inexistente: {candidate}"
+        )
+
+    if os.name != "nt":
+        raise RuntimeError(
+            "WORKFLOW_PYTHON_EXEC é obrigatório fora do Windows. "
+            "Não usar sys.executable em WSL/Linux para este fluxo."
+        )
+
+    return sys.executable
+
+
 def _run_step(
     *,
     step: Dict[str, Any],
@@ -347,7 +366,7 @@ def execute_workflows(rows: List[Dict[str, Any]], base_dir: Path) -> None:
     state_path = Path(
         os.getenv("WORKFLOW_STATE_PATH", str((base_dir / "cache" / "workflow_state.json").resolve()))
     ).resolve()
-    python_exec = os.getenv("WORKFLOW_PYTHON_EXEC", sys.executable)
+    python_exec = _resolve_workflow_python_exec()
     download_dir = Path(os.getenv("JIRA_DOWNLOAD_DIR", r"C:\Jira")).resolve()
     sap_ctx = _resolve_sap_runtime_context()
 

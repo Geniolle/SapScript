@@ -25,7 +25,16 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from .config import AnalysisParams
-from .sap_reader import NoData, RfcReadError, opt_and, opt_eq, opt_in, read_table
+from .sap_reader import (
+    NoData,
+    RfcReadError,
+    opt_and,
+    opt_between,
+    opt_eq,
+    opt_in,
+    read_table,
+    sap_str_to_decimal,
+)
 from .wagetype_trace import _signed
 
 logger = logging.getLogger(__name__)
@@ -71,8 +80,10 @@ _ROLE_FIELDS: dict[str, tuple[str, ...]] = {
 
 
 def _q(v: Any) -> Decimal:
+    """Converte um valor SAP em Decimal, tratando o sinal à direita (`123,45-`),
+    separador de milhares e vazio. REGUH.RBETR/RWBTR vêm com sinal à direita."""
     try:
-        return Decimal(str(v))
+        return sap_str_to_decimal(v if isinstance(v, str) else str(v))
     except Exception:  # noqa: BLE001
         return _ZERO
 
@@ -204,6 +215,7 @@ class PaymentReconciliation:
     schema: dict[str, Any] = field(default_factory=dict)
     payment_run_candidates: list[PaymentRunCandidate] = field(default_factory=list)
     selected_payment_run: dict[str, Any] = field(default_factory=dict)
+    selected_payment_run_set: dict[str, Any] = field(default_factory=dict)
     employee_identity_mapping: dict[str, Any] = field(default_factory=dict)
     payroll_expected: list[PayrollPaymentExpectation] = field(default_factory=list)
     regu_payments: list[ReguPayment] = field(default_factory=list)
@@ -224,6 +236,7 @@ class PaymentReconciliation:
             "regu_schema": self.schema,
             "payment_run_candidates": [c.as_dict() for c in self.payment_run_candidates],
             "selected_payment_run": self.selected_payment_run,
+            "selected_payment_run_set": self.selected_payment_run_set,
             "employee_identity_mapping": self.employee_identity_mapping,
             "payroll_expected": [e.as_dict() for e in self.payroll_expected],
             "regu_payments": [p.as_dict() for p in self.regu_payments],
@@ -326,7 +339,8 @@ def discover_payment_runs(connection: Any, params: AnalysisParams, *, company: s
         want = [f for f in ["LAUFD", "LAUFI", vcomp, vreal] if f]
         try:
             for row in read_table(connection, "REGUV", fields=want,
-                                  options=opt_and(opt_eq(vcomp, company)),
+                                  options=opt_and(opt_between("LAUFD", start, end),
+                                                  opt_eq(vcomp, company)),
                                   page_size=100_000).rows:
                 if start <= row.get("LAUFD", "") <= end:
                     key = (row["LAUFD"], row.get("LAUFI", ""), company)
@@ -340,7 +354,8 @@ def discover_payment_runs(connection: Any, params: AnalysisParams, *, company: s
     hwant = [f for f in ["LAUFD", "LAUFI", r_comp, r_amt, r_cur, r_pdate] if f]
     try:
         hrows_all = read_table(connection, "REGUH", fields=hwant,
-                               options=opt_and(opt_eq(r_comp, company)),
+                               options=opt_and(opt_between("LAUFD", start, end),
+                                               opt_eq(r_comp, company)),
                                page_size=200_000).rows
     except (RfcReadError, NoData) as exc:
         logger.warning("REGUH indisponível para descoberta: %s", exc)
@@ -353,7 +368,9 @@ def discover_payment_runs(connection: Any, params: AnalysisParams, *, company: s
     cands: list[PaymentRunCandidate] = []
     for (laufd, laufi, comp) in sorted(runs):
         grp = [r for r in hrows if r.get("LAUFD") == laufd and r.get("LAUFI") == laufi]
-        amounts = [_q(r.get(r_amt, "0")) for r in grp]
+        # REGUH guarda o montante do pagamento como saída (sinal à direita);
+        # comparamos magnitudes de transferência -> abs().
+        amounts = [abs(_q(r.get(r_amt, "0"))) for r in grp]
         curs = sorted({r.get(r_cur, "") for r in grp if r.get(r_cur)})
         dates = sorted({r.get(r_pdate, "") for r in grp if r_pdate and r.get(r_pdate)}) or [laufd]
         cands.append(PaymentRunCandidate(
@@ -428,6 +445,95 @@ def select_payment_run(candidates: list[PaymentRunCandidate], *, period: str,
         ),
     }
     return selected, ranked
+
+
+# ---------------------------------------------------------------------------
+# 6b — conjunto de runs de pagamento (o payroll pode ser pago em vários LAUFI)
+# ---------------------------------------------------------------------------
+
+def select_payment_run_set(expectations: list[PayrollPaymentExpectation],
+                           window_payments: list[ReguPayment],
+                           identity: dict[str, Any],
+                           *, primary: dict[str, Any],
+                           max_runs: int = 12) -> dict[str, Any]:
+    """Escolhe o CONJUNTO de runs REGU cujo somatório por PERNR reproduz o
+    `/559` corrente do payroll.
+
+    Parte do run primário (âncora) e adiciona, greedy, runs da janela que
+    aumentam o nº de PERNR com match EXACTO (tolerância 0,00) sem introduzir
+    novas divergências. Assim um pagamento dividido por 2+ LAUFI no mesmo dia
+    é reconstruído; runs de outra natureza (despesas, penhoras) ficam de fora.
+    """
+    rh: dict[str, Decimal] = {e.pernr: e.expected_payment_amount for e in expectations}
+    by_run: dict[tuple[str, str], list[ReguPayment]] = {}
+    for p in window_payments:
+        by_run.setdefault((p.laufd, p.laufi), []).append(p)
+    if not by_run:
+        return {"run_ids": [], "runs": [], "dates": [], "date": "",
+                "laufd": primary.get("laufd", ""), "laufi": primary.get("laufi", ""),
+                "exact_pernr": 0, "diff_pernr": 0, "confidence": "LOW_CONFIDENCE",
+                "evidence": ["sem pagamentos REGU na janela"],
+                "selection_note": "[OBSERVED] nenhum run REGU na janela."}
+
+    def _score(run_ids: list[tuple[str, str]]) -> tuple[int, int, Decimal]:
+        acc: dict[str, Decimal] = {}
+        for k in run_ids:
+            for p in by_run[k]:
+                pr = _payment_pernr(p, identity)
+                if pr:
+                    acc[pr] = acc.get(pr, _ZERO) + abs(p.amount)
+        exact = sum(1 for pr, v in acc.items() if pr in rh and v == rh[pr])
+        diff = sum(1 for pr, v in acc.items() if pr in rh and v != rh[pr])
+        paid = sum(acc.values(), _ZERO)
+        return exact, diff, paid
+
+    pdate = primary.get("laufd", "")
+    primary_key = (primary.get("laufd", ""), primary.get("laufi", ""))
+    order = sorted(by_run, key=lambda k: (k != primary_key, k[0] != pdate,
+                                          -len(by_run[k]), k[0], k[1]))
+    if primary_key in by_run:
+        chosen = [primary_key]
+        rest = [k for k in order if k != primary_key]
+    else:
+        chosen = [order[0]]
+        rest = order[1:]
+    cur_exact, cur_diff, _ = _score(chosen)
+    for k in rest:
+        ex, df, _ = _score(chosen + [k])
+        if ex > cur_exact and df <= cur_diff:
+            chosen.append(k)
+            cur_exact, cur_diff = ex, df
+        if len(chosen) >= max_runs:
+            break
+
+    cur_exact, cur_diff, paid_total = _score(chosen)
+    dates = sorted({k[0] for k in chosen})
+    n_emp = len(rh) or 1
+    conf = ("HIGH_CONFIDENCE" if cur_diff == 0 and cur_exact >= int(0.9 * n_emp)
+            else "MEDIUM_CONFIDENCE" if cur_exact >= int(0.5 * n_emp)
+            else "LOW_CONFIDENCE")
+    return {
+        "run_ids": [list(k) for k in chosen],
+        "runs": [{"laufd": k[0], "laufi": k[1], "count": len(by_run[k]),
+                  "total": str(sum((abs(p.amount) for p in by_run[k]), _ZERO))}
+                 for k in chosen],
+        "dates": dates,
+        "date": dates[0] if dates else "",
+        "laufd": chosen[0][0] if chosen else primary.get("laufd", ""),
+        "laufi": ";".join(k[1] for k in chosen),
+        "exact_pernr": cur_exact,
+        "diff_pernr": cur_diff,
+        "regu_paid_total": str(paid_total),
+        "confidence": conf,
+        "evidence": [
+            f"{len(chosen)} run(s): {', '.join(k[1] for k in chosen)}",
+            f"{cur_exact} PERNR com soma REGU = /559, {cur_diff} divergentes",
+        ],
+        "selection_note": (
+            f"[{'PROVED' if conf == 'HIGH_CONFIDENCE' else 'OBSERVED'}] "
+            f"conjunto {'+'.join(k[1] for k in chosen)} — soma REGU por PERNR = "
+            f"/559 em {cur_exact} colaboradores, {cur_diff} divergências."),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -563,24 +669,44 @@ def build_payroll_payment_expectations(connection: Any, params: AnalysisParams, 
 # 12 — pagamentos REGU do run seleccionado
 # ---------------------------------------------------------------------------
 
-def read_regu_payments(connection: Any, params: AnalysisParams, *, laufd: str, laufi: str,
-                       company: str, schema: dict[str, Any]) -> list[ReguPayment]:
+def read_regu_payments(connection: Any, params: AnalysisParams, *, company: str,
+                       schema: dict[str, Any], laufd: str = "", laufi: str = "",
+                       runs: Sequence[tuple[str, str]] | None = None,
+                       ) -> list[ReguPayment]:
+    """Lê REGUH de um run único (`laufd`+`laufi`) ou de um CONJUNTO de runs
+    (`runs=[(LAUFD, LAUFI), ...]`). No modo conjunto lê a janela de datas de uma
+    vez (por empresa) e filtra em Python — o pagamento do payroll pode estar
+    dividido por vários LAUFI no mesmo dia."""
     reguh = schema.get("tables", {}).get("REGUH", {})
     roles = reguh.get("roles", {})
     if not reguh.get("exists"):
         return []
     want = sorted({f for f in roles.values() if f} | {"LAUFD", "LAUFI"})
+    comp_f = roles.get("company", "")
+    run_set = {(d, i) for d, i in runs} if runs else None
     try:
-        rows = read_table(connection, "REGUH", fields=want,
-                          options=opt_and(opt_eq("LAUFD", laufd), opt_eq("LAUFI", laufi)),
+        if run_set:
+            dates = sorted({d for d, _ in run_set})
+            opts = opt_and(opt_between("LAUFD", dates[0], dates[-1]),
+                           *( [opt_eq(comp_f, company)] if comp_f else [] ))
+        else:
+            opts = opt_and(opt_eq("LAUFD", laufd), opt_eq("LAUFI", laufi))
+        rows = read_table(connection, "REGUH", fields=want, options=opts,
                           page_size=200_000).rows
     except (RfcReadError, NoData) as exc:
         logger.warning("REGUH leitura do run falhou: %s", exc)
         return []
-    comp_f = roles.get("company", "")
-    rows = [r for r in rows if r.get("LAUFD") == laufd and r.get("LAUFI") == laufi
-            and (not comp_f or r.get(comp_f) == company)]
+    if run_set:
+        rows = [r for r in rows if (r.get("LAUFD"), r.get("LAUFI")) in run_set
+                and (not comp_f or r.get(comp_f) == company)]
+    else:
+        rows = [r for r in rows if r.get("LAUFD") == laufd and r.get("LAUFI") == laufi
+                and (not comp_f or r.get(comp_f) == company)]
+    return _rows_to_payments(rows, roles, company, laufd, laufi)
 
+
+def _rows_to_payments(rows: list[dict[str, str]], roles: dict[str, str], company: str,
+                      laufd: str = "", laufi: str = "") -> list[ReguPayment]:
     def g(r: dict[str, str], role: str) -> str:
         return r.get(roles.get(role, ""), "")
 
@@ -589,16 +715,27 @@ def read_regu_payments(connection: Any, params: AnalysisParams, *, laufd: str, l
         bank = " ".join(x for x in (g(r, "bank_country"), g(r, "bank_key"),
                                     g(r, "bank_account")) if x).strip()
         out.append(ReguPayment(
-            laufd=laufd, laufi=laufi, company=g(r, "company") or company,
+            laufd=r.get("LAUFD", "") or laufd, laufi=r.get("LAUFI", "") or laufi,
+            company=g(r, "company") or company,
             pernr=g(r, "pernr").lstrip("0").zfill(8) if g(r, "pernr").strip("0") else "",
             vendor=g(r, "vendor"), customer=g(r, "customer"), payee=g(r, "payee"),
             payment_doc=g(r, "payment_doc"), acct_doc=g(r, "acct_doc"),
-            fiscal_year=g(r, "fiscal_year"), amount=_q(g(r, "amount")),
+            fiscal_year=g(r, "fiscal_year"), amount=abs(_q(g(r, "amount"))),
             currency=g(r, "currency"), payment_method=g(r, "payment_method"),
             bank_reference=bank, name=g(r, "name"), reference=g(r, "reference"),
         ))
         out[-1].beneficiary_key = _beneficiary_key(out[-1], roles)
     return out
+
+
+def _payment_pernr(p: ReguPayment, identity: dict[str, Any]) -> str:
+    """PERNR de um pagamento REGU, aplicando o mapa de identidade resolvido."""
+    if p.pernr:
+        return p.pernr
+    v = identity.get("mapping", {}).get(p.beneficiary_key, "")
+    if not v and identity.get("method") == "EMPFG_IS_PERNR" and _digits(p.payee):
+        v = _digits(p.payee).lstrip("0").zfill(8)
+    return v
 
 
 def _beneficiary_key(p: ReguPayment, roles: dict[str, str]) -> str:
@@ -635,6 +772,8 @@ def aggregate_regu_by_employee(regu_payments: list[ReguPayment],
             "count": len(lst),
             "currencies": sorted({p.currency for p in lst if p.currency}),
             "docs": sorted({p.payment_doc for p in lst if p.payment_doc}),
+            "laufds": sorted({p.laufd for p in lst if p.laufd}),
+            "laufis": sorted({p.laufi for p in lst if p.laufi}),
         }
         for pernr, lst in sorted(by_pernr.items())
     }
@@ -680,13 +819,17 @@ def match_payroll_to_regu(expectations: list[PayrollPaymentExpectation],
         if method in ("VALUE_CANDIDATE", "NONE"):
             status = "AMBIGUOUS" if diff == 0 else "DIFFERENCE"
         docs = ";".join(rec["docs"][:5])
+        line_laufd = ";".join(rec.get("laufds", [])) or laufd
+        line_laufi = ";".join(rec.get("laufis", [])) or laufi
+        multi = rec["count"] > 1
         lines.append(ReconLine(
             pernr=exp.pernr, rh_expected=exp.expected_payment_amount, regu_paid=paid,
             difference=diff, status=status,
             match_method=method if method != "NONE" else "VALUE_CANDIDATE",
-            seqno=exp.seqno, payment_doc=docs, payment_run_date=laufd, payment_run_id=laufi,
-            rh_rows=1, regu_rows=rec["count"],
-            note=("vários pagamentos REGU para o PERNR" if rec["count"] > 1 else ""),
+            seqno=exp.seqno, payment_doc=docs, payment_run_date=line_laufd,
+            payment_run_id=line_laufi, rh_rows=1, regu_rows=rec["count"],
+            note=(f"{rec['count']} pagamentos REGU para o PERNR em "
+                  f"{len(rec.get('laufis', [])) or 1} run(s)" if multi else ""),
         ))
 
     for pernr, rec in by_pernr.items():
@@ -695,7 +838,9 @@ def match_payroll_to_regu(expectations: list[PayrollPaymentExpectation],
         lines.append(ReconLine(
             pernr=pernr, rh_expected=None, regu_paid=_q(rec["total"]), difference=None,
             status="REGU_ONLY", match_method=method if method != "NONE" else "VALUE_CANDIDATE",
-            payment_doc=";".join(rec["docs"][:5]), payment_run_date=laufd, payment_run_id=laufi,
+            payment_doc=";".join(rec["docs"][:5]),
+            payment_run_date=";".join(rec.get("laufds", [])) or laufd,
+            payment_run_id=";".join(rec.get("laufis", [])) or laufi,
             rh_rows=0, regu_rows=rec["count"],
             note="Pagamento REGU sem /559 corrente correspondente no payroll.",
         ))
@@ -816,18 +961,44 @@ def reconcile_payroll_payments(connection: Any, params: AnalysisParams, *, run: 
     laufd, laufi = selected.get("laufd", ""), selected.get("laufi", "")
     if not (laufd and laufi):
         recon.warn("Sem run de pagamento identificável na janela — reconciliação parcial.")
-        recon.totals = {"rh_expected_total": str(rh_total), "regu_paid_total": "0",
-                        "difference": str(rh_total)}
+        recon.totals = {"rh_employees": len(recon.payroll_expected), "regu_beneficiaries": 0,
+                        "matched": 0, "rh_expected_total": str(rh_total),
+                        "regu_paid_total": "0", "difference": str(rh_total),
+                        "unmatched_rh": len(recon.payroll_expected), "unmatched_regu": 0}
         recon.classification = classify_reconciliation(recon)
         return recon
 
-    regu_rows_raw = _read_reguh_raw(connection, roles, laufd, laufi, company)
+    # Janela de datas: o pagamento do payroll pode estar dividido por vários
+    # LAUFI (mesmo dia) e/ou ocorrer depois do processamento.
+    win_start, win_end = _period_window(period)
+    regu_rows_raw = _read_reguh_window(connection, roles, win_start, win_end, company)
     recon.employee_identity_mapping = resolve_employee_identity(
         connection, params, regu_rows=regu_rows_raw, roles=roles,
         payroll_pernrs=payroll_pernrs)
 
-    recon.regu_payments = read_regu_payments(connection, params, laufd=laufd, laufi=laufi,
-                                             company=company, schema=recon.schema)
+    window_payments = _rows_to_payments(regu_rows_raw, roles, company)
+    if payment_run_date and payment_run_id:
+        run_pairs = [(payment_run_date, payment_run_id)]
+        recon.selected_payment_run_set = {
+            "run_ids": [list(run_pairs[0])], "runs": [], "dates": [payment_run_date],
+            "date": payment_run_date, "laufd": payment_run_date, "laufi": payment_run_id,
+            "exact_pernr": 0, "diff_pernr": 0, "confidence": "OBSERVED",
+            "evidence": ["run único indicado pelo utilizador"],
+            "selection_note": "[OBSERVED] conjunto = run único indicado pelo utilizador.",
+        }
+    else:
+        run_set = select_payment_run_set(
+            recon.payroll_expected, window_payments,
+            recon.employee_identity_mapping, primary=selected)
+        recon.selected_payment_run_set = run_set
+        run_pairs = [tuple(x) for x in run_set.get("run_ids", [])] or [(laufd, laufi)]
+
+    pair_set = set(run_pairs)
+    recon.regu_payments = [p for p in window_payments if (p.laufd, p.laufi) in pair_set]
+    if not recon.regu_payments and laufd and laufi:
+        recon.regu_payments = read_regu_payments(
+            connection, params, laufd=laufd, laufi=laufi, company=company,
+            schema=recon.schema)
     regu_agg = aggregate_regu_by_employee(recon.regu_payments, recon.employee_identity_mapping)
     recon.reconciliation = match_payroll_to_regu(
         recon.payroll_expected, regu_agg, recon.employee_identity_mapping, selected)
@@ -849,6 +1020,9 @@ def reconcile_payroll_payments(connection: Any, params: AnalysisParams, *, run: 
         "matched_difference": str(matched_rh - matched_regu),
         "unmatched_rh": len([l for l in recon.reconciliation if l.status == "RH_ONLY"]),
         "unmatched_regu": len([l for l in recon.reconciliation if l.status == "REGU_ONLY"]),
+        "payment_runs_used": len(run_pairs),
+        "payment_run_ids": [i for _, i in run_pairs],
+        "multi_payment_pernrs": len([l for l in recon.reconciliation if l.regu_rows > 1]),
     }
     _check_427(recon)
     recon.differences.extend(
@@ -868,6 +1042,26 @@ def _read_reguh_raw(connection: Any, roles: dict[str, str], laufd: str, laufi: s
         return []
     comp_f = roles.get("company", "")
     return [r for r in rows if r.get("LAUFD") == laufd and r.get("LAUFI") == laufi
+            and (not comp_f or r.get(comp_f) == company)]
+
+
+def _read_reguh_window(connection: Any, roles: dict[str, str], start: str, end: str,
+                       company: str) -> list[dict[str, str]]:
+    """Todas as linhas REGUH de uma empresa numa janela de LAUFD (uma leitura).
+
+    O filtro por data vai nas OPTIONS (empurrado para o SELECT do servidor):
+    filtrar só por empresa em REGUH provoca full scan e `TSV_TNEW_PAGE_ALLOC_FAILED`.
+    """
+    want = sorted({f for f in roles.values() if f} | {"LAUFD", "LAUFI"})
+    comp_f = roles.get("company", "")
+    try:
+        rows = read_table(connection, "REGUH", fields=want,
+                          options=opt_and(opt_between("LAUFD", start, end),
+                                          *([opt_eq(comp_f, company)] if comp_f else [])),
+                          page_size=200_000).rows
+    except (RfcReadError, NoData):
+        return []
+    return [r for r in rows if start <= r.get("LAUFD", "") <= end
             and (not comp_f or r.get(comp_f) == company)]
 
 
@@ -917,7 +1111,10 @@ def print_reconciliation_report(recon: PaymentReconciliation) -> None:
         pass
     L = "=" * 60
     sel = recon.selected_payment_run or {}
+    rset = recon.selected_payment_run_set or {}
     t = recon.totals or {}
+    run_ids = rset.get("laufi") or sel.get("laufi", "(n/d)")
+    run_dates = ", ".join(rset.get("dates", [])) or sel.get("laufd", "(n/d)")
     print(L)
     print("PAYROLL × REGU RECONCILIATION")
     print(L)
@@ -925,8 +1122,10 @@ def print_reconciliation_report(recon: PaymentReconciliation) -> None:
     print(f"Company............. {recon.company}")
     print(f"Period............. {recon.period}")
     print("")
-    print(f"Payment run........ {sel.get('laufi', '(n/d)')}  ({sel.get('confidence', '')})")
-    print(f"Payment date....... {sel.get('laufd', '(n/d)')}")
+    print(f"Payment run(s)..... {run_ids}  ({rset.get('confidence', sel.get('confidence', ''))})")
+    print(f"Payment date....... {run_dates}")
+    print(f"Runs used.......... {t.get('payment_runs_used', 1)}  "
+          f"(multi-payment PERNR: {t.get('multi_payment_pernrs', 0)})")
     print(f"Identity........... {recon.employee_identity_mapping.get('method', '(n/d)')} "
           f"({recon.employee_identity_mapping.get('confidence', '')})")
     print("")

@@ -1,8 +1,8 @@
-# Segurança do ficheiro `.env`
+# Segurança do `.env`
 
 O projeto mantém os valores reais apenas no `.env` local. O Git recebe somente o modelo sem segredos (`.env.example`) e o backup encriptado (`.env.enc`). A chave privada age nunca deve ser guardada no repositório.
 
-## Regra operacional
+## Regra Operacional
 
 O ficheiro `.env.enc` existe apenas como backup cifrado versionado. O runtime da aplicação continua a usar exclusivamente o `.env` local em texto.
 
@@ -16,7 +16,7 @@ Quando for necessário recuperar credenciais após formatação, troca de máqui
 
 Após a restauração, a aplicação volta a arrancar normalmente usando o `.env` local. O backup cifrado não faz parte do fluxo normal de arranque.
 
-## Configuração inicial no Windows
+## Configuração Inicial no Windows
 
 1. Instale as ferramentas em PowerShell:
 
@@ -43,7 +43,7 @@ Após a restauração, a aplicação volta a arrancar normalmente usando o `.env
 
 6. Reveja e versione `.env.example`, `.env.enc`, `.sops.yaml`, os scripts e esta documentação. Nunca use `git add -f .env`.
 
-## Depois de formatar a máquina
+## Depois de Formatar a Máquina
 
 ```powershell
 git clone https://github.com/Geniolle/SapScript.git
@@ -67,7 +67,7 @@ O fluxo é:
 
 Se um `.env` local já existir, o script recusa substituí-lo. Confira o ficheiro e, somente quando a substituição for intencional, execute `restore-env.ps1 -Force`.
 
-## O que pode ir para o GitHub
+## O Que Pode Ir para o GitHub
 
 | Ficheiro | GitHub | Conteúdo |
 |---|---:|---|
@@ -77,7 +77,7 @@ Se um `.env` local já existir, o script recusa substituí-lo. Confira o ficheir
 | `.sops.yaml` | Sim | Regra e chave pública age |
 | `%APPDATA%\sops\age\keys.txt` | Nunca | Chave privada age |
 
-## Operações habituais
+## Operações Habituais
 
 Após alterar qualquer valor local:
 
@@ -95,7 +95,7 @@ $env:SOPS_AGE_KEY_FILE = "D:\cofre-seguro\keys.txt"
 .\scripts\restore-env.ps1
 ```
 
-## Incidente ou perda de chave
+## Incidente ou Perda de Chave
 
 - Se um `.env` em texto aberto tiver sido publicado, remova-o do índice e rode todas as credenciais contidas nele. Apagar apenas o ficheiro no commit atual não elimina cópias históricas.
 - Não reescreva histórico partilhado sem coordenar com os colaboradores.

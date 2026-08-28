@@ -25,6 +25,12 @@ $env:PYTHONIOENCODING = "utf-8"
 $env:SAP_SCRIPT_PROJECT_DIR = $ProjectDir
 $env:SAP_COCKPIT_MODULE = "sap_script_web_cockpit_v2.sap_cockpit_web_ready"
 $env:POLL_SECONDS = "1"
+$env:WORKFLOW_PYTHON_EXEC = $PythonExe
+
+$FiBridgePython = Join-Path $ProjectDir ".venv-rfc\Scripts\python.exe"
+if (Test-Path -LiteralPath $FiBridgePython -PathType Leaf) {
+    $env:SAP_FI_BRIDGE_PYTHON = $FiBridgePython
+}
 
 # Ler API_BASE_URL e WORKER_TOKEN do .env se não estiverem definidos
 if (Test-Path $EnvFile) {

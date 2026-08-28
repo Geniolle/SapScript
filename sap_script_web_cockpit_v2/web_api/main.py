@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from pathlib import Path
 import sys
 import requests
@@ -214,6 +215,10 @@ def _get_fi_default_context() -> dict[str, Any]:
             },
         },
     }
+
+
+def _default_f110_next_due_date() -> str:
+    return (date.today() + timedelta(days=1)).isoformat()
 
 
 def _candidate_process_dirs() -> list[str]:
@@ -740,7 +745,6 @@ PFCG_RFC_DELETE_ENVIRONMENT = "DEV"
 
 def _validate_pfcg_role_name_or_400(role_name: str) -> str:
     try:
-        _prepare_project_imports()
         from sap_rfc import validate_role_name
     except HTTPException:
         raise
@@ -2156,6 +2160,25 @@ def api_get_job(job_id: str) -> dict[str, Any]:
     return job
 
 
+class UpdateJobParamsRequest(BaseModel):
+    params: dict[str, Any]
+
+
+@app.post("/api/jobs/{job_id}/params")
+def api_update_job_params(
+    job_id: str,
+    payload: UpdateJobParamsRequest,
+    x_worker_token: str = Header(default=""),
+) -> dict[str, Any]:
+    validate_worker_token(x_worker_token)
+    global last_worker_ping
+    last_worker_ping = time.time()
+    try:
+        return update_job_params(job_id=job_id, new_params=payload.params)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/jobs/{job_id}/complete")
 def api_complete_job(
     job_id: str,
@@ -2268,23 +2291,62 @@ class FiDefaultDocumentRequest(BaseModel):
     payload: dict[str, Any] = None
 
 
-@app.post("/api/fi/default-document")
-def api_create_fi_default_document(payload: FiDefaultDocumentRequest) -> JSONResponse:
-    try:
-        _prepare_project_imports()
-        from sap_rfc.fi_document_service import post_fi_document
+async def _wait_for_job_terminal_state(job_id: str, timeout_seconds: int) -> dict[str, Any]:
+    deadline = time.monotonic() + max(1, int(timeout_seconds))
+    while time.monotonic() < deadline:
+        job = await asyncio.to_thread(get_job, job_id)
+        if job and str(job.get("state") or "").strip() in {"succeeded", "failed"}:
+            return job
+        await asyncio.sleep(1.0)
+    raise TimeoutError(
+        f"Timeout a aguardar o job {job_id} terminar no worker Windows."
+    )
 
+
+@app.post("/api/fi/default-document")
+async def api_create_fi_default_document(payload: FiDefaultDocumentRequest) -> JSONResponse:
+    try:
         fi_payload = dict(payload.payload or {"data_mode": "default"})
         fi_payload.setdefault("data_mode", "default")
         fi_payload.setdefault("environment", payload.environment)
         fi_payload.setdefault("branch", payload.branch)
 
-        result = post_fi_document(
-            payload.environment,
-            payload.branch,
-            fi_payload,
+        job = create_job(
+            task="fi_default_document",
+            params={
+                "environment": payload.environment,
+                "branch": payload.branch,
+                "payload": fi_payload,
+            },
         )
-        return _json_no_store(dataclasses.asdict(result))
+
+        timeout_seconds = int(os.getenv("FI_DEFAULT_DOCUMENT_TIMEOUT_SECONDS", "900"))
+        finished_job = await _wait_for_job_terminal_state(job["id"], timeout_seconds)
+        if str(finished_job.get("state") or "").strip() != "succeeded":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    str(finished_job.get("status") or "Falha ao executar o documento FI.")
+                    + (
+                        f"\n{finished_job.get('log')}"
+                        if str(finished_job.get("log") or "").strip()
+                        else ""
+                    )
+                ),
+            )
+
+        result = (finished_job.get("params") or {}).get("fi_document_result")
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=500,
+                detail="Worker Windows concluiu o job, mas não devolveu o resultado FI.",
+            )
+
+        return _json_no_store(result)
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2296,28 +2358,55 @@ class F110ProposalRequest(BaseModel):
     payment_method: str
     account_number: str
     posting_date: str
-    next_due_date: str
+    next_due_date: str = ""
     document_number: str = ""
 
 
 @app.post("/api/f110/proposal")
-def api_run_f110_proposal(payload: F110ProposalRequest) -> JSONResponse:
+async def api_run_f110_proposal(payload: F110ProposalRequest) -> JSONResponse:
     """Executa apenas a PROPOSTA (Vorlauf) do F110 via RFF110S. Nunca dispara o pagamento/cobrança real."""
     try:
         _prepare_project_imports()
-        from sap_rfc.f110_service import run_f110_proposal
 
-        result = run_f110_proposal(
-            payload.environment,
-            payload.operation_type,
-            company_code=payload.company_code,
-            payment_method=payload.payment_method,
-            account_number=payload.account_number,
-            posting_date=payload.posting_date,
-            next_due_date=payload.next_due_date,
-            document_number=payload.document_number,
+        next_due_date = str(payload.next_due_date or "").strip() or _default_f110_next_due_date()
+
+        job = create_job(
+            task="f110_proposal",
+            params={
+                "environment": payload.environment,
+                "operation_type": payload.operation_type,
+                "company_code": payload.company_code,
+                "payment_method": payload.payment_method,
+                "account_number": payload.account_number,
+                "posting_date": payload.posting_date,
+                "next_due_date": next_due_date,
+                "document_number": payload.document_number,
+            },
         )
-        return _json_no_store(dataclasses.asdict(result))
+
+        timeout_seconds = int(os.getenv("F110_PROPOSAL_TIMEOUT_SECONDS", "900"))
+        finished_job = await _wait_for_job_terminal_state(job["id"], timeout_seconds)
+        if str(finished_job.get("state") or "").strip() != "succeeded":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    str(finished_job.get("status") or "Falha ao executar a proposta F110.")
+                    + (
+                        f"\n{finished_job.get('log')}"
+                        if str(finished_job.get("log") or "").strip()
+                        else ""
+                    )
+                ),
+            )
+
+        result = (finished_job.get("params") or {}).get("f110_proposal_result")
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=500,
+                detail="Worker Windows concluiu o job, mas não devolveu o resultado F110.",
+            )
+
+        return _json_no_store(result)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

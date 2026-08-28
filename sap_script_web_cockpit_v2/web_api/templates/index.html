@@ -7341,13 +7341,6 @@
         asiConversationState = {
             ...asiConversationState,
             pfcgCreateIsComposta: false,
-        if (asiChatMockTimer) {
-            clearTimeout(asiChatMockTimer);
-            asiChatMockTimer = null;
-        }
-
-        asiConversationState = {
-            ...asiConversationState,
             pfcgCreateRoleName: '',
             pfcgCreateDescription: '',
             pfcgCreateTcodes: [],
@@ -10512,7 +10505,7 @@
                 badgeStyle = 'background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.25);';
             }
 
-            const jiraBase = '{{ jira_base }}' || 'https://salsajeans.atlassian.net';
+            const jiraBase = {{ jira_base | tojson }} || 'https://salsajeans.atlassian.net';
             const ticketUrl = `${jiraBase}/browse/${ticketKey}`;
 
             let slaBadge = '<span style="color: #9ca3af;">-</span>';
@@ -12055,7 +12048,7 @@
                     IT SALSA - Categoria SAP &rarr; ${escapeHtml(categoriaVal)}
                 </span>`
             : '';
-        document.getElementById('sa-result-title').innerHTML = `Pr&eacute;-an&aacute;lise do Ticket&nbsp;&mdash;&nbsp;<a href="{{ jira_base }}/browse/${ticketKey}" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 800;">${ticketKey}</a>${categBadgeHtml}`;
+        document.getElementById('sa-result-title').innerHTML = `Pr&eacute;-an&aacute;lise do Ticket&nbsp;&mdash;&nbsp;<a href="${jiraBase}/browse/${ticketKey}" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 800;">${ticketKey}</a>${categBadgeHtml}`;
 
         const badge = document.getElementById('sa-confidence-badge');
         badge.textContent = 'PREVIA DO TICKET';
@@ -12262,7 +12255,7 @@
             const report = JSON.parse(statusJson);
             
             // 1. Título e Confiança
-            document.getElementById('sa-result-title').innerHTML = `Relatório de Análise — <a href="{{ jira_base }}/browse/${report.ticket_key}" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 800;">${report.ticket_key}</a>`;
+            document.getElementById('sa-result-title').innerHTML = `Relatório de Análise — <a href="${jiraBase}/browse/${report.ticket_key}" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 800;">${report.ticket_key}</a>`;
             const badge = document.getElementById('sa-confidence-badge');
             badge.textContent = `Confiança: ${report.confidence.toUpperCase()}`;
             if (report.confidence === 'alta') {

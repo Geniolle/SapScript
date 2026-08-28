@@ -368,6 +368,72 @@ def test_json_and_csv_output(tmp_path, monkeypatch):
     assert "PERNR;RH_EXPECTED;REGU_PAID" in cp.read_text(encoding="utf-8-sig")
 
 
+def test_select_payment_run_set_reconstructs_split():
+    """O pagamento do payroll dividido por 2 LAUFI no mesmo dia é reconstruído;
+    um 3.º run (despesas) que introduz divergência fica de fora."""
+    from sap_payroll_analysis.payment_reconciliation import (
+        _rows_to_payments, resolve_employee_identity, select_payment_run_set,
+    )
+    reguh = [
+        _reguh("20260625", "SAL1", pernr="00000005", rwbtr="1382.40"),
+        _reguh("20260625", "SAL1", pernr="00000006", rwbtr="2000.00"),
+        _reguh("20260625", "SAL2", pernr="00000007", rwbtr="1500.00"),
+        _reguh("20260626", "EXP1", pernr="00000005", rwbtr="50.00"),   # despesas -> divergência
+    ]
+    conn = FakeConnection(base_tables(reguh=reguh))
+    sch = inspect_regu_schema(conn, DEFAULTS)
+    roles = sch["tables"]["REGUH"]["roles"]
+    exps = build_payroll_payment_expectations(conn, DEFAULTS, run=RUN)
+    ident = resolve_employee_identity(conn, DEFAULTS, regu_rows=reguh, roles=roles,
+                                      payroll_pernrs={e.pernr for e in exps})
+    pays = _rows_to_payments(reguh, roles, COMPANY)
+    rs = select_payment_run_set(exps, pays, ident,
+                                primary={"laufd": "20260625", "laufi": "SAL1"})
+    chosen = {tuple(x) for x in rs["run_ids"]}
+    assert ("20260625", "SAL1") in chosen and ("20260625", "SAL2") in chosen
+    assert ("20260626", "EXP1") not in chosen          # introduz divergência -> excluído
+    assert rs["exact_pernr"] == 3 and rs["diff_pernr"] == 0
+    assert rs["confidence"] == "HIGH_CONFIDENCE"
+
+
+def test_reconcile_multi_run_exact_match(monkeypatch):
+    """reconcile end-to-end: 2 salary runs + 1 expense run -> EXACT_MATCH usando só os 2."""
+    _prep_r3_env(monkeypatch)
+    reguh = [
+        _reguh("20260625", "SAL1", pernr="00000005", rwbtr="1382.40"),
+        _reguh("20260625", "SAL1", pernr="00000006", rwbtr="2000.00"),
+        _reguh("20260625", "SAL2", pernr="00000007", rwbtr="1500.00"),
+        _reguh("20260626", "EXP1", pernr="00000009", rwbtr="9999.00"),  # PERNR fora do payroll
+    ]
+    conn = FakeConnection(base_tables(reguh=reguh))
+    recon = reconcile_payroll_payments(conn, DEFAULTS, run=RUN, company=COMPANY, period=PERIOD)
+    assert recon.classification["classification"] == "EXACT_MATCH"
+    assert recon.totals["difference"] == "0.00"
+    assert recon.totals["payment_runs_used"] == 2
+    assert set(recon.totals["payment_run_ids"]) == {"SAL1", "SAL2"}
+    assert all(l.status == "EXACT_MATCH" for l in recon.reconciliation)
+
+
+def test_run_set_keeps_anchor_even_with_difference():
+    """O run primário (âncora) entra sempre no conjunto, mesmo com divergência."""
+    from sap_payroll_analysis.payment_reconciliation import (
+        _rows_to_payments, resolve_employee_identity, select_payment_run_set,
+    )
+    reguh = [_reguh("20260625", "SAL1", pernr="00000005", rwbtr="1000.00"),  # /559=1382,40
+             _reguh("20260625", "SAL1", pernr="00000006", rwbtr="2000.00")]
+    conn = FakeConnection(base_tables(reguh=reguh))
+    sch = inspect_regu_schema(conn, DEFAULTS)
+    roles = sch["tables"]["REGUH"]["roles"]
+    exps = build_payroll_payment_expectations(conn, DEFAULTS, run=RUN)
+    ident = resolve_employee_identity(conn, DEFAULTS, regu_rows=reguh, roles=roles,
+                                      payroll_pernrs={e.pernr for e in exps})
+    pays = _rows_to_payments(reguh, roles, COMPANY)
+    rs = select_payment_run_set(exps, pays, ident,
+                                primary={"laufd": "20260625", "laufi": "SAL1"})
+    assert [tuple(x) for x in rs["run_ids"]] == [("20260625", "SAL1")]
+    assert rs["diff_pernr"] == 1
+
+
 def _prep_r3_env(monkeypatch):
     for s, v in (("USER", "U"), ("PASSWD", "P"), ("ASHOST", "10.1.1.101"),
                  ("SYSNR", "00"), ("CLIENT", "100")):

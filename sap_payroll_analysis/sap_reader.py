@@ -91,6 +91,17 @@ def opt_in(field: str, values: Iterable[str]) -> list[dict[str, str]]:
     return rows or [{"TEXT": "1 = 2"}]  # conjunto vazio -> nunca devolve linhas
 
 
+def opt_between(field: str, low: str, high: str) -> list[dict[str, str]]:
+    """`field >= low AND field <= high` (intervalo inclusivo), para `opt_and`.
+
+    Usar para empurrar o filtro para o SELECT do servidor: uma condição só por
+    código de empresa em tabelas enormes (ex.: REGUH) força full scan e pode
+    rebentar com `TSV_TNEW_PAGE_ALLOC_FAILED`.
+    """
+    return [{"TEXT": f"{field} >= '{_escape(low)}'"},
+            {"TEXT": f"AND {field} <= '{_escape(high)}'"}]
+
+
 def opt_and(*groups: Sequence[dict[str, str]]) -> list[dict[str, str]]:
     """Liga grupos de condições com AND. Cada grupo é envolvido em parênteses."""
     combined: list[dict[str, str]] = []

@@ -27,129 +27,13 @@ from app.ui import ...
 
 Por isso a aplicacao web foi colocada no pacote `web_api`, para nao criar conflito com o pacote `app` do teu projeto SAP original.
 
-## 1. Copiar o ficheiro do Cockpit para o projeto SAP Script
+## Procedimento
 
-Copia este ficheiro:
+Os passos operacionais, formatos de execução, regras da interface web e comandos
+do proxy local ficam centralizados em:
 
-```text
-sap_cockpit_web_ready.py
-```
+- [docs/PROCEDIMENTO.md](docs/PROCEDIMENTO.md)
+- [docs/RUNTIME_POLICY.md](docs/RUNTIME_POLICY.md)
+- [docs/FI_DEFAULT_DOCUMENT_FLOW.md](docs/FI_DEFAULT_DOCUMENT_FLOW.md)
 
-para a raiz do teu projeto SAP Script, no mesmo nivel onde consegues importar `app.config` e `app.ui`.
-
-Podes testar no terminal, mantendo o comportamento antigo:
-
-```powershell
-python sap_cockpit_web_ready.py
-```
-
-A diferenca e que agora o ficheiro tambem expoe:
-
-```python
-run_sap_cockpit(payload)
-```
-
-que sera chamada pelo worker Windows.
-
-## 2. Subir a interface web com Docker
-
-Na pasta deste pacote:
-
-```bash
-docker compose up --build
-```
-
-Abrir:
-
-```text
-http://localhost:8000
-```
-
-Se houver alterações no `web_api` ou em ficheiros carregados pelo container, o Docker precisa ser reiniciado para aplicar as mudanças. Nesses casos, o reinício deve ser executado aqui no terminal por quem estiver a fazer a alteração, sem depender de ação manual do utilizador final.
-
-## 3. Preparar o worker Windows
-
-No Windows:
-
-```powershell
-cd worker
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements-windows.txt
-```
-
-## 4. Executar o worker Windows
-
-Ajusta `SAP_SCRIPT_PROJECT_DIR` para a pasta raiz do teu projeto SAP Script original.
-
-Exemplo:
-
-```powershell
-$env:API_BASE_URL = "http://localhost:8000"
-$env:WORKER_TOKEN = "change-me"
-$env:SAP_SCRIPT_PROJECT_DIR = "C:\\Users\\teu_user\\Documents\\SAP_SCRIPT"
-$env:SAP_COCKPIT_MODULE = "sap_cockpit_web_ready"
-$env:JIRA_SYNC_PROJECTS = "IT - Salsa Jeans, SAP - Desenvolvimento"
-$env:JIRA_SYNC_JQL = ""
-$env:JIRA_AUTO_TRIGGER_PROJECTS = "IT - Salsa Jeans, SAP - Desenvolvimento"
-$env:JIRA_AUTO_TRIGGER_SUPPLIERS = "Evolutive"
-$env:JIRA_AUTO_TRIGGER_ASSIGNEES = "Clayton Lopes"
-python worker.py
-```
-
-`JIRA_SYNC_PROJECTS` aceita múltiplos projetos separados por vírgula. Se `JIRA_SYNC_JQL` estiver preenchido, ele substitui a JQL automática.
-
-O intervalo de sincronização em background é controlado por `POLL_SECONDS`. Exemplo: `60` para 1 minuto, `30` para 30 segundos.
-
-A sincronização JIRA corre automaticamente em background quando a aplicação web arranca.
-
-## Headroom
-
-Referência de comandos e variáveis para o proxy local:
-
-- [docs/HEADROOM.md](docs/HEADROOM.md)
-
-## 5. Como executar pela web
-
-Na pagina, escolher:
-
-```text
-Rotina: Executar SAP Cockpit
-Ambiente: S4Q
-Processo / pasta: nome exato da pasta dentro de PROCESSOS_DIR
-Subprocesso / ficheiro .py: nome exato do script .py
-```
-
-Se o subprocesso pedir Excel, preencher o caminho completo do ficheiro no Windows:
-
-```text
-C:\SAP\ficheiro.xlsx
-```
-
-## 6. Requests
-
-A web suporta:
-
-```text
-4 - Nao transportar
-1 - Usar request existente
-2 - Criar nova request
-```
-
-A opcao `3 - Pesquisar suas request criadas` continua no modo terminal, mas nao foi ativada na web porque exige uma escolha manual numa lista. Podemos transformar isso depois numa pagina propria de pesquisa/selecao.
-
-## 7. Regra obrigatoria de STATUS
-
-Toda execucao termina devolvendo:
-
-```python
-session.findById("wnd[0]/sbar").Text
-```
-
-No ficheiro novo, isto ficou centralizado em:
-
-```python
-read_sbar_status(session)
-```
-
-Mesmo quando ocorre erro, o retorno tenta preencher `STATUS` com o texto real de `wnd[0]/sbar`.
+Use esse documento como referência única para a operação diária. Aqui fica apenas a visão geral do pacote e a ponte para o procedimento.

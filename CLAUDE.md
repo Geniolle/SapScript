@@ -12,3 +12,9 @@ para um novo conjunto de objetos.
 
 Isto aplica-se a qualquer ambiente (DEV incluído), mesmo em ambientes só usados para
 testes.
+
+## Cuidado com scripts monolíticos
+Ao alterar templates HTML com um único bloco `<script>` grande, validar sempre a
+sintaxe do JavaScript depois da edição. Um `if`, vírgula ou chaveta fora do lugar
+pode quebrar o parse de toda a página e impedir que áreas independentes, como a
+lista de tickets, carreguem.

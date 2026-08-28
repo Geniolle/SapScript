@@ -55,6 +55,12 @@ while ($true) {
         $env:SAP_SCRIPT_PROJECT_DIR = $ProjectDir
         $env:SAP_COCKPIT_MODULE = "sap_script_web_cockpit_v2.sap_cockpit_web_ready"
         $env:POLL_SECONDS = "1"
+        $env:WORKFLOW_PYTHON_EXEC = $PythonExe
+
+        $FiBridgePython = Join-Path $ProjectDir ".venv-rfc\Scripts\python.exe"
+        if (Test-Path -LiteralPath $FiBridgePython -PathType Leaf) {
+            $env:SAP_FI_BRIDGE_PYTHON = $FiBridgePython
+        }
 
         "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Iniciando worker (token lido do .env)..." | Out-File $LogPath -Append -Encoding UTF8
 

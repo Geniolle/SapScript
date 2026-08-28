@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import dataclasses
 import json
 import os
 import subprocess
@@ -44,6 +45,11 @@ def _prepare_project_imports() -> None:
     project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
     if project_dir and project_dir not in sys.path:
         sys.path.insert(0, project_dir)
+    cockpit_dir = Path(project_dir) / "sap_script_web_cockpit_v2" if project_dir else None
+    if cockpit_dir and cockpit_dir.exists():
+        cockpit_dir_str = str(cockpit_dir)
+        if cockpit_dir_str not in sys.path:
+            sys.path.insert(0, cockpit_dir_str)
 
 
 def _parse_env_line(raw: str) -> tuple[str | None, str | None]:
@@ -1025,6 +1031,57 @@ def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
     return status_json, log
 
 
+def _run_fi_default_document(job: dict[str, Any], params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    try:
+        from sap_rfc.fi_document_service import post_fi_document
+    except ImportError as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço FI: {exc}") from exc
+    try:
+        from sap_script_web_cockpit_v2.worker.fi_default_document_job import (
+            FiDefaultDocumentJobError,
+            run_fi_default_document_job,
+        )
+    except ImportError as exc:
+        raise SapExecutionError(f"Não foi possível importar o executor FI isolado: {exc}") from exc
+
+    try:
+        return run_fi_default_document_job(
+            job_id=job["id"],
+            params=params,
+            post_fi_document=post_fi_document,
+        )
+    except FiDefaultDocumentJobError as exc:
+        raise SapExecutionError(str(exc)) from exc
+
+
+def _run_f110_proposal(job: dict[str, Any], params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    try:
+        from sap_rfc.f110_service import run_f110_proposal
+    except ImportError as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço F110: {exc}") from exc
+
+    try:
+        from sap_script_web_cockpit_v2.worker.f110_proposal_job import (
+            F110ProposalJobError,
+            run_f110_proposal_job,
+        )
+    except ImportError as exc:
+        raise SapExecutionError(f"Não foi possível importar o executor F110 isolado: {exc}") from exc
+
+    try:
+        return run_f110_proposal_job(
+            job_id=job["id"],
+            params=params,
+            run_f110_proposal=run_f110_proposal,
+        )
+    except F110ProposalJobError as exc:
+        raise SapExecutionError(str(exc)) from exc
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
     if _project_dir:
@@ -1123,6 +1180,16 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "sap_gui_chat_action":
             status, log = _run_sap_gui_chat_action(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "fi_default_document":
+            status, log = _run_fi_default_document(job, params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "f110_proposal":
+            status, log = _run_f110_proposal(job, params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 

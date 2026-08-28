@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import sqlite3
 import re
+import platform
+import shutil
 from datetime import date
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -38,7 +40,13 @@ def _bridge_python_executable() -> Path | None:
 def _run_post_fi_document_via_bridge(environment: str, branch: str, payload: dict[str, Any]) -> FiDocumentResult:
     python_exe = _bridge_python_executable()
     if python_exe is None:
-        raise RuntimeError(f"PyRFC indisponível: {_PYRFC_IMPORT_ERROR}")
+        runtime = "WSL/Linux" if _is_wsl_runtime() else platform.platform()
+        raise RuntimeError(
+            "Execução FI via bridge indisponível neste runtime "
+            f"({runtime}). Configure SAP_FI_BRIDGE_PYTHON ou WORKFLOW_PYTHON_EXEC "
+            "com um Python compatível com PyRFC, ou execute este worker no Windows "
+            "com .venv-rfc\\Scripts\\python.exe disponível."
+        )
 
     repo_root = Path(__file__).resolve().parents[1]
     bridge_script = (
@@ -48,13 +56,16 @@ def _run_post_fi_document_via_bridge(environment: str, branch: str, payload: dic
         "import sys\n"
         f"repo_root = Path(r'{repo_root}')\n"
         "sys.path.insert(0, str(repo_root))\n"
-        "from sap_rfc.fi_document_service import post_fi_document as _post\n"
+        "from sap_rfc.fi_document_service import _post_fi_document_core as _post\n"
         "environment = json.loads(sys.stdin.readline())\n"
         "branch = json.loads(sys.stdin.readline())\n"
         "payload = json.loads(sys.stdin.read() or '{}')\n"
         "result = _post(environment, branch, payload)\n"
         "print(json.dumps(dataclasses.asdict(result), ensure_ascii=False))\n"
     )
+
+    env = os.environ.copy()
+    env["SAP_FI_BRIDGE_ACTIVE"] = "1"
 
     proc = subprocess.run(
         [str(python_exe), "-c", bridge_script],
@@ -68,6 +79,7 @@ def _run_post_fi_document_via_bridge(environment: str, branch: str, payload: dic
         capture_output=True,
         text=True,
         cwd=str(repo_root),
+        env=env,
     )
     stdout = proc.stdout.strip()
     stderr = proc.stderr.strip()
@@ -125,6 +137,55 @@ def build_connection_params(environment: str | None = None) -> dict[str, str]:
 def _require_pyrfc() -> None:
     if Connection is None:
         raise RuntimeError(f"PyRFC indisponível: {_PYRFC_IMPORT_ERROR}")
+
+
+def _is_windows_runtime() -> bool:
+    return os.name == "nt" or platform.system().lower() == "windows"
+
+
+def _is_wsl_runtime() -> bool:
+    if _is_windows_runtime():
+        return False
+
+    release = platform.release().lower()
+    version = platform.version().lower()
+    return (
+        "microsoft" in release
+        or "wsl" in release
+        or "microsoft" in version
+        or "wsl" in version
+        or bool(os.environ.get("WSL_INTEROP"))
+    )
+
+
+def _bridge_python_executable() -> str | None:
+    configured_candidates = [
+        os.getenv("SAP_FI_BRIDGE_PYTHON", "").strip(),
+        os.getenv("WORKFLOW_PYTHON_EXEC", "").strip(),
+    ]
+    for candidate in configured_candidates:
+        if not candidate:
+            continue
+        resolved = Path(candidate).expanduser()
+        if resolved.exists():
+            return str(resolved)
+        found = shutil.which(candidate)
+        if found:
+            return found
+
+    if not _is_windows_runtime():
+        return None
+
+    repo_root = Path(__file__).resolve().parents[1]
+    windows_candidates = [
+        repo_root / ".venv-rfc" / "Scripts" / "python.exe",
+        repo_root / ".venv-rfc" / "Scripts" / "pythonw.exe",
+    ]
+    for candidate in windows_candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return None
 
 
 def _env_default(environment: str, field_name: str, default: str = "") -> str:
@@ -584,8 +645,13 @@ def _extract_document_number(response: dict[str, Any]) -> str:
     return ""
 
 
-def post_fi_document(environment: str, branch: str, payload: dict[str, Any]) -> FiDocumentResult:
+def _post_fi_document_core(environment: str, branch: str, payload: dict[str, Any]) -> FiDocumentResult:
     if Connection is None:
+        if os.getenv("SAP_FI_BRIDGE_ACTIVE") == "1":
+            raise RuntimeError(
+                "PyRFC indisponível no processo de bridge. Verifique se o Python do bridge "
+                "tem SAP NetWeaver RFC SDK + pyrfc instalados."
+            )
         return _run_post_fi_document_via_bridge(environment, branch, payload)
 
     _require_pyrfc()
@@ -644,3 +710,9 @@ def post_fi_document(environment: str, branch: str, payload: dict[str, Any]) -> 
             connection.close()
         except Exception:
             pass
+
+
+def post_fi_document(environment: str, branch: str, payload: dict[str, Any]) -> FiDocumentResult:
+    if Connection is None:
+        return _run_post_fi_document_via_bridge(environment, branch, payload)
+    return _post_fi_document_core(environment, branch, payload)
