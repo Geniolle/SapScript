@@ -1053,7 +1053,6 @@
           <span>Agente Salsa IT</span>
         </a>
         <a class="nav-item" id="nav-item-jira-dashboard" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
-        <a class="nav-item" id="nav-item-auto-trigger" onclick="switchView('auto-trigger')">⚡ Auto-Trigger SAP</a>
         <a class="nav-item" id="nav-item-visao-geral" onclick="switchView('visao-geral')">Visão geral</a>
         <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
         <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')">⚙️ Definições</a>
@@ -1261,6 +1260,12 @@
                   </button>
                 </div>
               </div>
+              <div
+                id="agent-salsa-fi-context"
+                class="agent-salsa-fi-context"
+                aria-live="polite"
+                style="margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid rgba(148,163,184,0.18);background:rgba(15,23,42,0.32);color:var(--text-primary);font-size:0.78rem;line-height:1.45;display:none;"
+              ></div>
             </div>
           </div>
         </section>
@@ -1492,143 +1497,6 @@
         </div>
         </div> <!-- End of view-jira-tickets-wrapper -->
 
-        <!-- ====== AUTO-TRIGGER VIEW (inside JIRA section) ====== -->
-        <div id="view-auto-trigger" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
-          <div style="max-width: 1000px; margin: 0 auto;">
-
-            <!-- Header -->
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-              <div style="display: flex; align-items: center; gap: 14px;">
-                <div style="width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #f59e0b, #d97706); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(245,158,11,0.35);">⚡</div>
-                <div>
-                  <h2 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: var(--text-primary);">Auto-Trigger SAP</h2>
-                  <p style="margin: 0; font-size: 0.75rem; color: var(--text-secondary);">Execução automática de scripts SAP com base em tickets JIRA.</p>
-                </div>
-              </div>
-              <div style="display: flex; gap: 10px; align-items: center;">
-                <span id="at-status-badge" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border);">
-                  <span style="width: 6px; height: 6px; border-radius: 50%; display: inline-block;"></span>
-                  <span id="at-status-text">Carregando...</span>
-                </span>
-                <button class="btn btn-secondary" id="btn-at-preview" onclick="atPreview()" style="font-size: 0.78rem; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  Preview
-                </button>
-                <button class="btn btn-primary" id="btn-at-run" onclick="atRun()" style="font-size: 0.78rem; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  Executar agora
-                </button>
-              </div>
-            </div>
-
-            <!-- CRITÉRIOS DE PESQUISA -->
-            <div style="background: var(--surface-raised, rgba(255,255,255,0.02)); border: 1px dashed var(--border); border-radius: 12px; padding: 12px 18px; margin-bottom: 24px;">
-              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                CRITÉRIOS DE PESQUISA
-              </div>
-              <div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.72rem; color: var(--text-secondary);">
-                <span>👤 Responsável: <strong id="at-cfg-assignee" style="color: var(--text-primary);">—</strong></span>
-                <span>📌 Status: <strong id="at-cfg-status" style="color: var(--text-primary);">—</strong></span>
-                <span>🤝 Supplier: <strong id="at-cfg-supplier" style="color: var(--text-primary);">—</strong></span>
-                <span>💻 SAP Environment: <strong id="at-cfg-ambiente" style="color: var(--text-primary);">—</strong></span>
-                <span>⏱ Intervalo: <strong id="at-cfg-interval" style="color: var(--text-primary);">—</strong></span>
-              </div>
-            </div>
-
-            <!-- FORÇAR EXECUÇÃO MANUAL (BYPASS STATUS) -->
-            <div class="card" style="padding: 16px 20px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-card);">
-              <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                Forçar Execução Manual (Bypass Status)
-              </div>
-              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                <input type="text" id="at-force-ticket-key" placeholder="Chave do ticket (ex: IZ-56680)" style="flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text-primary); font-size: 0.8rem;" />
-                <button class="btn btn-primary" id="btn-at-force-run" onclick="atForceRun()" style="font-size: 0.78rem; padding: 8px 16px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  Disparar Manualmente
-                </button>
-              </div>
-              <p style="margin: 0; font-size: 0.7rem; color: var(--text-secondary);">Esta ação irá consultar o ticket indicado no JIRA, baixar o arquivo XLSX e criar o job SAP, mesmo que o status não seja "Work In Progress" ou "In Review".</p>
-            </div>
-
-            <!-- Stats KPI Grid -->
-            <div id="at-stats-row" class="kpi-grid" style="margin-bottom: 24px; display: none;">
-              <!-- Encontrados -->
-              <div class="kpi-card" style="padding: 16px 20px;">
-                <div style="font-size: 1.8rem; font-weight: 800; color: var(--text-primary); text-align: center;" id="at-stat-found">0</div>
-                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Encontrados</div>
-              </div>
-              <!-- Criados -->
-              <div class="kpi-card" style="padding: 16px 20px;">
-                <div style="font-size: 1.8rem; font-weight: 800; color: #10b981; text-align: center;" id="at-stat-triggered">0</div>
-                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Jobs Criados</div>
-              </div>
-              <!-- Ignorados -->
-              <div class="kpi-card" style="padding: 16px 20px;">
-                <div style="font-size: 1.8rem; font-weight: 800; color: #f59e0b; text-align: center;" id="at-stat-skipped">0</div>
-                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Ignorados</div>
-              </div>
-              <!-- Erros -->
-              <div class="kpi-card" style="padding: 16px 20px;">
-                <div style="font-size: 1.8rem; font-weight: 800; color: #ef4444; text-align: center;" id="at-stat-errors">0</div>
-                <div style="font-size: 0.7rem; color: var(--text-secondary); text-align: center; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Erros</div>
-              </div>
-            </div>
-
-            <!-- Execution Results Panel -->
-            <div id="at-results-card" class="card" style="padding: 20px; margin-bottom: 24px; display: none;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span id="at-results-title" style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">Resultados</span>
-                <span id="at-results-count" style="font-size: 0.75rem; color: var(--text-secondary);"></span>
-              </div>
-              <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
-                  <thead>
-                    <tr style="background: var(--surface-raised, rgba(255,255,255,0.03));">
-                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;">Ticket</th>
-                      <th style="padding: 10px 14px; text-align: left; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Sumário</th>
-                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Processo SAP</th>
-                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Resultado</th>
-                      <th style="padding: 10px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Job</th>
-                    </tr>
-                  </thead>
-                  <tbody id="at-results-tbody">
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- History Log -->
-            <div style="background: var(--surface); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; margin-bottom: 24px;">
-              <div style="padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">📋 Histórico de Execuções</span>
-                <div style="display: flex; gap: 8px;">
-                  <button class="btn btn-secondary" onclick="atLoadLog()" style="padding: 5px 12px; font-size: 0.75rem;">↻ Atualizar</button>
-                  <button class="btn btn-secondary" onclick="atClearLog()" style="padding: 5px 12px; font-size: 0.75rem; color: #ef4444; border-color: rgba(239,68,68,0.2); background: rgba(239,68,68,0.04);">🗑 Limpar Histórico</button>
-                </div>
-              </div>
-              <div style="overflow-x: auto; max-height: 400px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
-                  <thead style="position: sticky; top: 0; z-index: 1;">
-                    <tr style="background: var(--surface-raised, rgba(255,255,255,0.04));">
-                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;">Data/Hora</th>
-                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Ticket</th>
-                      <th style="padding: 9px 14px; text-align: left; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Sumário</th>
-                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Estado</th>
-                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Job</th>
-                      <th style="padding: 9px 14px; text-align: center; font-weight: 700; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">Ação</th>
-                    </tr>
-                  </thead>
-                  <tbody id="at-log-tbody">
-                    <tr><td colspan="6" style="text-align: center; padding: 24px; color: var(--text-secondary); font-size: 0.8rem;">A carregar histórico...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          </div>
-        </div>
         <!-- ====== END AUTO-TRIGGER VIEW ====== -->
         <!-- ====== DEFINIÇÕES VIEW ====== -->
         <div id="view-definicoes" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
@@ -4687,6 +4555,9 @@
         ASI_PFCG_ROLE_ANALYZE_USERS_ACTION
     ];
     const ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT = 'pfcg_individual_role_name';
+    const ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT = 'pfcg_composta_role_name';
+    const ASI_PFCG_COMPOSTA_DESCRIPTION_INPUT = 'pfcg_composta_description';
+    const ASI_PFCG_COMPOSTA_CHILDREN_INPUT = 'pfcg_composta_children';
     const ASI_PFCG_INDIVIDUAL_ROLE_NAME_PLACEHOLDER = 'Ex.: Z_FI_CLIENTES';
     const ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT = 'pfcg_individual_description';
     const ASI_PFCG_INDIVIDUAL_TCODES_INPUT = 'pfcg_individual_tcodes';
@@ -4731,6 +4602,13 @@
             subprocesso: '',
             actionId: '',
             mode: '',
+            selectedFiEnvironment: '',
+            selectedFiBranch: '',
+            selectedFiWorkflow: '',
+            lastFiDocumentNumber: '',
+            lastFiDocumentEnvironment: '',
+            lastFiDocumentBranch: '',
+            lastFiDocumentWorkflow: '',
             awaitingInput: '',
             pendingJobId: '',
             pendingRoleName: '',
@@ -4755,6 +4633,109 @@
             pfcgDeletePreviewJobId: '',
             isBusy: false
         };
+    }
+
+    function asiNormalizeFiBranch(branch) {
+        const value = String(branch || '').trim().toLowerCase();
+        if (value === 'fornecedor' || value === 'vendor') return 'fornecedor';
+        if (value === 'razao' || value === 'razão' || value === 'gl') return 'razao';
+        return 'cliente';
+    }
+
+    function asiGetFiActionContext(action) {
+        const actionId = String(action?.id || '').toLowerCase();
+        const environment = String(
+            action?.environment
+            || (actionId.includes('-dev-') ? 'DEV' : '')
+            || (actionId.includes('-prd-') ? 'PRD' : '')
+            || (actionId.includes('-qad-') ? 'QAD' : 'QAD')
+        ).trim().toUpperCase();
+        const branch = asiNormalizeFiBranch(
+            action?.branch
+            || (actionId.includes('fornecedor') ? 'fornecedor' : actionId.includes('razao') ? 'razao' : 'cliente')
+        );
+        return { environment, branch };
+    }
+
+    function asiBuildF110DefaultInfoAction(environment, branch) {
+        const env = String(environment || 'QAD').trim().toUpperCase();
+        const normalizedBranch = asiNormalizeFiBranch(branch);
+        const branchLabel = normalizedBranch === 'fornecedor'
+            ? 'Fornecedor'
+            : normalizedBranch === 'razao'
+                ? 'Razão'
+                : 'Cliente';
+
+        return {
+            id: `testes-unitarios-executar-f110-${env.toLowerCase()}-default-${normalizedBranch}-info-default`,
+            label: 'Default',
+            icon: 'analysis',
+            processo: 'Testes Unitários',
+            environment: env,
+            branch: normalizedBranch,
+            mode: 'default',
+            workflow: 'f110_default_document',
+            prompt: `Usar informações Default para ${branchLabel}.`,
+            children: []
+        };
+    }
+
+    function asiBuildF110DefaultAccountAction(environment, branch) {
+        const env = String(environment || 'QAD').trim().toUpperCase();
+        const normalizedBranch = asiNormalizeFiBranch(branch);
+        const branchLabel = normalizedBranch === 'fornecedor'
+            ? 'Fornecedor'
+            : normalizedBranch === 'razao'
+                ? 'Razão'
+                : 'Cliente';
+
+        return {
+            id: `testes-unitarios-executar-f110-${env.toLowerCase()}-default-${normalizedBranch}`,
+            label: branchLabel,
+            icon: 'analysis',
+            processo: 'Testes Unitários',
+            environment: env,
+            branch: normalizedBranch,
+            mode: 'default',
+            prompt: `Quero validar um documento de ${branchLabel} no F110 em ${env}.`,
+            followupText: 'Escolha as informações de teste:',
+            followupActionsSource: 'children',
+            children: [
+                asiBuildF110DefaultInfoAction(env, normalizedBranch)
+            ]
+        };
+    }
+
+    function asiBuildF110DefaultChildren(environment) {
+        const env = String(environment || 'QAD').trim().toUpperCase();
+        return [
+            {
+                id: `testes-unitarios-executar-f110-${env.toLowerCase()}-default`,
+                label: 'Execução Default',
+                icon: 'analysis',
+                processo: 'Testes Unitários',
+                environment: env,
+                mode: 'default',
+                prompt: `Quero executar o F110 em ${env} com a execução Default.`,
+                followupText: 'Escolha o tipo de conta para validar:',
+                followupActionsSource: 'children',
+                children: [
+                    asiBuildF110DefaultAccountAction(env, 'cliente'),
+                    asiBuildF110DefaultAccountAction(env, 'fornecedor'),
+                    asiBuildF110DefaultAccountAction(env, 'razao')
+                ]
+            },
+            {
+                id: `testes-unitarios-executar-f110-${env.toLowerCase()}-manual`,
+                label: 'Execução Manual',
+                icon: 'analysis',
+                processo: 'Testes Unitários',
+                environment: env,
+                mode: 'manual',
+                prompt: `Quero executar o F110 em ${env} com a execução Manual.`,
+                children: []
+            }
+        ];
     }
 
     let asiConversationState = asiDefaultConversationState();
@@ -4834,6 +4815,64 @@
                             ]
                         },
                         {
+                            id: 'pfcg-composta',
+                            label: 'Função Composta',
+                            icon: 'layers',
+                            processo: 'Funções PFCG',
+                            subprocesso: 'D. PFCG_COMPOSTA.py',
+                            prompt: 'Quero trabalhar com uma Função Composta.',
+                            followupText: 'Como deseja prosseguir?',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'pfcg-composta-analyze',
+                                    label: 'Analisar',
+                                    icon: 'analysis',
+                                    mode: 'analyze',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'D. PFCG_COMPOSTA.py',
+                                    prompt: 'Quero analisar a Função Composta.',
+                                    followupText: 'Qual é o nome da Função Composta que deseja analisar em PRD?',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-composta-execute',
+                                    label: 'Preparar criação',
+                                    icon: 'shield-plus',
+                                    mode: 'prepare',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'D. PFCG_COMPOSTA.py',
+                                    prompt: 'Quero preparar a criação da Função Composta.',
+                                    followupText: 'Para preparar a criação, selecione o ficheiro Excel com a configuração da Função Composta.',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'pfcg-composta-select-excel',
+                                            label: 'Selecionar Excel',
+                                            icon: 'upload',
+                                            mode: 'select_excel',
+                                            processo: 'Funções PFCG',
+                                            subprocesso: 'D. PFCG_COMPOSTA.py',
+                                            prompt: 'Selecionar Excel',
+                                            followupText: '',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'pfcg-composta-individual',
+                                            label: 'Criar Individualmente',
+                                            icon: 'shield-plus',
+                                            mode: 'create_individual',
+                                            processo: 'Funções PFCG',
+                                            subprocesso: 'D. PFCG_COMPOSTA.py',
+                                            prompt: 'Quero criar a Função Composta individualmente via RFC.',
+                                            followupText: '',
+                                            children: []
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
                             id: 'pfcg-delete',
                             label: 'Eliminar Perfil',
                             icon: 'trash',
@@ -4875,16 +4914,6 @@
                             subprocesso: 'C. PFCG_AUTHORITY.py',
                             prompt: 'Quero atualizar as autorizações de um perfil.',
                             followupText: 'Certo. Vamos preparar a atualização das autorizações do perfil.',
-                            children: []
-                        },
-                        {
-                            id: 'pfcg-composta',
-                            label: 'Função Composta',
-                            icon: 'layers',
-                            processo: 'Funções PFCG',
-                            subprocesso: 'D. PFCG_COMPOSTA.py',
-                            prompt: 'Quero trabalhar com uma Função Composta.',
-                            followupText: 'Certo. Vamos preparar a operação de Função Composta.',
                             children: []
                         },
                         {
@@ -5167,9 +5196,10 @@
                             icon: 'analysis',
                             processo: 'Testes Unitários',
                             environment: 'DEV',
-                            subprocesso: 'B. Executar F110.py',
                             prompt: 'Quero executar o F110 no ambiente DEV.',
-                            children: []
+                            followupText: 'Escolha o tipo de execução:',
+                            followupActionsSource: 'children',
+                            children: asiBuildF110DefaultChildren('DEV')
                         },
                         {
                             id: 'testes-unitarios-executar-f110-qad',
@@ -5177,9 +5207,10 @@
                             icon: 'analysis',
                             processo: 'Testes Unitários',
                             environment: 'QAD',
-                            subprocesso: 'B. Executar F110.py',
                             prompt: 'Quero executar o F110 no ambiente QAD.',
-                            children: []
+                            followupText: 'Escolha o tipo de execução:',
+                            followupActionsSource: 'children',
+                            children: asiBuildF110DefaultChildren('QAD')
                         },
                         {
                             id: 'testes-unitarios-executar-f110-prd',
@@ -5187,9 +5218,10 @@
                             icon: 'analysis',
                             processo: 'Testes Unitários',
                             environment: 'PRD',
-                            subprocesso: 'B. Executar F110.py',
                             prompt: 'Quero executar o F110 no ambiente PRD.',
-                            children: []
+                            followupText: 'Escolha o tipo de execução:',
+                            followupActionsSource: 'children',
+                            children: asiBuildF110DefaultChildren('PRD')
                         }
                     ]
                 }
@@ -5343,7 +5375,8 @@
         return {
             messages: document.getElementById('agent-salsa-it-messages'),
             input: document.getElementById('agent-salsa-it-input'),
-            send: document.getElementById('agent-salsa-it-send')
+            send: document.getElementById('agent-salsa-it-send'),
+            context: document.getElementById('agent-salsa-fi-context')
         };
     }
 
@@ -5359,6 +5392,135 @@
         if (asiConversationState.awaitingInput === ASI_PFCG_AWAITING_INPUT) {
             return ASI_PFCG_PLACEHOLDER;
         }
+        if (asiConversationState.awaitingInput === ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT) {
+            const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
+            if (!normalizedRoleName) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Envie o Nome da Função Composta que vamos criar'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (normalizedRoleName.length > 30) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    `O nome da Função Composta não pode ultrapassar o tamanho máximo de 30 caracteres (tem ${normalizedRoleName.length} caracteres).\nPor favor, corrija o nome e envie novamente.`
+                ));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (!asiIsValidPfcgRoleName(normalizedRoleName)) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    'O nome da Função Composta contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".\nPor favor, corrija o nome e envie novamente.'
+                ));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreateRoleName: normalizedRoleName,
+                pfcgCreateDescription: '',
+                awaitingInput: ASI_PFCG_COMPOSTA_DESCRIPTION_INPUT,
+                isBusy: false
+            };
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Qual é a descrição da Função Composta?'
+            ));
+            asiUpdateComposerState();
+            input.focus();
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_COMPOSTA_DESCRIPTION_INPUT) {
+            const description = rawMessage.trim();
+            if (!description) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe uma descrição válida para a Função Composta.'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_COMPOSTA_DESCRIPTION_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            if (description.length > 80) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    `A descrição não pode ultrapassar o tamanho máximo de 80 caracteres (tem ${description.length} caracteres).\nPor favor, corrija e envie novamente.`
+                ));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_COMPOSTA_DESCRIPTION_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreateDescription: description,
+                awaitingInput: ASI_PFCG_COMPOSTA_CHILDREN_INPUT,
+                isBusy: false
+            };
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Envie as funções componentes (roles filhas) separadas por vírgula ou espaço (Ex.: Z_ROLE_01, Z_ROLE_02).'
+            ));
+            asiUpdateComposerState();
+            input.focus();
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_COMPOSTA_CHILDREN_INPUT) {
+            const childRoles = asiNormalizePfcgTcodes(rawMessage);
+            if (childRoles.length === 0) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe pelo menos uma função componente (role filha) válida. Separe por vírgula (ex.: Z_FI_01, Z_FI_02).'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_COMPOSTA_CHILDREN_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgCreateChildRoles: childRoles,
+                awaitingInput: '',
+                isBusy: false
+            };
+            asiUpdateComposerState();
+            asiAskPfcgTransportMode();
+            return;
+        }
+
         if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT) {
             return ASI_PFCG_INDIVIDUAL_ROLE_NAME_PLACEHOLDER;
         }
@@ -5662,14 +5824,25 @@
         const transportValue = transport.request_number
             ? `${transportLabel} — ${transport.request_number}`
             : transportLabel;
-        const rowFields = [
-            asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
-            asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
-            asiBuildPfcgResultField('Descrição', result.description),
-            asiBuildPfcgResultField('Total', result.tcodes_count != null ? result.tcodes_count : tcodes.length),
-            asiBuildPfcgResultField('Transações', tcodes.join(', '), '', true),
-            asiBuildPfcgResultField('Transporte', transportValue, '', true)
-        ].join('');
+        const isComposta = result.tipo === 'Função Composta' || Array.isArray(result.child_roles);
+        const childRoles = Array.isArray(result.child_roles) ? result.child_roles : [];
+        const rowFields = isComposta
+            ? [
+                asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                asiBuildPfcgResultField('Função Composta', result.role, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Descrição', result.description),
+                asiBuildPfcgResultField('Total Componentes', childRoles.length),
+                asiBuildPfcgResultField('Funções Componentes', childRoles.join(', '), '', true),
+                asiBuildPfcgResultField('Transporte', transportValue, '', true)
+            ].join('')
+            : [
+                asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Descrição', result.description),
+                asiBuildPfcgResultField('Total', result.tcodes_count != null ? result.tcodes_count : tcodes.length),
+                asiBuildPfcgResultField('Transações', tcodes.join(', '), '', true),
+                asiBuildPfcgResultField('Transporte', transportValue, '', true)
+            ].join('');
 
         return `
             <div class="asi-pfcg-result-card">
@@ -5783,16 +5956,27 @@
         const resultTransportValue = result.transport_request
             ? `${resultTransportLabel} — ${result.transport_request}`
             : resultTransportLabel;
+        const isCompostaResult = result.tipo === 'Função Composta' || Array.isArray(result.child_roles);
+        const childRolesRes = Array.isArray(result.child_roles) ? result.child_roles : [];
         const rowFields = ok
-            ? [
-                asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
-                asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
-                asiBuildPfcgResultField('Descrição', result.description),
-                asiBuildPfcgResultField('Perfil gerado', result.profile_generated === true ? 'Sim' : (result.profile_generated === false ? 'Não' : '')),
-                asiBuildPfcgResultField('Transações pedidas', result.tcodes_requested),
-                asiBuildPfcgResultField('Transações criadas', result.tcodes_created),
-                asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)
-            ].join('')
+            ? (isCompostaResult
+                ? [
+                    asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                    asiBuildPfcgResultField('Função Composta', result.role, 'asi-pfcg-result-value--nowrap'),
+                    asiBuildPfcgResultField('Descrição', result.description),
+                    asiBuildPfcgResultField('Total Componentes', childRolesRes.length),
+                    asiBuildPfcgResultField('Funções Componentes', childRolesRes.join(', '), '', true),
+                    asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)
+                ].join('')
+                : [
+                    asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
+                    asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
+                    asiBuildPfcgResultField('Descrição', result.description),
+                    asiBuildPfcgResultField('Perfil gerado', result.profile_generated === true ? 'Sim' : (result.profile_generated === false ? 'Não' : '')),
+                    asiBuildPfcgResultField('Transações pedidas', result.tcodes_requested),
+                    asiBuildPfcgResultField('Transações criadas', result.tcodes_created),
+                    asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)
+                ].join(''))
             : [
                 asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
                 asiBuildPfcgResultField('Função', result.role, 'asi-pfcg-result-value--nowrap'),
@@ -6139,7 +6323,92 @@
         input.placeholder = asiGetComposerPlaceholder();
         input.disabled = Boolean(asiConversationState.isBusy);
         send.disabled = Boolean(asiConversationState.isBusy) || !input.value.trim();
+        asiRenderFiExecutionContext();
         asiAutoResizeInput();
+    }
+
+    function asiGetFiFlowLabel(workflow) {
+        return String(workflow || '').trim().toLowerCase() === 'f110_default_document'
+            ? 'Execução F110'
+            : 'Documento FI';
+    }
+
+    function asiGetFiFlowTone(workflow) {
+        return String(workflow || '').trim().toLowerCase() === 'f110_default_document'
+            ? 'rgba(16,185,129,0.20)'
+            : 'rgba(59,130,246,0.18)';
+    }
+
+    function asiGetFiContextModel() {
+        const selectedWorkflow = String(asiConversationState.selectedFiWorkflow || '').trim().toLowerCase();
+        const lastWorkflow = String(asiConversationState.lastFiDocumentWorkflow || '').trim().toLowerCase();
+        const workflow = selectedWorkflow || lastWorkflow;
+        const flowLabel = asiGetFiFlowLabel(workflow);
+        const environment = String(asiConversationState.selectedFiEnvironment || asiConversationState.lastFiDocumentEnvironment || '').trim().toUpperCase();
+        const branch = asiNormalizeFiBranch(asiConversationState.selectedFiBranch || asiConversationState.lastFiDocumentBranch || '');
+        const branchLabel = branch === 'fornecedor'
+            ? 'Fornecedor'
+            : branch === 'razao'
+                ? 'Razão'
+                : branch === 'cliente'
+                    ? 'Cliente'
+                    : '';
+        const documentNumber = String(asiConversationState.lastFiDocumentNumber || '').trim();
+        const hasContext = Boolean(workflow || environment || branchLabel || documentNumber);
+        return {
+            workflow,
+            flowLabel,
+            environment,
+            branchLabel,
+            documentNumber,
+            hasContext,
+            tone: asiGetFiFlowTone(workflow),
+        };
+    }
+
+    function asiRenderFiExecutionContext() {
+        const { context } = asiGetElements();
+        if (!context) return;
+
+        const model = asiGetFiContextModel();
+        if (!model.hasContext) {
+            context.style.display = 'none';
+            context.innerHTML = '';
+            return;
+        }
+
+        const documentLine = model.documentNumber
+            ? `<div><strong>Documento gerado:</strong> ${escapeHtml(model.documentNumber)}</div>`
+            : '';
+        const branchLine = model.branchLabel
+            ? `<div><strong>Tipo de documento:</strong> ${escapeHtml(model.branchLabel)}</div>`
+            : '';
+        const environmentLine = model.environment
+            ? `<div><strong>Ambiente:</strong> ${escapeHtml(model.environment)}</div>`
+            : '';
+        const workflowLine = model.workflow
+            ? `<div><strong>Fluxo:</strong> ${escapeHtml(model.flowLabel)}</div>`
+            : '';
+        const noteLine = model.workflow === 'f110_default_document'
+            ? '<div style="margin-top:4px;color:#a7f3d0;">O documento FI fica reservado para a Execução F110.</div>'
+            : model.documentNumber
+                ? '<div style="margin-top:4px;color:#bfdbfe;">Documento FI padrão processado via RFC.</div>'
+                : '';
+        const titleLine = model.workflow === 'f110_default_document'
+            ? 'Estado atual da Execução F110'
+            : 'Estado atual do Documento FI';
+
+        context.style.display = 'block';
+        context.style.borderColor = model.tone;
+        context.style.background = model.tone;
+        context.innerHTML = `
+            <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(titleLine)}</div>
+            ${workflowLine}
+            ${environmentLine}
+            ${branchLine}
+            ${documentLine}
+            ${noteLine}
+        `;
     }
 
     function asiRenderMessages() {
@@ -6965,15 +7234,19 @@
             asiChatMockTimer = null;
         }
         asiStopPfcgSubPolling();
-        asiAppendMessage(asiCreateMessage('user', 'Quero voltar às opções do Perfil de Autorização.'));
 
-        const pfcgCreateNode = asiFindQuickAction('pfcg-create');
-        const children = pfcgCreateNode && Array.isArray(pfcgCreateNode.children) ? pfcgCreateNode.children : [];
+        const isComposta = (asiConversationState.subprocesso && asiConversationState.subprocesso.includes('PFCG_COMPOSTA')) || asiConversationState.actionId === 'pfcg-composta-analyze';
+        const parentId = isComposta ? 'pfcg-composta' : 'pfcg-create';
+        const labelBack = isComposta ? 'Quero voltar às opções da Função Composta.' : 'Quero voltar às opções do Perfil de Autorização.';
+        asiAppendMessage(asiCreateMessage('user', labelBack));
+
+        const parentNode = asiFindQuickAction(parentId);
+        const children = parentNode && Array.isArray(parentNode.children) ? parentNode.children : [];
         asiAppendMessage(asiCreateMessage('assistant', 'Como deseja prosseguir?', {
             actions: children,
             actionLevel: 2,
-            parentActionId: 'pfcg-create',
-            selectionGroupKey: 'pfcg-create'
+            parentActionId: parentId,
+            selectionGroupKey: parentId
         }));
 
         asiConversationState = {
@@ -7031,7 +7304,43 @@
         asiPfcgIndividualPollingInFlight = false;
     }
 
+    function asiStartPfcgCompostaIndividualCreate() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgCreateIsComposta: true,
+            pfcgCreateRoleName: '',
+            pfcgCreateDescription: '',
+            pfcgCreateChildRoles: [],
+            pfcgCreateTransportMode: '',
+            pfcgCreateTransportRequestNumber: '',
+            pfcgCreateTransportRequestDescription: '',
+            pfcgCreatePreviewJobId: '',
+            awaitingInput: ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT,
+            isBusy: false
+        };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'Envie o Nome da Função Composta que vamos criar'
+        ));
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
     function asiStartPfcgIndividualCreate() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgCreateIsComposta: false,
         if (asiChatMockTimer) {
             clearTimeout(asiChatMockTimer);
             asiChatMockTimer = null;
@@ -7081,7 +7390,10 @@
 
             asiPfcgIndividualPollingInFlight = true;
             try {
-                const response = await fetch(`/api/salsa-it-agent/pfcg/create/rfc/preview/${encodeURIComponent(jobId)}`, {
+                const pollPreviewUrl = asiConversationState.pfcgCreateIsComposta
+                    ? `/api/salsa-it-agent/pfcg/composta/preview/${encodeURIComponent(jobId)}`
+                    : `/api/salsa-it-agent/pfcg/create/rfc/preview/${encodeURIComponent(jobId)}`;
+                const response = await fetch(pollPreviewUrl, {
                     method: 'GET',
                     headers: { 'Accept': 'application/json' }
                 });
@@ -7447,20 +7759,31 @@
         asiUpdateComposerState();
 
         try {
-            const response = await fetch('/api/salsa-it-agent/pfcg/create/rfc/preview', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
+            const previewEndpoint = asiConversationState.pfcgCreateIsComposta ? '/api/salsa-it-agent/pfcg/composta/preview' : '/api/salsa-it-agent/pfcg/create/rfc/preview';
+            const previewBody = asiConversationState.pfcgCreateIsComposta
+                ? {
+                    role_name: roleName,
+                    description,
+                    child_roles: Array.isArray(asiConversationState.pfcgCreateChildRoles) ? asiConversationState.pfcgCreateChildRoles : [],
+                    transport_mode: String(asiConversationState.pfcgCreateTransportMode || 'LOCAL').trim().toUpperCase(),
+                    request_number: String(asiConversationState.pfcgCreateTransportRequestNumber || '').trim(),
+                    request_description: String(asiConversationState.pfcgCreateTransportRequestDescription || '').trim()
+                }
+                : {
                     role_name: roleName,
                     description,
                     tcodes,
                     transport_mode: String(asiConversationState.pfcgCreateTransportMode || 'LOCAL').trim().toUpperCase(),
                     request_number: String(asiConversationState.pfcgCreateTransportRequestNumber || '').trim(),
                     request_description: String(asiConversationState.pfcgCreateTransportRequestDescription || '').trim()
-                })
+                };
+            const response = await fetch(previewEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(previewBody)
             });
             const data = await response.json().catch(() => ({}));
 
@@ -7528,7 +7851,10 @@
 
             asiPfcgIndividualPollingInFlight = true;
             try {
-                const response = await fetch(`/api/salsa-it-agent/pfcg/create/rfc/confirm/${encodeURIComponent(jobId)}`, {
+                const pollConfirmUrl = asiConversationState.pfcgCreateIsComposta
+                    ? `/api/salsa-it-agent/pfcg/composta/confirm/${encodeURIComponent(jobId)}`
+                    : `/api/salsa-it-agent/pfcg/create/rfc/confirm/${encodeURIComponent(jobId)}`;
+                const response = await fetch(pollConfirmUrl, {
                     method: 'GET',
                     headers: { 'Accept': 'application/json' }
                 });
@@ -7615,7 +7941,8 @@
         asiUpdateComposerState();
 
         try {
-            const response = await fetch('/api/salsa-it-agent/pfcg/create/rfc/confirm', {
+            const confirmUrl = asiConversationState.pfcgCreateIsComposta ? '/api/salsa-it-agent/pfcg/composta/confirm' : '/api/salsa-it-agent/pfcg/create/rfc/confirm';
+            const response = await fetch(confirmUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -8442,10 +8769,12 @@
         const subprocesso = String(action && action.subprocesso ? action.subprocesso : '').trim().toLowerCase();
         const mode = String(action && action.mode ? action.mode : '').trim().toLowerCase();
         const environment = String(action && action.environment ? action.environment : '').trim().toUpperCase();
+        const workflow = String(action && action.workflow ? action.workflow : '').trim().toLowerCase();
 
         return (
             mode === 'default' &&
             environment === 'QAD' &&
+            workflow !== 'f110_default_document' &&
             processo === 'testes unitários' &&
             subprocesso.includes('criar documento fi')
         );
@@ -8555,11 +8884,21 @@
         const processo = String(action && action.processo ? action.processo : 'Testes Unitários').trim();
         const subprocesso = String(action && action.subprocesso ? action.subprocesso : '').trim();
         const ambiente = String(action && action.environment ? action.environment : 'QAD').trim().toUpperCase();
+        const workflow = String(action && action.workflow ? action.workflow : '').trim().toLowerCase();
+        const isF110DefaultWorkflow = workflow === 'f110_default_document';
+        const branchLabel = String(action && action.branch ? action.branch : '').trim().toLowerCase() === 'fornecedor'
+            ? 'Fornecedor'
+            : String(action && action.branch ? action.branch : '').trim().toLowerCase() === 'razao'
+                ? 'Razão'
+                : 'Cliente';
+        const processingText = isF110DefaultWorkflow
+            ? `A criar o documento FI de apoio à Execução F110 em ${ambiente} com os dados Default...`
+            : `A criar o documento FI padrão de ${branchLabel} em ${ambiente} com os dados Default...`;
 
         asiAppendMessage(asiCreateMessage('user', userPrompt));
 
-        const processingMessage = asiCreateMessage('assistant', 'A criar o documento FI via RFC com os dados Default...', {
-            html: asiBuildThinkingDotsHtml('A criar o documento FI via RFC com os dados Default...'),
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildThinkingDotsHtml(processingText),
             isProcessing: true
         });
         asiAppendMessage(processingMessage);
@@ -8581,6 +8920,7 @@
                         environment: ambiente,
                         processo,
                         subprocesso,
+                        workflow_name: workflow || [processo, subprocesso].filter(Boolean).join(' | ') || 'sap_cockpit',
                         data_mode: 'default'
                     }
                 })
@@ -8596,16 +8936,26 @@
                 throw new Error('Resposta do backend sem id de job.');
             }
 
+            const successText = isF110DefaultWorkflow
+                ? `Documento FI de apoio à Execução F110 enviado para execução em ${ambiente}.`
+                : `Documento FI padrão enviado para execução em ${ambiente}.`;
+            const errorText = isF110DefaultWorkflow
+                ? `Não foi possível executar o documento FI de apoio à Execução F110 em ${ambiente}.`
+                : `Não foi possível executar o documento FI padrão em ${ambiente}.`;
+
             await asiPollGenericJob(
                 jobId,
                 processingMessage.id,
-                `Documento FI enviado para execução em ${ambiente}.`,
-                `Não foi possível executar o documento FI em ${ambiente}.`
+                successText,
+                errorText
             );
         } catch (error) {
+            const errorText = isF110DefaultWorkflow
+                ? `Não foi possível executar o documento FI de apoio à Execução F110 em ${ambiente}.`
+                : `Não foi possível executar o documento FI padrão em ${ambiente}.`;
             asiUpdateMessage(processingMessage.id, {
-                text: `Não foi possível executar o documento FI em ${ambiente}.`,
-                html: `${escapeHtml(`Não foi possível executar o documento FI em ${ambiente}.`)}<br><span style="color: var(--danger);">${escapeHtml(error.message || 'Falha desconhecida.').replace(/\n/g, '<br>')}</span>`,
+                text: errorText,
+                html: `${escapeHtml(errorText)}<br><span style="color: var(--danger);">${escapeHtml(error.message || 'Falha desconhecida.').replace(/\n/g, '<br>')}</span>`,
                 isProcessing: false
             });
             asiConversationState = { ...asiConversationState, isBusy: false };
@@ -8615,13 +8965,16 @@
 
     function asiGetFiActionContext(action) {
         const actionId = String(action?.id || '').toLowerCase();
-        const environment = actionId.includes('-dev-') ? 'DEV'
-            : actionId.includes('-prd-') ? 'PRD'
-            : actionId.includes('-qad-') ? 'QAD'
-            : 'QAD';
-        const branch = actionId.includes('fornecedor') ? 'fornecedor'
-            : actionId.includes('razao') ? 'razao'
-            : 'cliente';
+        const environment = String(
+            action?.environment
+            || (actionId.includes('-dev-') ? 'DEV' : '')
+            || (actionId.includes('-prd-') ? 'PRD' : '')
+            || (actionId.includes('-qad-') ? 'QAD' : 'QAD')
+        ).trim().toUpperCase();
+        const branch = asiNormalizeFiBranch(
+            action?.branch
+            || (actionId.includes('fornecedor') ? 'fornecedor' : actionId.includes('razao') ? 'razao' : 'cliente')
+        );
         return { environment, branch };
     }
 
@@ -8632,38 +8985,43 @@
         const branchDefaults = (defaults.branches || {})[branch] || {};
         const payload = {
             environment,
-            data_mode: 'default',
-            company_code: common.company_code || '',
-            posting_date: common.posting_date || '',
-            document_date: common.document_date || '',
-            currency: common.currency || 'EUR',
-            header_text: common.header_text || '',
-            reference: '',
-            username: '',
-            amount: common.amount || '',
-            tax_code: common.tax_code || '',
-            tax_amount: common.tax_amount || '0',
-            tax_rate: common.tax_rate || '',
-            tax_gl_account: common.tax_gl_account || '',
-            item_text: common.item_text || common.header_text || '',
-            customer_account: '',
-            revenue_gl_account: '',
-            vendor_account: '',
-            expense_gl_account: '',
-            debit_gl_account: '',
-            credit_gl_account: '',
-            tax_direction: common.tax_direction || 'credit',
+            branch,
+            payload: {
+                environment,
+                branch,
+                data_mode: 'default',
+                company_code: common.company_code || '',
+                posting_date: common.posting_date || '',
+                document_date: common.document_date || '',
+                currency: common.currency || 'EUR',
+                header_text: common.header_text || '',
+                reference: '',
+                username: '',
+                amount: common.amount || '',
+                tax_code: common.tax_code || '',
+                tax_amount: common.tax_amount || '0',
+                tax_rate: common.tax_rate || '',
+                tax_gl_account: common.tax_gl_account || '',
+                item_text: common.item_text || common.header_text || '',
+                customer_account: '',
+                revenue_gl_account: '',
+                vendor_account: '',
+                expense_gl_account: '',
+                debit_gl_account: '',
+                credit_gl_account: '',
+                tax_direction: common.tax_direction || 'credit',
+            }
         };
 
         if (branch === 'cliente') {
-            payload.customer_account = branchDefaults.account || '';
-            payload.revenue_gl_account = branchDefaults.counterparty || '';
+            payload.payload.customer_account = branchDefaults.account || '';
+            payload.payload.revenue_gl_account = branchDefaults.counterparty || '';
         } else if (branch === 'fornecedor') {
-            payload.vendor_account = branchDefaults.account || '';
-            payload.expense_gl_account = branchDefaults.counterparty || '';
+            payload.payload.vendor_account = branchDefaults.account || '';
+            payload.payload.expense_gl_account = branchDefaults.counterparty || '';
         } else if (branch === 'razao') {
-            payload.debit_gl_account = branchDefaults.debit_gl_account || '';
-            payload.credit_gl_account = branchDefaults.credit_gl_account || '';
+            payload.payload.debit_gl_account = branchDefaults.debit_gl_account || '';
+            payload.payload.credit_gl_account = branchDefaults.credit_gl_account || '';
         }
 
         return payload;
@@ -8676,12 +9034,17 @@
         }
 
         const { environment, branch } = asiGetFiActionContext(action);
+        const workflow = String(action && action.workflow ? action.workflow : '').trim().toLowerCase();
+        const isF110DefaultWorkflow = workflow === 'f110_default_document';
         const branchLabel = branch === 'cliente' ? 'Cliente' : branch === 'fornecedor' ? 'Fornecedor' : 'Razão';
         const userPrompt = action?.prompt || 'Usar informações Default.';
         asiAppendMessage(asiCreateMessage('user', userPrompt));
 
-        const processingMessage = asiCreateMessage('assistant', `A criar o documento FI de ${branchLabel} em ${environment} via RFC com os dados Default...`, {
-            html: asiBuildThinkingDotsHtml(`A criar o documento FI de ${branchLabel} em ${environment} via RFC com os dados Default...`),
+        const processingLabel = isF110DefaultWorkflow
+            ? `A criar o documento FI de apoio à Execução F110 em ${environment} com os dados Default...`
+            : `A criar o documento FI padrão de ${branchLabel} em ${environment} via RFC com os dados Default...`;
+        const processingMessage = asiCreateMessage('assistant', processingLabel, {
+            html: asiBuildThinkingDotsHtml(processingLabel),
         });
         asiAppendMessage(processingMessage);
         asiConversationState = { ...asiConversationState, isBusy: true };
@@ -8695,27 +9058,41 @@
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok || data.ok === false || data.status === 'ERRO') {
-                throw new Error(data.message || `Falha HTTP ${response.status}`);
+                throw new Error(data.message || data.detail || `Falha HTTP ${response.status}`);
             }
 
             const documentNumber = String(data.document_number || '').trim();
+            asiConversationState = {
+                ...asiConversationState,
+                isBusy: false,
+                selectedFiEnvironment: environment,
+                selectedFiBranch: branch,
+                selectedFiWorkflow: workflow,
+                lastFiDocumentNumber: documentNumber,
+                lastFiDocumentEnvironment: environment,
+                lastFiDocumentBranch: branch,
+                lastFiDocumentWorkflow: isF110DefaultWorkflow ? 'f110_default_document' : 'fi_default',
+            };
             const successHtml = `
                 <div style="margin-top:8px;padding:12px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);">
-                    <div style="font-weight:700;color:#10b981;margin-bottom:6px;">Documento FI executado via RFC</div>
+                    <div style="font-weight:700;color:#10b981;margin-bottom:6px;">${isF110DefaultWorkflow ? 'Documento FI de apoio à Execução F110' : 'Documento FI padrão'} executado via RFC</div>
                     <div style="font-size:0.82rem;color:var(--text-primary);line-height:1.5;">
+                        <div><strong>Fluxo:</strong> ${escapeHtml(isF110DefaultWorkflow ? 'Execução F110' : 'Documento FI')}</div>
                         <div><strong>Ambiente:</strong> ${escapeHtml(environment)}</div>
                         <div><strong>Tipo:</strong> ${escapeHtml(branchLabel)}</div>
                         <div><strong>Estado:</strong> ${escapeHtml(String(data.status || 'SUCESSO'))}</div>
                         ${documentNumber ? `<div><strong>Documento:</strong> ${escapeHtml(documentNumber)}</div>` : ''}
+                        ${isF110DefaultWorkflow ? '<div><strong>Uso:</strong> Guardado para a próxima Execução F110.</div>' : ''}
                         <div style="margin-top:6px;">${escapeHtml(String(data.message || 'Documento processado com sucesso.'))}</div>
                     </div>
                 </div>`;
 
             asiUpdateMessage(processingMessage.id, {
-                text: `Documento FI concluído em ${environment} (${branchLabel}).${documentNumber ? ` Documento ${documentNumber}.` : ''}`,
+                text: isF110DefaultWorkflow
+                    ? `Documento FI de apoio à Execução F110 guardado em ${environment} (${branchLabel}).${documentNumber ? ` Documento ${documentNumber}.` : ''}`
+                    : `Documento FI padrão concluído em ${environment} (${branchLabel}).${documentNumber ? ` Documento ${documentNumber}.` : ''}`,
                 html: successHtml,
             });
-            asiConversationState = { ...asiConversationState, isBusy: false };
             asiUpdateComposerState();
             return;
         } catch (error) {
@@ -8755,31 +9132,40 @@
         asiSelectedActions = nextSelectedActions;
 
         const nextConversationState = asiDefaultConversationState();
-        if (action.processo && action.subprocesso) {
+        if (action.processo || action.subprocesso || action.mode || action.environment || action.branch || action.workflow) {
             Object.assign(nextConversationState, {
-                processo: action.processo,
-                subprocesso: action.subprocesso,
+                processo: action.processo || '',
+                subprocesso: action.subprocesso || '',
                 actionId: action.id,
-                mode: action.mode || ''
+                mode: action.mode || '',
+                selectedFiEnvironment: action.environment || '',
+                selectedFiBranch: action.branch || '',
+                selectedFiWorkflow: action.workflow || ''
             });
         }
         asiConversationState = nextConversationState;
 
         asiRenderMessages();
 
+        if (String(action.workflow || '').trim().toLowerCase() === 'f110_default_document') {
+            asiStartFiDefaultJob(action);
+            return;
+        }
+
         if (asiIsFiDefaultQuickAction(action)) {
             asiStartFiDefaultJob(action);
             return;
         }
 
-        if (action.id === 'pfcg-create-analyze') {
+        if (action.id === 'pfcg-create-analyze' || action.id === 'pfcg-composta-analyze') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
             }
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
-            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?'));
+            const assistantPrompt = action.followupText || (action.id === 'pfcg-composta-analyze' ? 'Qual é o nome da Função Composta que deseja analisar em PRD?' : 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?');
+            asiAppendMessage(asiCreateMessage('assistant', assistantPrompt));
             asiConversationState = {
                 ...asiConversationState,
                 awaitingInput: ASI_PFCG_AWAITING_INPUT
@@ -8790,7 +9176,7 @@
             return;
         }
 
-        if (action.id === 'pfcg-create-select-excel') {
+        if (action.id === 'pfcg-create-select-excel' || action.id === 'pfcg-composta-select-excel') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
@@ -8802,6 +9188,28 @@
         }
 
         if (action.id === 'pfcg-create-individual') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartPfcgIndividualCreate();
+            return;
+        }
+
+        if (action.id === 'pfcg-composta-individual') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartPfcgCompostaIndividualCreate();
+            return;
+        }
+
+        if (false && (action.id === 'pfcg-create-individual')) {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
@@ -9082,6 +9490,38 @@
         }
         updateKpiCardHighlight();
         filterAndRenderJiraTickets();
+    }
+
+    function resetJiraFilters(rerender = false) {
+        const jiraFilters = [
+            'jira-filter-team',
+            'jira-filter-stream',
+            'jira-filter-ticket-type',
+            'jira-filter-priority',
+            'jira-filter-assignee',
+            'jira-filter-creator',
+            'jira-filter-process',
+            'jira-filter-supplier'
+        ];
+        jiraFilters.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+
+        const filterKey = document.getElementById('jira-filter-key');
+        if (filterKey) filterKey.value = '';
+
+        const searchInput = document.getElementById('jira-search-input');
+        if (searchInput) searchInput.value = '';
+
+        jiraSortColumn = null;
+        jiraSortAscending = true;
+        activeKpiCardFilter = null;
+        updateKpiCardHighlight();
+
+        if (rerender) {
+            filterAndRenderJiraTickets();
+        }
     }
 
     function updateKpiCardHighlight() {
@@ -9689,8 +10129,6 @@
             jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
-            const atView = document.getElementById('view-auto-trigger');
-            if (atView) atView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'flex';
             if (agentSalsaItView) agentSalsaItView.style.display = 'none';
@@ -9700,6 +10138,7 @@
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'inline-flex';
             if (refreshBtn) refreshBtn.style.display = 'none';
             if (newJobBtn) newJobBtn.style.display = 'none';
+            resetJiraFilters(false);
             loadJiraTickets();
         } else if (viewName === 'jira-dashboard') {
             const navItem = document.getElementById('nav-item-jira-dashboard');
@@ -9736,25 +10175,6 @@
             if (refreshBtn) refreshBtn.style.display = 'none';
             if (newJobBtn) newJobBtn.style.display = 'none';
             loadHistoryJobs();
-        } else if (viewName === 'auto-trigger') {
-            const navItem = document.getElementById('nav-item-auto-trigger');
-            if (navItem) navItem.classList.add('active');
-            visaoGeralView.style.display = 'none';
-            jiraView.style.display = 'flex';
-            const dashView = document.getElementById('view-jira-dashboard');
-            if (dashView) dashView.style.display = 'none';
-            const atView = document.getElementById('view-auto-trigger');
-            if (atView) atView.style.display = 'flex';
-            const twrapper = document.getElementById('view-jira-tickets-wrapper');
-            if (twrapper) twrapper.style.display = 'none';
-            if (agentSalsaItView) agentSalsaItView.style.display = 'none';
-            if (historicoView) historicoView.style.display = 'none';
-            if (headerTitle) headerTitle.textContent = 'Auto-Trigger SAP';
-            if (headerSub) headerSub.textContent = 'Execução automática de scripts SAP com base em tickets JIRA.';
-            if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
-            if (refreshBtn) refreshBtn.style.display = 'none';
-            if (newJobBtn) newJobBtn.style.display = 'none';
-            atInit();
         } else if (viewName === 'definicoes') {
             const navItem = document.getElementById('nav-item-definicoes');
             if (navItem) navItem.classList.add('active');
@@ -9762,8 +10182,6 @@
             jiraView.style.display = 'flex';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
-            const atView = document.getElementById('view-auto-trigger');
-            if (atView) atView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'none';
             if (agentSalsaItView) agentSalsaItView.style.display = 'none';
@@ -9785,8 +10203,6 @@
             if (historicoView) historicoView.style.display = 'none';
             const dashView = document.getElementById('view-jira-dashboard');
             if (dashView) dashView.style.display = 'none';
-            const atView = document.getElementById('view-auto-trigger');
-            if (atView) atView.style.display = 'none';
             const twrapper = document.getElementById('view-jira-tickets-wrapper');
             if (twrapper) twrapper.style.display = 'none';
             const defView = document.getElementById('view-definicoes');
@@ -9949,6 +10365,9 @@
         const tbody = document.getElementById('jira-tickets-table-body');
         if (!tbody) return;
 
+        const normalizeValue = value => String(value ?? '').trim();
+        const normalizeValueLower = value => normalizeValue(value).toLowerCase();
+
         // Build team to assignees map
         const teamAssigneesMap = {};
         for (const [team, members] of Object.entries(TEAM_MEMBERS)) {
@@ -10002,18 +10421,18 @@
 
         const filtered = jiraTickets.filter(t => {
             // Excluir sempre tickets fechados/concluídos da fila activa
-            if (CLOSED_STATUSES.has((t.status || '').toLowerCase().trim())) return false;
+            if (CLOSED_STATUSES.has(normalizeValueLower(t.status))) return false;
 
-            if (valTeam && t.team !== valTeam) return false;
-            if (valStream && t.stream !== valStream) return false;
-            if (valType && t.ticket_type !== valType) return false;
-            if (valPriority && t.priority !== valPriority) return false;
-            if (valAssignee && t.assignee !== valAssignee) return false;
-            if (valCreator && t.creator !== valCreator) return false;
-            if (valProcess && t.process !== valProcess) return false;
-            if (valSupplier && t.supplier !== valSupplier) return false;
-            if (valKey && (!t.key || !t.key.toLowerCase().includes(valKey))) return false;
-            if (query && (!t.summary || !t.summary.toLowerCase().includes(query))) return false;
+            if (valTeam && normalizeValueLower(t.team) !== normalizeValueLower(valTeam)) return false;
+            if (valStream && normalizeValueLower(t.stream) !== normalizeValueLower(valStream)) return false;
+            if (valType && normalizeValueLower(t.ticket_type) !== normalizeValueLower(valType)) return false;
+            if (valPriority && normalizeValueLower(t.priority) !== normalizeValueLower(valPriority)) return false;
+            if (valAssignee && normalizeValueLower(t.assignee) !== normalizeValueLower(valAssignee)) return false;
+            if (valCreator && normalizeValueLower(t.creator) !== normalizeValueLower(valCreator)) return false;
+            if (valProcess && normalizeValueLower(t.process) !== normalizeValueLower(valProcess)) return false;
+            if (valSupplier && normalizeValueLower(t.supplier) !== normalizeValueLower(valSupplier)) return false;
+            if (valKey && (!t.key || !normalizeValueLower(t.key).includes(valKey))) return false;
+            if (query && (!t.summary || !normalizeValueLower(t.summary).includes(query))) return false;
 
             // Apply JIRA KPI Card filter
             if (activeKpiCardFilter) {
@@ -10081,7 +10500,8 @@
         }
 
         tbody.innerHTML = filtered.map(t => {
-            const statusLower = t.status.toLowerCase();
+            const ticketKey = normalizeValue(t.key);
+            const statusLower = normalizeValueLower(t.status);
             let badgeStyle = 'background: rgba(255,255,255,0.05); color: #9ca3af; border: 1px solid rgba(255,255,255,0.1);';
             
             if (statusLower.includes('done') || statusLower.includes('closed') || statusLower.includes('concluído') || statusLower.includes('resolvido')) {
@@ -10093,7 +10513,7 @@
             }
 
             const jiraBase = '{{ jira_base }}' || 'https://salsajeans.atlassian.net';
-            const ticketUrl = `${jiraBase}/browse/${t.key}`;
+            const ticketUrl = `${jiraBase}/browse/${ticketKey}`;
 
             let slaBadge = '<span style="color: #9ca3af;">-</span>';
             if (t.time_to_resolution) {
@@ -10113,10 +10533,10 @@
                 `;
             }
 
-            const expandId = `reply-expand-${t.key.replace(/[^a-z0-9]/gi,'-')}`;
+            const expandId = `reply-expand-${ticketKey.replace(/[^a-z0-9]/gi,'-')}`;
             
             // Colocar as chaves linkadas na mesma célula
-            let keyDisplay = `<a href="${ticketUrl}" target="_blank" style="color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">${escapeHtml(t.key)} 🔗</a>`;
+            let keyDisplay = `<a href="${ticketUrl}" target="_blank" style="color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">${escapeHtml(ticketKey)} 🔗</a>`;
             if (t.linked_keys && t.linked_keys.length > 0) {
                 const linksHtml = t.linked_keys.map(k => {
                     return `<div style="margin-top: 4px;"><a href="${jiraBase}/browse/${k}" target="_blank" style="color: var(--text-secondary); text-decoration: none; font-size: 0.9em; display: inline-flex; align-items: center; gap: 4px;">↳ ${escapeHtml(k)}</a></div>`;
@@ -10125,21 +10545,21 @@
             }
 
             return `
-                <tr class="kpi-table-row" id="row-${t.key.replace(/[^a-z0-9]/gi,'-')}">
+                    <tr class="kpi-table-row" id="row-${ticketKey.replace(/[^a-z0-9]/gi,'-')}">
                     <td style="padding: 14px 16px; font-family: monospace; font-weight: bold;">
                         ${keyDisplay}
                     </td>
                     <td style="padding: 14px 16px; color: var(--text-primary); font-weight: 500;">
-                        <a class="summary-link js-reply-toggle" id="summary-link-${t.key.replace(/[^a-z0-9]/gi,'-')}" data-key="${t.key.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" style="cursor:pointer;">
+                        <a class="summary-link js-reply-toggle" id="summary-link-${ticketKey.replace(/[^a-z0-9]/gi,'-')}" data-key="${ticketKey.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" style="cursor:pointer;">
                             ${escapeHtml(t.summary)}
                             <span class="link-icon">▾</span>
                         </a>
                     </td>
                     <td style="padding: 10px 16px; vertical-align: middle;">
                         <select class="status-cell-select" style="${badgeStyle}" 
-                                onfocus="loadTransitionsForSelect('${t.key}', this)" 
-                                onchange="handleStatusChange('${t.key}', this)">
-                            <option value="" selected>${escapeHtml(t.status)}</option>
+                                onfocus="loadTransitionsForSelect('${ticketKey}', this)" 
+                                onchange="handleStatusChange('${ticketKey}', this)">
+                            <option value="" selected>${escapeHtml(normalizeValue(t.status) || '-')}</option>
                         </select>
                     </td>
                     <td style="padding: 14px 16px; color: var(--text-secondary);">
@@ -10165,7 +10585,7 @@
                             const isIncident = currentType.toLowerCase() === 'incident';
                             const selectClass = isIncident ? 'ticket-type-cell-select is-incident' : 'ticket-type-cell-select';
                             return `
-                                <select class="${selectClass}" onchange="updateTicketType('${t.key}', this.value, this)">
+                                <select class="${selectClass}" onchange="updateTicketType('${ticketKey}', this.value, this)">
                                     ${typeSelectOptions}
                                 </select>
                             `;
@@ -10197,7 +10617,7 @@
                                 return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(name)}</option>`;
                             }).join('');
                             return `
-                                <select class="assignee-cell-select" onchange="updateTicketAssignee('${t.key}', this.value)">
+                                <select class="assignee-cell-select" onchange="updateTicketAssignee('${ticketKey}', this.value)">
                                     <option value=""${isNoAssignee ? ' selected' : ''}></option>
                                     ${assigneeSelectOptions}
                                 </select>
@@ -10213,7 +10633,7 @@
                                 return `<option value="${escapeHtml(sup)}"${selected}>${escapeHtml(sup)}</option>`;
                             }).join('');
                             return `
-                                <select class="supplier-cell-select" onchange="updateTicketSupplier('${t.key}', this.value)">
+                                <select class="supplier-cell-select" onchange="updateTicketSupplier('${ticketKey}', this.value)">
                                     <option value=""${!currentSupplier ? ' selected' : ''}></option>
                                     ${supplierSelectOptions}
                                 </select>
@@ -11240,267 +11660,6 @@
             }
         }
     }
-
-    // =========================================================================
-    // AUTO-TRIGGER SAP — JavaScript
-    // =========================================================================
-
-    async function atInit() {
-        try {
-            const res = await fetch('/api/jira/auto-trigger/config');
-            if (res.ok) {
-                const cfg = await res.json();
-                const el = (id, val) => { const e = document.getElementById(id); if (e && val !== undefined) e.textContent = val; };
-                el('at-cfg-assignee', cfg.assignee || 'Clayton Lopes');
-                el('at-cfg-status', cfg.status_filter || 'In Review');
-                el('at-cfg-supplier', cfg.supplier_filter || 'Evolutive');
-                el('at-cfg-ambiente', cfg.ambiente || 'PRD');
-                const intervalMin = Math.round((cfg.interval_seconds || 300) / 60);
-                el('at-cfg-interval', intervalMin + ' min');
-                // Update status badge
-                const badge = document.getElementById('at-status-badge');
-                const statusText = document.getElementById('at-status-text');
-                if (badge && statusText) {
-                    const dot = badge.querySelector('span');
-                    if (cfg.enabled) {
-                        badge.style.background = 'rgba(16,185,129,0.12)';
-                        badge.style.borderColor = 'rgba(16,185,129,0.3)';
-                        badge.style.color = '#10b981';
-                        if (dot) {
-                            dot.style.background = '#10b981';
-                            dot.style.animation = 'pulse-green 2s infinite';
-                        }
-                        statusText.textContent = 'Ativo';
-                    } else {
-                        badge.style.background = 'rgba(239,68,68,0.1)';
-                        badge.style.borderColor = 'rgba(239,68,68,0.3)';
-                        badge.style.color = '#ef4444';
-                        if (dot) {
-                            dot.style.background = '#ef4444';
-                            dot.style.animation = 'none';
-                        }
-                        statusText.textContent = 'Inativo';
-                    }
-                }
-            }
-        } catch(e) { /* ignore */ }
-        atLoadLog();
-    }
-
-    async function atPreview() {
-        const btn = document.getElementById('btn-at-preview');
-        if (btn) { btn.disabled = true; btn.innerHTML = 'A verificar...'; }
-        try {
-            const res = await fetch('/api/jira/auto-trigger/preview');
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Erro na API');
-
-            document.getElementById('at-results-title').textContent = `Preview — ${data.tickets_found} ticket(s) encontrado(s)`;
-            const toCreate = data.tickets ? data.tickets.filter(t => !t.already_active).length : 0;
-            document.getElementById('at-results-count').textContent = `${toCreate} seriam criados`;
-
-            const tbody = document.getElementById('at-results-tbody');
-            tbody.innerHTML = '';
-            if (!data.tickets || data.tickets.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-secondary); font-size:0.8rem;">Nenhum ticket elegível encontrado</td></tr>`;
-            } else {
-                data.tickets.forEach(t => {
-                    const statusBadge = t.already_active
-                        ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">⏭ Já Ativo</span>`
-                        : `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">✓ Criaria Job</span>`;
-                    tbody.innerHTML += `<tr style="border-bottom: 1px solid var(--border);">
-                        <td style="padding:10px 14px; text-align:center; white-space:nowrap;"><a href="{{ jira_base }}/browse/${t.key}" target="_blank" style="color:var(--primary); font-weight:700; text-decoration:none;">${t.key}</a></td>
-                        <td style="padding:10px 14px; color:var(--text-primary);">${escapeHtml(t.summary || '')}</td>
-                        <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">${escapeHtml(t.process || '—')}</td>
-                        <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
-                        <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">—</td>
-                    </tr>`;
-                });
-            }
-
-            document.getElementById('at-results-card').style.display = 'block';
-            document.getElementById('at-stats-row').style.display = 'none';
-        } catch (e) {
-            showToast('Erro no preview: ' + e.message, 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Preview'; }
-        }
-    }
-
-    async function atRun() {
-        const btn = document.getElementById('btn-at-run');
-        if (btn) { btn.disabled = true; btn.innerHTML = 'A executar...'; }
-        try {
-            const res = await fetch('/api/jira/auto-trigger/run', { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Erro na API');
-
-            // Update stats
-            document.getElementById('at-stat-found').textContent = data.tickets_found || 0;
-            document.getElementById('at-stat-triggered').textContent = data.triggered || 0;
-            document.getElementById('at-stat-skipped').textContent = data.skipped || 0;
-            document.getElementById('at-stat-errors').textContent = data.errors || 0;
-            document.getElementById('at-stats-row').style.display = 'grid';
-
-            // Fill results table
-            const tbody = document.getElementById('at-results-tbody');
-            tbody.innerHTML = '';
-            const entries = data.entries || [];
-            if (entries.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-secondary); font-size:0.8rem;">Nenhum ticket foi processado</td></tr>`;
-            } else {
-                entries.forEach(e => {
-                    let badge = '';
-                    if (e.status === 'triggered') badge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">✅ Criado</span>`;
-                    else if (e.status === 'skipped') badge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">⏭ Ignorado</span>`;
-                    else badge = `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">❌ Erro</span>`;
-                    const jobLink = e.job_id ? `<a href="#" onclick="showJobLog('${e.job_id}')" style="color:var(--primary); font-weight:600; font-size:11px;">#${e.job_id.substring(0,8)}</a>` : '—';
-                    tbody.innerHTML += `<tr style="border-bottom: 1px solid var(--border);">
-                        <td style="padding:10px 14px; text-align:center; white-space:nowrap;"><a href="{{ jira_base }}/browse/${e.key}" target="_blank" style="color:var(--primary); font-weight:700; text-decoration:none;">${e.key}</a></td>
-                        <td style="padding:10px 14px; color:var(--text-primary);">${escapeHtml(e.summary || '')}</td>
-                        <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">${escapeHtml(e.categoria || '—')}</td>
-                        <td style="padding:10px 14px; text-align:center;">${badge}</td>
-                        <td style="padding:10px 14px; text-align:center;">${jobLink}</td>
-                    </tr>`;
-                });
-            }
-
-            document.getElementById('at-results-title').textContent = 'Resultado da Execução';
-            document.getElementById('at-results-count').textContent = `${data.triggered} job(s) criado(s)`;
-            document.getElementById('at-results-card').style.display = 'block';
-
-            if (data.triggered > 0) {
-                showToast(`✅ ${data.triggered} job(s) SAP criado(s) com sucesso!`, 'success');
-            } else if (data.tickets_found === 0) {
-                showToast('Nenhum ticket JIRA elegível encontrado.', 'info');
-            } else {
-                showToast(`${data.skipped} ticket(s) ignorado(s) (já processados).`, 'info');
-            }
-
-            atLoadLog();
-        } catch (e) {
-            showToast('Erro ao executar auto-trigger: ' + e.message, 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg> Executar agora'; }
-        }
-    }
-
-    async function atForceRun() {
-        const input = document.getElementById('at-force-ticket-key');
-        if (!input) return;
-        const key = input.value.trim().toUpperCase();
-        if (!key) {
-            showToast('Por favor, introduza a chave do ticket JIRA.', 'error');
-            return;
-        }
-
-        const btn = document.getElementById('btn-at-force-run');
-        if (btn) { btn.disabled = true; btn.innerHTML = 'A disparar...'; }
-
-        try {
-            const res = await fetch('/api/jira/auto-trigger/force-run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ticket_key: key })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Erro na API');
-
-            showToast(data.message || 'Job SAP criado com sucesso!', 'success');
-            input.value = ''; // clear input
-
-            // Reload logs and results
-            atLoadLog();
-
-            // Re-render execution result in results card
-            document.getElementById('at-results-title').textContent = 'Resultado da Execução Manual';
-            document.getElementById('at-results-count').textContent = `1 job criado`;
-
-            const tbody = document.getElementById('at-results-tbody');
-            const jobLink = data.job_id ? `<a href="#" onclick="showJobLog('${data.job_id}')" style="color:var(--primary); font-weight:600; font-size:11px;">#${data.job_id.substring(0,8)}</a>` : '—';
-            tbody.innerHTML = `<tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding:10px 14px; text-align:center; white-space:nowrap;"><a href="{{ jira_base }}/browse/${key}" target="_blank" style="color:var(--primary); font-weight:700; text-decoration:none;">${key}</a></td>
-                <td style="padding:10px 14px; color:var(--text-primary);">${escapeHtml(data.subprocesso || '')}</td>
-                <td style="padding:10px 14px; text-align:center; color:var(--text-secondary);">${escapeHtml(data.processo || '—')}</td>
-                <td style="padding:10px 14px; text-align:center;"><span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;">✅ Criado</span></td>
-                <td style="padding:10px 14px; text-align:center;">${jobLink}</td>
-            </tr>`;
-            document.getElementById('at-results-card').style.display = 'block';
-            document.getElementById('at-stats-row').style.display = 'none';
-
-        } catch (e) {
-            showToast('Erro ao forçar execução: ' + e.message, 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg> Disparar Manualmente'; }
-        }
-    }
-
-    async function atLoadLog() {
-        try {
-            const res = await fetch('/api/jira/auto-trigger/log?limit=50');
-            if (!res.ok) return;
-            const data = await res.json();
-            const tbody = document.getElementById('at-log-tbody');
-            if (!tbody) return;
-            const entries = data.log || [];
-            tbody.innerHTML = '';
-            if (entries.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-secondary); font-size:0.8rem;">Nenhuma execução registada ainda.</td></tr>`;
-                return;
-            }
-            entries.forEach(e => {
-                const dt = e.triggered_at ? new Date(e.triggered_at).toLocaleString('pt-PT') : '—';
-                let badge = '';
-                if (e.status === 'triggered') badge = `<span style="background:rgba(16,185,129,0.12); color:#10b981; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">✅ Criado</span>`;
-                else if (e.status === 'skipped') badge = `<span style="background:rgba(245,158,11,0.12); color:#f59e0b; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">⏭ Ignorado</span>`;
-                else badge = `<span style="background:rgba(239,68,68,0.12); color:#ef4444; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">❌ Erro</span>`;
-                const jobLink = e.job_id ? `<a href="#" onclick="showJobLog('${e.job_id}')" style="color:var(--primary); font-size:11px; font-weight:600;">#${e.job_id.substring(0,8)}</a>` : '—';
-                tbody.innerHTML += `<tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding:8px 14px; text-align:center; white-space:nowrap; color:var(--text-secondary); font-size:11.5px;">${dt}</td>
-                    <td style="padding:8px 14px; text-align:center;"><a href="{{ jira_base }}/browse/${e.ticket_key}" target="_blank" style="color:var(--primary); font-weight:700; font-size:12px; text-decoration:none;">${e.ticket_key}</a></td>
-                    <td style="padding:8px 14px; color:var(--text-primary); font-size:12px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${(e.ticket_summary||'').replace(/"/g,'&quot;')}">${e.ticket_summary || ''}</td>
-                    <td style="padding:8px 14px; text-align:center;">${badge}</td>
-                    <td style="padding:8px 14px; text-align:center;">${jobLink}</td>
-                    <td style="padding:8px 14px; text-align:center;">
-                        <button onclick="atDeleteEntry('${e.id}')" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:2px; display:inline-flex; align-items:center;" title="Eliminar entrada">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        </button>
-                    </td>
-                </tr>`;
-            });
-        } catch(ex) { /* ignore */ }
-    }
-
-    async function atDeleteEntry(id) {
-        if (!confirm('Deseja eliminar esta entrada do histórico? Isso permitirá que este ticket seja processado novamente pelo auto-trigger se as condições forem atendidas.')) return;
-        try {
-            const res = await fetch(`/api/jira/auto-trigger/log/${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                showToast('Entrada do histórico eliminada com sucesso!', 'success');
-                atLoadLog();
-            } else {
-                showToast('Erro ao eliminar entrada.', 'error');
-            }
-        } catch(e) {
-            showToast('Erro: ' + e.message, 'error');
-        }
-    }
-
-    async function atClearLog() {
-        if (!confirm('Tem a certeza que deseja limpar TODO o histórico de execuções do auto-trigger? Todos os tickets correspondentes poderão ser re-processados.')) return;
-        try {
-            const res = await fetch('/api/jira/auto-trigger/log', { method: 'DELETE' });
-            if (res.ok) {
-                showToast('Histórico do auto-trigger limpo com sucesso!', 'success');
-                atLoadLog();
-            } else {
-                showToast('Erro ao limpar histórico.', 'error');
-            }
-        } catch(e) {
-            showToast('Erro: ' + e.message, 'error');
-        }
-    }
-
 
     // ═══════════════════════════════════════════════════════════════
     //  DEFINIÇÕES – CRUD de Regras de Contexto do Agente SAP

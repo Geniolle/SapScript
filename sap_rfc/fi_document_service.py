@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+import dataclasses
+import json
+import subprocess
+import sys
 
 
 try:
@@ -17,6 +21,63 @@ except Exception as exc:  # pragma: no cover - runtime guard
     _PYRFC_IMPORT_ERROR = exc
 else:
     _PYRFC_IMPORT_ERROR = None
+
+
+def _bridge_python_executable() -> Path | None:
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates = [
+        repo_root / ".venv-rfc" / "Scripts" / "python.exe",
+        repo_root / ".venv-rfc" / "Scripts" / "pythonw.exe",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _run_post_fi_document_via_bridge(environment: str, branch: str, payload: dict[str, Any]) -> FiDocumentResult:
+    python_exe = _bridge_python_executable()
+    if python_exe is None:
+        raise RuntimeError(f"PyRFC indisponível: {_PYRFC_IMPORT_ERROR}")
+
+    repo_root = Path(__file__).resolve().parents[1]
+    bridge_script = (
+        "from pathlib import Path\n"
+        "import dataclasses\n"
+        "import json\n"
+        "import sys\n"
+        f"repo_root = Path(r'{repo_root}')\n"
+        "sys.path.insert(0, str(repo_root))\n"
+        "from sap_rfc.fi_document_service import post_fi_document as _post\n"
+        "environment = json.loads(sys.stdin.readline())\n"
+        "branch = json.loads(sys.stdin.readline())\n"
+        "payload = json.loads(sys.stdin.read() or '{}')\n"
+        "result = _post(environment, branch, payload)\n"
+        "print(json.dumps(dataclasses.asdict(result), ensure_ascii=False))\n"
+    )
+
+    proc = subprocess.run(
+        [str(python_exe), "-c", bridge_script],
+        input="\n".join(
+            [
+                json.dumps(environment, ensure_ascii=False),
+                json.dumps(branch, ensure_ascii=False),
+                json.dumps(payload, ensure_ascii=False),
+            ]
+        ),
+        capture_output=True,
+        text=True,
+        cwd=str(repo_root),
+    )
+    stdout = proc.stdout.strip()
+    stderr = proc.stderr.strip()
+    if proc.returncode != 0:
+        detail = stderr or stdout or f"Processo RFC de apoio falhou com código {proc.returncode}."
+        raise RuntimeError(detail)
+    if not stdout:
+        raise RuntimeError("Processo RFC de apoio devolveu resposta vazia.")
+    data = json.loads(stdout)
+    return FiDocumentResult(**data)
 
 
 @dataclass
@@ -524,6 +585,9 @@ def _extract_document_number(response: dict[str, Any]) -> str:
 
 
 def post_fi_document(environment: str, branch: str, payload: dict[str, Any]) -> FiDocumentResult:
+    if Connection is None:
+        return _run_post_fi_document_via_bridge(environment, branch, payload)
+
     _require_pyrfc()
     connection_params = build_connection_params(environment)
     payload = _apply_default_payload(environment, branch, payload)

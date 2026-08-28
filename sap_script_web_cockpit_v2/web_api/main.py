@@ -12,27 +12,70 @@ from uuid import uuid4
 from typing import Any
 import time
 
-last_worker_ping: float = 0.0
+from dotenv import load_dotenv
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+last_worker_ping: float = 0.0
+_JIRA_ENV_SOURCE = "process environment"
+_JIRA_ENV_KEYS = (
+    "JIRA_DADOS_COMP_HASH",
+    "JIRA_EMAIL",
+    "JIRA_TOKEN",
+    "JIRA_DADOS_HASH",
+    "JIRA_SYNC_PROJECTS",
+)
+
+
+def _load_project_env() -> None:
+    global _JIRA_ENV_SOURCE
+    module_dir = Path(__file__).resolve().parent
+    project_root = module_dir.parent
+    candidate_paths = [
+        project_root / ".env",
+        project_root.parent / ".env",
+        Path("/sap-script/.env"),
+        Path("/srv/sap-script-web/.env"),
+    ]
+
+    for env_path in candidate_paths:
+        try:
+            if env_path.is_file():
+                load_dotenv(dotenv_path=env_path, override=True)
+                _JIRA_ENV_SOURCE = str(env_path)
+                return
+        except Exception:
+            continue
+
+    load_dotenv(override=True)
+    _JIRA_ENV_SOURCE = "process environment / fallback .env"
+
+
+def _log_jira_env_boot_status() -> None:
+    present = [key for key in _JIRA_ENV_KEYS if os.getenv(key, "").strip()]
+    missing = [key for key in _JIRA_ENV_KEYS if not os.getenv(key, "").strip()]
+    print(
+        "[JIRA ENV BOOT] source="
+        f"{_JIRA_ENV_SOURCE} "
+        f"present={present or '[]'} "
+        f"missing={missing or '[]'}"
+    )
+
+
+_load_project_env()
+
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
-from web_api.jira_client import build_project_scope_jql, fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_auto_trigger_tickets, download_ticket_attachments_to_dir, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces, get_jira_auto_trigger_assignees, get_jira_auto_trigger_projects, get_jira_auto_trigger_suppliers
+from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 import asyncio
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 SAP_SCRIPT_PROJECT_DIR = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/uploads"))
 UPLOADS_WINDOWS_DIR = os.getenv("UPLOADS_WINDOWS_DIR", "").strip()
-
-# Auto-trigger configuration
-AUTO_TRIGGER_INTERVAL_SECONDS = int(os.getenv("AUTO_TRIGGER_INTERVAL_SECONDS", "300"))
-AUTO_TRIGGER_AMBIENTE = os.getenv("AUTO_TRIGGER_AMBIENTE", "PRD").strip().upper()
-AUTO_TRIGGER_ENABLED = os.getenv("AUTO_TRIGGER_ENABLED", "true").strip().lower() in ("1", "true", "yes", "sim")
 
 # Intervalo do loop de sincronização JIRA em segundo plano.
 POLL_SECONDS = max(1, int(os.getenv("POLL_SECONDS", "60")))
@@ -42,32 +85,11 @@ POLL_SECONDS = max(1, int(os.getenv("POLL_SECONDS", "60")))
 JIRA_DOWNLOAD_DIR_CONTAINER = os.getenv("JIRA_DOWNLOAD_DIR_CONTAINER", "/data/jira").strip()
 JIRA_DOWNLOAD_DIR_WINDOWS = os.getenv("JIRA_DOWNLOAD_DIR_WINDOWS", r"C:\Jira").strip()
 
-# Mapeamento Categoria JIRA → parâmetros SAP
-# Formato JSON: {"Categoria": {"processo": "...", "subprocesso": "...", "request_option": "N"}}
-_DEFAULT_CATEGORY_MAP = json.dumps({
-    "FI Extracto Cadeias de Pesquisa": {
-        "processo": "Cadeias de Pesquisa",
-        "subprocesso": "Criar Atribuir Cadeias.py",
-        "request_option": "1",
-        "ambiente": "DEV",
-    }
-})
-
-def _load_category_map() -> dict[str, dict]:
-    raw = os.getenv("AUTO_TRIGGER_CATEGORY_MAP", _DEFAULT_CATEGORY_MAP).strip()
-    try:
-        return json.loads(raw)
-    except Exception as exc:
-        print(f"[AUTO-TRIGGER] Erro ao carregar AUTO_TRIGGER_CATEGORY_MAP: {exc}")
-        return json.loads(_DEFAULT_CATEGORY_MAP)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _log_jira_env_boot_status()
     background_tasks = [asyncio.create_task(sync_jira_tickets_loop())]
-    if AUTO_TRIGGER_ENABLED:
-        background_tasks.append(asyncio.create_task(auto_trigger_loop()))
     try:
         yield
     finally:
@@ -433,185 +455,6 @@ async def historical_jira_sync() -> None:
     return
 
 
-async def run_auto_trigger() -> dict[str, Any]:
-    """
-    Lógica central do auto-trigger.
-
-    Para cada ticket elegível:
-      1. Verifica se a categoria tem mapeamento SAP configurado
-      2. Verifica anti-duplicação (ticket_key + updated_at)
-      3. Descarrega o anexo XLSX do ticket JIRA para /data/jira/{key}/
-      4. Cria job SAP com o processo/subprocesso/caminho_ficheiro corretos
-    """
-    result: dict[str, Any] = {
-        "tickets_found": 0,
-        "triggered": 0,
-        "skipped": 0,
-        "errors": 0,
-        "entries": [],
-    }
-
-    try:
-        tickets = await asyncio.to_thread(fetch_auto_trigger_tickets)
-    except Exception as exc:
-        print(f"[AUTO-TRIGGER] Erro ao consultar JIRA: {exc}")
-        return result
-
-    result["tickets_found"] = len(tickets)
-    category_map = _load_category_map()
-
-    for ticket in tickets:
-        key = ticket.get("key", "")
-        summary = ticket.get("summary", "")
-        updated_at = ticket.get("updated_at", "")
-        categoria = ticket.get("process", "")  # IT SALSA - Categoria SAP
-
-        entry: dict[str, Any] = {
-            "key": key,
-            "summary": summary,
-            "categoria": categoria,
-            "status": "",
-            "job_id": None,
-            "reason": "",
-            "caminho_ficheiro": "",
-        }
-
-        try:
-            # ----------------------------------------------------------------
-            # 1. Verificar mapeamento de categoria
-            # ----------------------------------------------------------------
-            sap_config = category_map.get(categoria)
-            if not sap_config:
-                entry["status"] = "skipped"
-                entry["reason"] = f"Sem mapeamento para categoria: '{categoria}'"
-                result["skipped"] += 1
-                await asyncio.to_thread(
-                    log_auto_trigger_entry, key, summary, None, "skipped",
-                    f"sem_mapeamento:{categoria}"
-                )
-                print(f"[AUTO-TRIGGER] {key}: sem mapeamento para '{categoria}'")
-                result["entries"].append(entry)
-                continue
-
-            processo = sap_config.get("processo", "")
-            subprocesso = sap_config.get("subprocesso", "")
-            request_option = sap_config.get("request_option", "1")
-            ambiente = sap_config.get("ambiente", AUTO_TRIGGER_AMBIENTE)
-
-            # ----------------------------------------------------------------
-            # 2. Anti-duplicação
-            # ----------------------------------------------------------------
-            already_active = await asyncio.to_thread(
-                has_active_job_for_ticket, key, updated_at
-            )
-            if already_active:
-                entry["status"] = "skipped"
-                entry["reason"] = "Já existe job ativo para esta versão do ticket"
-                result["skipped"] += 1
-                await asyncio.to_thread(
-                    log_auto_trigger_entry, key, summary, None, "skipped", updated_at
-                )
-                result["entries"].append(entry)
-                continue
-
-            # ----------------------------------------------------------------
-            # 3. Download do anexo XLSX do ticket JIRA
-            # ----------------------------------------------------------------
-            xlsx_files = await asyncio.to_thread(
-                download_ticket_attachments_to_dir,
-                key,
-                JIRA_DOWNLOAD_DIR_CONTAINER,
-                JIRA_DOWNLOAD_DIR_WINDOWS,
-                True,   # only_xlsx
-                False,  # overwrite: False → se já existe, usa o existente
-            )
-
-            if not xlsx_files:
-                entry["status"] = "skipped"
-                entry["reason"] = "Sem ficheiro XLSX anexado ao ticket"
-                result["skipped"] += 1
-                await asyncio.to_thread(
-                    log_auto_trigger_entry, key, summary, None, "skipped",
-                    "sem_anexo_xlsx"
-                )
-                print(f"[AUTO-TRIGGER] {key}: sem anexo XLSX - job não criado.")
-                result["entries"].append(entry)
-                continue
-
-            # Usa o ficheiro XLSX mais recente (primeiro da lista, já ordenada)
-            caminho_ficheiro = xlsx_files[0]
-            entry["caminho_ficheiro"] = caminho_ficheiro
-            print(f"[AUTO-TRIGGER] {key}: ficheiro -> {caminho_ficheiro}")
-
-            # ----------------------------------------------------------------
-            # 4. Criar job SAP
-            # ----------------------------------------------------------------
-            job_params: dict[str, Any] = {
-                "jira_key": key,
-                "jira_summary": summary,
-                "jira_updated_at": updated_at,
-                "jira_categoria": categoria,
-                "ambiente": ambiente,
-                "processo": processo,
-                "subprocesso": subprocesso,
-                "request_option": request_option,
-                "request_number": "",
-                "request_desc": f"{key} | {summary}",
-                "request_type": "1",
-                "caminho_ficheiro": caminho_ficheiro,
-                "transacao": "",
-                "auto_triggered": True,
-            }
-            job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
-            job_id = job["id"]
-
-            entry["status"] = "triggered"
-            entry["job_id"] = job_id
-            entry["reason"] = updated_at
-            result["triggered"] += 1
-
-            await asyncio.to_thread(
-                log_auto_trigger_entry, key, summary, job_id, "triggered", updated_at
-            )
-            print(
-                f"[AUTO-TRIGGER] Job criado para {key} | processo={processo} | "
-                f"subprocesso={subprocesso} | ficheiro={caminho_ficheiro} | job_id={job_id}"
-            )
-
-        except Exception as exc:
-            entry["status"] = "error"
-            entry["reason"] = str(exc)
-            result["errors"] += 1
-            await asyncio.to_thread(
-                log_auto_trigger_entry, key, summary, None, "error", str(exc)
-            )
-            print(f"[AUTO-TRIGGER] Erro ao processar {key}: {exc}")
-
-        result["entries"].append(entry)
-
-    return result
-
-
-
-async def auto_trigger_loop() -> None:
-    """
-    Loop em segundo plano que corre o auto-trigger a cada AUTO_TRIGGER_INTERVAL_SECONDS.
-    """
-    # Aguarda 30s no arranque para deixar o servidor estabilizar
-    await asyncio.sleep(30)
-    while True:
-        try:
-            result = await run_auto_trigger()
-            print(
-                f"[AUTO-TRIGGER LOOP] found={result['tickets_found']} "
-                f"triggered={result['triggered']} skipped={result['skipped']} "
-                f"errors={result['errors']}"
-            )
-        except Exception as exc:
-            print(f"[AUTO-TRIGGER LOOP ERROR]: {exc}")
-        await asyncio.sleep(AUTO_TRIGGER_INTERVAL_SECONDS)
-
-
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     response = templates.TemplateResponse(
@@ -816,186 +659,6 @@ async def api_get_ticket_details(ticket_key: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# ---------------------------------------------------------------------------
-# Auto-Trigger SAP endpoints
-# ---------------------------------------------------------------------------
-
-@app.get("/api/jira/auto-trigger/config")
-def api_auto_trigger_config() -> dict[str, Any]:
-    """Retorna a configuração atual do auto-trigger."""
-    return {
-        "enabled": AUTO_TRIGGER_ENABLED,
-        "interval_seconds": AUTO_TRIGGER_INTERVAL_SECONDS,
-        "ambiente": AUTO_TRIGGER_AMBIENTE,
-        "projects": ", ".join(get_jira_auto_trigger_projects()),
-        "assignee": ", ".join(get_jira_auto_trigger_assignees()),
-        "status_filter": "statusCategory != Done",
-        "supplier_filter": ", ".join(get_jira_auto_trigger_suppliers()),
-        "processo": os.getenv("AUTO_TRIGGER_PROCESSO", ""),
-        "subprocesso": os.getenv("AUTO_TRIGGER_SUBPROCESSO", ""),
-    }
-
-
-@app.get("/api/jira/auto-trigger/preview")
-async def api_auto_trigger_preview() -> dict[str, Any]:
-    """
-    Retorna os tickets JIRA elegíveis para auto-trigger sem criar jobs.
-    Útil para validar os critérios antes de executar.
-    """
-    try:
-        tickets = await asyncio.to_thread(fetch_auto_trigger_tickets)
-        enriched = []
-        for t in tickets:
-            key = t.get("key", "")
-            updated_at = t.get("updated_at", "")
-            already = await asyncio.to_thread(has_active_job_for_ticket, key, updated_at)
-            enriched.append({**t, "already_active": already})
-        return {
-            "tickets_found": len(tickets),
-            "tickets": enriched,
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.post("/api/jira/auto-trigger/run")
-async def api_auto_trigger_run() -> dict[str, Any]:
-    """
-    Executa o auto-trigger manualmente: consulta JIRA e cria jobs SAP
-    para todos os tickets elegíveis (com proteção anti-duplicação).
-    """
-    try:
-        result = await run_auto_trigger()
-        return {"status": "success", **result}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-class ForceRunRequest(BaseModel):
-    ticket_key: str
-
-
-@app.post("/api/jira/auto-trigger/force-run")
-async def api_auto_trigger_force_run(payload: ForceRunRequest) -> dict[str, Any]:
-    """
-    Força a execução do auto-trigger para um único ticket específico,
-    ignorando o status do ticket, mas validando os outros critérios.
-    """
-    ticket_key = payload.ticket_key.strip().upper()
-    if not ticket_key:
-        raise HTTPException(status_code=400, detail="Chave do ticket não fornecida.")
-
-    try:
-        from web_api.jira_client import fetch_single_ticket_for_trigger
-        ticket = await asyncio.to_thread(fetch_single_ticket_for_trigger, ticket_key)
-        if not ticket:
-            raise HTTPException(status_code=404, detail=f"Ticket {ticket_key} não encontrado no JIRA.")
-
-        category_map = _load_category_map()
-        categoria = ticket.get("process", "")  # IT SALSA - Categoria SAP
-
-        # 1. Validar mapeamento de categoria
-        sap_config = category_map.get(categoria)
-        if not sap_config:
-            error_msg = f"Sem mapeamento configurado para a categoria: '{categoria}'"
-            await asyncio.to_thread(
-                log_auto_trigger_entry, ticket_key, ticket.get("summary", ""), None, "error", error_msg
-            )
-            raise HTTPException(status_code=400, detail=error_msg)
-
-        processo = sap_config.get("processo", "")
-        subprocesso = sap_config.get("subprocesso", "")
-        request_option = sap_config.get("request_option", "1")
-        ambiente = sap_config.get("ambiente", AUTO_TRIGGER_AMBIENTE)
-
-        # 2. Download do anexo XLSX
-        xlsx_files = await asyncio.to_thread(
-            download_ticket_attachments_to_dir,
-            ticket_key,
-            JIRA_DOWNLOAD_DIR_CONTAINER,
-            JIRA_DOWNLOAD_DIR_WINDOWS,
-            True,   # only_xlsx
-            False,  # overwrite: False (se já existe, usa o existente)
-        )
-
-        if not xlsx_files:
-            error_msg = "Sem ficheiro XLSX anexado ao ticket."
-            await asyncio.to_thread(
-                log_auto_trigger_entry, ticket_key, ticket.get("summary", ""), None, "error", error_msg
-            )
-            raise HTTPException(status_code=400, detail=error_msg)
-
-        caminho_ficheiro = xlsx_files[0]
-
-        # 3. Criar job SAP
-        job_params: dict[str, Any] = {
-            "jira_key": ticket_key,
-            "jira_summary": ticket.get("summary", ""),
-            "jira_updated_at": ticket.get("updated_at", ""),
-            "jira_categoria": categoria,
-            "ambiente": ambiente,
-            "processo": processo,
-            "subprocesso": subprocesso,
-            "request_option": request_option,
-            "request_number": "",
-            "request_desc": f"{ticket_key} | {ticket.get('summary', '')}",
-            "request_type": "1",
-            "caminho_ficheiro": caminho_ficheiro,
-            "transacao": "",
-            "auto_triggered": True,
-        }
-
-        job = await asyncio.to_thread(create_job, "sap_cockpit", job_params)
-        job_id = job["id"]
-
-        await asyncio.to_thread(
-            log_auto_trigger_entry, ticket_key, ticket.get("summary", ""), job_id, "triggered", f"Execução manual forçada ({ticket.get('updated_at', '')})"
-        )
-
-        return {
-            "status": "success",
-            "message": f"Job SAP #{job_id[:8]} criado com sucesso para o ticket {ticket_key}.",
-            "job_id": job_id,
-            "processo": processo,
-            "subprocesso": subprocesso,
-            "caminho_ficheiro": caminho_ficheiro,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Erro ao forçar execução: {str(exc)}")
-
-
-@app.get("/api/jira/auto-trigger/log")
-def api_auto_trigger_log(limit: int = 50) -> dict[str, Any]:
-    """Retorna o histórico de execuções do auto-trigger."""
-    try:
-        return {"log": list_auto_trigger_log(limit=limit)}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.delete("/api/jira/auto-trigger/log")
-def api_clear_auto_trigger_log() -> dict[str, Any]:
-    """Limpa todo o histórico de execuções do auto-trigger."""
-    try:
-        clear_auto_trigger_log()
-        return {"status": "success", "message": "Histórico do auto-trigger limpo."}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.delete("/api/jira/auto-trigger/log/{entry_id}")
-def api_delete_auto_trigger_log_entry(entry_id: str) -> dict[str, Any]:
-    """Elimina uma entrada específica do histórico do auto-trigger."""
-    try:
-        delete_auto_trigger_log_entry(entry_id)
-        return {"status": "success", "message": f"Entrada {entry_id} removida."}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 @app.post("/api/sap-agent/analyze/{ticket_key}")
 def api_sap_agent_analyze(ticket_key: str) -> dict[str, Any]:
     """Cria um job técnico para o worker Windows executar a análise do Agente SAP no ticket indicado."""
@@ -1053,12 +716,22 @@ class SalsaItPfcgDeleteRfcConfirmRequest(BaseModel):
     preview_job_id: str
 
 
-PFCG_EXCEL_SELECTIONS: dict[str, dict[str, str]] = {}
+class SalsaItPfcgCompostaPreviewRequest(BaseModel):
+    role_name: str
+    description: str
+    child_roles: list[str] = []
+    transport_mode: str = "LOCAL"
+    request_number: str = ""
+    request_description: str = ""
 
-# Guarda, por job_id da pré-visualização, os dados EXATOS já validados pelo backend
-# (ambiente/role/descrição/tcodes). O endpoint de confirmação nunca aceita estes
-# valores diretamente do pedido do cliente — só reutiliza o que foi validado aqui.
+
+class SalsaItPfcgCompostaConfirmRequest(BaseModel):
+    preview_job_id: str
+
+
+PFCG_EXCEL_SELECTIONS: dict[str, dict[str, str]] = {}
 PFCG_RFC_CREATE_PREVIEWS: dict[str, dict[str, Any]] = {}
+PFCG_COMPOSTA_CREATE_PREVIEWS: dict[str, dict[str, Any]] = {}
 
 PFCG_RFC_CREATE_ENVIRONMENT = "DEV"
 PFCG_RFC_DELETE_PREVIEWS: dict[str, dict[str, Any]] = {}
@@ -1779,6 +1452,137 @@ def api_salsa_it_pfcg_create_rfc_confirm_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
+@app.post("/api/salsa-it-agent/pfcg/composta/preview")
+def api_salsa_it_pfcg_composta_preview(payload: SalsaItPfcgCompostaPreviewRequest) -> JSONResponse:
+    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    description = str(payload.description or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="Informe uma descrição para a Função Composta.")
+    if not payload.child_roles:
+        raise HTTPException(status_code=400, detail="Informe pelo menos uma função componente (role filha).")
+
+    try:
+        job = create_job(
+            "pfcg_composta_create_preview",
+            {
+                "environment": "DEV",
+                "role_name": role_name,
+                "description": description,
+                "child_roles": [str(r).strip().upper() for r in payload.child_roles if str(r).strip()],
+                "transport_mode": str(payload.transport_mode or "LOCAL").strip().upper(),
+                "request_number": str(payload.request_number or "").strip(),
+                "request_description": str(payload.request_description or "").strip(),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_name": role_name,
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/composta/preview/{job_id}")
+def api_salsa_it_pfcg_composta_preview_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_composta_create_preview":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pré-visualização de Função Composta.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    if result.get("ok") and result.get("status") == "PREVIEW_READY":
+        transport_preview = result.get("transport") or {}
+        PFCG_COMPOSTA_CREATE_PREVIEWS[job_id] = {
+            "environment": "DEV",
+            "role_name": result.get("role"),
+            "description": result.get("description"),
+            "child_roles": list(result.get("child_roles") or []),
+            "transport_mode": str(transport_preview.get("transport_mode") or "LOCAL"),
+            "request_number": str(transport_preview.get("request_number") or ""),
+            "request_description": str(transport_preview.get("request_description") or ""),
+        }
+
+    return _json_no_store({"state": "succeeded", "result": result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/composta/confirm")
+def api_salsa_it_pfcg_composta_confirm(payload: SalsaItPfcgCompostaConfirmRequest) -> JSONResponse:
+    preview_job_id = str(payload.preview_job_id or "").strip()
+    if not preview_job_id:
+        raise HTTPException(status_code=400, detail="Identificador da pré-visualização em falta.")
+
+    validated = PFCG_COMPOSTA_CREATE_PREVIEWS.get(preview_job_id)
+    if not validated:
+        raise HTTPException(
+            status_code=404,
+            detail="Pré-visualização não encontrada ou expirada. Repita a preparação antes de confirmar.",
+        )
+
+    try:
+        job = create_job("pfcg_composta_create", dict(validated))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_name": validated.get("role_name"),
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/composta/confirm/{job_id}")
+def api_salsa_it_pfcg_composta_confirm_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_composta_create":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à criação de Função Composta.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "succeeded", "result": {"ok": True, "status": "SUCESSO", "message": "Função Composta criada com sucesso em DEV."}})
+
+    return _json_no_store({"state": "succeeded", "result": result})
+
+
 @app.post("/api/salsa-it-agent/pfcg/transport/search")
 def api_salsa_it_pfcg_transport_search() -> JSONResponse:
     """Pesquisa (read-only via RFC) das Requests de transporte abertas do utilizador RFC em DEV.
@@ -2235,7 +2039,7 @@ async def api_upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
     Recebe ficheiro selecionado diretamente no browser.
 
     O ficheiro é guardado numa pasta montada no Windows:
-      host:   C:\workspace\sap-script\sap_script_uploads
+      host:   C:\\workspace\\sap-script\\sap_script_uploads
       docker: /uploads
 
     A resposta devolve windows_path, que é o caminho usado pelo worker SAP.
@@ -2470,10 +2274,15 @@ def api_create_fi_default_document(payload: FiDefaultDocumentRequest) -> JSONRes
         _prepare_project_imports()
         from sap_rfc.fi_document_service import post_fi_document
 
+        fi_payload = dict(payload.payload or {"data_mode": "default"})
+        fi_payload.setdefault("data_mode", "default")
+        fi_payload.setdefault("environment", payload.environment)
+        fi_payload.setdefault("branch", payload.branch)
+
         result = post_fi_document(
             payload.environment,
             payload.branch,
-            payload.payload or {"data_mode": "default"},
+            fi_payload,
         )
         return _json_no_store(dataclasses.asdict(result))
     except Exception as exc:

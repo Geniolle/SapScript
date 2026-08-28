@@ -93,6 +93,29 @@ def _load_worker_state() -> dict[str, Any]:
     return {}
 
 
+def _resolve_api_base_url() -> str:
+    configured = os.getenv("API_BASE_URL", "").strip().rstrip("/")
+    candidates = [
+        configured,
+        "http://localhost:8010",
+        "http://localhost:8000",
+    ]
+    checked: set[str] = set()
+
+    for candidate in candidates:
+        if not candidate or candidate in checked:
+            continue
+        checked.add(candidate)
+        try:
+            response = requests.get(f"{candidate}/api/worker/status", timeout=2)
+            if response.ok:
+                return candidate
+        except Exception:
+            continue
+
+    return configured or "http://localhost:8010"
+
+
 def _save_worker_state(state: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(WORKER_STATE_PATH), exist_ok=True)
 
@@ -839,6 +862,118 @@ def _run_pfcg_transport_search(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_pfcg_composta_create_preview(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    environment = str(params.get("environment") or "DEV").strip().upper()
+    role_name = str(params.get("role_name") or "").strip().upper()
+    description = str(params.get("description") or "").strip()
+    raw_child_roles = params.get("child_roles") or []
+    child_roles = [str(r).strip().upper() for r in raw_child_roles if str(r).strip()] if isinstance(raw_child_roles, list) else []
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip().upper()
+    request_description = str(params.get("request_description") or "").strip()
+
+    if not role_name:
+        payload = {"ok": False, "status": "ERRO", "error_type": "INVALID_INPUT", "message": "Informe o nome da Função Composta."}
+        return json.dumps(payload, ensure_ascii=False), "Nome de role vazio."
+
+    if not description:
+        payload = {"ok": False, "status": "ERRO", "error_type": "INVALID_INPUT", "message": "Informe a descrição da Função Composta."}
+        return json.dumps(payload, ensure_ascii=False), "Descrição vazia."
+
+    if not child_roles:
+        payload = {"ok": False, "status": "ERRO", "error_type": "INVALID_INPUT", "message": "Informe pelo menos uma função componente (role filha)."}
+        return json.dumps(payload, ensure_ascii=False), "Lista de roles filhas vazia."
+
+    try:
+        from sap_rfc.pfcg_transport_service import validate_transport_inputs
+        transport = validate_transport_inputs(transport_mode, request_number, request_description)
+    except Exception as exc:
+        payload = {"ok": False, "status": "ERRO", "error_type": "INVALID_TRANSPORT_INPUT", "message": str(exc)}
+        return json.dumps(payload, ensure_ascii=False), f"Validação de transporte falhou: {exc}"
+
+    payload = {
+        "ok": True,
+        "status": "PREVIEW_READY",
+        "environment": environment,
+        "role": role_name,
+        "description": description,
+        "child_roles": child_roles,
+        "tipo": "Função Composta",
+        "system": "DEV",
+        "client": "100",
+        "transport": {
+            "transport_mode": transport["transport_mode"],
+            "request_number": transport["request_number"],
+            "request_description": transport["request_description"],
+        },
+    }
+    log = f"Pré-visualização da Função Composta {role_name} pronta com {len(child_roles)} roles filhas."
+    return json.dumps(payload, ensure_ascii=False), log
+
+
+def _run_pfcg_composta_create(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    import openpyxl
+    import tempfile
+
+    environment = str(params.get("environment") or "DEV").strip().upper()
+    role_name = str(params.get("role_name") or "").strip().upper()
+    description = str(params.get("description") or "").strip()
+    raw_child_roles = params.get("child_roles") or []
+    child_roles = [str(r).strip().upper() for r in raw_child_roles if str(r).strip()] if isinstance(raw_child_roles, list) else []
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip().upper()
+    request_description = str(params.get("request_description") or "").strip()
+
+    if transport_mode == "CREATE_REQUEST":
+        try:
+            from sap_rfc.pfcg_transport_service import create_transport_request
+            tr_result = create_transport_request(environment="DEV", description=request_description or f"Criar Funcao Composta {role_name}")
+            request_number = tr_result.get("request_number", "")
+        except Exception as exc:
+            raise SapExecutionError(f"Falha ao criar Ordem de Transporte: {exc}") from exc
+
+    temp_dir = tempfile.gettempdir()
+    temp_excel_path = os.path.join(temp_dir, f"pfcg_composta_{role_name}_{int(time.time())}.xlsx")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "PFCG_COMPOSTA"
+    ws.append(["TEXT", "STATUS", "MSG", "TIMESTEMP", "AGR_NAME_COMPOSTA", "AGR_NAME"])
+    ws.append([description, "", "", "", role_name, ", ".join(child_roles)])
+    wb.save(temp_excel_path)
+    wb.close()
+
+    try:
+        cockpit_params = {
+            "ambiente": environment,
+            "processo": "Funções PFCG",
+            "subprocesso": "D. PFCG_COMPOSTA.py",
+            "caminho_ficheiro": temp_excel_path,
+            "request_transporte": request_number if transport_mode != "LOCAL" else "",
+            "modo_nao_interativo": True,
+            "pedir_confirmacao": False,
+        }
+        status_res, log_res = _run_sap_cockpit(cockpit_params)
+        payload = {
+            "ok": True,
+            "status": "SUCESSO",
+            "role": role_name,
+            "description": description,
+            "child_roles": child_roles,
+            "request_number": request_number if transport_mode != "LOCAL" else None,
+            "message": f"Função Composta {role_name} criada com sucesso em DEV.",
+        }
+        return json.dumps(payload, ensure_ascii=False), log_res or "Execução concluída com sucesso."
+    finally:
+        try:
+            if os.path.exists(temp_excel_path):
+                os.remove(temp_excel_path)
+        except Exception:
+            pass
+
+
 def _run_sap_gui_chat_action(params: dict[str, Any]) -> tuple[str, str]:
     """Executa uma ação SAP GUI solicitada pelo chat (Gemini function calling).
 
@@ -905,6 +1040,11 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
             log_lines.append(log)
             return status, "\n".join(log_lines)
 
+        if task == "sap_cockpit_auto_trigger":
+            status, log = _run_sap_cockpit(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
         if task == "pfcg_role_analysis":
             status, log = _run_pfcg_role_analysis(params)
             log_lines.append(log)
@@ -932,6 +1072,16 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "pfcg_role_create_rfc":
             status, log = _run_pfcg_role_create_rfc(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_composta_create_preview":
+            status, log = _run_pfcg_composta_create_preview(params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "pfcg_composta_create":
+            status, log = _run_pfcg_composta_create(params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 
@@ -978,7 +1128,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "sap_cockpit":
             os.environ["SAP_JOB_ID"] = str(job["id"])
-            os.environ["SAP_API_BASE_URL"] = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+            os.environ["SAP_API_BASE_URL"] = _resolve_api_base_url()
             os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
 
             main_thread_id = threading.get_ident()
@@ -1148,7 +1298,8 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                 )
                 _processo = str(params.get("processo") or "").strip()
                 _subprocesso = str(params.get("subprocesso") or "").strip()
-                _workflow_name = " | ".join(p for p in (_processo, _subprocesso) if p) or "sap_cockpit"
+                workflow_parts = [part for part in (_processo, _subprocesso) if part]
+                _workflow_name = " | ".join(workflow_parts) if workflow_parts else "sap_cockpit"
                 doc_row_context = {
                     "ticket_key": _ticket_key,
                     "categoria_sap": _processo,

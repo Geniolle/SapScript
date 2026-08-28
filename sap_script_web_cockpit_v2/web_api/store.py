@@ -733,25 +733,52 @@ def list_auto_trigger_log(limit: int = 50) -> list[dict[str, Any]]:
     ]
 
 
-def has_active_job_for_ticket(ticket_key: str, updated_at: str) -> bool:
+def has_active_job_for_ticket(
+    ticket_key: str,
+    updated_at: str,
+    *,
+    task: str = "sap_cockpit",
+) -> bool:
     """
-    Verifica se já existe um job ativo (pending ou running) para o ticket.
-    Usa ticket_key + updated_at como chave de idempotência.
-    Retorna True se o ticket já foi processado e não deve ser re-acionado.
+    Verifica se já existe um job ativo para o ticket na fila SAP indicada.
+
+    O filtro por task evita que rotinas de outros fluxos contaminem a
+    deduplicação do auto-trigger. Assim, um ajuste num worker não bloqueia
+    a atualização dos tickets do JIRA por engano.
     """
-    # Verifica jobs ativos (pending/running) com o mesmo ticket_key
+    ticket_norm = str(ticket_key or "").strip().upper()
+    if not ticket_norm:
+        return False
+
+    def _is_true(value: Any) -> bool:
+        return str(value).strip().lower() in {"1", "true", "yes", "on", "sim"}
+
     with get_connection() as conn:
-        row = conn.execute(
+        rows = conn.execute(
             """
-            SELECT id FROM jobs
+            SELECT task, params_json
+            FROM jobs
             WHERE state IN ('pending', 'running')
-              AND params_json LIKE ?
-            LIMIT 1
+              AND task = ?
+            ORDER BY created_at ASC
             """,
-            (f'%"jira_key": "{ticket_key}"%',),
-        ).fetchone()
-        if row:
-            return True
+            (task,),
+        ).fetchall()
+
+        for row in rows:
+            try:
+                params = json.loads(row["params_json"] or "{}")
+            except Exception:
+                continue
+
+            row_ticket = str(params.get("jira_key") or "").strip().upper()
+            if row_ticket != ticket_norm:
+                continue
+
+            # Apenas bloqueia se o job vier de auto-trigger; jobs manuais não
+            # devem travar a sincronização do ticket.
+            if _is_true(params.get("auto_triggered")):
+                return True
 
         # Verifica se já existe entrada de sucesso no log para esta versão do ticket
         row = conn.execute(
@@ -762,7 +789,7 @@ def has_active_job_for_ticket(ticket_key: str, updated_at: str) -> bool:
               AND reason = ?
             LIMIT 1
             """,
-            (ticket_key, updated_at),
+            (ticket_norm, updated_at),
         ).fetchone()
         return row is not None
 

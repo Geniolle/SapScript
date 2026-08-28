@@ -25,12 +25,14 @@ def _load_project_env() -> None:
     for env_path in candidate_paths:
         try:
             if env_path.is_file():
-                load_dotenv(dotenv_path=env_path, override=False)
+                # O runtime do worker/web API pode arrancar com variáveis vazias.
+                # Forçamos o .env do projeto para garantir que o JIRA lê as credenciais corretas.
+                load_dotenv(dotenv_path=env_path, override=True)
                 return
         except Exception:
             continue
 
-    load_dotenv(override=False)
+    load_dotenv(override=True)
 
 
 _load_project_env()
@@ -51,27 +53,6 @@ def build_project_scope_jql(status_clause: str) -> str:
         return status_clause
     project_clause = " OR ".join(f'project = "{project}"' for project in projects)
     return f"({project_clause}) AND {status_clause}"
-
-
-def get_jira_auto_trigger_projects() -> list[str]:
-    projects = _split_env_csv(os.getenv("JIRA_AUTO_TRIGGER_PROJECTS", ""))
-    return projects or get_jira_sync_projects()
-
-
-def get_jira_auto_trigger_suppliers(default: str = "Evolutive") -> list[str]:
-    suppliers = _split_env_csv(os.getenv("JIRA_AUTO_TRIGGER_SUPPLIERS", ""))
-    if suppliers:
-        return suppliers
-    legacy_supplier = os.getenv("JIRA_AUTO_TRIGGER_SUPPLIER", default).strip()
-    return [legacy_supplier] if legacy_supplier else []
-
-
-def get_jira_auto_trigger_assignees(default: str = "Clayton Lopes") -> list[str]:
-    assignees = _split_env_csv(os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEES", ""))
-    if assignees:
-        return assignees
-    legacy_assignee = os.getenv("JIRA_AUTO_TRIGGER_ASSIGNEE", default).strip()
-    return [legacy_assignee] if legacy_assignee else []
 
 
 def build_jql_or_clause(field: str, values: list[str]) -> str:
@@ -614,146 +595,6 @@ def transition_jira_issue(key: str, transition_id: str) -> bool:
     except Exception as e:
         print(f"Error transitioning ticket {key} with transition {transition_id}: {e}")
         return False
-
-
-def fetch_auto_trigger_tickets(
-    assignee_name: str = "",
-    supplier_value: str = "Evolutive",
-) -> list[dict]:
-    """
-    Consulta a API do JIRA em busca de tickets elegíveis para auto-trigger SAP.
-
-    Critérios (configuráveis via .env):
-      - project   : JIRA_AUTO_TRIGGER_PROJECTS  (CSV, fallback ao sync projects)
-      - supplier  : JIRA_AUTO_TRIGGER_SUPPLIERS  (CSV, default: "Evolutive")
-      - assignee  : JIRA_AUTO_TRIGGER_ASSIGNEES  (CSV, default: "Clayton Lopes")
-        → filtrado em Python por displayName (pós-fetch)
-
-    Retorna lista de dicts com: key, summary, status, assignee, process,
-    supplier, updated_at, priority.
-    """
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
-    jira_email = os.getenv("JIRA_EMAIL", "").strip()
-    jira_token = os.getenv("JIRA_TOKEN", "").strip()
-    jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
-
-    if not jira_base or not jira_email or not jira_token:
-        print("Jira auto-trigger: credenciais não configuradas.")
-        return []
-
-    # Parâmetros configuráveis via env, com suporte a listas separadas por vírgula.
-    project_clause = build_jql_or_clause("project", get_jira_auto_trigger_projects())
-    status_clause = "statusCategory != Done"
-    supplier_clause = build_jql_or_clause("cf[14595]", get_jira_auto_trigger_suppliers(supplier_value))
-    assignee_values = get_jira_auto_trigger_assignees(assignee_name or "Clayton Lopes")
-
-    clauses = [clause for clause in [project_clause, status_clause, supplier_clause] if clause]
-    jql = " AND ".join(clauses)
-
-    url = f"{jira_base}/{jira_api_path}/search/jql"
-    auth = (jira_email, jira_token)
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "jql": jql,
-        "fields": [
-            "summary",
-            "status",
-            "assignee",
-            "updated",
-            "reporter",
-            "customfield_15845",  # process
-            "customfield_14595",  # supplier
-            "customfield_15815",  # priority
-        ],
-        "maxResults": 100,
-    }
-
-    tickets = []
-    next_page_token = None
-
-    while True:
-        if next_page_token:
-            payload["nextPageToken"] = next_page_token
-        else:
-            payload.pop("nextPageToken", None)
-
-        try:
-            response = requests.post(
-                url, auth=auth, headers=headers, json=payload, timeout=15
-            )
-            response.raise_for_status()
-        except Exception as e:
-            print(f"Jira auto-trigger API error: {e}")
-            break
-
-        data = response.json()
-        issues = data.get("issues", [])
-
-        for issue in issues:
-            fields = issue.get("fields", {})
-
-            assignee_data = fields.get("assignee") or {}
-            raw_assignee = (
-                assignee_data.get("displayName")
-                or assignee_data.get("emailAddress")
-                or ""
-            )
-
-            # Filtro de assignee em Python (comparação case-insensitive com lista)
-            if assignee_values and not any(name.lower() in raw_assignee.lower() for name in assignee_values):
-                continue
-
-            # Abreviar nome se necessário
-            assignee_parts = raw_assignee.strip().split()
-            if len(assignee_parts) > 2:
-                assignee_display = f"{assignee_parts[0]} {assignee_parts[-1]}"
-            else:
-                assignee_display = raw_assignee
-
-            status_data = fields.get("status") or {}
-            status_val = status_data.get("name") or ""
-
-            process_data = fields.get("customfield_15845")
-            process_name = ""
-            if isinstance(process_data, dict):
-                process_name = process_data.get("value") or ""
-            elif isinstance(process_data, str):
-                process_name = process_data
-
-            supplier_data = fields.get("customfield_14595")
-            supplier_name = ""
-            if isinstance(supplier_data, dict):
-                supplier_name = supplier_data.get("value") or ""
-            elif isinstance(supplier_data, str):
-                supplier_name = supplier_data
-
-            priority_data = fields.get("customfield_15815")
-            priority_name = ""
-            if isinstance(priority_data, dict):
-                priority_name = priority_data.get("value") or ""
-            elif isinstance(priority_data, str):
-                priority_name = priority_data
-
-            tickets.append({
-                "key": issue.get("key"),
-                "summary": fields.get("summary") or "",
-                "status": status_val,
-                "assignee": assignee_display,
-                "process": process_name,
-                "supplier": supplier_name,
-                "priority": priority_name,
-                "updated_at": fields.get("updated") or "",
-            })
-
-        next_page_token = data.get("nextPageToken")
-        is_last = data.get("isLast", True)
-        if not next_page_token or is_last:
-            break
-
-    return tickets
 
 
 def update_jira_ticket_supplier(key: str, supplier: str) -> bool:

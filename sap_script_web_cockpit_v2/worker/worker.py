@@ -10,7 +10,30 @@ import requests
 
 from sap_tasks import run_sap_task, JobCancelledException
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+def _resolve_api_base_url() -> str:
+    configured = os.getenv("API_BASE_URL", "").strip().rstrip("/")
+    candidates = [
+        configured,
+        "http://localhost:8010",
+        "http://localhost:8000",
+    ]
+
+    checked: list[str] = []
+    for candidate in candidates:
+        if not candidate or candidate in checked:
+            continue
+        checked.append(candidate)
+        try:
+            response = requests.get(f"{candidate}/api/worker/status", timeout=2)
+            if response.ok:
+                return candidate
+        except Exception:
+            continue
+
+    return configured or "http://localhost:8010"
+
+
+API_BASE_URL = _resolve_api_base_url()
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 WORKER_NAME = os.getenv("WORKER_NAME", socket.gethostname())
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "3"))

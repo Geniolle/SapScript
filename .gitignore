@@ -23,3 +23,6 @@ sap_script_web_cockpit_v2/data/
 *.bak_*
 *.log
 *.trc
+
+# Diagnóstico Payroll -> FI (output local)
+output/
