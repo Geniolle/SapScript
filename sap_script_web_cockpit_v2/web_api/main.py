@@ -182,39 +182,52 @@ def _get_fi_default_context() -> dict[str, Any]:
         return str(os.getenv(name, default) or default).strip()
 
     return {
-        "common": {
-            "company_code": env("SAP_FI_COMPANY_CODE", "2010"),
-            "posting_date": env("SAP_FI_POSTING_DATE"),
-            "document_date": env("SAP_FI_DOCUMENT_DATE"),
-            "currency": env("SAP_FI_CURRENCY", "EUR"),
-            "amount": env("SAP_FI_AMOUNT", "1.00"),
-            "header_text": env("SAP_FI_HEADER_TEXT", "RFC-TEST"),
-            "item_text": env("SAP_FI_ITEM_TEXT", "RFC-TEST"),
-            "reference_prefix": env("SAP_FI_REFERENCE_PREFIX", "RFC-TEST"),
-            "tax_code": env("SAP_FI_TAX_CODE"),
+            "common": {
+                "company_code": env("SAP_FI_COMPANY_CODE", "2010"),
+                "posting_date": env("SAP_FI_POSTING_DATE"),
+                "document_date": env("SAP_FI_DOCUMENT_DATE"),
+                "currency": env("SAP_FI_CURRENCY", "EUR"),
+                "payment_method": env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD")),
+                "amount": env("SAP_FI_AMOUNT", "1.00"),
+                "header_text": env("SAP_FI_HEADER_TEXT", "RFC-TEST"),
+                "item_text": env("SAP_FI_ITEM_TEXT", "RFC-TEST"),
+                "reference_prefix": env("SAP_FI_REFERENCE_PREFIX", "RFC-TEST"),
+                "tax_code": env("SAP_FI_TAX_CODE"),
             "tax_amount": env("SAP_FI_TAX_AMOUNT", "0.00"),
             "tax_rate": env("SAP_FI_TAX_RATE"),
             "tax_gl_account": env("SAP_FI_TAX_GL_ACCOUNT"),
             "tax_direction": env("SAP_FI_TAX_DIRECTION", "credit"),
         },
-        "branches": {
-            "cliente": {
-                "doc_type": env("SAP_FI_DOC_TYPE_CLIENTE", "DR"),
-                "account": env("SAP_FI_CUSTOMER_ACCOUNT", "0010002949"),
-                "counterparty": env("SAP_FI_REVENUE_GL_ACCOUNT", "0012990100"),
+            "branches": {
+                "cliente": {
+                    "doc_type": env("SAP_FI_DOC_TYPE_CLIENTE", "DR"),
+                    "account": env("SAP_FI_CUSTOMER_ACCOUNT", "0010002949"),
+                    "counterparty": env("SAP_FI_REVENUE_GL_ACCOUNT", "0012990100"),
+                    "payment_method": env(
+                        "SAP_FI_FORM_PAGTO_CLIENTE",
+                        env("SAP_F110_PAYMENT_METHOD_CLIENTE", env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD", "Q"))),
+                    ),
+                },
+                "fornecedor": {
+                    "doc_type": env("SAP_FI_DOC_TYPE_FORNECEDOR", "KR"),
+                    "account": env("SAP_FI_VENDOR_ACCOUNT", "0010000040"),
+                    "counterparty": env("SAP_FI_EXPENSE_GL_ACCOUNT", "0012010731"),
+                    "payment_method": env(
+                        "SAP_FI_FORM_PAGTO_FORNECEDOR",
+                        env("SAP_F110_PAYMENT_METHOD_FORNECEDOR", env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD", "S"))),
+                    ),
+                },
+                "razao": {
+                    "doc_type": env("SAP_FI_DOC_TYPE_RAZAO", "SA"),
+                    "debit_gl_account": env("SAP_FI_DEBIT_GL_ACCOUNT", "0012010741"),
+                    "credit_gl_account": env("SAP_FI_CREDIT_GL_ACCOUNT", "0012010741"),
+                    "payment_method": env(
+                        "SAP_FI_FORM_PAGTO_RAZAO",
+                        env("SAP_F110_PAYMENT_METHOD_RAZAO", env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD", ""))),
+                    ),
+                },
             },
-            "fornecedor": {
-                "doc_type": env("SAP_FI_DOC_TYPE_FORNECEDOR", "KR"),
-                "account": env("SAP_FI_VENDOR_ACCOUNT", "0010000040"),
-                "counterparty": env("SAP_FI_EXPENSE_GL_ACCOUNT", "0012010731"),
-            },
-            "razao": {
-                "doc_type": env("SAP_FI_DOC_TYPE_RAZAO", "SA"),
-                "debit_gl_account": env("SAP_FI_DEBIT_GL_ACCOUNT", "0012010741"),
-                "credit_gl_account": env("SAP_FI_CREDIT_GL_ACCOUNT", "0012010741"),
-            },
-        },
-    }
+        }
 
 
 def _default_f110_next_due_date() -> str:

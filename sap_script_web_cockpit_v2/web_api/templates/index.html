@@ -4698,11 +4698,8 @@
             branch: normalizedBranch,
             mode: 'default',
             prompt: `Quero validar um documento de ${branchLabel} no F110 em ${env}.`,
-            followupText: 'Escolha as informações de teste:',
-            followupActionsSource: 'children',
-            children: [
-                asiBuildF110DefaultInfoAction(env, normalizedBranch)
-            ]
+            workflow: 'f110_default_document',
+            children: []
         };
     }
 
@@ -5331,6 +5328,7 @@
             text,
             html: typeof options.html === 'string' ? options.html : '',
             belowBubbleHtml: typeof options.belowBubbleHtml === 'string' ? options.belowBubbleHtml : '',
+            bubbleClassName: typeof options.bubbleClassName === 'string' ? options.bubbleClassName : '',
             isProcessing: Boolean(options.isProcessing),
             actions: Array.isArray(options.actions) ? options.actions : [],
             actionLevel: Number(options.actionLevel || 0),
@@ -5370,6 +5368,69 @@
 
     function asiRenderQuickActions() {
         return asiRenderQuickActionButtons(salsaAgentActions, 0, '', '__root__');
+    }
+
+    const ASI_MAIN_MENU_ACTION = {
+        id: '__asi-main-menu__',
+        label: 'Menu Inicial',
+        icon: 'analysis'
+    };
+
+    function asiPresentMainMenu() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiStopPfcgPolling();
+        asiSelectedActions = { '__root__': null };
+        asiConversationState = asiDefaultConversationState();
+        asiChatHistory = [
+            asiCreateMessage('assistant', asiDefaultGreeting(), {
+                actions: salsaAgentActions,
+                actionLevel: 0,
+                selectionGroupKey: '__root__'
+            })
+        ];
+        asiChatInitialized = true;
+        asiRenderMessages();
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
+    function asiReturnToQuickActionMenu(actionId) {
+        const action = asiFindQuickAction(actionId, salsaAgentActions);
+        if (!action) return;
+
+        const actionPath = asiFindActionPath(actionId, salsaAgentActions) || [action];
+        const nextSelectedActions = { '__root__': null };
+
+        if (actionPath.length > 0) {
+            nextSelectedActions['__root__'] = actionPath[0].id;
+            for (let i = 1; i < actionPath.length; i += 1) {
+                nextSelectedActions[actionPath[i - 1].id] = actionPath[i].id;
+            }
+        }
+
+        asiSelectedActions = nextSelectedActions;
+        asiConversationState = asiDefaultConversationState();
+
+        const actions = Array.isArray(action.children) ? [...action.children] : [];
+        if (action.id === 'testes-unitarios') {
+            actions.push(ASI_MAIN_MENU_ACTION);
+        }
+
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            action.followupText || 'Como deseja prosseguir?',
+            {
+                actions,
+                actionLevel: actionPath.length,
+                parentActionId: action.id,
+                selectionGroupKey: action.id
+            }
+        ));
+        asiUpdateComposerState();
     }
 
     function asiGetElements() {
@@ -6374,7 +6435,7 @@
                 : `agent-salsa-message agent-salsa-message-assistant${msg.wide ? ' agent-salsa-message--wide' : ''}`;
             const bubbleClass = isUser
                 ? 'chat-msg-bubble chat-msg-user'
-                : `chat-msg-bubble chat-msg-bot${msg.wide ? ' chat-msg-bubble--pfcg' : ''}`;
+                : `chat-msg-bubble chat-msg-bot${msg.wide ? ' chat-msg-bubble--pfcg' : ''}${msg.bubbleClassName ? ` ${msg.bubbleClassName}` : ''}`;
             const label = isUser ? 'Utilizador' : 'Assistente';
             const bubbleContent = msg.html
                 ? msg.html
@@ -8976,7 +9037,161 @@
         return payload;
     }
 
-    async function asiStartFiDefaultJob(action) {
+    function asiGetF110ProposalConfig(action, fiPayload, documentNumber) {
+        const { environment, branch } = asiGetFiActionContext(action);
+        const defaults = FI_DEFAULTS || {};
+        const common = defaults.common || {};
+        const branchDefaults = (defaults.branches || {})[branch] || {};
+        const payloadRoot = fiPayload && typeof fiPayload.payload === 'object' ? fiPayload.payload : {};
+        const companyCode = String(payloadRoot.company_code || common.company_code || '').trim().toUpperCase();
+        const postingDate = String(payloadRoot.posting_date || common.posting_date || payloadRoot.document_date || common.document_date || '').trim();
+        const paymentMethod = String(
+            branchDefaults.payment_method
+            || common.payment_method
+            || (branch === 'cliente' ? 'Q' : branch === 'fornecedor' ? 'S' : '')
+            || ''
+        ).trim().toUpperCase();
+        const accountNumber = branch === 'cliente'
+            ? String(branchDefaults.account || payloadRoot.customer_account || '').trim().toUpperCase()
+            : branch === 'fornecedor'
+                ? String(branchDefaults.account || payloadRoot.vendor_account || '').trim().toUpperCase()
+                : '';
+
+        return {
+            environment,
+            branch,
+            branchLabel: branch === 'fornecedor' ? 'Fornecedor' : branch === 'razao' ? 'Razão' : 'Cliente',
+            operationType: branch === 'fornecedor'
+                ? 'pagamento'
+                : branch === 'cliente'
+                    ? 'cobranca'
+                    : '',
+            payload: {
+                environment,
+                company_code: companyCode,
+                payment_method: paymentMethod,
+                account_number: accountNumber,
+                posting_date: postingDate,
+                next_due_date: '',
+                document_number: String(documentNumber || '').trim(),
+            }
+        };
+    }
+
+    function asiBuildF110CompactDocumentHtml(documentNumber) {
+        return `
+            <div class="asi-f110-chain-summary">
+                <span class="asi-f110-chain-summary-label">Documento</span>
+                <span class="asi-f110-chain-summary-value">✓ ${escapeHtml(String(documentNumber || ''))}</span>
+            </div>
+        `;
+    }
+
+    function asiStringifyForLog(value) {
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'string') return value;
+        if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return String(value);
+        }
+    }
+
+    function asiNormalizeErrorText(error, fallback = 'Falha desconhecida.') {
+        if (typeof error === 'string') {
+            const text = error.trim();
+            return text || fallback;
+        }
+
+        if (error && typeof error === 'object') {
+            const candidates = [
+                error.message,
+                error.detail,
+                error.error,
+                error.reason,
+                error.title,
+            ];
+
+            for (const candidate of candidates) {
+                const text = asiStringifyForLog(candidate).trim();
+                if (text && text !== '[object Object]') {
+                    return text;
+                }
+            }
+
+            const objectText = asiStringifyForLog(error).trim();
+            if (objectText && objectText !== '[object Object]') {
+                return objectText;
+            }
+        }
+
+        const fallbackText = asiStringifyForLog(error).trim();
+        return fallbackText && fallbackText !== '[object Object]' ? fallbackText : fallback;
+    }
+
+    function asiLogF110ProposalIssue(environment, branchLabel, missingFields, payload) {
+        const normalizedFields = Array.isArray(missingFields) ? missingFields.filter(Boolean) : [];
+        const payloadSnapshot = {
+            environment: payload?.environment || '',
+            company_code: payload?.company_code || '',
+            payment_method: payload?.payment_method || '',
+            account_number: payload?.account_number || '',
+            posting_date: payload?.posting_date || '',
+            next_due_date: payload?.next_due_date || '',
+            document_number: payload?.document_number || '',
+        };
+
+        console.warn('[ASI][F110] Proposta bloqueada por configuração em falta.', {
+            environment: environment || '',
+            branch: branchLabel || '',
+            missingFields: normalizedFields,
+            payload: payloadSnapshot,
+        });
+    }
+
+    function asiBuildF110ProposalCompactHtml(result, documentNumber) {
+        const status = String(result?.status || result?.job_status || '').trim().toUpperCase();
+        const statusLabel = status || 'SUCESSO';
+        const runId = String(result?.run_id || '').trim();
+        const proposalItems = Array.isArray(result?.proposal_items) ? result.proposal_items.length : 0;
+        const included = result?.document_included_in_proposal === true || result?.document_found === true;
+        const inclusionLabel = included ? 'Documento incluído' : 'Documento não incluído';
+
+        return `
+            <div class="asi-f110-proposal-summary">
+                <div class="asi-f110-proposal-title">Proposta F110 executada</div>
+                <div class="asi-f110-proposal-grid">
+                    <div class="asi-f110-proposal-field">
+                        <span class="asi-f110-proposal-label">RUN</span>
+                        <span class="asi-f110-proposal-value">${escapeHtml(runId || '-')}</span>
+                    </div>
+                    <div class="asi-f110-proposal-field">
+                        <span class="asi-f110-proposal-label">Estado</span>
+                        <span class="asi-f110-proposal-value">${escapeHtml(statusLabel)}</span>
+                    </div>
+                    <div class="asi-f110-proposal-field">
+                        <span class="asi-f110-proposal-label">Documento</span>
+                        <span class="asi-f110-proposal-value">${escapeHtml(String(documentNumber || '-'))}</span>
+                    </div>
+                    <div class="asi-f110-proposal-field">
+                        <span class="asi-f110-proposal-label">Proposta</span>
+                        <span class="asi-f110-proposal-value">${escapeHtml(inclusionLabel)}${proposalItems ? ` (${proposalItems})` : ''}</span>
+                    </div>
+                </div>
+                ${result?.message ? `<div class="asi-f110-proposal-message">${escapeHtml(String(result.message)).replace(/\n/g, '<br>')}</div>` : ''}
+            </div>
+        `;
+    }
+
+    function asiStartF110DefaultWorkflow(action) {
+        return asiStartFiDefaultJob(action, {
+            chainF110Proposal: true,
+            returnActionId: 'testes-unitarios'
+        });
+    }
+
+    async function asiStartFiDefaultJob(action, options = {}) {
         if (asiChatMockTimer) {
             clearTimeout(asiChatMockTimer);
             asiChatMockTimer = null;
@@ -8985,6 +9200,8 @@
         const { environment, branch } = asiGetFiActionContext(action);
         const workflow = String(action && action.workflow ? action.workflow : '').trim().toLowerCase();
         const isF110DefaultWorkflow = workflow === 'f110_default_document';
+        const chainF110Proposal = Boolean(options.chainF110Proposal && isF110DefaultWorkflow);
+        const returnActionId = options.returnActionId || 'testes-unitarios';
         const branchLabel = branch === 'cliente' ? 'Cliente' : branch === 'fornecedor' ? 'Fornecedor' : 'Razão';
         const userPrompt = action?.prompt || 'Usar informações Default.';
         asiAppendMessage(asiCreateMessage('user', userPrompt));
@@ -8992,6 +9209,7 @@
         const processingLabel = isF110DefaultWorkflow
             ? `A criar o documento FI de apoio à Execução F110 em ${environment} com os dados Default...`
             : `A criar o documento FI padrão de ${branchLabel} em ${environment} via RFC com os dados Default...`;
+        const fiPayload = asiBuildFiDefaultPayload(action);
         const processingMessage = asiCreateMessage('assistant', processingLabel, {
             belowBubbleHtml: asiBuildThinkingIndicatorHtml(),
             isProcessing: true,
@@ -9004,7 +9222,7 @@
             const response = await fetch('/api/fi/default-document', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(asiBuildFiDefaultPayload(action)),
+                body: JSON.stringify(fiPayload),
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok || data.ok === false || data.status === 'ERRO') {
@@ -9023,6 +9241,21 @@
                 lastFiDocumentBranch: branch,
                 lastFiDocumentWorkflow: isF110DefaultWorkflow ? 'f110_default_document' : 'fi_default',
             };
+            if (chainF110Proposal) {
+                asiUpdateMessage(processingMessage.id, {
+                    text: documentNumber
+                        ? `Documento ${documentNumber}`
+                        : 'Documento FI criado.',
+                    html: asiBuildF110CompactDocumentHtml(documentNumber),
+                    belowBubbleHtml: '',
+                    isProcessing: false,
+                    wide: false,
+                    bubbleClassName: 'asi-f110-chain-document-bubble',
+                });
+                asiUpdateComposerState();
+                await asiStartF110ProposalWorkflow(action, fiPayload, documentNumber, returnActionId);
+                return;
+            }
             const successFields = [
                 {
                     label: 'Fluxo',
@@ -9050,18 +9283,15 @@
                 } : null,
             ].filter(Boolean).map((field) => `
                 <div class="asi-fi-success-field">
-                    <div class="asi-fi-success-label">${escapeHtml(String(field.label))}</div>
-                    <div class="asi-fi-success-value">${escapeHtml(String(field.value))}</div>
+                    <div class="asi-fi-success-label${field.label === 'Estado' ? ' asi-fi-success-label--status' : ''}">${escapeHtml(String(field.label))}</div>
+                    <div class="asi-fi-success-value${field.label === 'Estado' ? ' asi-fi-success-value--status' : ''}">${escapeHtml(String(field.value))}</div>
                 </div>
             `).join('');
 
             const successHtml = `
-                <div class="asi-fi-success-card">
-                    <div class="asi-fi-success-title">${escapeHtml(isF110DefaultWorkflow ? 'Documento FI de apoio à Execução F110' : 'Documento FI padrão')} executado via RFC</div>
-                    <div class="asi-fi-success-grid">
-                        ${successFields}
-                    </div>
-                    <div class="asi-fi-success-message">${escapeHtml(String(data.message || 'Documento processado com sucesso.')).replace(/\n/g, '<br>')}</div>
+                <div class="asi-fi-success-title">${escapeHtml(isF110DefaultWorkflow ? 'Documento FI de apoio à Execução F110' : 'Documento FI padrão')} executado via RFC</div>
+                <div class="asi-fi-success-grid">
+                    ${successFields}
                 </div>`;
 
             asiUpdateMessage(processingMessage.id, {
@@ -9071,8 +9301,11 @@
                 html: successHtml,
                 belowBubbleHtml: '',
                 isProcessing: false,
+                wide: true,
+                bubbleClassName: 'asi-fi-success-bubble',
             });
             asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
             return;
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
@@ -9083,12 +9316,138 @@
             });
             asiConversationState = { ...asiConversationState, isBusy: false };
             asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
+        }
+    }
+
+    async function asiStartF110ProposalWorkflow(action, fiPayload, documentNumber, returnActionId = 'testes-unitarios') {
+        const config = asiGetF110ProposalConfig(action, fiPayload, documentNumber);
+        const { environment, branch, branchLabel, operationType, payload } = config;
+        const normalizedDocumentNumber = String(documentNumber || '').trim();
+
+        if (!normalizedDocumentNumber) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                `Não foi possível iniciar a proposta F110 em ${environment}.`,
+                {
+                    html: `
+                        <div style="font-weight:700;color:var(--danger);">Não foi possível iniciar a proposta F110 em ${environment}.</div>
+                        <div style="margin-top:6px;color:var(--text-secondary);">O documento FI não devolveu um número válido.</div>
+                    `
+                }
+            ));
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
+            return;
+        }
+
+        if (branch === 'razao' || !operationType) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                `A proposta F110 automática não está disponível para ${branchLabel}.`,
+                {
+                    html: `
+                        <div style="font-weight:700;color:var(--danger);">A proposta F110 automática não está disponível para ${branchLabel}.</div>
+                        <div style="margin-top:6px;color:var(--text-secondary);">Este fluxo requer uma especificação funcional adicional para conta de Razão.</div>
+                    `
+                }
+            ));
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
+            return;
+        }
+
+        const missingFields = [];
+        if (!payload.company_code) missingFields.push('empresa');
+        if (!payload.payment_method) missingFields.push('forma de pagamento/cobrança');
+        if (!payload.account_number) missingFields.push('conta');
+        if (!payload.posting_date) missingFields.push('data de lançamento');
+
+        if (missingFields.length > 0) {
+            asiLogF110ProposalIssue(environment, branchLabel, missingFields, payload);
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                `Não foi possível iniciar a proposta F110 em ${environment}.`,
+                {
+                    html: `
+                        <div style="font-weight:700;color:var(--danger);">Não foi possível iniciar a proposta F110 em ${environment}.</div>
+                        <div style="margin-top:6px;color:var(--text-secondary);">Configuração em falta: ${escapeHtml(missingFields.join(', '))}.</div>
+                    `
+                }
+            ));
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
+            return;
+        }
+
+        const processingMessage = asiCreateMessage('assistant', `A criar a proposta F110 em ${environment} para o documento ${documentNumber}...`, {
+            belowBubbleHtml: asiBuildThinkingIndicatorHtml(),
+            isProcessing: true,
+        });
+        asiAppendMessage(processingMessage);
+
+        try {
+            const response = await fetch('/api/f110/proposal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    environment,
+                    operation_type: operationType,
+                    company_code: payload.company_code,
+                    payment_method: payload.payment_method,
+                    account_number: payload.account_number,
+                    posting_date: payload.posting_date,
+                    next_due_date: payload.next_due_date || '',
+                    document_number: normalizedDocumentNumber,
+                }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false || data.status === 'ERRO') {
+                throw new Error(asiNormalizeErrorText(data.message || data.detail || `Falha HTTP ${response.status}`));
+            }
+
+            asiUpdateMessage(processingMessage.id, {
+                text: `Proposta F110 executada para ${normalizedDocumentNumber}.`,
+                html: asiBuildF110ProposalCompactHtml(data, normalizedDocumentNumber),
+                belowBubbleHtml: '',
+                isProcessing: false,
+                wide: true,
+                bubbleClassName: 'asi-f110-proposal-bubble',
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Erro ao executar a proposta F110 para ${normalizedDocumentNumber}.`,
+                html: `
+                    <div class="asi-f110-proposal-summary">
+                        <div class="asi-f110-proposal-title" style="color:var(--danger);">Erro ao executar a proposta F110</div>
+                        <div class="asi-f110-proposal-message">${escapeHtml(asiNormalizeErrorText(error, 'Falha desconhecida.')).replace(/\n/g, '<br>')}</div>
+                    </div>
+                `,
+                belowBubbleHtml: '',
+                isProcessing: false,
+                wide: true,
+                bubbleClassName: 'asi-f110-proposal-bubble',
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
         }
     }
 
     function asiHandleQuickActionSelection(actionId, level, parentActionId = '', selectionGroupKey = '__root__') {
         if (ASI_PFCG_DYNAMIC_ACTION_IDS.has(actionId)) {
             asiHandlePfcgRoleDynamicAction(actionId);
+            return;
+        }
+
+        if (actionId === ASI_MAIN_MENU_ACTION.id) {
+            asiPresentMainMenu();
             return;
         }
 
@@ -9129,7 +9488,7 @@
         asiRenderMessages();
 
         if (String(action.workflow || '').trim().toLowerCase() === 'f110_default_document') {
-            asiStartFiDefaultJob(action);
+            asiStartF110DefaultWorkflow(action);
             return;
         }
 

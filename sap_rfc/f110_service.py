@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
+import sqlite3
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,8 @@ from sap_rfc._rfc_common import (
     make_write_guard,
     read_table,
 )
+
+logger = logging.getLogger(__name__)
 
 # Este serviço só vai até a PROPOSTA do F110 (equivalente a "Vorlauf"/PAR_XVL='X').
 # Nunca chama JOB_SUBMIT com PAR_XVL vazio (isso seria o pagamento/cobrança real).
@@ -197,10 +202,174 @@ def _to_sap_date(value: Any) -> str:
 
 
 def _generate_run_id(operation_type: str) -> str:
-    """Gera um PAR_LFID (5 caracteres, obrigatório e único por LAUFD) para o cockpit."""
+    """Fallback legacy para gerar o identificador da proposta F110."""
     prefix = "P" if operation_type == OPERATION_PAGAMENTO else "C"
     suffix = datetime.now().strftime("%H%M%S")[-4:]
     return f"{prefix}{suffix}"
+
+
+def _default_f110_laufi_seed(operation_type: str) -> str:
+    value = str(os.getenv("SAP_F110_LAUFI", "") or "").strip().upper()
+    if value:
+        return value
+    return _generate_run_id(operation_type)
+
+
+def _f110_laufi_store_path() -> Path:
+    data_dir = Path(__file__).resolve().parents[1] / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "fi_reference_sequence.sqlite3"
+
+
+def _resolve_f110_dates(next_due_date: str) -> tuple[str, str, str]:
+    today_sap = date.today().strftime("%Y%m%d")
+    posting_date_sap = today_sap
+    next_due_date_sap = (
+        _to_sap_date(next_due_date)
+        if str(next_due_date or "").strip()
+        else (date.today() + timedelta(days=1)).strftime("%Y%m%d")
+    )
+    run_date_sap = today_sap
+    return posting_date_sap, next_due_date_sap, run_date_sap
+
+
+def _split_laufi_seed(value: str) -> tuple[str, int, int] | None:
+    raw = str(value or "").strip().upper()
+    match = re.fullmatch(r"([A-Z0-9]+?)(\d+)", raw)
+    if not match:
+        return None
+    prefix = match.group(1)
+    seq_text = match.group(2)
+    return prefix, int(seq_text), len(seq_text)
+
+
+def _format_laufi(prefix: str, sequence: int, width: int) -> str:
+    return f"{prefix}{sequence:0{width}d}"
+
+
+def _load_local_f110_laufi_last_value(prefix: str, run_date: str) -> int:
+    db_path = _f110_laufi_store_path()
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS f110_laufi_sequence (name TEXT PRIMARY KEY, last_value INTEGER NOT NULL)"
+        )
+        row = connection.execute(
+            "SELECT last_value FROM f110_laufi_sequence WHERE name = ?",
+            (f"{prefix}:{run_date}",),
+        ).fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        connection.close()
+
+
+def _store_local_f110_laufi_last_value(prefix: str, run_date: str, value: int) -> None:
+    db_path = _f110_laufi_store_path()
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS f110_laufi_sequence (name TEXT PRIMARY KEY, last_value INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO f110_laufi_sequence(name, last_value) VALUES(?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET last_value = excluded.last_value",
+            (f"{prefix}:{run_date}", int(value)),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _read_existing_laufi_values(connection: Any, guard: Any, *, run_date: str) -> list[str]:
+    values: list[str] = []
+    for table_name in ("REGUP", "REGUH", "REGUV"):
+        try:
+            rows = read_table(
+                connection,
+                guard,
+                table_name=table_name,
+                fields=["LAUFD", "LAUFI"],
+                options=make_option_eq("LAUFD", run_date),
+                rowcount=0,
+            )
+        except Exception:
+            continue
+        for row in rows:
+            laufi = str((row[1] if len(row) > 1 else "") or "").strip().upper()
+            if laufi:
+                values.append(laufi)
+    return values
+
+
+def _resolve_f110_laufi(
+    connection: Any,
+    guard: Any,
+    *,
+    operation_type: str,
+    run_date: str,
+) -> str:
+    seed = _default_f110_laufi_seed(operation_type)
+    parsed_seed = _split_laufi_seed(seed)
+    if not parsed_seed:
+        return seed
+
+    prefix, seed_sequence, width = parsed_seed
+    highest_sequence = max(seed_sequence - 1, _load_local_f110_laufi_last_value(prefix, run_date))
+    for existing in _read_existing_laufi_values(connection, guard, run_date=run_date):
+        parsed_existing = _split_laufi_seed(existing)
+        if not parsed_existing:
+            continue
+        existing_prefix, existing_sequence, existing_width = parsed_existing
+        if existing_prefix != prefix:
+            continue
+        highest_sequence = max(highest_sequence, existing_sequence)
+        width = max(width, existing_width)
+
+    chosen_sequence = highest_sequence + 1
+    _store_local_f110_laufi_last_value(prefix, run_date, chosen_sequence)
+    return _format_laufi(prefix, chosen_sequence, width)
+
+
+def _build_f110_selection_params(
+    *,
+    operation_type: str,
+    run_id: str,
+    posting_date_sap: str,
+    next_due_date_sap: str,
+    payment_method: str,
+    company_code: str,
+    account_number: str,
+    document_number: str,
+) -> list[dict[str, str]]:
+    params = [
+        _rsparam("PAR_LFI", "P", run_id),
+        _rsparam("PAR_XVL", "P", "X"),
+        _rsparam("PAR_BUDA", "P", posting_date_sap),
+        _rsparam("PAR_GRDA", "P", posting_date_sap),
+        _rsparam("PAR_NEDA", "P", next_due_date_sap),
+        _rsparam("PAR_ZWE", "P", payment_method),
+        _rsparam("PAR_TEX1", "P", "BKPF-BELNR"),
+        _rsparam("PAR_LIS1", "P", document_number),
+        _rsparam("PAR_XFA", "P", "X"),
+        _rsparam("PAR_XZW", "P", "X"),
+        _rsparam("PAR_XBL", "P", "X"),
+        _rsparam("SEL_BUKR", "S", company_code),
+    ]
+    if account_number:
+        if operation_type == OPERATION_PAGAMENTO:
+            params.append(_rsparam("SEL_KRED", "S", account_number))
+        else:
+            params.append(_rsparam("SEL_DEBI", "S", account_number))
+    logger.info(
+        "F110 selection params built: run_id=%s document_number=%s company_code=%s payment_method=%s account_number=%s fields=%s",
+        run_id,
+        document_number,
+        company_code,
+        payment_method,
+        account_number,
+        params,
+    )
+    return params
 
 
 def _rsparam(selname: str, kind: str, low: str, high: str = "", sign: str = "I", option: str = "EQ") -> dict[str, str]:
@@ -333,15 +502,14 @@ def _run_f110_proposal_core(
     if not account_number:
         raise ValueError("account_number (fornecedor/cliente) é obrigatório.")
 
-    posting_date_sap = _to_sap_date(posting_date)
-    next_due_date_sap = _to_sap_date(next_due_date)
-    run_date_sap = _to_sap_date(run_date) if str(run_date or "").strip() else posting_date_sap
-    run_id = _generate_run_id(op_type)
+    posting_date_sap, next_due_date_sap, run_date_sap = _resolve_f110_dates(next_due_date)
+    run_id = _default_f110_laufi_seed(op_type)
 
     connection_params = build_connection_params_for_env(environment)
     guard = make_write_guard(WRITE_ALLOWED_FUNCTIONS, WRITE_ALLOWED_TABLES)
 
     payload = {
+        "environment": environment,
         "operation_type": op_type,
         "company_code": company_code,
         "payment_method": payment_method,
@@ -352,6 +520,36 @@ def _run_f110_proposal_core(
         "run_id": run_id,
         "document_number": document_number,
     }
+
+    logger.info(
+        "F110 request prepared: env=%s op=%s company_code=%s account_number=%s payment_method=%s posting_date=%s next_due_date=%s run_date=%s run_id=%s document_number=%s selection_fields=%s",
+        payload["environment"],
+        op_type,
+        company_code,
+        account_number,
+        payment_method,
+        posting_date_sap,
+        next_due_date_sap,
+        run_date_sap,
+        run_id,
+        document_number,
+        {
+            "PAR_LFI": run_id,
+            "PAR_XVL": "X",
+            "PAR_BUDA": posting_date_sap,
+            "PAR_GRDA": posting_date_sap,
+            "PAR_NEDA": next_due_date_sap,
+            "PAR_ZWE": payment_method,
+            "PAR_TEX1": "BKPF-BELNR",
+            "PAR_LIS1": document_number,
+            "PAR_XFA": "X",
+            "PAR_XZW": "X",
+            "PAR_XBL": "X",
+            "SEL_BUKR": company_code,
+            "SEL_KRED" if op_type == OPERATION_PAGAMENTO else "SEL_DEBI": account_number,
+        },
+    )
+
 
     connection = Connection(**connection_params)  # type: ignore[misc]
     xmi_logged_on = False
@@ -380,6 +578,14 @@ def _run_f110_proposal_core(
         )
     xmi_logged_on = True
     try:
+        run_id = _resolve_f110_laufi(
+            connection,
+            guard,
+            operation_type=op_type,
+            run_date=run_date_sap,
+        )
+        payload["run_id"] = run_id
+
         document_found: bool | None = None
         if document_number:
             document_found = _check_document_exists(
@@ -409,19 +615,16 @@ def _run_f110_proposal_core(
                     payload=payload,
                 )
 
-        params = [
-            _rsparam("PAR_LFID", "P", run_id),
-            _rsparam("PAR_XVL", "P", "X"),
-            _rsparam("PAR_BUDA", "P", posting_date_sap),
-            _rsparam("PAR_GRDA", "P", posting_date_sap),
-            _rsparam("PAR_NEDA", "P", next_due_date_sap),
-            _rsparam("PAR_ZWE", "P", payment_method),
-            _rsparam("SEL_BUKR", "S", company_code),
-        ]
-        if op_type == OPERATION_PAGAMENTO:
-            params.append(_rsparam("SEL_KRED", "S", account_number))
-        else:
-            params.append(_rsparam("SEL_DEBI", "S", account_number))
+        params = _build_f110_selection_params(
+            operation_type=op_type,
+            run_id=run_id,
+            posting_date_sap=posting_date_sap,
+            next_due_date_sap=next_due_date_sap,
+            payment_method=payment_method,
+            company_code=company_code,
+            account_number=account_number,
+            document_number=document_number,
+        )
 
         job_name = f"COCKPIT_F110_{run_id}"
 
@@ -451,14 +654,26 @@ def _run_f110_proposal_core(
             )
 
         guard.assert_function_allowed("BAPI_XBP_JOB_ADD_ABAP_STEP")
-        connection.call(
+        logger.info(
+            "F110 add step debug: job_name=%s job_count=%s program=%s selinfo_count=%s selinfo=%s",
+            job_name,
+            job_count,
+            "RFF110S",
+            len(params),
+            params,
+        )
+        add_step_result = connection.call(
             "BAPI_XBP_JOB_ADD_ABAP_STEP",
             JOBCOUNT=job_count,
             JOBNAME=job_name,
             ABAP_PROGRAM_NAME="RFF110S",
             ABAP_VARIANT_NAME="",
+            EXTERNAL_USER_NAME=connection_params["user"],
+            LANGUAGE=str(connection_params.get("lang") or connection_params.get("language") or "E").strip()[:1],
+            SAP_USER_NAME=connection_params["user"],
             SELINFO=params,
         )
+        logger.info("F110 add step result: %s", add_step_result)
 
         guard.assert_function_allowed("BAPI_XBP_JOB_CLOSE")
         connection.call(
@@ -483,6 +698,21 @@ def _run_f110_proposal_core(
         document_included = None
         if document_number:
             document_included = any(item["document_number"] == document_number.strip()[:10] for item in proposal_items)
+
+        logger.info(
+            "F110 proposal result: env=%s op=%s company_code=%s account_number=%s payment_method=%s run_date=%s run_id=%s items=%s document_number=%s document_included=%s",
+            payload["environment"],
+            op_type,
+            company_code,
+            account_number,
+            payment_method,
+            run_date_sap,
+            run_id,
+            len(proposal_items),
+            document_number,
+            document_included,
+        )
+
 
         ok = job_status == "F"
         message = (
