@@ -1205,7 +1205,7 @@
       </div>
 
       <!-- Agente Salsa IT View -->
-      <div id="view-agent-salsa-it" style="display: none; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 32px; flex-direction: column;">
+      <div id="view-agent-salsa-it" style="display: none; flex: 1; min-height: 0; overflow: hidden; padding-bottom: 0; flex-direction: column;">
         <section id="agent-salsa-it-section" class="agent-salsa-shell">
           <div class="card agent-salsa-chat-card">
             <div class="agent-salsa-chat-header">
@@ -5330,6 +5330,7 @@
             role,
             text,
             html: typeof options.html === 'string' ? options.html : '',
+            belowBubbleHtml: typeof options.belowBubbleHtml === 'string' ? options.belowBubbleHtml : '',
             isProcessing: Boolean(options.isProcessing),
             actions: Array.isArray(options.actions) ? options.actions : [],
             actionLevel: Number(options.actionLevel || 0),
@@ -5796,15 +5797,12 @@
         `;
     }
 
-    function asiBuildThinkingDotsHtml(message) {
+    function asiBuildThinkingIndicatorHtml() {
         return `
-            <div style="display:flex;align-items:center;gap:10px;">
-                <div style="display:inline-flex;align-items:center;gap:4px;">
-                    <span class="wizard-dot"></span>
-                    <span class="wizard-dot" style="animation-delay:0.15s;"></span>
-                    <span class="wizard-dot" style="animation-delay:0.3s;"></span>
-                </div>
-                <span style="font-weight:600;">${escapeHtml(message)}</span>
+            <div class="agent-salsa-thinking-indicator" role="status" aria-label="A processar">
+                <span class="agent-salsa-thinking-dot"></span>
+                <span class="agent-salsa-thinking-dot"></span>
+                <span class="agent-salsa-thinking-dot"></span>
             </div>
         `;
     }
@@ -6323,7 +6321,6 @@
         input.placeholder = asiGetComposerPlaceholder();
         input.disabled = Boolean(asiConversationState.isBusy);
         send.disabled = Boolean(asiConversationState.isBusy) || !input.value.trim();
-        asiRenderFiExecutionContext();
         asiAutoResizeInput();
     }
 
@@ -6366,51 +6363,6 @@
         };
     }
 
-    function asiRenderFiExecutionContext() {
-        const { context } = asiGetElements();
-        if (!context) return;
-
-        const model = asiGetFiContextModel();
-        if (!model.hasContext) {
-            context.style.display = 'none';
-            context.innerHTML = '';
-            return;
-        }
-
-        const documentLine = model.documentNumber
-            ? `<div><strong>Documento gerado:</strong> ${escapeHtml(model.documentNumber)}</div>`
-            : '';
-        const branchLine = model.branchLabel
-            ? `<div><strong>Tipo de documento:</strong> ${escapeHtml(model.branchLabel)}</div>`
-            : '';
-        const environmentLine = model.environment
-            ? `<div><strong>Ambiente:</strong> ${escapeHtml(model.environment)}</div>`
-            : '';
-        const workflowLine = model.workflow
-            ? `<div><strong>Fluxo:</strong> ${escapeHtml(model.flowLabel)}</div>`
-            : '';
-        const noteLine = model.workflow === 'f110_default_document'
-            ? '<div style="margin-top:4px;color:#a7f3d0;">O documento FI fica reservado para a Execução F110.</div>'
-            : model.documentNumber
-                ? '<div style="margin-top:4px;color:#bfdbfe;">Documento FI padrão processado via RFC.</div>'
-                : '';
-        const titleLine = model.workflow === 'f110_default_document'
-            ? 'Estado atual da Execução F110'
-            : 'Estado atual do Documento FI';
-
-        context.style.display = 'block';
-        context.style.borderColor = model.tone;
-        context.style.background = model.tone;
-        context.innerHTML = `
-            <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(titleLine)}</div>
-            ${workflowLine}
-            ${environmentLine}
-            ${branchLine}
-            ${documentLine}
-            ${noteLine}
-        `;
-    }
-
     function asiRenderMessages() {
         const { messages } = asiGetElements();
         if (!messages) return;
@@ -6427,6 +6379,9 @@
             const bubbleContent = msg.html
                 ? msg.html
                 : escapeHtml(msg.text).replace(/\n/g, '<br>');
+            const belowBubbleHtml = !isUser && msg.isProcessing && typeof msg.belowBubbleHtml === 'string'
+                ? msg.belowBubbleHtml
+                : '';
             const actionsHtml = !isUser && Array.isArray(msg.actions) && msg.actions.length > 0
                 ? `<div class="agent-salsa-quick-actions-stack">${asiRenderQuickActionButtons(msg.actions, msg.actionLevel || 0, msg.parentActionId || '', msg.selectionGroupKey || '__root__')}</div>`
                 : '';
@@ -6435,6 +6390,7 @@
                 <div class="${wrapperClass}">
                     <p class="agent-salsa-message-label">${label}</p>
                     <div class="${bubbleClass}">${bubbleContent}</div>
+                    ${belowBubbleHtml}
                     ${actionsHtml}
                 </div>
             `;
@@ -9037,7 +8993,8 @@
             ? `A criar o documento FI de apoio à Execução F110 em ${environment} com os dados Default...`
             : `A criar o documento FI padrão de ${branchLabel} em ${environment} via RFC com os dados Default...`;
         const processingMessage = asiCreateMessage('assistant', processingLabel, {
-            html: asiBuildThinkingDotsHtml(processingLabel),
+            belowBubbleHtml: asiBuildThinkingIndicatorHtml(),
+            isProcessing: true,
         });
         asiAppendMessage(processingMessage);
         asiConversationState = { ...asiConversationState, isBusy: true };
@@ -9066,18 +9023,45 @@
                 lastFiDocumentBranch: branch,
                 lastFiDocumentWorkflow: isF110DefaultWorkflow ? 'f110_default_document' : 'fi_default',
             };
+            const successFields = [
+                {
+                    label: 'Fluxo',
+                    value: isF110DefaultWorkflow ? 'Execução F110' : 'Documento FI',
+                },
+                {
+                    label: 'Ambiente',
+                    value: environment,
+                },
+                {
+                    label: 'Tipo',
+                    value: branchLabel,
+                },
+                {
+                    label: 'Estado',
+                    value: String(data.status || 'SUCESSO'),
+                },
+                documentNumber ? {
+                    label: 'Documento',
+                    value: documentNumber,
+                } : null,
+                isF110DefaultWorkflow ? {
+                    label: 'Uso',
+                    value: 'Guardado para a próxima Execução F110.',
+                } : null,
+            ].filter(Boolean).map((field) => `
+                <div class="asi-fi-success-field">
+                    <div class="asi-fi-success-label">${escapeHtml(String(field.label))}</div>
+                    <div class="asi-fi-success-value">${escapeHtml(String(field.value))}</div>
+                </div>
+            `).join('');
+
             const successHtml = `
-                <div style="margin-top:8px;padding:12px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);">
-                    <div style="font-weight:700;color:#10b981;margin-bottom:6px;">${isF110DefaultWorkflow ? 'Documento FI de apoio à Execução F110' : 'Documento FI padrão'} executado via RFC</div>
-                    <div style="font-size:0.82rem;color:var(--text-primary);line-height:1.5;">
-                        <div><strong>Fluxo:</strong> ${escapeHtml(isF110DefaultWorkflow ? 'Execução F110' : 'Documento FI')}</div>
-                        <div><strong>Ambiente:</strong> ${escapeHtml(environment)}</div>
-                        <div><strong>Tipo:</strong> ${escapeHtml(branchLabel)}</div>
-                        <div><strong>Estado:</strong> ${escapeHtml(String(data.status || 'SUCESSO'))}</div>
-                        ${documentNumber ? `<div><strong>Documento:</strong> ${escapeHtml(documentNumber)}</div>` : ''}
-                        ${isF110DefaultWorkflow ? '<div><strong>Uso:</strong> Guardado para a próxima Execução F110.</div>' : ''}
-                        <div style="margin-top:6px;">${escapeHtml(String(data.message || 'Documento processado com sucesso.'))}</div>
+                <div class="asi-fi-success-card">
+                    <div class="asi-fi-success-title">${escapeHtml(isF110DefaultWorkflow ? 'Documento FI de apoio à Execução F110' : 'Documento FI padrão')} executado via RFC</div>
+                    <div class="asi-fi-success-grid">
+                        ${successFields}
                     </div>
+                    <div class="asi-fi-success-message">${escapeHtml(String(data.message || 'Documento processado com sucesso.')).replace(/\n/g, '<br>')}</div>
                 </div>`;
 
             asiUpdateMessage(processingMessage.id, {
@@ -9085,6 +9069,8 @@
                     ? `Documento FI de apoio à Execução F110 guardado em ${environment} (${branchLabel}).${documentNumber ? ` Documento ${documentNumber}.` : ''}`
                     : `Documento FI padrão concluído em ${environment} (${branchLabel}).${documentNumber ? ` Documento ${documentNumber}.` : ''}`,
                 html: successHtml,
+                belowBubbleHtml: '',
+                isProcessing: false,
             });
             asiUpdateComposerState();
             return;
@@ -9092,6 +9078,8 @@
             asiUpdateMessage(processingMessage.id, {
                 text: `Não foi possível executar o documento FI em ${environment}.`,
                 html: `${escapeHtml(`Não foi possível executar o documento FI em ${environment}.`)}<br><span style="color: var(--danger);">${escapeHtml(error.message || 'Falha desconhecida.').replace(/\n/g, '<br>')}</span>`,
+                belowBubbleHtml: '',
+                isProcessing: false,
             });
             asiConversationState = { ...asiConversationState, isBusy: false };
             asiUpdateComposerState();
