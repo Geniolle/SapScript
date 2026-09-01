@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from .fi_config import env_alias_default, env_default, payment_method_default, normalize_environment, _next_reference
+from .fi_config import env_alias_default, env_default, env_user, payment_method_default, normalize_environment, _next_reference
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -99,7 +99,11 @@ def _build_header(payload: dict[str, Any], *, doc_type: str) -> dict[str, Any]:
     currency = str(payload.get("currency") or "EUR").strip().upper()
     header_text = str(payload.get("header_text") or "").strip()
     reference = str(payload.get("reference") or "").strip()
-    username = str(payload.get("username") or env_default(payload.get("environment"), "user", "")).strip()
+    username = str(
+        payload.get("username")
+        or env_default(payload.get("environment"), "username", "")
+        or env_user(payload.get("environment"), "")
+    ).strip()
 
     if not posting_date:
         raise ValueError("posting_date é obrigatório.")
@@ -409,6 +413,8 @@ def _apply_default_payload(environment: str, branch: str, payload: dict[str, Any
             fallback = "EUR"
         if field_name == "payment_method":
             fallback = payment_method_default(environment, branch, fallback)
+        if field_name == "username":
+            fallback = env_default(environment, "username", env_user(environment, fallback))
         merged[field_name] = env_default(environment, field_name, fallback)
     if not str(merged.get("reference") or "").strip():
         merged["reference"] = _next_reference(env_default(environment, "reference_prefix", "RFC-TEST"))

@@ -12,6 +12,19 @@ class FiDefaultDocumentJobError(RuntimeError):
     pass
 
 
+def _json_safe(value: Any) -> Any:
+    if hasattr(value, "isoformat") and callable(getattr(value, "isoformat")):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def build_fi_default_document_payload(params: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     environment = str(params.get("environment") or "QAD").strip().upper()
     branch = str(params.get("branch") or "cliente").strip().lower()
@@ -49,7 +62,7 @@ def run_fi_default_document_job(
 ) -> tuple[str, str]:
     environment, branch, fi_payload = build_fi_default_document_payload(params)
     result = post_fi_document(environment, branch, fi_payload)
-    result_payload = dataclasses.asdict(result)
+    result_payload = _json_safe(dataclasses.asdict(result))
     result_json = json.dumps(result_payload, ensure_ascii=False)
 
     try:

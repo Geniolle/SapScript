@@ -103,6 +103,73 @@ class F110ServiceTests(TestCase):
         self.assertEqual(by_name["PAR_TEX1"]["LOW"], "BKPF-BELNR")
         self.assertEqual(by_name["PAR_LIS1"]["LOW"], "7200000156")
 
+    def test_build_f110_selection_params_for_payment_unticks_proposal(self) -> None:
+        params = f110_service._build_f110_selection_params(
+            operation_type="pagamento",
+            run_id="P0001",
+            posting_date_sap="20260831",
+            next_due_date_sap="20260901",
+            payment_method="S",
+            company_code="2010",
+            account_number="0010000040",
+            document_number="6050000047",
+            proposal_run=False,
+        )
+
+        by_name = {entry["SELNAME"]: entry for entry in params}
+        self.assertEqual(by_name["PAR_XVL"]["LOW"], "")
+        self.assertIn("SEL_KRED", by_name)
+
+    @mock.patch("sap_rfc.f110_service._find_existing_f110_laufi_for_document")
+    @mock.patch("sap_rfc.f110_service._resolve_f110_laufi")
+    def test_resolve_f110_run_id_reuses_existing_document_run_id(
+        self,
+        resolve_mock: mock.Mock,
+        existing_mock: mock.Mock,
+    ) -> None:
+        existing_mock.return_value = "T0022"
+        resolve_mock.return_value = "T0099"
+
+        value = f110_service._resolve_f110_run_id(
+            mock.Mock(),
+            mock.Mock(),
+            proposal_run=False,
+            operation_type="pagamento",
+            run_date="20260901",
+            company_code="2010",
+            account_number="0010000040",
+            document_number="6050000073",
+        )
+
+        self.assertEqual(value, "T0022")
+        existing_mock.assert_called_once()
+        resolve_mock.assert_not_called()
+
+    @mock.patch("sap_rfc.f110_service._find_existing_f110_laufi_for_document")
+    @mock.patch("sap_rfc.f110_service._resolve_f110_laufi")
+    def test_resolve_f110_run_id_falls_back_to_new_sequence_when_missing(
+        self,
+        resolve_mock: mock.Mock,
+        existing_mock: mock.Mock,
+    ) -> None:
+        existing_mock.return_value = ""
+        resolve_mock.return_value = "T0023"
+
+        value = f110_service._resolve_f110_run_id(
+            mock.Mock(),
+            mock.Mock(),
+            proposal_run=False,
+            operation_type="pagamento",
+            run_date="20260901",
+            company_code="2010",
+            account_number="0010000040",
+            document_number="6050000073",
+        )
+
+        self.assertEqual(value, "T0023")
+        existing_mock.assert_called_once()
+        resolve_mock.assert_called_once()
+
     @mock.patch("sap_rfc.f110_service.read_table")
     def test_resolve_f110_laufi_advances_when_local_store_has_previous_value(self, read_table_mock: mock.Mock) -> None:
         read_table_mock.return_value = []

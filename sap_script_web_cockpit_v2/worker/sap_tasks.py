@@ -1082,6 +1082,31 @@ def _run_f110_proposal(job: dict[str, Any], params: dict[str, Any]) -> tuple[str
         raise SapExecutionError(str(exc)) from exc
 
 
+def _run_f110_payment(job: dict[str, Any], params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    try:
+        from sap_rfc.f110_service import run_f110_payment
+    except ImportError as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço F110 de pagamento: {exc}") from exc
+
+    try:
+        from sap_script_web_cockpit_v2.worker.f110_payment_job import (
+            run_f110_payment_job,
+        )
+    except ImportError as exc:
+        raise SapExecutionError(f"Não foi possível importar o executor F110 de pagamento: {exc}") from exc
+
+    try:
+        return run_f110_payment_job(
+            job_id=job["id"],
+            params=params,
+            run_f110_payment=run_f110_payment,
+        )
+    except Exception as exc:
+        raise SapExecutionError(str(exc)) from exc
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
     if _project_dir:
@@ -1190,6 +1215,11 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
         if task == "f110_proposal":
             status, log = _run_f110_proposal(job, params)
+            log_lines.append(log)
+            return status, "\n".join(log_lines)
+
+        if task == "f110_payment":
+            status, log = _run_f110_payment(job, params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 

@@ -4609,6 +4609,8 @@
             lastFiDocumentEnvironment: '',
             lastFiDocumentBranch: '',
             lastFiDocumentWorkflow: '',
+            lastF110ProposalPayload: null,
+            lastF110ProposalResult: null,
             awaitingInput: '',
             pendingJobId: '',
             pendingRoleName: '',
@@ -9157,6 +9159,7 @@
         const proposalItems = Array.isArray(result?.proposal_items) ? result.proposal_items.length : 0;
         const included = result?.document_included_in_proposal === true || result?.document_found === true;
         const inclusionLabel = included ? 'Documento incluído' : 'Documento não incluído';
+        const canRunPayment = included || proposalItems > 0;
 
         return `
             <div class="asi-f110-proposal-summary">
@@ -9180,6 +9183,13 @@
                     </div>
                 </div>
                 ${result?.message ? `<div class="asi-f110-proposal-message">${escapeHtml(String(result.message)).replace(/\n/g, '<br>')}</div>` : ''}
+                ${canRunPayment ? `
+                    <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+                        <button type="button" onclick="asiStartF110PaymentWorkflowFromLastProposal()" style="padding:8px 14px;border:none;border-radius:10px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;font-size:0.8rem;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(14,165,233,0.28);">
+                            Executar pagamento
+                        </button>
+                    </div>
+                ` : ''}
             </div>
         `;
     }
@@ -9409,6 +9419,15 @@
                 throw new Error(asiNormalizeErrorText(data.message || data.detail || `Falha HTTP ${response.status}`));
             }
 
+            asiConversationState = {
+                ...asiConversationState,
+                lastF110ProposalPayload: payload,
+                lastF110ProposalResult: data,
+                lastFiDocumentNumber: normalizedDocumentNumber,
+                lastFiDocumentEnvironment: environment,
+                lastFiDocumentBranch: branch,
+                lastFiDocumentWorkflow: 'f110_default_document',
+            };
             asiUpdateMessage(processingMessage.id, {
                 text: `Proposta F110 executada para ${normalizedDocumentNumber}.`,
                 html: asiBuildF110ProposalCompactHtml(data, normalizedDocumentNumber),
@@ -9437,6 +9456,117 @@
             asiConversationState = { ...asiConversationState, isBusy: false };
             asiUpdateComposerState();
             asiReturnToQuickActionMenu(returnActionId);
+        }
+    }
+
+    async function asiStartF110PaymentWorkflowFromLastProposal(returnActionId = 'testes-unitarios') {
+        const proposalPayload = asiConversationState.lastF110ProposalPayload || null;
+        const proposalResult = asiConversationState.lastF110ProposalResult || null;
+        const documentNumber = String(
+            asiConversationState.lastFiDocumentNumber
+            || proposalResult?.document_number
+            || proposalPayload?.document_number
+            || ''
+        ).trim();
+        const environment = String(
+            asiConversationState.lastFiDocumentEnvironment
+            || proposalPayload?.environment
+            || 'QAD'
+        ).trim().toUpperCase();
+        const branch = String(asiConversationState.lastFiDocumentBranch || 'fornecedor').trim().toLowerCase();
+
+        if (!proposalPayload || !documentNumber) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                `N�o foi poss�vel iniciar o pagamento F110 em ${environment}.`,
+                {
+                    html: `
+                        <div style="font-weight:700;color:var(--danger);">N�o foi poss�vel iniciar o pagamento F110 em ${environment}.</div>
+                        <div style="margin-top:6px;color:var(--text-secondary);">É necess�rio executar primeiro a proposta e manter o mesmo contexto.</div>
+                    `
+                }
+            ));
+            return;
+        }
+
+        const paymentPayload = {
+            environment,
+            operation_type: 'pagamento',
+            company_code: String(proposalPayload.company_code || '').trim().toUpperCase(),
+            payment_method: String(proposalPayload.payment_method || '').trim().toUpperCase(),
+            account_number: String(proposalPayload.account_number || '').trim().toUpperCase(),
+            posting_date: String(proposalPayload.posting_date || '').trim(),
+            next_due_date: String(proposalPayload.next_due_date || '').trim(),
+            document_number: documentNumber,
+            source_payload: proposalPayload,
+        };
+
+        if (!paymentPayload.company_code || !paymentPayload.payment_method || !paymentPayload.account_number || !paymentPayload.posting_date) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                `N�o foi poss�vel iniciar o pagamento F110 em ${environment}.`,
+                {
+                    html: `
+                        <div style="font-weight:700;color:var(--danger);">N�o foi poss�vel iniciar o pagamento F110 em ${environment}.</div>
+                        <div style="margin-top:6px;color:var(--text-secondary);">O contexto da proposta n�o contém empresa, conta, forma de pagamento ou data de lan�amento.</div>
+                    `
+                }
+            ));
+            return;
+        }
+
+        const processingMessage = asiCreateMessage('assistant', `A executar o ciclo F110 em ${environment} com os dados da proposta ${documentNumber}...`, {
+            belowBubbleHtml: asiBuildThinkingIndicatorHtml(),
+            isProcessing: true,
+        });
+        asiAppendMessage(processingMessage);
+
+        try {
+            const response = await fetch('/api/f110/payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(paymentPayload),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false || data.status === 'ERRO') {
+                throw new Error(asiNormalizeErrorText(data.message || data.detail || `Falha HTTP ${response.status}`));
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                lastF110ProposalResult: data,
+                lastFiDocumentNumber: documentNumber,
+                lastFiDocumentEnvironment: environment,
+                lastFiDocumentBranch: branch,
+                lastFiDocumentWorkflow: 'f110_default_document',
+            };
+            asiUpdateMessage(processingMessage.id, {
+                text: `Ciclo F110 executado para ${documentNumber}.`,
+                html: asiBuildF110ProposalCompactHtml(data, documentNumber),
+                belowBubbleHtml: '',
+                isProcessing: false,
+                wide: true,
+                bubbleClassName: 'asi-f110-proposal-bubble',
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            asiReturnToQuickActionMenu(returnActionId);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Erro ao executar o ciclo F110 para ${documentNumber}.`,
+                html: `
+                    <div class="asi-f110-proposal-summary">
+                        <div class="asi-f110-proposal-title" style="color:var(--danger);">Erro ao executar o ciclo F110</div>
+                        <div class="asi-f110-proposal-message">${escapeHtml(asiNormalizeErrorText(error, 'Falha desconhecida.')).replace(/\n/g, '<br>')}</div>
+                    </div>
+                `,
+                belowBubbleHtml: '',
+                isProcessing: false,
+                wide: true,
+                bubbleClassName: 'asi-f110-proposal-bubble',
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
         }
     }
 

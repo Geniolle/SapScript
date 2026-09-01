@@ -30,8 +30,8 @@ from sap_rfc._rfc_common import (
 
 logger = logging.getLogger(__name__)
 
-# Este serviço só vai até a PROPOSTA do F110 (equivalente a "Vorlauf"/PAR_XVL='X').
-# Nunca chama JOB_SUBMIT com PAR_XVL vazio (isso seria o pagamento/cobrança real).
+# Este serviço cobre a proposta e o ciclo de pagamento do F110.
+# O mesmo programa RFF110S é usado nos dois passos; a diferença é o flag de proposta.
 OPERATION_PAGAMENTO = "pagamento"
 OPERATION_COBRANCA = "cobranca"
 
@@ -86,6 +86,8 @@ def _run_f110_proposal_via_bridge(
     next_due_date: str,
     document_number: str = "",
     run_date: str = "",
+    proposal_run: bool = True,
+    run_id: str = "",
 ) -> F110ProposalResult:
     python_exe = _bridge_python_executable()
     runtime = "Windows" if _is_windows_runtime() else "WSL/Linux"
@@ -105,6 +107,8 @@ def _run_f110_proposal_via_bridge(
         "next_due_date": next_due_date,
         "document_number": document_number,
         "run_date": run_date,
+        "proposal_run": proposal_run,
+        "run_id": run_id,
     }
     bridge_code = (
         "import json, sys\n"
@@ -122,6 +126,8 @@ def _run_f110_proposal_via_bridge(
         "    next_due_date=payload['next_due_date'],\n"
         "    document_number=payload.get('document_number', ''),\n"
         "    run_date=payload.get('run_date', ''),\n"
+        "    proposal_run=payload.get('proposal_run', True),\n"
+        "    run_id=payload.get('run_id', ''),\n"
         ")\n"
         "print(json.dumps(result.__dict__, ensure_ascii=False))\n"
     )
@@ -169,6 +175,7 @@ class F110ProposalResult:
     document_included_in_proposal: bool | None = None
     proposal_items: list[dict[str, Any]] = field(default_factory=list)
     payload: dict[str, Any] = field(default_factory=dict)
+    run_step: str = "proposal"
 
 
 def _require_pyrfc() -> None:
@@ -301,6 +308,77 @@ def _read_existing_laufi_values(connection: Any, guard: Any, *, run_date: str) -
     return values
 
 
+def _find_existing_f110_laufi_for_document(
+    connection: Any,
+    guard: Any,
+    *,
+    operation_type: str,
+    run_date: str,
+    company_code: str,
+    account_number: str,
+    document_number: str,
+) -> str:
+    document_number_sap = str(document_number or "").strip().upper()[:10]
+    if not document_number_sap:
+        return ""
+
+    table_name = "REGUP"
+    account_field = "LIFNR" if operation_type == OPERATION_PAGAMENTO else "KUNNR"
+    options = (
+        make_option_eq("LAUFD", run_date)
+        + make_option_eq("BUKRS", company_code)
+        + [{"TEXT": f"AND {account_field} = '{str(account_number or '').strip().upper()}'"}]
+        + [{"TEXT": f"AND BELNR = '{document_number_sap}'"}]
+    )
+    try:
+        rows = read_table(
+            connection,
+            guard,
+            table_name=table_name,
+            fields=["LAUFD", "LAUFI", "BUKRS", account_field, "BELNR"],
+            options=options,
+            rowcount=1,
+        )
+    except Exception:
+        return ""
+
+    if not rows:
+        return ""
+    return str(rows[0][1] if len(rows[0]) > 1 else "").strip().upper()
+
+
+def _resolve_f110_run_id(
+    connection: Any,
+    guard: Any,
+    *,
+    proposal_run: bool,
+    operation_type: str,
+    run_date: str,
+    company_code: str,
+    account_number: str,
+    document_number: str,
+) -> str:
+    if not proposal_run and document_number:
+        existing_run_id = _find_existing_f110_laufi_for_document(
+            connection,
+            guard,
+            operation_type=operation_type,
+            run_date=run_date,
+            company_code=company_code,
+            account_number=account_number,
+            document_number=document_number,
+        )
+        if existing_run_id:
+            return existing_run_id
+
+    return _resolve_f110_laufi(
+        connection,
+        guard,
+        operation_type=operation_type,
+        run_date=run_date,
+    )
+
+
 def _resolve_f110_laufi(
     connection: Any,
     guard: Any,
@@ -340,11 +418,12 @@ def _build_f110_selection_params(
     company_code: str,
     account_number: str,
     document_number: str,
+    proposal_run: bool = True,
 ) -> list[dict[str, str]]:
     document_number_sap = str(document_number or "").strip().upper()[:10]
     params = [
         _rsparam("PAR_LFID", "P", run_id),
-        _rsparam("PAR_XVL", "P", "X"),
+        _rsparam("PAR_XVL", "P", "X" if proposal_run else ""),
         _rsparam("PAR_BUDA", "P", posting_date_sap),
         _rsparam("PAR_GRDA", "P", posting_date_sap),
         _rsparam("PAR_NEDA", "P", next_due_date_sap),
@@ -480,17 +559,16 @@ def _run_f110_proposal_core(
     next_due_date: str,
     document_number: str = "",
     run_date: str = "",
+    proposal_run: bool = True,
+    run_id: str = "",
 ) -> F110ProposalResult:
-    """Executa só a etapa de PROPOSTA do F110 (PAR_XVL='X'), via JOB_SUBMIT do RFF110S.
-
-    Nunca executa o pagamento/cobrança real. `document_number`, quando informado, é
-    apenas validado antes (existe para a conta/empresa?) e conferido depois na
-    proposta gerada — a seleção real de itens em aberto continua sendo feita pelo
-    próprio F110 conforme a janela de datas informada.
-    """
+    """Executa a proposta ou o pagamento do F110 via JOB_SUBMIT do RFF110S."""
     _require_pyrfc()
 
     op_type = _normalize_operation_type(operation_type)
+    proposal_run = bool(proposal_run)
+    run_step = "proposal" if proposal_run else "payment"
+    run_label = "proposta" if proposal_run else "pagamento"
     company_code = str(company_code or "").strip().upper()
     payment_method = str(payment_method or "").strip().upper()
     account_number = str(account_number or "").strip().upper()
@@ -505,7 +583,8 @@ def _run_f110_proposal_core(
         raise ValueError("account_number (fornecedor/cliente) é obrigatório.")
 
     posting_date_sap, next_due_date_sap, run_date_sap = _resolve_f110_dates(next_due_date)
-    run_id = _default_f110_laufi_seed(op_type)
+    requested_run_id = str(run_id or "").strip().upper()
+    run_id = requested_run_id or _default_f110_laufi_seed(op_type)
 
     connection_params = build_connection_params_for_env(environment)
     guard = make_write_guard(WRITE_ALLOWED_FUNCTIONS, WRITE_ALLOWED_TABLES)
@@ -520,14 +599,17 @@ def _run_f110_proposal_core(
         "next_due_date": next_due_date_sap,
         "run_date": run_date_sap,
         "run_id": run_id,
+        "requested_run_id": requested_run_id,
         "document_number": document_number,
         "document_number_sap": document_number_sap,
+        "proposal_run": proposal_run,
     }
 
     logger.info(
-        "F110 request prepared: env=%s op=%s company_code=%s account_number=%s payment_method=%s posting_date=%s next_due_date=%s run_date=%s run_id=%s document_number=%s selection_fields=%s",
+        "F110 request prepared: env=%s op=%s mode=%s company_code=%s account_number=%s payment_method=%s posting_date=%s next_due_date=%s run_date=%s run_id=%s document_number=%s selection_fields=%s",
         payload["environment"],
         op_type,
+        run_label,
         company_code,
         account_number,
         payment_method,
@@ -539,7 +621,7 @@ def _run_f110_proposal_core(
         document_number_sap,
         {
             "PAR_LFID": run_id,
-            "PAR_XVL": "X",
+            "PAR_XVL": "X" if proposal_run else "",
             "PAR_BUDA": posting_date_sap,
             "PAR_GRDA": posting_date_sap,
             "PAR_NEDA": next_due_date_sap,
@@ -582,12 +664,19 @@ def _run_f110_proposal_core(
         )
     xmi_logged_on = True
     try:
-        run_id = _resolve_f110_laufi(
-            connection,
-            guard,
-            operation_type=op_type,
-            run_date=run_date_sap,
-        )
+        if requested_run_id:
+            run_id = requested_run_id
+        else:
+            run_id = _resolve_f110_run_id(
+                connection,
+                guard,
+                proposal_run=proposal_run,
+                operation_type=op_type,
+                run_date=run_date_sap,
+                company_code=company_code,
+                account_number=account_number,
+                document_number=document_number,
+            )
         payload["run_id"] = run_id
 
         document_found: bool | None = None
@@ -628,6 +717,7 @@ def _run_f110_proposal_core(
             company_code=company_code,
             account_number=account_number,
             document_number=document_number,
+            proposal_run=proposal_run,
         )
 
         job_name = f"COCKPIT_F110_{run_id}"
@@ -659,10 +749,11 @@ def _run_f110_proposal_core(
 
         guard.assert_function_allowed("BAPI_XBP_JOB_ADD_ABAP_STEP")
         logger.info(
-            "F110 add step debug: job_name=%s job_count=%s program=%s selinfo_count=%s selinfo=%s",
+            "F110 add step debug: job_name=%s job_count=%s program=%s mode=%s selinfo_count=%s selinfo=%s",
             job_name,
             job_count,
             "RFF110S",
+            run_label,
             len(params),
             params,
         )
@@ -704,7 +795,8 @@ def _run_f110_proposal_core(
             document_included = any(item["document_number"] == document_number.strip()[:10] for item in proposal_items)
 
         logger.info(
-            "F110 proposal result: env=%s op=%s company_code=%s account_number=%s payment_method=%s run_date=%s run_id=%s items=%s document_number=%s document_included=%s",
+            "F110 %s result: env=%s op=%s company_code=%s account_number=%s payment_method=%s run_date=%s run_id=%s items=%s document_number=%s document_included=%s",
+            run_label,
             payload["environment"],
             op_type,
             company_code,
@@ -719,14 +811,19 @@ def _run_f110_proposal_core(
 
 
         ok = job_status == "F"
+        item_scope = "na proposta" if proposal_run else "no ciclo"
         message = (
-            f"Proposta F110 {run_date_sap}/{run_id} — job {job_name} ({job_count}): {job_status_label}. "
-            f"{len(proposal_items)} item(ns) na proposta."
+            f"{run_label.capitalize()} F110 {run_date_sap}/{run_id} — job {job_name} ({job_count}): {job_status_label}. "
+            f"{len(proposal_items)} item(ns) {item_scope}."
         )
         if document_number:
             message += (
                 f" Documento {document_number}: "
-                + ("incluído na proposta." if document_included else "NÃO apareceu na proposta — confira o F110.")
+                + (
+                    "incluído na proposta."
+                    if document_included
+                    else f"NÃO apareceu na {run_label} — confira o F110."
+                )
             )
 
         return F110ProposalResult(
@@ -747,6 +844,7 @@ def _run_f110_proposal_core(
             document_included_in_proposal=document_included,
             proposal_items=proposal_items,
             payload=payload,
+            run_step=run_step,
         )
     finally:
         if xmi_logged_on:
@@ -769,6 +867,7 @@ def run_f110_proposal(
     next_due_date: str,
     document_number: str = "",
     run_date: str = "",
+    run_id: str = "",
 ) -> F110ProposalResult:
     if Connection is None:
         return _run_f110_proposal_via_bridge(
@@ -781,6 +880,8 @@ def run_f110_proposal(
             next_due_date=next_due_date,
             document_number=document_number,
             run_date=run_date,
+            proposal_run=True,
+            run_id=run_id,
         )
     return _run_f110_proposal_core(
         environment,
@@ -792,4 +893,48 @@ def run_f110_proposal(
         next_due_date=next_due_date,
         document_number=document_number,
         run_date=run_date,
+        proposal_run=True,
+        run_id=run_id,
+    )
+
+
+def run_f110_payment(
+    environment: str,
+    operation_type: str,
+    *,
+    company_code: str,
+    payment_method: str,
+    account_number: str,
+    posting_date: str,
+    next_due_date: str,
+    document_number: str = "",
+    run_date: str = "",
+    run_id: str = "",
+) -> F110ProposalResult:
+    if Connection is None:
+        return _run_f110_proposal_via_bridge(
+            environment,
+            operation_type,
+            company_code=company_code,
+            payment_method=payment_method,
+            account_number=account_number,
+            posting_date=posting_date,
+            next_due_date=next_due_date,
+            document_number=document_number,
+            run_date=run_date,
+            proposal_run=False,
+            run_id=run_id,
+        )
+    return _run_f110_proposal_core(
+        environment,
+        operation_type,
+        company_code=company_code,
+        payment_method=payment_method,
+        account_number=account_number,
+        posting_date=posting_date,
+        next_due_date=next_due_date,
+        document_number=document_number,
+        run_date=run_date,
+        proposal_run=False,
+        run_id=run_id,
     )

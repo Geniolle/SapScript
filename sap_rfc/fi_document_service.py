@@ -76,7 +76,7 @@ def _run_post_fi_document_via_bridge(environment: str, branch: str, payload: dic
         "branch = json.loads(sys.stdin.readline())\n"
         "payload = json.loads(sys.stdin.read() or '{}')\n"
         "result = _post(environment, branch, payload)\n"
-        "print(json.dumps(dataclasses.asdict(result), ensure_ascii=False))\n"
+        "print(json.dumps(dataclasses.asdict(result), ensure_ascii=False, default=str))\n"
     )
 
     env = os.environ.copy()
@@ -86,9 +86,9 @@ def _run_post_fi_document_via_bridge(environment: str, branch: str, payload: dic
         [str(python_exe), "-c", bridge_script],
         input="\n".join(
             [
-                json.dumps(environment, ensure_ascii=False),
-                json.dumps(branch, ensure_ascii=False),
-                json.dumps(payload, ensure_ascii=False),
+                json.dumps(environment, ensure_ascii=False, default=str),
+                json.dumps(branch, ensure_ascii=False, default=str),
+                json.dumps(payload, ensure_ascii=False, default=str),
             ]
         ),
         capture_output=True,

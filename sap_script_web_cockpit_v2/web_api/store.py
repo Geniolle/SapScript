@@ -18,6 +18,7 @@ INTERNAL_TASKS = {
     "pfcg_role_analysis",
     "fi_default_document",
     "f110_proposal",
+    "f110_payment",
 }
 
 

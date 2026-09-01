@@ -2326,6 +2326,59 @@ class F110ProposalRequest(BaseModel):
     posting_date: str
     next_due_date: str = ""
     document_number: str = ""
+    source_payload: dict[str, Any] | None = None
+
+
+@app.post("/api/f110/payment")
+async def api_run_f110_payment(payload: F110ProposalRequest) -> JSONResponse:
+    """Executa o ciclo de pagamento do F110 via RFF110S."""
+    try:
+        _prepare_project_imports()
+
+        job = create_job(
+            task="f110_payment",
+            params={
+                "environment": payload.environment,
+                "operation_type": payload.operation_type,
+                "company_code": payload.company_code,
+                "payment_method": payload.payment_method,
+                "account_number": payload.account_number,
+                "posting_date": payload.posting_date,
+                "next_due_date": payload.next_due_date,
+                "document_number": payload.document_number,
+                "source_payload": payload.source_payload or {},
+            },
+        )
+
+        timeout_seconds = int(os.getenv("FI_PAYMENT_RUN_TIMEOUT_SECONDS", "900"))
+        finished_job = await _wait_for_job_terminal_state(job["id"], timeout_seconds)
+        if str(finished_job.get("state") or "").strip() != "succeeded":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    str(finished_job.get("status") or "Falha ao executar o pagamento F110.")
+                    + (
+                        f"\n{finished_job.get('log')}"
+                        if str(finished_job.get("log") or "").strip()
+                        else ""
+                    )
+                ),
+            )
+
+        result = (finished_job.get("params") or {}).get("f110_payment_result")
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=500,
+                detail="Worker Windows concluiu o job, mas não devolveu o resultado do pagamento F110.",
+            )
+
+        return _json_no_store(result)
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/f110/proposal")
@@ -2347,6 +2400,7 @@ async def api_run_f110_proposal(payload: F110ProposalRequest) -> JSONResponse:
                 "posting_date": payload.posting_date,
                 "next_due_date": next_due_date,
                 "document_number": payload.document_number,
+                "source_payload": payload.source_payload or {},
             },
         )
 

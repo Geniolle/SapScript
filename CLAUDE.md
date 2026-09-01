@@ -1,5 +1,10 @@
 # Regras críticas deste projeto
 
+## Acesso SAP via RFC
+Assumir que as credenciais RFC SAP estao disponiveis no `.env` deste repositorio e tentar a leitura via RFC primeiro.
+Se a ligacao falhar, reportar o erro tecnico concreto em vez de pedir novamente "ligacao" ou "credenciais".
+Nao expor valores sensiveis do `.env` nas respostas.
+
 ## Nunca eliminar sem pedido explícito
 Nunca executar operações destrutivas em SAP (ex.: `PRGN_ACTIVITY_GROUP_DELETE`, apagar
 funções/roles, apagar registos, remover transportes) por iniciativa própria — mesmo que

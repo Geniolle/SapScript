@@ -19,6 +19,11 @@ def default_next_due_date() -> str:
 
 def build_f110_proposal_payload(params: dict[str, Any]) -> dict[str, Any]:
     payload = dict(params or {})
+    source_payload = payload.get("source_payload")
+    if isinstance(source_payload, dict):
+        merged_payload = dict(source_payload)
+        merged_payload.update(payload)
+        payload = merged_payload
     payload["environment"] = str(payload.get("environment") or "QAD").strip().upper()
     payload["operation_type"] = str(payload.get("operation_type") or "cobranca").strip().lower()
     payload["company_code"] = str(payload.get("company_code") or "").strip().upper()

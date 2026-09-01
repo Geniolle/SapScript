@@ -137,12 +137,15 @@ def get_fi_default_context() -> dict[str, Any]:
     def env(name: str, default: str = "") -> str:
         return str(os.getenv(name, default) or default).strip()
 
+    default_user = env("SAP_FI_USERNAME", env_user(normalize_environment(), ""))
+
     return {
         "common": {
             "company_code": env("SAP_FI_COMPANY_CODE", "2010"),
             "posting_date": env("SAP_FI_POSTING_DATE"),
             "document_date": env("SAP_FI_DOCUMENT_DATE"),
             "currency": env("SAP_FI_CURRENCY", "EUR"),
+            "username": default_user,
             "payment_method": env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD")),
             "amount": env("SAP_FI_AMOUNT", "1.00"),
             "header_text": env("SAP_FI_HEADER_TEXT", "RFC-TEST"),
@@ -159,6 +162,7 @@ def get_fi_default_context() -> dict[str, Any]:
                 "doc_type": env("SAP_FI_DOC_TYPE_CLIENTE", "DR"),
                 "account": env("SAP_FI_CUSTOMER_ACCOUNT", "0010002949"),
                 "counterparty": env("SAP_FI_REVENUE_GL_ACCOUNT", "0012990100"),
+                "username": default_user,
                 "payment_method": env(
                     "SAP_FI_FORM_PAGTO_CLIENTE",
                     env("SAP_F110_PAYMENT_METHOD_CLIENTE", env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD", "Q"))),
@@ -168,6 +172,7 @@ def get_fi_default_context() -> dict[str, Any]:
                 "doc_type": env("SAP_FI_DOC_TYPE_FORNECEDOR", "KR"),
                 "account": env("SAP_FI_VENDOR_ACCOUNT", "0010000040"),
                 "counterparty": env("SAP_FI_EXPENSE_GL_ACCOUNT", "0012010731"),
+                "username": default_user,
                 "payment_method": env(
                     "SAP_FI_FORM_PAGTO_FORNECEDOR",
                     env("SAP_F110_PAYMENT_METHOD_FORNECEDOR", env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD", "S"))),
@@ -177,6 +182,7 @@ def get_fi_default_context() -> dict[str, Any]:
                 "doc_type": env("SAP_FI_DOC_TYPE_RAZAO", "SA"),
                 "debit_gl_account": env("SAP_FI_DEBIT_GL_ACCOUNT", "0012010741"),
                 "credit_gl_account": env("SAP_FI_CREDIT_GL_ACCOUNT", "0012010741"),
+                "username": default_user,
                 "payment_method": env(
                     "SAP_FI_FORM_PAGTO_RAZAO",
                     env("SAP_F110_PAYMENT_METHOD_RAZAO", env("SAP_FI_FORM_PAGTO", env("SAP_F110_PAYMENT_METHOD", ""))),
