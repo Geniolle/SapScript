@@ -341,15 +341,16 @@ def _build_f110_selection_params(
     account_number: str,
     document_number: str,
 ) -> list[dict[str, str]]:
+    document_number_sap = str(document_number or "").strip().upper()[:10]
     params = [
-        _rsparam("PAR_LFI", "P", run_id),
+        _rsparam("PAR_LFID", "P", run_id),
         _rsparam("PAR_XVL", "P", "X"),
         _rsparam("PAR_BUDA", "P", posting_date_sap),
         _rsparam("PAR_GRDA", "P", posting_date_sap),
         _rsparam("PAR_NEDA", "P", next_due_date_sap),
         _rsparam("PAR_ZWE", "P", payment_method),
         _rsparam("PAR_TEX1", "P", "BKPF-BELNR"),
-        _rsparam("PAR_LIS1", "P", document_number),
+        _rsparam("PAR_LIS1", "P", document_number_sap),
         _rsparam("PAR_XFA", "P", "X"),
         _rsparam("PAR_XZW", "P", "X"),
         _rsparam("PAR_XBL", "P", "X"),
@@ -363,7 +364,7 @@ def _build_f110_selection_params(
     logger.info(
         "F110 selection params built: run_id=%s document_number=%s company_code=%s payment_method=%s account_number=%s fields=%s",
         run_id,
-        document_number,
+        document_number_sap,
         company_code,
         payment_method,
         account_number,
@@ -494,6 +495,7 @@ def _run_f110_proposal_core(
     payment_method = str(payment_method or "").strip().upper()
     account_number = str(account_number or "").strip().upper()
     document_number = str(document_number or "").strip().upper()
+    document_number_sap = document_number[:10]
 
     if not company_code:
         raise ValueError("company_code é obrigatório.")
@@ -519,6 +521,7 @@ def _run_f110_proposal_core(
         "run_date": run_date_sap,
         "run_id": run_id,
         "document_number": document_number,
+        "document_number_sap": document_number_sap,
     }
 
     logger.info(
@@ -533,15 +536,16 @@ def _run_f110_proposal_core(
         run_date_sap,
         run_id,
         document_number,
+        document_number_sap,
         {
-            "PAR_LFI": run_id,
+            "PAR_LFID": run_id,
             "PAR_XVL": "X",
             "PAR_BUDA": posting_date_sap,
             "PAR_GRDA": posting_date_sap,
             "PAR_NEDA": next_due_date_sap,
             "PAR_ZWE": payment_method,
             "PAR_TEX1": "BKPF-BELNR",
-            "PAR_LIS1": document_number,
+            "PAR_LIS1": document_number_sap,
             "PAR_XFA": "X",
             "PAR_XZW": "X",
             "PAR_XBL": "X",

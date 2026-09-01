@@ -101,7 +101,7 @@ class F110ServiceTests(TestCase):
         self.assertIn("SEL_DEBI", by_name)
         self.assertNotIn("SEL_KRED", by_name)
         self.assertEqual(by_name["PAR_TEX1"]["LOW"], "BKPF-BELNR")
-        self.assertEqual(by_name["PAR_LIS1"]["LOW"], "720000015620102026")
+        self.assertEqual(by_name["PAR_LIS1"]["LOW"], "7200000156")
 
     @mock.patch("sap_rfc.f110_service.read_table")
     def test_resolve_f110_laufi_advances_when_local_store_has_previous_value(self, read_table_mock: mock.Mock) -> None:

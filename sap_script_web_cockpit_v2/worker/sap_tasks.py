@@ -24,6 +24,8 @@ import queue
 import threading
 import requests
 import ctypes
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class SapExecutionError(Exception):
@@ -39,6 +41,20 @@ WORKER_STATE_PATH = os.path.join(WORKER_DIR, ".sap_script_web_worker_state.json"
 RFC_VENV_RELATIVE_PYTHON = Path(".venv-rfc") / "Scripts" / "python.exe"
 RFC_SDK_HOME = r"C:\nwrfcsdk"
 RFC_ALLOWED_EXIT_CODES = {0, 1}
+API_CONNECT_TIMEOUT = float(os.getenv("WORKER_API_CONNECT_TIMEOUT", "3"))
+API_READ_TIMEOUT = float(os.getenv("WORKER_API_READ_TIMEOUT", "15"))
+API_RETRY_SESSION = requests.Session()
+API_RETRY_SESSION.headers.update({"Connection": "keep-alive"})
+_API_RETRY = Retry(
+    total=2,
+    connect=2,
+    read=2,
+    status=2,
+    backoff_factor=0.25,
+    allowed_methods=frozenset({"GET", "POST"}),
+)
+API_RETRY_SESSION.mount("http://", HTTPAdapter(max_retries=_API_RETRY))
+API_RETRY_SESSION.mount("https://", HTTPAdapter(max_retries=_API_RETRY))
 
 
 def _prepare_project_imports() -> None:
@@ -101,25 +117,9 @@ def _load_worker_state() -> dict[str, Any]:
 
 def _resolve_api_base_url() -> str:
     configured = os.getenv("API_BASE_URL", "").strip().rstrip("/")
-    candidates = [
-        configured,
-        "http://localhost:8010",
-        "http://localhost:8000",
-    ]
-    checked: set[str] = set()
-
-    for candidate in candidates:
-        if not candidate or candidate in checked:
-            continue
-        checked.add(candidate)
-        try:
-            response = requests.get(f"{candidate}/api/worker/status", timeout=2)
-            if response.ok:
-                return candidate
-        except Exception:
-            continue
-
-    return configured or "http://localhost:8010"
+    if configured:
+        return configured
+    return "http://localhost:8010"
 
 
 def _save_worker_state(state: dict[str, Any]) -> None:
@@ -1270,11 +1270,11 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
 
                         batch_data = "\n".join(lines)
                         try:
-                            r = requests.post(
+                            r = API_RETRY_SESSION.post(
                                 f"{self.api_url}/api/jobs/{self.job_id}/log",
                                 headers={"X-Worker-Token": self.token},
                                 json={"log_line": batch_data},
-                                timeout=5
+                                timeout=(API_CONNECT_TIMEOUT, API_READ_TIMEOUT)
                             )
                             if r.status_code == 409:
                                 ctypes.pythonapi.PyThreadState_SetAsyncExc(
@@ -1309,10 +1309,10 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                 token = os.environ["SAP_WORKER_TOKEN"]
                 while not cancel_event.is_set():
                     try:
-                        r = requests.get(
+                        r = API_RETRY_SESSION.get(
                             f"{api_url}/api/jobs/{job['id']}",
                             headers={"X-Worker-Token": token},
-                            timeout=5
+                            timeout=(API_CONNECT_TIMEOUT, API_READ_TIMEOUT),
                         )
                         if r.status_code == 200:
                             job_data = r.json()
@@ -1340,7 +1340,7 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
                     except Exception as pe:
                         print(f"\n[DEBUG POLLER] Erro ao consultar estado do job: {pe}")
                         sys.stdout.flush()
-                    cancel_event.wait(2.0)
+                    cancel_event.wait(float(os.getenv("WORKER_POLL_INTERVAL_SECONDS", "3")))
 
             poller_thread = threading.Thread(target=poll_status, daemon=True)
             poller_thread.start()
