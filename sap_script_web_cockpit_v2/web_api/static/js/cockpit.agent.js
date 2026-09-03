@@ -263,17 +263,6 @@
                             followupActionsSource: 'children',
                             children: [
                                 {
-                                    id: 'pfcg-create-analyze',
-                                    label: 'Analisar',
-                                    icon: 'analysis',
-                                    mode: 'analyze',
-                                    processo: 'Funções PFCG',
-                                    subprocesso: 'A. PFCG_CREATE.py',
-                                    prompt: 'Quero analisar a criação do Perfil de Autorização.',
-                                    followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
-                                    children: []
-                                },
-                                {
                                     id: 'pfcg-create-execute',
                                     label: 'Preparar criação',
                                     icon: 'shield-plus',
@@ -5223,7 +5212,7 @@
             return;
         }
 
-        if (action.id === 'pfcg-create-analyze' || action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze') {
+        if (action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
