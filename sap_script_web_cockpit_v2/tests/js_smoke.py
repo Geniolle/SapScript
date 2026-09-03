@@ -145,37 +145,66 @@ def find_constant_conditions(js: str) -> list[int]:
     return hits
 
 
-def run_node(js: str) -> subprocess.CompletedProcess[str]:
+def _hoist_top_level_lexicals(js: str) -> str:
+    """
+    So para o teste: converte `const`/`let` de nivel de topo (indentacao de 4
+    espacos) em `var`. Assim, ao avaliar cada ficheiro como um `<script>`
+    separado (vm.runInThisContext), as declaracoes ficam visiveis aos ficheiros
+    SEGUINTES (como no browser) mas nao aos ANTERIORES - o que deixa o teste
+    apanhar quebras de ordem de carregamento entre modulos.
+    """
+    return re.sub(r"^( {4})(?:const|let)(\s)", r"\1var\2", js, flags=re.M)
+
+
+def run_node(parts: list[tuple[str, str]]) -> subprocess.CompletedProcess[str]:
+    """`parts` = [(label, source), ...] avaliados em sequencia, cada um como um
+    <script> independente no mesmo contexto global (fiel ao browser)."""
+    import json as _json
+
     checks = "\n".join(
-        f"results.{g} = (typeof {g} === 'function');" for g in REQUIRED_GLOBALS
+        f"results.{g} = (typeof globalThis.{g} === 'function');" for g in REQUIRED_GLOBALS
     )
-    epilogue = textwrap.dedent(
+    files_json = _json.dumps(
+        [{"label": label, "src": _hoist_top_level_lexicals(src)} for label, src in parts]
+    )
+    driver = textwrap.dedent(
         f"""
+        const vm = require('vm');
+        const FILES = {files_json};
+        let failure = null;
+        for (const f of FILES) {{
+            try {{
+                vm.runInThisContext(f.src, {{ filename: f.label }});
+            }} catch (e) {{
+                failure = {{ label: f.label, name: e && e.constructor && e.constructor.name, message: e && e.message }};
+                break;
+            }}
+        }}
         const results = {{}};
         try {{ {checks} }} catch (e) {{ results.__checkError = e && e.message; }}
-        if (__uncaught) {{
-            console.log('UNCAUGHT:', __uncaught.constructor.name, '-', __uncaught.message);
-        }}
+        if (failure) console.log('LOADFAIL:' + JSON.stringify(failure));
+        if (__uncaught) console.log('UNCAUGHT:', __uncaught.constructor.name, '-', __uncaught.message);
         console.log('RESULTS:' + JSON.stringify(results));
         """
     ).strip()
 
-    payload = f"{_NODE_PRELUDE}\n\n{js}\n\n{epilogue}\n"
+    payload = f"{_NODE_PRELUDE}\n\n{driver}\n"
     with tempfile.NamedTemporaryFile("w", suffix="_js_smoke.js", delete=False, encoding="utf-8") as fh:
         fh.write(payload)
         tmp = fh.name
     try:
-        return subprocess.run(
-            ["node", tmp], capture_output=True, text=True, timeout=60
-        )
+        return subprocess.run(["node", tmp], capture_output=True, text=True, timeout=60)
     finally:
         Path(tmp).unlink(missing_ok=True)
 
 
-def collect_js() -> str:
-    """Junta o(s) <script> inline do template + os ficheiros /static/js na ordem real."""
+def collect_parts() -> list[tuple[str, str]]:
+    """(label, source) do(s) <script> inline do template + ficheiros /static/js, na ordem real."""
     html = TEMPLATE.read_text(encoding="utf-8", errors="replace")
-    parts = [neutralize_jinja(b) for b in extract_inline_scripts(html)]
+    parts: list[tuple[str, str]] = [
+        (f"index.html#inline[{i}]", neutralize_jinja(b))
+        for i, b in enumerate(extract_inline_scripts(html))
+    ]
 
     ordered = list(STATIC_JS_ORDER)
     if STATIC_JS_DIR.is_dir():
@@ -185,41 +214,42 @@ def collect_js() -> str:
     for name in ordered:
         fpath = STATIC_JS_DIR / name
         if fpath.is_file():
-            parts.append(fpath.read_text(encoding="utf-8", errors="replace"))
-
-    return "\n;\n".join(parts)
+            parts.append((f"static/js/{name}", fpath.read_text(encoding="utf-8", errors="replace")))
+    return parts
 
 
 def check() -> list[str]:
     """Devolve lista de erros. Vazia = OK."""
+    import json
+
     errors: list[str] = []
-    js = collect_js()
-    if not js.strip():
+    parts = collect_parts()
+    if not any(src.strip() for _, src in parts):
         return ["Nao foi encontrado JavaScript (nem inline em index.html nem em static/js)."]
 
-    dups = find_duplicate_top_level_functions(js)
-    for name, lines in sorted(dups.items()):
+    joined = "\n;\n".join(src for _, src in parts)
+    for name, lines in sorted(find_duplicate_top_level_functions(joined).items()):
         errors.append(f"Funcao de topo duplicada: {name} (linhas {lines}) - a 2a sombreia a 1a.")
+    for ln in find_constant_conditions(joined):
+        errors.append(f"Condicao constante (codigo morto) na linha {ln} (concatenacao).")
 
-    for ln in find_constant_conditions(js):
-        errors.append(f"Condicao constante (codigo morto) na linha {ln} do <script>.")
-
-    proc = run_node(js)
+    proc = run_node(parts)
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
 
     for line in out.splitlines():
+        if line.startswith("LOADFAIL:"):
+            f = json.loads(line[len("LOADFAIL:") :])
+            errors.append(
+                f"Erro a avaliar '{f['label']}' (ordem de carregamento?): "
+                f"{f.get('name')} - {f.get('message')}"
+            )
         if line.startswith("UNCAUGHT:"):
-            errors.append(f"Excecao nao apanhada ao avaliar o <script>: {line[9:].strip()}")
+            errors.append(f"Excecao nao apanhada: {line[9:].strip()}")
 
     m = re.search(r"RESULTS:(\{.*\})", out)
     if not m:
-        errors.append(
-            "O script nao chegou ao fim da avaliacao (sem linha RESULTS). "
-            f"Saida do node:\n{out.strip()[:1500]}"
-        )
+        errors.append("Avaliacao nao terminou (sem RESULTS). Node:\n" + out.strip()[:1500])
     else:
-        import json
-
         results = json.loads(m.group(1))
         for g in REQUIRED_GLOBALS:
             if not results.get(g):
