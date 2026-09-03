@@ -1161,13 +1161,13 @@
             return ASI_PFCG_INDIVIDUAL_TCODES_PLACEHOLDER;
         }
         if (asiConversationState.awaitingInput === ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
-            return 'Ex.: Criação de função PFCG em DEV';
+            return `Ex.: Criação de função PFCG em ${asiPfcgSystem}`;
         }
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
             return ASI_PFCG_DELETE_ROLE_NAME_PLACEHOLDER;
         }
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
-            return 'Ex.: Eliminação de função PFCG em DEV';
+            return `Ex.: Eliminação de função PFCG em ${asiPfcgSystem}`;
         }
         return ASI_DEFAULT_PLACEHOLDER;
     }
@@ -1563,14 +1563,14 @@
         return `
             <div class="asi-pfcg-result-card">
                 <div class="asi-pfcg-result-heading-row">
-                    <div class="asi-pfcg-result-heading" style="color:#f59e0b;">⚠ Confirme antes de criar em DEV</div>
+                    <div class="asi-pfcg-result-heading" style="color:#f59e0b;">⚠ Confirme antes de criar em ${asiPfcgSystem}</div>
                     <span class="asi-pfcg-result-pill asi-pfcg-result-pill--warning">PREVIEW</span>
                 </div>
                 <div class="asi-pfcg-result-shell">
                     <div class="asi-pfcg-result-grid">
                         ${rowFields}
                     </div>
-                    <div class="asi-pfcg-result-note">Esta ação cria uma função PFCG real em DEV via RFC (sem SAP GUI). Reveja os dados antes de confirmar.</div>
+                    <div class="asi-pfcg-result-note">Esta ação cria uma função PFCG real em ${asiPfcgSystem} via RFC (sem SAP GUI). Reveja os dados antes de confirmar.</div>
                 </div>
             </div>
         `;
@@ -1601,14 +1601,14 @@
         return `
             <div class="asi-pfcg-result-card">
                 <div class="asi-pfcg-result-heading-row">
-                    <div class="asi-pfcg-result-heading" style="color:#dc2626;">⚠ Confirme a eliminação em DEV</div>
+                    <div class="asi-pfcg-result-heading" style="color:#dc2626;">⚠ Confirme a eliminação em ${asiPfcgSystem}</div>
                     <span class="asi-pfcg-result-pill asi-pfcg-result-pill--warning" style="background:rgba(220,38,38,0.12);color:#dc2626;">DELETE PREVIEW</span>
                 </div>
                 <div class="asi-pfcg-result-shell">
                     <div class="asi-pfcg-result-grid">
                         ${rowFields}
                     </div>
-                    <div class="asi-pfcg-result-note" style="color:#dc2626;font-weight:600;">Esta ação ELIMINA permanentemente a função PFCG em DEV via RFC. Reveja com atenção antes de confirmar.</div>
+                    <div class="asi-pfcg-result-note" style="color:#dc2626;font-weight:600;">Esta ação ELIMINA permanentemente a função PFCG em ${asiPfcgSystem} via RFC. Reveja com atenção antes de confirmar.</div>
                 </div>
             </div>
         `;
@@ -1619,7 +1619,7 @@
         const ok = result.ok === true;
         const status = String(result.status || (ok ? 'DELETED' : 'ERROR'));
         const accent = ok ? '#16a34a' : '#dc2626';
-        const heading = ok ? '✓ Função eliminada em DEV' : '✗ Falha na eliminação em DEV';
+        const heading = ok ? `✓ Função eliminada em ${asiPfcgSystem}` : `✗ Falha na eliminação em ${asiPfcgSystem}`;
         const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
 
         const resultTransportLabel = asiPfcgTransportModeLabel(result.transport_mode);
@@ -1665,7 +1665,7 @@
         const status = String(result.status || (ok ? 'CREATED' : 'ERROR'));
         const isPartial = status === 'PARTIAL_FAILURE';
         const accent = ok ? '#16a34a' : (isPartial ? '#f59e0b' : '#dc2626');
-        const heading = ok ? '✓ Função criada em DEV' : (isPartial ? '⚠ Criação parcial em DEV' : '✗ Falha na criação em DEV');
+        const heading = ok ? `✓ Função criada em ${asiPfcgSystem}` : (isPartial ? `⚠ Criação parcial em ${asiPfcgSystem}` : `✗ Falha na criação em ${asiPfcgSystem}`);
         const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
 
         const resultTransportLabel = asiPfcgTransportModeLabel(result.transport_mode);
@@ -3701,9 +3701,9 @@
 
                 if (data.state === 'failed') {
                     asiUpdateMessage(messageId, {
-                        text: 'Não foi possível concluir a pré-visualização da criação em DEV.',
+                        text: `Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`,
                         html: asiBuildPfcgErrorHtml(
-                            'Não foi possível concluir a pré-visualização da criação em DEV.',
+                            `Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`,
                             data.message || ''
                         ),
                         isProcessing: false
@@ -3717,8 +3717,8 @@
                 if (!result || result.ok !== true) {
                     const safeDetail = result && typeof result.message === 'string' ? result.message : '';
                     asiUpdateMessage(messageId, {
-                        text: 'Não foi possível preparar a criação em DEV.',
-                        html: asiBuildPfcgErrorHtml('Não foi possível preparar a criação em DEV.', safeDetail),
+                        text: `Não foi possível preparar a criação em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível preparar a criação em ${asiPfcgSystem}.`, safeDetail),
                         isProcessing: false
                     });
                     asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
@@ -3727,7 +3727,7 @@
                 }
 
                 asiUpdateMessage(messageId, {
-                    text: 'Confirme os dados antes de criar a função em DEV.',
+                    text: `Confirme os dados antes de criar a função em ${asiPfcgSystem}.`,
                     html: asiBuildPfcgIndividualPreviewHtml(result),
                     isProcessing: false,
                     wide: true,
@@ -3741,8 +3741,8 @@
             } catch (error) {
                 asiStopPfcgIndividualPolling();
                 asiUpdateMessage(messageId, {
-                    text: 'Não foi possível concluir a pré-visualização da criação em DEV.',
-                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a pré-visualização da criação em DEV.'),
+                    text: `Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgErrorHtml(`Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`),
                     isProcessing: false
                 });
                 asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
@@ -3806,7 +3806,7 @@
         };
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Envie a descrição/nome para a nova Request de transporte a criar em DEV:'
+            `Envie a descrição/nome para a nova Request de transporte a criar em ${asiPfcgSystem}:`
         ));
         asiUpdateComposerState();
         const { input } = asiGetElements();
@@ -3831,12 +3831,12 @@
                     </tr>
                 `;
             }).join('')
-            : `<tr><td colspan="4" class="asi-pfcg-list-empty">Não foram encontradas Requests abertas para este utilizador em DEV.</td></tr>`;
+            : `<tr><td colspan="4" class="asi-pfcg-list-empty">Não foram encontradas Requests abertas para este utilizador em ${asiPfcgSystem}.</td></tr>`;
 
         return `
             <div class="asi-pfcg-result-card">
                 <div class="asi-pfcg-result-heading-row">
-                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">Requests abertas em DEV (${count})</div>
+                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">Requests abertas em ${asiPfcgSystem} (${count})</div>
                 </div>
                 <div class="asi-pfcg-result-shell">
                     <div class="asi-pfcg-list-wrap">
@@ -3929,8 +3929,8 @@
 
                 if (data.state === 'failed') {
                     asiUpdateMessage(messageId, {
-                        text: 'Não foi possível concluir a procura de Requests em DEV.',
-                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a procura de Requests em DEV.', data.message || ''),
+                        text: `Não foi possível concluir a procura de Requests em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível concluir a procura de Requests em ${asiPfcgSystem}.`, data.message || ''),
                         isProcessing: false
                     });
                     asiConversationState = { ...asiConversationState, isBusy: false };
@@ -3942,8 +3942,8 @@
                 if (!result || result.ok !== true) {
                     const safeDetail = result && typeof result.message === 'string' ? result.message : '';
                     asiUpdateMessage(messageId, {
-                        text: 'Não foi possível obter as Requests de transporte em DEV.',
-                        html: asiBuildPfcgErrorHtml('Não foi possível obter as Requests de transporte em DEV.', safeDetail),
+                        text: `Não foi possível obter as Requests de transporte em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível obter as Requests de transporte em ${asiPfcgSystem}.`, safeDetail),
                         isProcessing: false
                     });
                     asiConversationState = { ...asiConversationState, isBusy: false };
@@ -3966,8 +3966,8 @@
             } catch (error) {
                 asiStopPfcgTransportSearchPolling();
                 asiUpdateMessage(messageId, {
-                    text: 'Não foi possível concluir a procura de Requests em DEV.',
-                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a procura de Requests em DEV.'),
+                    text: `Não foi possível concluir a procura de Requests em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgErrorHtml(`Não foi possível concluir a procura de Requests em ${asiPfcgSystem}.`),
                     isProcessing: false
                 });
                 asiConversationState = { ...asiConversationState, isBusy: false };
@@ -3985,8 +3985,8 @@
         }
         asiAppendMessage(asiCreateMessage('user', 'Usar Request existente'));
 
-        const processingMessage = asiCreateMessage('assistant', 'A procurar Requests de transporte abertas em DEV...', {
-            html: asiBuildPfcgGenericProcessingHtml('A procurar Requests de transporte abertas em DEV...'),
+        const processingMessage = asiCreateMessage('assistant', `A procurar Requests de transporte abertas em ${asiPfcgSystem}...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A procurar Requests de transporte abertas em ${asiPfcgSystem}...`),
             isProcessing: true
         });
         asiAppendMessage(processingMessage);
@@ -4016,9 +4016,9 @@
             await asiPollPfcgTransportSearch(jobId, processingMessage.id);
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
-                text: 'Não foi possível procurar as Requests de transporte em DEV.',
+                text: `Não foi possível procurar as Requests de transporte em ${asiPfcgSystem}.`,
                 html: asiBuildPfcgErrorHtml(
-                    'Não foi possível procurar as Requests de transporte em DEV.',
+                    `Não foi possível procurar as Requests de transporte em ${asiPfcgSystem}.`,
                     error.message || ''
                 ),
                 isProcessing: false
@@ -4036,8 +4036,8 @@
         const description = String(asiConversationState.pfcgCreateDescription || '').trim();
         const tcodes = Array.isArray(asiConversationState.pfcgCreateTcodes) ? asiConversationState.pfcgCreateTcodes : [];
 
-        const processingMessage = asiCreateMessage('assistant', 'A validar os dados em DEV...', {
-            html: asiBuildPfcgGenericProcessingHtml('A validar função, descrição e transações em DEV...'),
+        const processingMessage = asiCreateMessage('assistant', `A validar os dados em ${asiPfcgSystem}...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A validar função, descrição e transações em ${asiPfcgSystem}...`),
             isProcessing: true
         });
         asiAppendMessage(processingMessage);
@@ -4096,9 +4096,9 @@
             await asiPollPfcgIndividualPreview(jobId, processingMessage.id);
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
-                text: 'Não foi possível preparar a pré-visualização da criação em DEV.',
+                text: `Não foi possível preparar a pré-visualização da criação em ${asiPfcgSystem}.`,
                 html: asiBuildPfcgErrorHtml(
-                    'Não foi possível preparar a pré-visualização da criação em DEV.',
+                    `Não foi possível preparar a pré-visualização da criação em ${asiPfcgSystem}.`,
                     error.message || ''
                 ),
                 isProcessing: false
@@ -4163,9 +4163,9 @@
 
                 if (data.state === 'failed') {
                     asiUpdateMessage(messageId, {
-                        text: 'Não foi possível concluir a criação da função em DEV.',
+                        text: `Não foi possível concluir a criação da função em ${asiPfcgSystem}.`,
                         html: asiBuildPfcgErrorHtml(
-                            'Não foi possível concluir a criação da função em DEV.',
+                            `Não foi possível concluir a criação da função em ${asiPfcgSystem}.`,
                             data.message || ''
                         ),
                         isProcessing: false
@@ -4180,8 +4180,8 @@
 
                 asiUpdateMessage(messageId, {
                     text: ok
-                        ? `Função ${result.role} criada com sucesso em DEV.`
-                        : 'Não foi possível concluir a criação da função em DEV.',
+                        ? `Função ${result.role} criada com sucesso em ${asiPfcgSystem}.`
+                        : `Não foi possível concluir a criação da função em ${asiPfcgSystem}.`,
                     html: asiBuildPfcgIndividualResultHtml(result),
                     isProcessing: false,
                     wide: true
@@ -4194,8 +4194,8 @@
             } catch (error) {
                 asiStopPfcgIndividualPolling();
                 asiUpdateMessage(messageId, {
-                    text: 'Não foi possível concluir a criação da função em DEV.',
-                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a criação da função em DEV.'),
+                    text: `Não foi possível concluir a criação da função em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgErrorHtml(`Não foi possível concluir a criação da função em ${asiPfcgSystem}.`),
                     isProcessing: false
                 });
                 asiConversationState = { ...asiConversationState, isBusy: false };
@@ -4223,8 +4223,8 @@
         }
 
         asiAppendMessage(asiCreateMessage('user', 'Confirmar criação'));
-        const processingMessage = asiCreateMessage('assistant', 'A criar a função em DEV via RFC...', {
-            html: asiBuildPfcgGenericProcessingHtml('A criar a função em DEV via RFC...'),
+        const processingMessage = asiCreateMessage('assistant', `A criar a função em ${asiPfcgSystem} via RFC...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A criar a função em ${asiPfcgSystem} via RFC...`),
             isProcessing: true
         });
         asiAppendMessage(processingMessage);
@@ -4255,9 +4255,9 @@
             await asiPollPfcgIndividualConfirm(jobId, processingMessage.id);
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
-                text: 'Não foi possível concluir a criação da função em DEV.',
+                text: `Não foi possível concluir a criação da função em ${asiPfcgSystem}.`,
                 html: asiBuildPfcgErrorHtml(
-                    'Não foi possível concluir a criação da função em DEV.',
+                    `Não foi possível concluir a criação da função em ${asiPfcgSystem}.`,
                     error.message || ''
                 ),
                 isProcessing: false
@@ -4349,7 +4349,7 @@
         };
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Envie a descrição/nome para a nova Request de transporte a criar em DEV:'
+            `Envie a descrição/nome para a nova Request de transporte a criar em ${asiPfcgSystem}:`
         ));
         asiUpdateComposerState();
         const { input } = asiGetElements();
@@ -4365,8 +4365,8 @@
             asiChatMockTimer = null;
         }
 
-        const processingMessage = asiCreateMessage('assistant', 'A validar dados para eliminação da função em DEV...', {
-            html: asiBuildPfcgGenericProcessingHtml('A validar dados para eliminação da função em DEV...'),
+        const processingMessage = asiCreateMessage('assistant', `A validar dados para eliminação da função em ${asiPfcgSystem}...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A validar dados para eliminação da função em ${asiPfcgSystem}...`),
             isProcessing: true
         });
         asiAppendMessage(processingMessage);
@@ -4408,9 +4408,9 @@
             await asiPollPfcgDeletePreview(jobId, processingMessage.id);
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
-                text: 'Não foi possível preparar a pré-visualização da eliminação em DEV.',
+                text: `Não foi possível preparar a pré-visualização da eliminação em ${asiPfcgSystem}.`,
                 html: asiBuildPfcgErrorHtml(
-                    'Não foi possível preparar a pré-visualização da eliminação em DEV.',
+                    `Não foi possível preparar a pré-visualização da eliminação em ${asiPfcgSystem}.`,
                     error.message || ''
                 ),
                 isProcessing: false
@@ -4462,9 +4462,9 @@
 
                 if (data.state === 'failed') {
                     asiUpdateMessage(messageId, {
-                        text: 'Não foi possível validar os dados da função em DEV.',
+                        text: `Não foi possível validar os dados da função em ${asiPfcgSystem}.`,
                         html: asiBuildPfcgErrorHtml(
-                            'Não foi possível validar os dados da função em DEV.',
+                            `Não foi possível validar os dados da função em ${asiPfcgSystem}.`,
                             data.message || ''
                         ),
                         isProcessing: false
@@ -4479,7 +4479,7 @@
                     asiUpdateMessage(messageId, {
                         text: result.message || `A função não existe no ambiente DEV.`,
                         html: asiBuildPfcgErrorHtml(
-                            'Função não encontrada em DEV',
+                            `Função não encontrada em ${asiPfcgSystem}`,
                             result.message || 'A função informada não existe no ambiente DEV.'
                         ),
                         isProcessing: false
@@ -4494,9 +4494,9 @@
 
                 if (!result.ok) {
                     asiUpdateMessage(messageId, {
-                        text: result.message || 'A validação da função em DEV devolveu erro.',
+                        text: result.message || `A validação da função em ${asiPfcgSystem} devolveu erro.`,
                         html: asiBuildPfcgErrorHtml(
-                            'Não é possível eliminar a função em DEV',
+                            `Não é possível eliminar a função em ${asiPfcgSystem}`,
                             result.message || 'Verifique as mensagens de erro antes de prosseguir.'
                         ),
                         isProcessing: false
@@ -4507,7 +4507,7 @@
                 }
 
                 asiUpdateMessage(messageId, {
-                    text: 'Confirme os dados antes de eliminar a função em DEV.',
+                    text: `Confirme os dados antes de eliminar a função em ${asiPfcgSystem}.`,
                     html: asiBuildPfcgDeletePreviewHtml(result),
                     isProcessing: false,
                     wide: true,
@@ -4521,8 +4521,8 @@
             } catch (error) {
                 asiStopPfcgDeletePolling();
                 asiUpdateMessage(messageId, {
-                    text: 'Não foi possível validar os dados da função em DEV.',
-                    html: asiBuildPfcgErrorHtml('Não foi possível validar os dados da função em DEV.'),
+                    text: `Não foi possível validar os dados da função em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgErrorHtml(`Não foi possível validar os dados da função em ${asiPfcgSystem}.`),
                     isProcessing: false
                 });
                 asiConversationState = { ...asiConversationState, isBusy: false };
@@ -4550,8 +4550,8 @@
         }
 
         asiAppendMessage(asiCreateMessage('user', 'Confirmar eliminação'));
-        const processingMessage = asiCreateMessage('assistant', 'A eliminar a função em DEV via RFC...', {
-            html: asiBuildPfcgGenericProcessingHtml('A eliminar a função em DEV via RFC...'),
+        const processingMessage = asiCreateMessage('assistant', `A eliminar a função em ${asiPfcgSystem} via RFC...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A eliminar a função em ${asiPfcgSystem} via RFC...`),
             isProcessing: true
         });
         asiAppendMessage(processingMessage);
@@ -4581,9 +4581,9 @@
             await asiPollPfcgDeleteConfirm(jobId, processingMessage.id);
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
-                text: 'Não foi possível concluir a eliminação da função em DEV.',
+                text: `Não foi possível concluir a eliminação da função em ${asiPfcgSystem}.`,
                 html: asiBuildPfcgErrorHtml(
-                    'Não foi possível concluir a eliminação da função em DEV.',
+                    `Não foi possível concluir a eliminação da função em ${asiPfcgSystem}.`,
                     error.message || ''
                 ),
                 isProcessing: false
@@ -4635,9 +4635,9 @@
 
                 if (data.state === 'failed') {
                     asiUpdateMessage(messageId, {
-                        text: 'Não foi possível concluir a eliminação da função em DEV.',
+                        text: `Não foi possível concluir a eliminação da função em ${asiPfcgSystem}.`,
                         html: asiBuildPfcgErrorHtml(
-                            'Não foi possível concluir a eliminação da função em DEV.',
+                            `Não foi possível concluir a eliminação da função em ${asiPfcgSystem}.`,
                             data.message || ''
                         ),
                         isProcessing: false
@@ -4652,8 +4652,8 @@
 
                 asiUpdateMessage(messageId, {
                     text: ok
-                        ? `Função ${result.role} eliminada com sucesso em DEV.`
-                        : 'Não foi possível concluir a eliminação da função em DEV.',
+                        ? `Função ${result.role} eliminada com sucesso em ${asiPfcgSystem}.`
+                        : `Não foi possível concluir a eliminação da função em ${asiPfcgSystem}.`,
                     html: asiBuildPfcgDeleteResultHtml(result),
                     isProcessing: false,
                     wide: true
@@ -4666,8 +4666,8 @@
             } catch (error) {
                 asiStopPfcgDeletePolling();
                 asiUpdateMessage(messageId, {
-                    text: 'Não foi possível concluir a eliminação da função em DEV.',
-                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a eliminação da função em DEV.'),
+                    text: `Não foi possível concluir a eliminação da função em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgErrorHtml(`Não foi possível concluir a eliminação da função em ${asiPfcgSystem}.`),
                     isProcessing: false
                 });
                 asiConversationState = { ...asiConversationState, isBusy: false };
