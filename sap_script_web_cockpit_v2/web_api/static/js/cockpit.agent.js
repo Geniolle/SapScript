@@ -36,6 +36,7 @@
     const ASI_PFCG_AUTHOBJ_PATTERN = /^[A-Z0-9_/]{1,40}$/;
     const ASI_PFCG_USER_INPUT = 'pfcg_username';
     const ASI_PFCG_USER_PATTERN = /^[A-Z0-9_.\-]{1,12}$/;
+    const ASI_USER_SEARCH_INPUT = 'user_search_name';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
     // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador').
@@ -299,6 +300,14 @@
                     followupText: 'O que deseja analisar do utilizador?',
                     followupActionsSource: 'children',
                     children: [
+                        {
+                            id: 'user-search',
+                            label: 'Pesquisar por Nome',
+                            icon: 'analysis',
+                            prompt: 'Quero pesquisar um utilizador por nome.',
+                            followupText: 'Escreva o nome (ou parte) a pesquisar:',
+                            children: []
+                        },
                         {
                             id: 'user-analyze-master',
                             label: 'Dados Mestre',
@@ -3148,6 +3157,148 @@
         }
     }
 
+    function asiBuildUserSearchResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const q = escapeHtml(result.query || '');
+        const sys = escapeHtml(result.system || asiPfcgSystem);
+        const users = Array.isArray(result.users) ? result.users : [];
+        const count = Number(result.count != null ? result.count : users.length);
+        const heading = count > 0
+            ? `✓ ${count} utilizador(es) com "${q}" em ${sys}.`
+            : `Nenhum utilizador com "${q}" em ${sys}.`;
+        const body = users.length
+            ? users.map((u) => `
+                <tr>
+                    <td>${escapeHtml(u.full_name || '-')}</td>
+                    <td style="font-family:monospace;">${escapeHtml(u.username || '')}</td>
+                </tr>
+            `).join('')
+            : `<tr><td colspan="2" class="asi-pfcg-list-empty">Sem resultados.</td></tr>`;
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${count > 0 ? '#16a34a' : '#b45309'};">${heading}</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead><tr><th>Nome completo</th><th>User SAP</th></tr></thead>
+                                <tbody>${body}</tbody>
+                            </table>
+                        </div>
+                        <div class="asi-pfcg-list-footer">Total: ${count}</div>
+                    </div>
+                    ${asiBuildPfcgRoleWarningNoteHtml(result)}
+                </div>
+            </div>
+        `;
+    }
+
+    async function asiPollUserSearch(jobId, query, messageId) {
+        const startedAt = Date.now();
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A pesquisa de utilizadores está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A pesquisa de utilizadores está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                return;
+            }
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/user/search/${encodeURIComponent(jobId)}`, {
+                    method: 'GET', headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                if (data.state === 'pending' || data.state === 'running') return;
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a pesquisa de utilizadores.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a pesquisa de utilizadores.', data.message || ''),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const detail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a pesquisa de utilizadores.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a pesquisa de utilizadores.', detail),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+                asiUpdateMessage(messageId, {
+                    text: `Resultados da pesquisa "${query}".`,
+                    html: asiBuildUserSearchResultHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    ...asiPostResultMenu()
+                });
+                asiResetPfcgInteraction();
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a pesquisa de utilizadores.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a pesquisa de utilizadores.'),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartUserSearch(query) {
+        const { input } = asiGetElements();
+        const processingText = `A pesquisar utilizadores com "${query}" em SAP ${asiPfcgSystem}...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ query, system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) throw new Error('Resposta do backend sem job_id.');
+            await asiPollUserSearch(jobId, query, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível iniciar a pesquisa de utilizadores.',
+                html: asiBuildPfcgErrorHtml('Não foi possível iniciar a pesquisa de utilizadores.', error.message || ''),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
     async function asiStartPfcgCreateExcelSelection() {
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
@@ -5039,6 +5190,19 @@
             return;
         }
 
+        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT) {
+            const query = rawMessage.replace(/["'%_\\]/g, '').trim();
+            if (query.length < 2) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Indique pelo menos 2 caracteres do nome.'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT, isBusy: false };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+            await asiStartUserSearch(query);
+            return;
+        }
+
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
             const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
             if (!normalizedRoleName) {
@@ -6122,6 +6286,17 @@
                 ...asiConversationState,
                 awaitingInput: ASI_PFCG_AUTHOBJ_INPUT
             };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'user-search') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Escreva o nome (ou parte) a pesquisar:'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT };
             asiUpdateComposerState();
             const { input } = asiGetElements();
             if (input) input.focus();

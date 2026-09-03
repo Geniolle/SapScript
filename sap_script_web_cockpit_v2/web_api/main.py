@@ -750,6 +750,11 @@ class SalsaItUserDataRequest(BaseModel):
     system: str = "PRD"
 
 
+class SalsaItUserSearchRequest(BaseModel):
+    query: str
+    system: str = "PRD"
+
+
 
 
 
@@ -1210,6 +1215,70 @@ def api_salsa_it_user_data_job(job_id: str) -> JSONResponse:
             {"label": str(f.get("label") or ""), "value": str(f.get("value") or "")}
             for f in raw_fields
             if isinstance(f, dict)
+        ],
+    }
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+    if result.get("warning"):
+        safe_result["warning"] = result.get("warning")
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/user/search")
+def api_salsa_it_user_search(payload: SalsaItUserSearchRequest) -> JSONResponse:
+    query = str(payload.query or "").strip()
+    if len(query) < 2:
+        raise HTTPException(status_code=400, detail="Indique pelo menos 2 caracteres do nome a pesquisar.")
+    system = _validate_pfcg_system_or_400(payload.system)
+
+    try:
+        job = create_job("user_search", {"query": query, "system": system})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "query": query})
+
+
+@app.get("/api/salsa-it-agent/user/search/{job_id}")
+def api_salsa_it_user_search_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "user_search":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pesquisa de utilizador.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    raw_users = result.get("users") if isinstance(result.get("users"), list) else []
+    safe_result = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "query": str(result.get("query") or ""),
+        "count": result.get("count"),
+        "system": result.get("system"),
+        "client": result.get("client"),
+        "users": [
+            {"username": str(u.get("username") or ""), "full_name": str(u.get("full_name") or "")}
+            for u in raw_users
+            if isinstance(u, dict)
         ],
     }
     if not safe_result["ok"]:

@@ -281,6 +281,39 @@ class SalsaAgentRoutesTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_user_search_create_job_and_shape(self) -> None:
+        created = _body(
+            main.api_salsa_it_user_search(
+                main.SalsaItUserSearchRequest(query="Silva", system="prd")
+            )
+        )
+        self.assertEqual(created["query"], "Silva")
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["task"], "user_search")
+        self.assertEqual(job["params"].get("query"), "Silva")
+
+        store.complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps({
+                "ok": True, "status": "OK", "query": "Silva", "count": 1,
+                "users": [{"username": "JSILVA", "full_name": "João Silva", "x": 1}],
+                "system": "PRD", "client": "100",
+            }),
+            "",
+        )
+        done = _body(main.api_salsa_it_user_search_job(created["job_id"]))
+        self.assertEqual(done["state"], "succeeded")
+        self.assertEqual(done["result"]["users"][0]["username"], "JSILVA")
+        self.assertNotIn("x", done["result"]["users"][0])
+
+    def test_user_search_rejects_short_query(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_user_search(
+                main.SalsaItUserSearchRequest(query="a")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
     # ---- GET: mapeamento de estado / validacao do job ----------------------
 
     def test_analyze_job_pending_state(self) -> None:

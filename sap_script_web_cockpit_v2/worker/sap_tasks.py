@@ -998,6 +998,76 @@ def _run_user_data(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_user_search(params: dict[str, Any]) -> tuple[str, str]:
+    """Read-only via bridge RFC isolada: pesquisa utilizadores por nome."""
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+    raw_query = str(params.get("query") or "").strip()
+
+    try:
+        from sap_rfc.user_search_service import sanitize_query
+        query = sanitize_query(raw_query)
+    except ValueError as exc:
+        payload = {
+            "ok": False, "status": "ERRO", "query": raw_query,
+            "error_type": "INVALID_INPUT", "message": str(exc), "system": "PRD",
+            "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
+        }
+        return json.dumps(payload, ensure_ascii=False), (
+            f"Pesquisa de utilizador rejeitada antes da bridge RFC.\nQuery: {raw_query}\nMotivo: {exc}"
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Nao foi possivel importar a validacao de pesquisa: {exc}") from exc
+
+    rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
+    if not rfc_python.exists():
+        raise SapExecutionError(f"Python RFC nao encontrado: {rfc_python}")
+
+    env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
+    command = [str(rfc_python), "-m", "sap_rfc.user_search_cli", "--query", query]
+
+    try:
+        run = subprocess.run(
+            command, cwd=str(project_dir), env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=90, check=False, shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SapExecutionError(f"Timeout ao pesquisar utilizadores por '{query}'.") from exc
+
+    stdout = str(run.stdout or "").strip()
+    stderr = str(run.stderr or "").strip()
+
+    if run.returncode not in RFC_ALLOWED_EXIT_CODES:
+        raise SapExecutionError(f"Bridge RFC (pesquisa de utilizador) falhou com exit code {run.returncode}.")
+    if not stdout:
+        raise SapExecutionError("Bridge RFC (pesquisa de utilizador) nao devolveu JSON em stdout.")
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise SapExecutionError("Bridge RFC (pesquisa de utilizador) devolveu JSON invalido.") from exc
+    if not isinstance(payload, dict):
+        raise SapExecutionError("Bridge RFC (pesquisa de utilizador) devolveu payload invalido.")
+
+    log_lines = [
+        "Pesquisa de utilizador via subprocesso RFC controlado.",
+        f"Query: {query}",
+        f"Python RFC: {rfc_python}",
+        f"Exit code: {run.returncode}",
+        f"Status: {payload.get('status', '-')}",
+        f"Count: {payload.get('count', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+    if payload.get("warning"):
+        log_lines.append(f"Aviso: {payload['warning']}")
+    if stderr:
+        log_lines.append(f"stderr: {stderr}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_pfcg_role_create_preview(params: dict[str, Any]) -> tuple[str, str]:
     """Pré-visualização (read-only) da criação individual de função PFCG via RFC.
 
@@ -1449,6 +1519,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_object_roles": lambda job, params: _run_pfcg_object_roles(params),
     "pfcg_user_roles": lambda job, params: _run_pfcg_user_roles(params),
     "user_data": lambda job, params: _run_user_data(params),
+    "user_search": lambda job, params: _run_user_search(params),
     "pfcg_create_excel_analysis": lambda job, params: _run_pfcg_create_excel_analysis(params),
     "pfcg_role_create_preview": lambda job, params: _run_pfcg_role_create_preview(params),
     "pfcg_role_create_rfc": lambda job, params: _run_pfcg_role_create_rfc(params),
