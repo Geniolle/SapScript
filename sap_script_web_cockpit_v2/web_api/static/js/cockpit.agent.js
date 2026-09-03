@@ -311,6 +311,17 @@
                             ]
                         },
                         {
+                            id: 'pfcg-role-analyze',
+                            label: 'Analisar Função',
+                            icon: 'analysis',
+                            mode: 'analyze',
+                            processo: 'Funções PFCG',
+                            subprocesso: 'A. PFCG_CREATE.py',
+                            prompt: 'Quero analisar um Perfil de Autorização.',
+                            followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
+                            children: []
+                        },
+                        {
                             ...ASI_MAIN_MENU_ACTION,
                             prompt: 'Quero voltar ao menu principal.'
                         },
@@ -5212,7 +5223,7 @@
             return;
         }
 
-        if (action.id === 'pfcg-create-analyze' || action.id === 'pfcg-composta-analyze') {
+        if (action.id === 'pfcg-create-analyze' || action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
