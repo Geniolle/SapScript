@@ -61,6 +61,12 @@
         ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION,
         ASI_PFCG_ROLE_ANALYZE_USERS_ACTION
     ];
+    // Opções de "O que deseja analisar?" para re-apresentar depois de um resultado.
+    const ASI_PFCG_ANALYZE_MENU_ACTIONS = [
+        { id: 'pfcg-role-analyze-funcao', label: 'Função', icon: 'analysis' },
+        { id: 'pfcg-role-analyze-transacao', label: 'Transação', icon: 'analysis' },
+        { id: 'pfcg-role-analyze-objeto', label: 'Objeto de autorização', icon: 'authorization' }
+    ];
     const ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT = 'pfcg_individual_role_name';
     const ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT = 'pfcg_composta_role_name';
     const ASI_PFCG_COMPOSTA_DESCRIPTION_INPUT = 'pfcg_composta_description';
@@ -2508,7 +2514,11 @@
                     text: `Funções da transação ${tcode}.`,
                     html: asiBuildPfcgTransactionRolesResultHtml(result),
                     isProcessing: false,
-                    wide: true
+                    wide: true,
+                    actions: ASI_PFCG_ANALYZE_MENU_ACTIONS,
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__pfcg_analyze_menu__'
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
@@ -2676,7 +2686,11 @@
                     text: `Funções com o objeto ${authObject}.`,
                     html: asiBuildPfcgObjectRolesResultHtml(result),
                     isProcessing: false,
-                    wide: true
+                    wide: true,
+                    actions: ASI_PFCG_ANALYZE_MENU_ACTIONS,
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__pfcg_analyze_menu__'
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
