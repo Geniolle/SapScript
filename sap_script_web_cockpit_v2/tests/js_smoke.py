@@ -39,7 +39,7 @@ TEMPLATE = Path(__file__).resolve().parents[1] / "web_api" / "templates" / "inde
 STATIC_JS_DIR = Path(__file__).resolve().parents[1] / "web_api" / "static" / "js"
 
 # Ordem de carregamento dos ficheiros de /static/js (tem de bater com index.html).
-STATIC_JS_ORDER = ["cockpit.js"]
+STATIC_JS_ORDER = ["cockpit.core.js", "cockpit.agent.js"]
 
 # Funcoes que TEM de existir no fim da avaliacao do script para o cockpit arrancar.
 REQUIRED_GLOBALS = [
