@@ -324,6 +324,16 @@
                             children: []
                         },
                         {
+                            id: 'cua-adicionar',
+                            label: 'Adicionar Utilizador',
+                            icon: 'user-plus',
+                            processo: 'Funções PFCG',
+                            subprocesso: 'H. CUA_ADICIONAR.py',
+                            prompt: 'Quero adicionar um utilizador.',
+                            followupText: 'Certo. Vamos preparar a adição do utilizador.',
+                            children: []
+                        },
+                        {
                             id: 'cua-enddate',
                             label: 'Alterar Data Fim',
                             icon: 'calendar',
@@ -331,6 +341,16 @@
                             subprocesso: 'I. CUA_ENDDATE.py',
                             prompt: 'Quero alterar a data fim de um utilizador.',
                             followupText: 'Certo. Vamos preparar a alteração da data fim do utilizador.',
+                            children: []
+                        },
+                        {
+                            id: 'cua-remove',
+                            label: 'Remover Utilizador',
+                            icon: 'user-minus',
+                            processo: 'Funções PFCG',
+                            subprocesso: 'J. CUA_REMOVE.py',
+                            prompt: 'Quero remover um utilizador.',
+                            followupText: 'Certo. Vamos preparar a remoção do utilizador.',
                             children: []
                         },
                         {
@@ -544,26 +564,6 @@
                             subprocesso: 'C. PFCG_AUTHORITY.py',
                             prompt: 'Quero atualizar as autorizações de um perfil.',
                             followupText: 'Certo. Vamos preparar a atualização das autorizações do perfil.',
-                            children: []
-                        },
-                        {
-                            id: 'cua-adicionar',
-                            label: 'Adicionar Utilizador',
-                            icon: 'user-plus',
-                            processo: 'Funções PFCG',
-                            subprocesso: 'H. CUA_ADICIONAR.py',
-                            prompt: 'Quero adicionar um utilizador.',
-                            followupText: 'Certo. Vamos preparar a adição do utilizador.',
-                            children: []
-                        },
-                        {
-                            id: 'cua-remove',
-                            label: 'Remover Utilizador',
-                            icon: 'user-minus',
-                            processo: 'Funções PFCG',
-                            subprocesso: 'J. CUA_REMOVE.py',
-                            prompt: 'Quero remover um utilizador.',
-                            followupText: 'Certo. Vamos preparar a remoção do utilizador.',
                             children: []
                         },
                         {
