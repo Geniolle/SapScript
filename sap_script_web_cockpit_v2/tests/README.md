@@ -23,8 +23,9 @@ Ou individualmente:
 
 | Ficheiro | Alvo | Apanha |
 |---|---|---|
-| `js_smoke.py` | `<script>` inline de `web_api/templates/index.html` | erro de runtime no topo do script (TDZ, `const` antes de declarar), funcoes de topo duplicadas, `if (false ...)`/condicao constante, funcoes globais de arranque em falta |
+| `js_smoke.py` | `<script>` inline de `index.html` + `web_api/static/js/*.js` | erro de runtime no topo do script (TDZ, `const` antes de declarar), funcoes de topo duplicadas, `if (false ...)`/condicao constante, funcoes globais de arranque em falta |
 | `test_salsa_agent_routes.py` | rotas `/api/salsa-it-agent/pfcg/*` em `web_api/main.py` | criacao de job + `job_id`, rejeicao de nome de role invalido (400), mapeamento de estado no GET, job inexistente (404), job de outra task (400), whitelist de campos no resultado |
+| `test_worker_reap.py` | `reap_orphan_running_jobs` + `POST /api/worker/jobs/reap-orphans` | so marca `running` deste worker; ignora `pending`/terminados; no-op sem nome; endpoint exige worker token |
 
 `js_smoke.py` faz SKIP se `node` nao estiver no PATH.
 Os testes de rotas redirecionam a BD de jobs para um diretorio temporario

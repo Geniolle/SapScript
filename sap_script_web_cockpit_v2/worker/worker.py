@@ -90,6 +90,28 @@ def headers() -> dict[str, str]:
     return {"X-Worker-Token": WORKER_TOKEN}
 
 
+def reap_orphan_jobs() -> None:
+    """
+    No arranque, pede ao backend para marcar como failed os jobs que ficaram
+    presos em 'running' com este worker (processo anterior morto sem reportar
+    fim - ex.: diálogo modal do select_excel_file). Best-effort: nunca impede
+    o arranque.
+    """
+    try:
+        response = _REQUEST_SESSION.post(
+            f"{API_BASE_URL}/api/worker/jobs/reap-orphans",
+            params={"worker_name": WORKER_NAME},
+            headers=headers(),
+            timeout=(API_CONNECT_TIMEOUT, API_READ_TIMEOUT),
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data.get("count"):
+            print(f"[reap] {data['count']} job(s) orfao(s) marcados como failed: {data.get('reaped')}")
+    except Exception as exc:  # noqa: BLE001 - best effort
+        print(f"[reap] Nao foi possivel limpar jobs orfaos: {exc}")
+
+
 def claim_next_job() -> dict[str, Any] | None:
     response = _REQUEST_SESSION.get(
         f"{API_BASE_URL}/api/worker/jobs/next",
@@ -129,6 +151,7 @@ def main() -> None:
     print(f"API ativa: {API_BASE_URL} ({api_source})")
     print(f"Timeout API: connect={API_CONNECT_TIMEOUT}s read={API_READ_TIMEOUT}s")
     print("Para terminar, usa CTRL+C.")
+    reap_orphan_jobs()
     while True:
         try:
             job = claim_next_job()

@@ -78,7 +78,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
+from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, reap_orphan_running_jobs, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
 import asyncio
 
@@ -2131,6 +2131,18 @@ def api_claim_next_job(
     last_worker_ping = time.time()
     job = claim_next_job(worker_name=worker_name)
     return {"job": job}
+
+
+@app.post("/api/worker/jobs/reap-orphans")
+def api_worker_reap_orphans(
+    worker_name: str = "sap-worker",
+    x_worker_token: str = Header(default=""),
+) -> dict[str, Any]:
+    """Chamado pelo worker no arranque: marca como failed os jobs presos em
+    'running' com este worker (o processo anterior morreu sem reportar fim)."""
+    validate_worker_token(x_worker_token)
+    reaped = reap_orphan_running_jobs(worker_name)
+    return {"reaped": reaped, "count": len(reaped)}
 
 
 @app.get("/api/jobs/{job_id}")

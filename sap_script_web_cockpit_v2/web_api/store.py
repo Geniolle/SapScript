@@ -386,6 +386,44 @@ def cancel_job(job_id: str) -> dict[str, Any]:
     return job
 
 
+def reap_orphan_running_jobs(worker_name: str) -> list[str]:
+    """
+    Marca como 'failed' os jobs que ficaram presos em 'running' com este worker.
+
+    Chamado pelo worker no arranque: se ele acabou de (re)iniciar, qualquer job
+    ainda em 'running' com o seu nome e um orfao (o processo que o reclamou
+    morreu sem reportar fim - ex.: diálogo modal do select_excel_file). Sem isto,
+    o job fica 'running' para sempre e o frontend cai no timeout com a mensagem
+    enganadora "verifique se o worker Windows está ativo".
+    """
+    worker_name = (worker_name or "").strip()
+    if not worker_name:
+        return []
+
+    now = utc_now()
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id FROM jobs WHERE state = 'running' AND worker_name = ?",
+            (worker_name,),
+        ).fetchall()
+        job_ids = [row["id"] for row in rows]
+        if job_ids:
+            placeholders = ",".join("?" for _ in job_ids)
+            conn.execute(
+                f"""
+                UPDATE jobs
+                SET state = 'failed',
+                    status = 'Job orfao: o worker reiniciou enquanto este job estava em execucao.',
+                    log = log || '\n[reap] Marcado como failed no arranque do worker ' || ? || '.',
+                    updated_at = ?
+                WHERE id IN ({placeholders})
+                """,
+                (worker_name, now, *job_ids),
+            )
+            conn.commit()
+    return job_ids
+
+
 def append_job_log(job_id: str, log_line: str) -> dict[str, Any]:
     now = utc_now()
     with get_connection() as conn:
