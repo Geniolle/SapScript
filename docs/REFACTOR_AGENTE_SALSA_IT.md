@@ -31,21 +31,28 @@ worker + SAP a correr.
 | 0 | Rede de seguranca (`tests/`) | **Feito** | `Fase 0: rede de seguranca` |
 | 1 | Remover footguns confirmados (2 funcoes duplicadas mortas + `if (false ...)`) | **Feito** | `Fase 1: remover footguns confirmados` |
 | 2a | Extrair o `<script>` inline (11 230 linhas) para `web_api/static/js/cockpit.js` + `window.__COCKPIT__` | **Feito** | `Fase 2a: extrair o <script> inline` |
+| — | `js_smoke` avalia cada ficheiro como `<script>` separado (apanha quebras de ordem de carregamento) | **Feito** | `js_smoke: avaliar cada ficheiro como <script> separado` |
 | 4 (parcial) | Limpar jobs orfaos do worker no arranque (`reap_orphan_running_jobs` + endpoint + hook) | **Feito** | `Fase 4 (parcial): limpar jobs orfaos` |
-| — | `js_smoke` passa a avaliar cada ficheiro como `<script>` separado (apanha quebras de ordem de carregamento) | **Feito** | `js_smoke: avaliar cada ficheiro como <script> separado` |
-| 1b | Unificar os ~10 loops de polling num `asiPollJob({...})`; `asiSetState(patch)` unico; `isBusy` sempre limpo em `finally` | **Pendente** — risco comportamental; 1 fluxo por commit | — |
-| 2b | Dividir `cockpit.js` em modulos carregados por ordem | **Pendente** — `cockpit.js` esta interleaved (bloco ASI ~2399-10278, "Filter Sidebar" volta depois); precisa de mapa de referencias em load-time antes de cortar | — |
-| 3 | `main.py` -> `web_api/routers/*.py` (`APIRouter`) | **Pendente** — helpers partilhados (`_json_no_store`, `_validate_pfcg_role_name_or_400`) e modelos interleaved com as rotas; extrair primeiro para `web_api/common.py` | — |
-| 4 (resto) | `worker/sap_tasks.py` -> `worker/pfcg_*_job.py` + `TASK_HANDLERS` dict | **Pendente** — mais isolado | — |
-| 5 | Substituir a cascata `awaitingInput` por tabela de estados explicita | **Pendente** — depende de 1b; risco comportamental alto | — |
+| 4 (resto) | `worker/sap_tasks.py`: cadeia `if task ==` -> `TASK_HANDLERS` dict (`sap_cockpit` fica explicito) | **Feito** | `Fase 4 (resto): dispatch do worker por dict` |
+| 3 | Extrair helpers/estado partilhados de `main.py` -> `web_api/common.py` + `web_api/pfcg_common.py` (rotas ficam em main.py) | **Feito** | `Fase 3: extrair helpers/estado partilhados` |
+| 2b | Dividir `cockpit.js` -> `cockpit.core.js` + `cockpit.agent.js` (corte na linha 2381) | **Feito** | `Fase 2b: dividir cockpit.js em 2 modulos` |
+| 1b | Unificar os ~9 loops de polling num `asiPollJob({...})`; `asiSetState(patch)` | **Pendente** | — |
+| 5 | Substituir a cascata `awaitingInput` por tabela de estados explicita | **Pendente** — depende de 1b | — |
 
-### Recomendacao de execucao das pendentes
+### Pendentes: 1b e 5 exigem verificacao por fluxo
 
-Cada pendente e uma cirurgia num ficheiro grande e partilhado, e a rede de
-seguranca automatica so cobre parte (nao cobre composta/create-rfc/delete-rfc/
-transport nem o render dos resultados no chat). Fazer **uma pendente por
-iteracao**, com o teste manual dos fluxos pelo meio, em vez de as encadear.
-Ordem sugerida por risco crescente: **4-resto -> 3 -> 2b -> 1b -> 5**.
+Sao os dois unicos passos que **nao** sao mecanicos: 1b e um port a mao do corpo
+"sucesso/erro" de cada um dos ~9 pollers (`asiStartPfcgPolling`,
+`asiStartPfcgCreateExcelSelectionPolling`, `asiStartPfcgCreateExcelAnalysisPolling`,
+`asiPollPfcgSubAnalysis`, `asiPollPfcgIndividualPreview`, `asiPollPfcgIndividualConfirm`,
+`asiPollPfcgTransportSearch`, `asiPollPfcgDeletePreview`, `asiPollPfcgDeleteConfirm`)
+para um callback `onResolved(data)`; cada um chama renderers e estados
+especificos (`asiPfcgRoleState`, `asiBuildPfcg*Html`, `ASI_PFCG_ROLE_RESULT_ACTIONS`, ...).
+
+O `js_smoke` confirma que a pagina carrega e o contrato das rotas aguenta, **nao**
+confirma que o resultado renderiza igual. Por isso 1b faz-se **um poller por
+commit**, e cada commit so se fecha depois de clicar esse fluxo na UI com o
+worker + SAP. 5 so depois de 1b.
 
 ## Verificacao exigida pelas fases pendentes
 
