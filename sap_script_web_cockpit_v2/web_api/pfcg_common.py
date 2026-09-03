@@ -34,6 +34,19 @@ def _validate_pfcg_role_name_or_400(role_name: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+PFCG_SYSTEMS = ("DEV", "QAD", "PRD", "CUA")
+
+
+def _validate_pfcg_system_or_400(system: str) -> str:
+    value = str(system or "PRD").strip().upper() or "PRD"
+    if value not in PFCG_SYSTEMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sistema invalido: {value}. Use DEV, QAD, PRD ou CUA.",
+        )
+    return value
+
+
 def _safe_pfcg_failed_message() -> str:
     return "Não foi possível concluir a análise PFCG."
 

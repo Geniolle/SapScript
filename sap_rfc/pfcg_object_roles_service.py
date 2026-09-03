@@ -17,6 +17,8 @@ from typing import Any
 from sap_rfc._rfc_common import (
     SYSTEM_NAME,
     build_connection_params,
+    build_connection_params_for,
+    resolve_target_env,
     choose_best_text,
     classify_import_error,
     classify_rfc_error,
@@ -51,7 +53,7 @@ def _error_result(auth_object: str, error_type: str, message: str, *, details: s
         "auth_object": auth_object,
         "error_type": error_type,
         "message": message,
-        "system": SYSTEM_NAME,
+        "system": resolve_target_env(),
         "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
     }
     if details:
@@ -149,7 +151,8 @@ def analyze_object_roles_prd(auth_object: str) -> dict[str, Any]:
     try:
         project_root = find_project_root()
         load_project_env(project_root)
-        params = build_connection_params()
+        target_env = resolve_target_env()
+        params = build_connection_params_for(target_env)
     except Exception as exc:
         return _error_result(norm_obj, "CONFIG_ERROR", str(exc), details=format_exception(exc))
 
@@ -202,7 +205,7 @@ def analyze_object_roles_prd(auth_object: str) -> dict[str, Any]:
                 "auth_object_text": object_text,
                 "count": 0,
                 "roles": [],
-                "system": SYSTEM_NAME,
+                "system": target_env,
                 "client": params["client"],
                 **({"warning": " ".join(warnings)} if warnings else {}),
             }
@@ -243,7 +246,7 @@ def analyze_object_roles_prd(auth_object: str) -> dict[str, Any]:
             "auth_object_text": object_text,
             "count": len(role_rows),
             "roles": role_rows,
-            "system": SYSTEM_NAME,
+            "system": target_env,
             "client": params["client"],
         }
         if warnings:

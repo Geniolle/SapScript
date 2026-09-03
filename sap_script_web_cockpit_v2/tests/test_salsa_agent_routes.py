@@ -63,6 +63,22 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         job = store.get_job(data["job_id"])
         self.assertEqual(job["task"], "pfcg_role_analysis")
         self.assertEqual(job["params"].get("role_name"), "Z_FI_CLIENTES")
+        self.assertEqual(job["params"].get("system"), "PRD")  # default
+
+    def test_pfcg_analyze_passes_system(self) -> None:
+        data = _body(
+            main.api_salsa_it_pfcg_analyze(
+                main.SalsaItPfcgAnalyzeRequest(role_name="Z_X", system="qad")
+            )
+        )
+        self.assertEqual(store.get_job(data["job_id"])["params"].get("system"), "QAD")
+
+    def test_pfcg_analyze_rejects_bad_system(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_pfcg_analyze(
+                main.SalsaItPfcgAnalyzeRequest(role_name="Z_X", system="XPTO")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
 
     def test_pfcg_analyze_rejects_invalid_role_name(self) -> None:
         with self.assertRaises(HTTPException) as ctx:

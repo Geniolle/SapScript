@@ -17,6 +17,8 @@ from typing import Any
 from sap_rfc._rfc_common import (
     SYSTEM_NAME,
     build_connection_params,
+    build_connection_params_for,
+    resolve_target_env,
     choose_best_text,
     classify_import_error,
     classify_rfc_error,
@@ -76,7 +78,7 @@ def _error_result(username: str, error_type: str, message: str, *, details: str 
         "username": username,
         "error_type": error_type,
         "message": message,
-        "system": SYSTEM_NAME,
+        "system": resolve_target_env(),
         "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
     }
     if details:
@@ -143,7 +145,8 @@ def analyze_user_roles_prd(username: str) -> dict[str, Any]:
     try:
         project_root = find_project_root()
         load_project_env(project_root)
-        params = build_connection_params()
+        target_env = resolve_target_env()
+        params = build_connection_params_for(target_env)
     except Exception as exc:
         return _error_result(norm_user, "CONFIG_ERROR", str(exc), details=format_exception(exc))
 
@@ -187,7 +190,7 @@ def analyze_user_roles_prd(username: str) -> dict[str, Any]:
                 "username": norm_user,
                 "count": 0,
                 "roles": [],
-                "system": SYSTEM_NAME,
+                "system": target_env,
                 "client": params["client"],
             }
 
@@ -218,7 +221,7 @@ def analyze_user_roles_prd(username: str) -> dict[str, Any]:
             "username": norm_user,
             "count": len(role_rows),
             "roles": role_rows,
-            "system": SYSTEM_NAME,
+            "system": target_env,
             "client": params["client"],
         }
         if warnings:

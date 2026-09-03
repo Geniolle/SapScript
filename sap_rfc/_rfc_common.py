@@ -18,7 +18,7 @@ REQUIRED_ENV_VARS = [
 ROLE_NAME_RE = re.compile(r"^[A-Z0-9_/\-:]+$")
 DELIMITER = "|"
 SYSTEM_NAME = "PRD"
-KNOWN_ENVIRONMENTS = ("DEV", "QAD", "PRD")
+KNOWN_ENVIRONMENTS = ("DEV", "QAD", "PRD", "CUA")
 
 
 def find_project_root() -> Path:
@@ -156,6 +156,24 @@ def build_connection_params_for_env(environment: str) -> dict[str, str]:
         "client": os.environ[f"SAP_{env}_CLIENT"],
         "lang": os.getenv(f"SAP_{env}_LANG", "PT").strip() or "PT",
     }
+
+
+def build_connection_params_for(environment: str | None = None) -> dict[str, str]:
+    """Params de ligacao para o ambiente pedido.
+
+    - Vazio/None ou 'PRD' -> `build_connection_params()` (caminho PRD historico).
+    - DEV/QAD/CUA -> `build_connection_params_for_env(env)` (SAP_{ENV}_*).
+    """
+    env = str(environment or "").strip().upper() or "PRD"
+    if env == "PRD":
+        return build_connection_params()
+    return build_connection_params_for_env(env)
+
+
+def resolve_target_env(default: str = "PRD") -> str:
+    """Ambiente-alvo lido de PFCG_TARGET_ENV (posto pelo worker), validado."""
+    env = os.getenv("PFCG_TARGET_ENV", "").strip().upper() or default
+    return env if env in KNOWN_ENVIRONMENTS else default
 
 
 def make_read_only_guard(allowed_tables: tuple[str, ...]) -> SafetyGuard:

@@ -89,6 +89,7 @@ from web_api.pfcg_common import (
     PFCG_RFC_CREATE_ENVIRONMENT,
     PFCG_RFC_DELETE_ENVIRONMENT,
     _validate_pfcg_role_name_or_400,
+    _validate_pfcg_system_or_400,
     _safe_pfcg_failed_message,
     _safe_pfcg_sub_result,
     _safe_pfcg_rfc_create_result,
@@ -680,6 +681,7 @@ class SapQueryRequest(BaseModel):
 
 class SalsaItPfcgAnalyzeRequest(BaseModel):
     role_name: str
+    system: str = "PRD"
 
 
 class SalsaItPfcgCreateAnalyzeRequest(BaseModel):
@@ -726,14 +728,17 @@ class SalsaItPfcgCompostaConfirmRequest(BaseModel):
 
 class SalsaItPfcgTransactionRolesRequest(BaseModel):
     tcode: str
+    system: str = "PRD"
 
 
 class SalsaItPfcgObjectRolesRequest(BaseModel):
     auth_object: str
+    system: str = "PRD"
 
 
 class SalsaItPfcgUserRolesRequest(BaseModel):
     username: str
+    system: str = "PRD"
 
 
 
@@ -745,9 +750,10 @@ class SalsaItPfcgUserRolesRequest(BaseModel):
 @app.post("/api/salsa-it-agent/pfcg/analyze")
 def api_salsa_it_pfcg_analyze(payload: SalsaItPfcgAnalyzeRequest) -> JSONResponse:
     role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    system = _validate_pfcg_system_or_400(payload.system)
 
     try:
-        job = create_job("pfcg_role_analysis", {"role_name": role_name})
+        job = create_job("pfcg_role_analysis", {"role_name": role_name, "system": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -816,9 +822,10 @@ def api_salsa_it_pfcg_analyze_job(job_id: str) -> JSONResponse:
 @app.post("/api/salsa-it-agent/pfcg/transactions/analyze")
 def api_salsa_it_pfcg_transactions_analyze(payload: SalsaItPfcgAnalyzeRequest) -> JSONResponse:
     role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    system = _validate_pfcg_system_or_400(payload.system)
 
     try:
-        job = create_job("pfcg_role_transactions_analysis", {"role_name": role_name})
+        job = create_job("pfcg_role_transactions_analysis", {"role_name": role_name, "system": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -872,9 +879,10 @@ def api_salsa_it_pfcg_transactions_analyze_job(job_id: str) -> JSONResponse:
 @app.post("/api/salsa-it-agent/pfcg/users/analyze")
 def api_salsa_it_pfcg_users_analyze(payload: SalsaItPfcgAnalyzeRequest) -> JSONResponse:
     role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    system = _validate_pfcg_system_or_400(payload.system)
 
     try:
-        job = create_job("pfcg_role_users_analysis", {"role_name": role_name})
+        job = create_job("pfcg_role_users_analysis", {"role_name": role_name, "system": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -934,9 +942,10 @@ def api_salsa_it_pfcg_transaction_roles(payload: SalsaItPfcgTransactionRolesRequ
     tcode = str(payload.tcode or "").strip().upper()
     if not tcode or len(tcode) > 40:
         raise HTTPException(status_code=400, detail="Indique um código de transação válido.")
+    system = _validate_pfcg_system_or_400(payload.system)
 
     try:
-        job = create_job("pfcg_transaction_roles", {"tcode": tcode})
+        job = create_job("pfcg_transaction_roles", {"tcode": tcode, "system": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1002,9 +1011,10 @@ def api_salsa_it_pfcg_object_roles(payload: SalsaItPfcgObjectRolesRequest) -> JS
     auth_object = str(payload.auth_object or "").strip().upper()
     if not auth_object or len(auth_object) > 40:
         raise HTTPException(status_code=400, detail="Indique um objeto de autorização válido.")
+    system = _validate_pfcg_system_or_400(payload.system)
 
     try:
-        job = create_job("pfcg_object_roles", {"auth_object": auth_object})
+        job = create_job("pfcg_object_roles", {"auth_object": auth_object, "system": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1070,9 +1080,10 @@ def api_salsa_it_pfcg_user_roles(payload: SalsaItPfcgUserRolesRequest) -> JSONRe
     username = str(payload.username or "").strip().upper()
     if not username or len(username) > 12:
         raise HTTPException(status_code=400, detail="Indique um utilizador SAP válido.")
+    system = _validate_pfcg_system_or_400(payload.system)
 
     try:
-        job = create_job("pfcg_user_roles", {"username": username})
+        job = create_job("pfcg_user_roles", {"username": username, "system": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

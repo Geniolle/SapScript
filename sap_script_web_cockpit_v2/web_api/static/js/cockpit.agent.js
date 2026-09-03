@@ -36,6 +36,14 @@
     const ASI_PFCG_AUTHOBJ_PATTERN = /^[A-Z0-9_/]{1,40}$/;
     const ASI_PFCG_USER_INPUT = 'pfcg_username';
     const ASI_PFCG_USER_PATTERN = /^[A-Z0-9_.\-]{1,12}$/;
+    // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
+    let asiPfcgSystem = 'PRD';
+    const ASI_PFCG_SYSTEM_ACTIONS = [
+        { id: 'pfcg-system-dev', label: 'DEV', icon: 'analysis' },
+        { id: 'pfcg-system-qad', label: 'QAD', icon: 'analysis' },
+        { id: 'pfcg-system-prd', label: 'PRD', icon: 'analysis' },
+        { id: 'pfcg-system-cua', label: 'CUA', icon: 'analysis' }
+    ];
     const ASI_PFCG_POLL_INTERVAL_MS = 1000;
     const ASI_PFCG_POLL_TIMEOUT_MS = 60000;
     const ASI_PFCG_INVALID_MESSAGE = 'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".';
@@ -1196,7 +1204,7 @@
                 <svg width="14" height="14" viewBox="0 0 50 50" aria-hidden="true" style="flex:0 0 auto;animation: spin 1s linear infinite;color:#94a3b8;">
                     <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray: 1, 150; stroke-dashoffset: 0; animation: dash 1.5s ease-in-out infinite;"></circle>
                 </svg>
-                <span style="font-weight:600;">A analisar ${escapeHtml(roleName)} no SAP PRD...</span>
+                <span style="font-weight:600;">A analisar ${escapeHtml(roleName)} no SAP ${asiPfcgSystem}...</span>
             </div>
         `;
     }
@@ -2345,7 +2353,7 @@
             return;
         }
 
-        const processingMessage = asiCreateMessage('assistant', `A analisar ${roleName} no SAP PRD...`, {
+        const processingMessage = asiCreateMessage('assistant', `A analisar ${roleName} no SAP ${asiPfcgSystem}...`, {
             html: asiBuildPfcgProcessingHtml(roleName),
             isProcessing: true
         });
@@ -2370,7 +2378,8 @@
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    role_name: roleName
+                    role_name: roleName,
+                    system: asiPfcgSystem
                 })
             });
             const data = await response.json().catch(() => ({}));
@@ -2430,9 +2439,10 @@
         const tcodeDesc = result.tcode_description ? ` — ${escapeHtml(result.tcode_description)}` : '';
         const roles = Array.isArray(result.roles) ? result.roles : [];
         const count = Number(result.count != null ? result.count : roles.length);
+        const sys = escapeHtml(result.system || 'PRD');
         const heading = count > 0
-            ? `✓ A transação ${escapeHtml(tcode)} está em ${count} função(ões) Z* em PRD.`
-            : `A transação ${escapeHtml(tcode)} não está em nenhuma função Z* em PRD.`;
+            ? `✓ A transação ${escapeHtml(tcode)} está em ${count} função(ões) Z* em ${sys}.`
+            : `A transação ${escapeHtml(tcode)} não está em nenhuma função Z* em ${sys}.`;
         const bodyHtml = roles.length
             ? roles.map((item) => {
                 const parents = Array.isArray(item.composite_parents) ? item.composite_parents : [];
@@ -2558,7 +2568,7 @@
 
     async function asiStartPfcgTransactionRoles(tcode) {
         const { input } = asiGetElements();
-        const processingText = `A procurar as funções com a transação ${tcode} em SAP PRD...`;
+        const processingText = `A procurar as funções com a transação ${tcode} em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
             html: asiBuildPfcgGenericProcessingHtml(processingText),
             isProcessing: true
@@ -2571,7 +2581,7 @@
             const response = await fetch('/api/salsa-it-agent/pfcg/transaction/roles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ tcode })
+                body: JSON.stringify({ tcode, system: asiPfcgSystem })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -2600,9 +2610,10 @@
         const objDesc = result.auth_object_text ? ` — ${escapeHtml(result.auth_object_text)}` : '';
         const roles = Array.isArray(result.roles) ? result.roles : [];
         const count = Number(result.count != null ? result.count : roles.length);
+        const sys = escapeHtml(result.system || 'PRD');
         const heading = count > 0
-            ? `✓ O objeto ${escapeHtml(obj)} está em ${count} função(ões) Z* em PRD.`
-            : `O objeto ${escapeHtml(obj)} não está em nenhuma função Z* em PRD.`;
+            ? `✓ O objeto ${escapeHtml(obj)} está em ${count} função(ões) Z* em ${sys}.`
+            : `O objeto ${escapeHtml(obj)} não está em nenhuma função Z* em ${sys}.`;
         const bodyHtml = roles.length
             ? roles.map((item) => {
                 const parents = Array.isArray(item.composite_parents) ? item.composite_parents : [];
@@ -2728,7 +2739,7 @@
 
     async function asiStartPfcgObjectRoles(authObject) {
         const { input } = asiGetElements();
-        const processingText = `A procurar as funções com o objeto ${authObject} em SAP PRD...`;
+        const processingText = `A procurar as funções com o objeto ${authObject} em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
             html: asiBuildPfcgGenericProcessingHtml(processingText),
             isProcessing: true
@@ -2741,7 +2752,7 @@
             const response = await fetch('/api/salsa-it-agent/pfcg/object/roles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ auth_object: authObject })
+                body: JSON.stringify({ auth_object: authObject, system: asiPfcgSystem })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -2775,9 +2786,10 @@
         const user = String(result.username || '');
         const roles = Array.isArray(result.roles) ? result.roles : [];
         const count = Number(result.count != null ? result.count : roles.length);
+        const sys = escapeHtml(result.system || 'PRD');
         const heading = count > 0
-            ? `✓ O utilizador ${escapeHtml(user)} tem ${count} função(ões) atribuída(s) em PRD.`
-            : `O utilizador ${escapeHtml(user)} não tem funções atribuídas em PRD.`;
+            ? `✓ O utilizador ${escapeHtml(user)} tem ${count} função(ões) atribuída(s) em ${sys}.`
+            : `O utilizador ${escapeHtml(user)} não tem funções atribuídas em ${sys}.`;
         const bodyHtml = roles.length
             ? roles.map((item) => {
                 const validity = (item.valid_from || item.valid_to)
@@ -2903,7 +2915,7 @@
 
     async function asiStartPfcgUserRoles(username) {
         const { input } = asiGetElements();
-        const processingText = `A procurar as funções do utilizador ${username} em SAP PRD...`;
+        const processingText = `A procurar as funções do utilizador ${username} em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
             html: asiBuildPfcgGenericProcessingHtml(processingText),
             isProcessing: true
@@ -2916,7 +2928,7 @@
             const response = await fetch('/api/salsa-it-agent/pfcg/user/roles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ username })
+                body: JSON.stringify({ username, system: asiPfcgSystem })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -3456,8 +3468,8 @@
             ? `Quero analisar as transações da função ${roleName}.`
             : `Quero analisar os utilizadores atribuídos à função ${roleName}.`;
         const processingText = kind === 'transactions'
-            ? 'A consultar as transações atribuídas à função no SAP PRD...'
-            : 'A consultar os utilizadores atribuídos à função no SAP PRD...';
+            ? `A consultar as transações atribuídas à função no SAP ${asiPfcgSystem}...`
+            : `A consultar os utilizadores atribuídos à função no SAP ${asiPfcgSystem}...`;
         const endpoint = kind === 'transactions'
             ? '/api/salsa-it-agent/pfcg/transactions/analyze'
             : '/api/salsa-it-agent/pfcg/users/analyze';
@@ -3478,7 +3490,7 @@
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
-                body: JSON.stringify({ role_name: roleName })
+                body: JSON.stringify({ role_name: roleName, system: asiPfcgSystem })
             });
             const data = await response.json().catch(() => ({}));
 
@@ -5789,6 +5801,33 @@
 
         if (actionId === ASI_MAIN_MENU_ACTION.id) {
             asiPresentMainMenu();
+            return;
+        }
+
+        // Passo "Em que sistema?" antes do menu do Perfil de Autorizacao.
+        if (actionId === 'perfil-autorizacao') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            const node = asiFindQuickAction('perfil-autorizacao', salsaAgentActions);
+            asiAppendMessage(asiCreateMessage('user', node && node.prompt ? node.prompt : 'Quero trabalhar com Perfil de Autorização.'));
+            asiAppendMessage(asiCreateMessage('assistant', 'Em que sistema quer trabalhar?', {
+                actions: ASI_PFCG_SYSTEM_ACTIONS,
+                actionLevel: 2,
+                parentActionId: 'perfil-autorizacao',
+                selectionGroupKey: '__pfcg_system__'
+            }));
+            asiUpdateComposerState();
+            return;
+        }
+        if (typeof actionId === 'string' && actionId.indexOf('pfcg-system-') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            const sys = actionId.replace('pfcg-system-', '').toUpperCase();
+            asiPfcgSystem = ['DEV', 'QAD', 'PRD', 'CUA'].indexOf(sys) >= 0 ? sys : 'PRD';
+            asiAppendMessage(asiCreateMessage('user', `Sistema: ${asiPfcgSystem}`));
+            asiAppendMessage(asiCreateMessage('assistant', `O que deseja fazer com o Perfil de Autorização? (sistema: ${asiPfcgSystem})`, {
+                actions: asiPfcgRootMenuActions(),
+                ...ASI_PFCG_ROOT_MENU_META
+            }));
+            asiUpdateComposerState();
             return;
         }
 

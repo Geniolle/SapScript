@@ -489,6 +489,7 @@ def _run_pfcg_role_analysis(params: dict[str, Any]) -> tuple[str, str]:
         raise SapExecutionError(f"Python RFC não encontrado: {rfc_python}")
 
     env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
     command = [
         str(rfc_python),
         "-m",
@@ -596,6 +597,7 @@ def _run_pfcg_role_sub_analysis(
         raise SapExecutionError(f"Python RFC não encontrado: {rfc_python}")
 
     env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
     command = [
         str(rfc_python),
         "-m",
@@ -705,6 +707,7 @@ def _run_pfcg_transaction_roles(params: dict[str, Any]) -> tuple[str, str]:
         raise SapExecutionError(f"Python RFC nao encontrado: {rfc_python}")
 
     env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
     command = [str(rfc_python), "-m", "sap_rfc.pfcg_transaction_roles_cli", "--tcode", tcode]
 
     try:
@@ -787,6 +790,7 @@ def _run_pfcg_object_roles(params: dict[str, Any]) -> tuple[str, str]:
         raise SapExecutionError(f"Python RFC nao encontrado: {rfc_python}")
 
     env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
     command = [str(rfc_python), "-m", "sap_rfc.pfcg_object_roles_cli", "--object", auth_object]
 
     try:
@@ -869,6 +873,7 @@ def _run_pfcg_user_roles(params: dict[str, Any]) -> tuple[str, str]:
         raise SapExecutionError(f"Python RFC nao encontrado: {rfc_python}")
 
     env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
     command = [str(rfc_python), "-m", "sap_rfc.pfcg_user_roles_cli", "--user", username]
 
     try:
