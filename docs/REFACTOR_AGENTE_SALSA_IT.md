@@ -32,11 +32,20 @@ worker + SAP a correr.
 | 1 | Remover footguns confirmados (2 funcoes duplicadas mortas + `if (false ...)`) | **Feito** | `Fase 1: remover footguns confirmados` |
 | 2a | Extrair o `<script>` inline (11 230 linhas) para `web_api/static/js/cockpit.js` + `window.__COCKPIT__` | **Feito** | `Fase 2a: extrair o <script> inline` |
 | 4 (parcial) | Limpar jobs orfaos do worker no arranque (`reap_orphan_running_jobs` + endpoint + hook) | **Feito** | `Fase 4 (parcial): limpar jobs orfaos` |
-| 1b | Unificar os ~10 loops de polling num `asiPollJob({...})`; `asiSetState(patch)` unico; `isBusy` sempre limpo em `finally` | **Pendente** | — |
-| 2b | Dividir `cockpit.js` em modulos (`core-chat.js`, `asi-menu.js`, `asi-pfcg.js`, `asi-fi-f110.js`, `jira-views.js`, `jobs-dashboard.js`, `boot.js`) carregados por ordem | **Pendente** | — |
-| 3 | `main.py` -> `web_api/routers/*.py` (`APIRouter`); helper unico para os ~12 pares de rota criar-job/poll-job | **Pendente** | — |
-| 4 (resto) | `worker/sap_tasks.py` -> `worker/pfcg_*_job.py` + `TASK_HANDLERS` dict | **Pendente** | — |
-| 5 | Substituir a cascata `awaitingInput` por tabela de estados explicita | **Pendente** | — |
+| — | `js_smoke` passa a avaliar cada ficheiro como `<script>` separado (apanha quebras de ordem de carregamento) | **Feito** | `js_smoke: avaliar cada ficheiro como <script> separado` |
+| 1b | Unificar os ~10 loops de polling num `asiPollJob({...})`; `asiSetState(patch)` unico; `isBusy` sempre limpo em `finally` | **Pendente** — risco comportamental; 1 fluxo por commit | — |
+| 2b | Dividir `cockpit.js` em modulos carregados por ordem | **Pendente** — `cockpit.js` esta interleaved (bloco ASI ~2399-10278, "Filter Sidebar" volta depois); precisa de mapa de referencias em load-time antes de cortar | — |
+| 3 | `main.py` -> `web_api/routers/*.py` (`APIRouter`) | **Pendente** — helpers partilhados (`_json_no_store`, `_validate_pfcg_role_name_or_400`) e modelos interleaved com as rotas; extrair primeiro para `web_api/common.py` | — |
+| 4 (resto) | `worker/sap_tasks.py` -> `worker/pfcg_*_job.py` + `TASK_HANDLERS` dict | **Pendente** — mais isolado | — |
+| 5 | Substituir a cascata `awaitingInput` por tabela de estados explicita | **Pendente** — depende de 1b; risco comportamental alto | — |
+
+### Recomendacao de execucao das pendentes
+
+Cada pendente e uma cirurgia num ficheiro grande e partilhado, e a rede de
+seguranca automatica so cobre parte (nao cobre composta/create-rfc/delete-rfc/
+transport nem o render dos resultados no chat). Fazer **uma pendente por
+iteracao**, com o teste manual dos fluxos pelo meio, em vez de as encadear.
+Ordem sugerida por risco crescente: **4-resto -> 3 -> 2b -> 1b -> 5**.
 
 ## Verificacao exigida pelas fases pendentes
 
