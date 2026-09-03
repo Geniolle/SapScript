@@ -6,6 +6,9 @@ import requests
 from dotenv import load_dotenv
 
 DEFAULT_SYNC_PROJECTS = ("IT - Salsa Jeans", "SAP - Desenvolvimento")
+DEFAULT_JIRA_BASE_URL = "https://salsajeans.atlassian.net"
+_JIRA_SESSION = requests.Session()
+_JIRA_SESSION.trust_env = False
 
 
 def _load_project_env() -> None:
@@ -36,6 +39,17 @@ def _load_project_env() -> None:
 
 
 _load_project_env()
+
+
+def _get_jira_base_url() -> str:
+    for env_name in ("JIRA_DADOS_COMP_HASH", "JIRA_BASE_URL"):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            cleaned = value.rstrip("/")
+            if not cleaned.startswith(("http://", "https://")):
+                cleaned = f"https://{cleaned}"
+            return cleaned
+    return DEFAULT_JIRA_BASE_URL
 
 
 def _split_env_csv(value: str) -> list[str]:
@@ -89,7 +103,7 @@ def download_ticket_attachments_to_dir(
     Returns:
         Lista de paths Windows dos ficheiros descarregados (.xlsx mais recente primeiro).
     """
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -106,7 +120,7 @@ def download_ticket_attachments_to_dir(
     # 1. Buscar anexos e sumário do ticket
     url = f"{jira_base}/{jira_api_path}/issue/{ticket_key_upper}"
     try:
-        res = requests.get(url, params={"fields": "attachment,summary"}, auth=auth,
+        res = _JIRA_SESSION.get(url, params={"fields": "attachment,summary"}, auth=auth,
                            headers=headers, timeout=30)
         res.raise_for_status()
     except Exception as e:
@@ -156,7 +170,7 @@ def download_ticket_attachments_to_dir(
             continue
 
         try:
-            with requests.get(content_url, auth=auth, stream=True, timeout=60) as r:
+            with _JIRA_SESSION.get(content_url, auth=auth, stream=True, timeout=60) as r:
                 r.raise_for_status()
                 with open(target, "wb") as f:
                     for chunk in r.iter_content(chunk_size=8192):
@@ -358,7 +372,7 @@ def _fetch_single_issue(
         ])
     }
     try:
-        res = requests.get(url, auth=auth, headers=headers, params=params, timeout=15)
+        res = _JIRA_SESSION.get(url, auth=auth, headers=headers, params=params, timeout=15)
         res.raise_for_status()
         return _parse_issue(res.json())
     except Exception as e:
@@ -367,7 +381,7 @@ def _fetch_single_issue(
 
 
 def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list[dict]:
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -422,7 +436,7 @@ def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list
             payload.pop("nextPageToken", None)
 
         try:
-            response = requests.post(
+            response = _JIRA_SESSION.post(
                 url, auth=auth, headers=headers, json=payload, timeout=15
             )
             response.raise_for_status()
@@ -458,7 +472,7 @@ def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list
 
 
 def assign_jira_ticket(key: str, assignee_name: str) -> bool:
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -477,13 +491,13 @@ def assign_jira_ticket(key: str, assignee_name: str) -> bool:
         # If it's a special string like 'Sem responsável', we want to unassign (set assignee to None)
         if not assignee_name or assignee_name.lower() in ("sem responsável", "unassigned", "none", ""):
             assign_url = f"{jira_base}/{jira_api_path}/issue/{key}/assignee"
-            res = requests.put(assign_url, auth=auth, headers=headers, json={"accountId": None}, timeout=15)
+            res = _JIRA_SESSION.put(assign_url, auth=auth, headers=headers, json={"accountId": None}, timeout=15)
             return res.ok
 
         # Search for assignee_name to find their accountId
         search_url = f"{jira_base}/{jira_api_path}/user/search"
         params = {"query": assignee_name, "maxResults": 1}
-        res = requests.get(search_url, auth=auth, headers=headers, params=params, timeout=15)
+        res = _JIRA_SESSION.get(search_url, auth=auth, headers=headers, params=params, timeout=15)
         res.raise_for_status()
         users = res.json()
         if not users:
@@ -497,7 +511,7 @@ def assign_jira_ticket(key: str, assignee_name: str) -> bool:
 
         # Assign issue
         assign_url = f"{jira_base}/{jira_api_path}/issue/{key}/assignee"
-        res = requests.put(assign_url, auth=auth, headers=headers, json={"accountId": account_id}, timeout=15)
+        res = _JIRA_SESSION.put(assign_url, auth=auth, headers=headers, json={"accountId": account_id}, timeout=15)
         res.raise_for_status()
         return True
     except Exception as e:
@@ -506,7 +520,7 @@ def assign_jira_ticket(key: str, assignee_name: str) -> bool:
 
 
 def update_jira_ticket_type(key: str, ticket_type: str) -> bool:
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -531,7 +545,7 @@ def update_jira_ticket_type(key: str, ticket_type: str) -> bool:
     }
 
     try:
-        res = requests.put(url, auth=auth, headers=headers, json=payload, timeout=15)
+        res = _JIRA_SESSION.put(url, auth=auth, headers=headers, json=payload, timeout=15)
         res.raise_for_status()
         return True
     except Exception as e:
@@ -540,7 +554,7 @@ def update_jira_ticket_type(key: str, ticket_type: str) -> bool:
 
 
 def get_jira_issue_transitions(key: str) -> list[dict]:
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -556,7 +570,7 @@ def get_jira_issue_transitions(key: str) -> list[dict]:
 
     url = f"{jira_base}/{jira_api_path}/issue/{key}/transitions"
     try:
-        res = requests.get(url, auth=auth, headers=headers, timeout=15)
+        res = _JIRA_SESSION.get(url, auth=auth, headers=headers, timeout=15)
         res.raise_for_status()
         data = res.json()
         transitions = data.get("transitions", [])
@@ -567,7 +581,7 @@ def get_jira_issue_transitions(key: str) -> list[dict]:
 
 
 def transition_jira_issue(key: str, transition_id: str) -> bool:
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -589,7 +603,7 @@ def transition_jira_issue(key: str, transition_id: str) -> bool:
     }
 
     try:
-        res = requests.post(url, auth=auth, headers=headers, json=payload, timeout=15)
+        res = _JIRA_SESSION.post(url, auth=auth, headers=headers, json=payload, timeout=15)
         res.raise_for_status()
         return True
     except Exception as e:
@@ -598,7 +612,7 @@ def transition_jira_issue(key: str, transition_id: str) -> bool:
 
 
 def update_jira_ticket_supplier(key: str, supplier: str) -> bool:
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -623,7 +637,7 @@ def update_jira_ticket_supplier(key: str, supplier: str) -> bool:
     }
 
     try:
-        res = requests.put(url, auth=auth, headers=headers, json=payload, timeout=15)
+        res = _JIRA_SESSION.put(url, auth=auth, headers=headers, json=payload, timeout=15)
         res.raise_for_status()
         return True
     except Exception as e:
@@ -656,7 +670,7 @@ def add_jira_comment(key: str, comment_text: str) -> bool:
     Returns:
         True se bem-sucedido, False caso contrário.
     """
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -693,7 +707,7 @@ def add_jira_comment(key: str, comment_text: str) -> bool:
     }
 
     try:
-        res = requests.post(url, auth=auth, headers=headers, json=payload, timeout=15)
+        res = _JIRA_SESSION.post(url, auth=auth, headers=headers, json=payload, timeout=15)
         res.raise_for_status()
         print(f"[COMMENT] Comentário adicionado ao ticket {key}.")
         return True
@@ -707,7 +721,7 @@ def fetch_ticket_details(ticket_key: str) -> dict:
     Busca os detalhes de um único ticket (Summary, Description, Comments) do JIRA,
     convertendo campos no formato ADF (Atlassian Document Format) para texto simples.
     """
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -723,7 +737,7 @@ def fetch_ticket_details(ticket_key: str) -> dict:
     url = f"{jira_base}/{jira_api_path}/issue/{ticket_key.upper().strip()}"
 
     try:
-        res = requests.get(
+        res = _JIRA_SESSION.get(
             url,
             auth=auth,
             headers=headers,
@@ -783,7 +797,7 @@ def fetch_ticket_details(ticket_key: str) -> dict:
 
 
 def fetch_single_ticket_for_trigger(key: str) -> dict | None:
-    jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+    jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
     jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")

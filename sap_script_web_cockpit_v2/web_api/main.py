@@ -19,6 +19,7 @@ last_worker_ping: float = 0.0
 _JIRA_ENV_SOURCE = "process environment"
 _JIRA_ENV_KEYS = (
     "JIRA_DADOS_COMP_HASH",
+    "JIRA_BASE_URL",
     "JIRA_EMAIL",
     "JIRA_TOKEN",
     "JIRA_DADOS_HASH",
@@ -58,6 +59,14 @@ def _log_jira_env_boot_status() -> None:
         f"{_JIRA_ENV_SOURCE} "
         f"present={present or '[]'} "
         f"missing={missing or '[]'}"
+    )
+
+
+def _get_jira_base_url() -> str:
+    return (
+        os.getenv("JIRA_DADOS_COMP_HASH", "").strip()
+        or os.getenv("JIRA_BASE_URL", "").strip()
+        or "https://salsajeans.atlassian.net"
     )
 
 
@@ -435,7 +444,7 @@ def index(request: Request) -> HTMLResponse:
             "ambientes": get_available_environments(),
             "processos": get_available_processes(),
             "fi_defaults": _get_fi_default_context(),
-            "jira_base": os.getenv("JIRA_DADOS_COMP_HASH", "https://salsajeans.atlassian.net").strip(),
+            "jira_base": _get_jira_base_url(),
             "poll_seconds": POLL_SECONDS,
         },
     )

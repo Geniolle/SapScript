@@ -4738,6 +4738,12 @@
     }
 
     let asiConversationState = asiDefaultConversationState();
+    // Declarado antes de salsaAgentActions porque este é espalhado (...) dentro do array.
+    const ASI_MAIN_MENU_ACTION = {
+        id: '__asi-main-menu__',
+        label: 'Menu Inicial',
+        icon: 'analysis'
+    };
     const salsaAgentActions = [
         {
             id: 'configuracoes',
@@ -4757,7 +4763,7 @@
                     children: [
                         {
                             id: 'pfcg-create',
-                            label: 'Função Simples',
+                            label: 'Criar funções',
                             icon: 'shield-plus',
                             processo: 'Funções PFCG',
                             subprocesso: 'A. PFCG_CREATE.py',
@@ -4812,6 +4818,10 @@
                                     ]
                                 }
                             ]
+                        },
+                        {
+                            ...ASI_MAIN_MENU_ACTION,
+                            prompt: 'Quero voltar ao menu principal.'
                         },
                         {
                             id: 'pfcg-composta',
@@ -5372,12 +5382,6 @@
         return asiRenderQuickActionButtons(salsaAgentActions, 0, '', '__root__');
     }
 
-    const ASI_MAIN_MENU_ACTION = {
-        id: '__asi-main-menu__',
-        label: 'Menu Inicial',
-        icon: 'analysis'
-    };
-
     function asiPresentMainMenu() {
         if (asiChatMockTimer) {
             clearTimeout(asiChatMockTimer);
@@ -5736,6 +5740,14 @@
                 color: var(--text-secondary);
                 line-height: 1.35;
                 overflow-wrap: anywhere;
+            }
+
+            .pfcg-create-grid {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 12px;
+                width: 100%;
+                align-items: stretch;
             }
 
             .asi-pfcg-result-heading-row {
@@ -6435,6 +6447,7 @@
     }
 
     function asiBuildPfcgExcelResultHtml(result, fileName) {
+        asiEnsurePfcgResultStyles();
         const status = String(result?.status || '').toUpperCase();
         const roleInExcel = result?.role_in_excel || result?.role || '';
         const roleValue = result?.role || (result?.sheet === 'PFCG_CREATE' ? 'PFCG_CREATE' : (roleInExcel || 'N/D'));
@@ -6469,11 +6482,11 @@
             <div>
                 <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:${accent};">${heading}</div>
                 <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.2);">
-                    ${description}
-                    <div class="asi-pfcg-excel-summary-grid">
-                        ${asiBuildPfcgExcelSummaryItem('Perfil', roleValue)}
-                        ${asiBuildPfcgExcelSummaryItem('Ficheiro', fileName)}
-                        ${asiBuildPfcgExcelSummaryItem('Sistema', result?.system)}
+                ${description}
+                <div class="asi-pfcg-excel-summary-grid">
+                    ${asiBuildPfcgExcelSummaryItem('Perfil', roleValue)}
+                    ${asiBuildPfcgExcelSummaryItem('Ficheiro', fileName)}
+                    ${asiBuildPfcgExcelSummaryItem('Sistema', result?.system)}
                         ${asiBuildPfcgExcelSummaryItem('Cliente', result?.client)}
                     </div>
                     ${sheet}
@@ -6482,8 +6495,8 @@
                 ${summaryHtml}
                 ${warningsHtml}
                 ${errorsHtml}
-                ${rowsHtml}
                 ${finalNote}
+                ${rowsHtml}
             </div>
         `;
     }
@@ -7181,13 +7194,15 @@
                     asiUpdateMessage(messageId, {
                         text: successText,
                         html: asiBuildPfcgExcelResultHtml(result, fileName),
-                        isProcessing: false
+                        isProcessing: false,
+                        wide: true
                     });
                 } else {
                     asiUpdateMessage(messageId, {
                         text: 'Não é possível preparar a criação.',
                         html: asiBuildPfcgExcelResultHtml(result, fileName),
-                        isProcessing: false
+                        isProcessing: false,
+                        wide: true
                     });
                 }
                 asiResetPfcgInteraction();
@@ -10788,12 +10803,8 @@
             if (jiraSyncWrapper) jiraSyncWrapper.style.display = 'none';
             if (refreshBtn) refreshBtn.style.display = 'none';
             if (newJobBtn) newJobBtn.style.display = 'none';
-            // Load tickets if needed, then render dashboard
-            if (jiraTickets.length === 0) {
-                loadJiraTickets().then(() => applyDashFilters());
-            } else {
-                applyDashFilters();
-            }
+            // Refresh the backing ticket list so the dashboard stays in sync.
+            loadJiraTickets(true).then(() => applyDashFilters());
         } else if (viewName === 'historico') {
             const navItem = document.getElementById('nav-item-historico');
             if (navItem) navItem.classList.add('active');
@@ -11529,9 +11540,18 @@
         // ── Auto-sync JIRA tickets on a configurable interval ────────────
         setInterval(async () => {
             const ticketsWrapper = document.getElementById('view-jira-tickets-wrapper');
-            // Only refresh when the Tickets list is visible
-            if (ticketsWrapper && ticketsWrapper.style.display !== 'none') {
+            const dashWrapper = document.getElementById('view-jira-dashboard');
+            const jiraView = document.getElementById('view-jira');
+            const jiraVisible =
+                (ticketsWrapper && ticketsWrapper.style.display !== 'none') ||
+                (dashWrapper && dashWrapper.style.display !== 'none') ||
+                (jiraView && jiraView.style.display !== 'none');
+            // Refresh whenever any JIRA surface is visible so the UI does not stay stale.
+            if (jiraVisible) {
                 await loadJiraTickets(true);
+                if (dashWrapper && dashWrapper.style.display !== 'none') {
+                    applyDashFilters();
+                }
             }
         }, JIRA_POLL_SECONDS * 1000);
         // ─────────────────────────────────────────────────────────────────

@@ -2,13 +2,41 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import time
 import traceback
+from pathlib import Path
 from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+def _bootstrap_import_paths() -> None:
+    worker_dir = Path(__file__).resolve().parent
+    cockpit_dir = worker_dir.parent
+    repo_root = worker_dir.parent.parent
+
+    candidate_paths = []
+    sap_script_project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
+    if sap_script_project_dir:
+        candidate_paths.append(sap_script_project_dir)
+    candidate_paths.append(str(repo_root))
+    candidate_paths.append(str(cockpit_dir))
+
+    existing_pythonpath = os.environ.get("PYTHONPATH", "").strip()
+    pythonpath_parts = [part for part in existing_pythonpath.split(os.pathsep) if part]
+
+    for path in candidate_paths:
+        if path not in sys.path:
+            sys.path.insert(0, path)
+        if path not in pythonpath_parts:
+            pythonpath_parts.insert(0, path)
+
+    os.environ["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+
+
+_bootstrap_import_paths()
 
 from sap_tasks import run_sap_task, JobCancelledException
 

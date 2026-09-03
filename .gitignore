@@ -26,3 +26,8 @@ sap_script_web_cockpit_v2/data/
 
 # Diagnóstico Payroll -> FI (output local)
 output/
+
+# Runtime/local artifacts
+sap_script_web_cockpit_v2/worker/worker_auto.log
+tests/*_tmp_*.sqlite3
+tests/_tmp_*

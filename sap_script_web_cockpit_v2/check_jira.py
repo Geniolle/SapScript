@@ -4,7 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path="../.env")
 
-jira_base = os.getenv("JIRA_DADOS_COMP_HASH", "").strip().rstrip("/")
+_JIRA_SESSION = requests.Session()
+_JIRA_SESSION.trust_env = False
+
+jira_base = (
+    os.getenv("JIRA_DADOS_COMP_HASH", "").strip()
+    or os.getenv("JIRA_BASE_URL", "").strip()
+    or "https://salsajeans.atlassian.net"
+).rstrip("/")
 jira_email = os.getenv("JIRA_EMAIL", "").strip()
 jira_token = os.getenv("JIRA_TOKEN", "").strip()
 jira_api_path = os.getenv("JIRA_DADOS_HASH", "rest/api/3").strip().strip("/")
@@ -39,7 +46,7 @@ def count_jira_tickets(jql):
         else:
             payload.pop("nextPageToken", None)
         try:
-            res = requests.post(url, auth=auth, headers=headers, json=payload, timeout=15)
+            res = _JIRA_SESSION.post(url, auth=auth, headers=headers, json=payload, timeout=15)
             res.raise_for_status()
             data = res.json()
             issues = data.get("issues", [])

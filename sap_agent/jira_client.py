@@ -11,6 +11,9 @@ import winocr
 from .config import JiraConfig
 from .models import TicketContext
 
+_JIRA_SESSION = requests.Session()
+_JIRA_SESSION.trust_env = False
+
 
 @dataclass
 class JiraClient:
@@ -27,14 +30,14 @@ class JiraClient:
             "maxResults": self.config.max_results,
             "fields": ["summary", "description", "comment", "labels", "components", "attachment"],
         }
-        response = requests.post(url, json=payload, auth=self.auth, timeout=30)
+        response = _JIRA_SESSION.post(url, json=payload, auth=self.auth, timeout=30)
         response.raise_for_status()
         data = response.json()
         return [self._to_ticket_context(issue) for issue in data.get("issues", [])]
 
     def add_comment(self, issue_key: str, body: str) -> None:
         url = f"{self.config.base_url}/rest/api/3/issue/{issue_key}/comment"
-        response = requests.post(url, json={"body": self._to_adf(body)}, auth=self.auth, timeout=30)
+        response = _JIRA_SESSION.post(url, json={"body": self._to_adf(body)}, auth=self.auth, timeout=30)
         response.raise_for_status()
 
     def _to_ticket_context(self, issue: dict[str, Any]) -> TicketContext:
@@ -86,7 +89,7 @@ class JiraClient:
                 
             try:
                 # Descarregar o anexo de imagem em memória
-                res = requests.get(content_url, auth=self.auth, timeout=15)
+                res = _JIRA_SESSION.get(content_url, auth=self.auth, timeout=15)
                 res.raise_for_status()
                 
                 # Ler com Pillow
@@ -119,7 +122,7 @@ class JiraClient:
             try:
                 if filename.endswith(".msg"):
                     import extract_msg
-                    res = requests.get(content_url, auth=self.auth, timeout=15)
+                    res = _JIRA_SESSION.get(content_url, auth=self.auth, timeout=15)
                     res.raise_for_status()
                     msg = extract_msg.Message(io.BytesIO(res.content))
                     text = f"Assunto: {msg.subject}\n\n{msg.body}"
@@ -127,7 +130,7 @@ class JiraClient:
                 elif filename.endswith(".eml"):
                     import email
                     from email import policy
-                    res = requests.get(content_url, auth=self.auth, timeout=15)
+                    res = _JIRA_SESSION.get(content_url, auth=self.auth, timeout=15)
                     res.raise_for_status()
                     msg = email.message_from_bytes(res.content, policy=policy.default)
                     body = ""
@@ -141,7 +144,7 @@ class JiraClient:
                     extracted_texts.append(f"--- [Texto do anexo: {att.get('filename')}] ---\n{text.strip()}")
                 elif filename.endswith(".pdf"):
                     import PyPDF2
-                    res = requests.get(content_url, auth=self.auth, timeout=15)
+                    res = _JIRA_SESSION.get(content_url, auth=self.auth, timeout=15)
                     res.raise_for_status()
                     pdf = PyPDF2.PdfReader(io.BytesIO(res.content))
                     text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])

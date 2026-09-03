@@ -9,6 +9,11 @@ import requests
 from dotenv import load_dotenv
 
 
+DEFAULT_JIRA_BASE_URL = "https://salsajeans.atlassian.net"
+_JIRA_SESSION = requests.Session()
+_JIRA_SESSION.trust_env = False
+
+
 def require_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -19,7 +24,7 @@ def require_env(name: str) -> str:
 def normalize_base_url(value: str) -> str:
     cleaned = value.strip().rstrip("/")
     if not cleaned:
-        raise RuntimeError("JIRA_DADOS_COMP_HASH esta vazio.")
+        raise RuntimeError("URL base do Jira esta vazia.")
     if not cleaned.startswith(("http://", "https://")):
         cleaned = f"https://{cleaned}"
 
@@ -27,10 +32,18 @@ def normalize_base_url(value: str) -> str:
     host = parsed.hostname or ""
     if not host or "." not in host:
         raise RuntimeError(
-            "JIRA_DADOS_COMP_HASH invalido. Use a URL base do Jira, ex: https://empresa.atlassian.net"
+            "URL base do Jira invalida. Use a URL base do Jira, ex: https://empresa.atlassian.net"
         )
 
     return cleaned
+
+
+def get_jira_base_url() -> str:
+    for env_name in ("JIRA_DADOS_COMP_HASH", "JIRA_BASE_URL"):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            return normalize_base_url(value)
+    return normalize_base_url(DEFAULT_JIRA_BASE_URL)
 
 
 def normalize_api_path(value: str) -> str:
@@ -54,7 +67,7 @@ def get_issue_attachments_and_summary(
     auth: tuple[str, str],
 ) -> tuple[List[Dict], str]:
     issue_url = f"{base_url}/{api_path}/issue/{issue_key}"
-    response = requests.get(
+    response = _JIRA_SESSION.get(
         issue_url,
         params={"fields": "attachment,summary"},
         auth=auth,
@@ -93,7 +106,7 @@ def download_attachment(
     if target.exists() and not overwrite:
         return f"[SKIP] Ja existe: {target}"
 
-    with requests.get(content_url, auth=auth, stream=True, timeout=60) as response:
+    with _JIRA_SESSION.get(content_url, auth=auth, stream=True, timeout=60) as response:
         if response.status_code == 401:
             return f"[ERRO] Sem autenticacao para baixar: {filename}"
         if response.status_code == 403:
@@ -207,7 +220,7 @@ def main() -> None:
 
     jira_email = require_env("JIRA_EMAIL")
     jira_token = require_env("JIRA_TOKEN")
-    jira_base = normalize_base_url(require_env("JIRA_DADOS_COMP_HASH"))
+    jira_base = get_jira_base_url()
     jira_api_path = normalize_api_path(os.getenv("JIRA_DADOS_HASH", "rest/api/3"))
 
     output_base = Path(args.output).resolve()

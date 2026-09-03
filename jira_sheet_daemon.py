@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 
 from jira_download_anexos import (
     download_issue_attachments,
+    get_jira_base_url,
     normalize_api_path,
-    normalize_base_url,
     require_env,
 )
 
@@ -36,7 +36,7 @@ def get_int_env(name: str, default: int) -> int:
 
 def carregar_config() -> dict:
     poll_seconds = get_int_env("POLL_SECONDS", 300)
-    jira_base = normalize_base_url(require_env("JIRA_DADOS_COMP_HASH"))
+    jira_base = get_jira_base_url()
     jira_api_path = normalize_api_path(os.getenv("JIRA_DADOS_HASH", "rest/api/3"))
     jira_email = require_env("JIRA_EMAIL")
     jira_token = require_env("JIRA_TOKEN")
