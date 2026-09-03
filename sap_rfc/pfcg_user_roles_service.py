@@ -1,5 +1,6 @@
-"""Read-only: dado um utilizador SAP, devolve as funcoes PFCG (roles Z*) que lhe
-estao atribuidas em SAP PRD.
+"""Read-only: dado um utilizador SAP, devolve TODAS as funcoes PFCG que lhe
+estao atribuidas em SAP PRD (sem filtro Z*, ao contrario dos fluxos
+transacao/objeto -> funcoes).
 
 Inverso de `pfcg_role_users_service` (role -> utilizadores). Consulta `AGR_USERS`
 filtrando por `UNAME`. Enriquece com `AGR_TEXTS` (descricao) e classifica a
@@ -42,10 +43,6 @@ def validate_username(raw: str) -> str:
     if not _USER_RE.match(value):
         raise ValueError("Utilizador invalido: use apenas letras, numeros, _, . ou - (max. 12).")
     return value
-
-
-def _is_custom_role(name: str) -> bool:
-    return name.strip().upper().startswith("Z")
 
 
 def _classify_assignment_status(from_dat: str, to_dat: str, today: date) -> str:
@@ -100,7 +97,7 @@ def _fetch_role_assignments(connection: Any, guard: Any, username: str) -> dict[
     by_role: dict[str, dict[str, Any]] = {}
     for agr_name, _uname, from_dat, to_dat in rows:
         role = agr_name.strip()
-        if not role or not _is_custom_role(role):
+        if not role:
             continue
         status = _classify_assignment_status(from_dat, to_dat, today)
         entry = {

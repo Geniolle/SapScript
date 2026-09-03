@@ -2776,8 +2776,8 @@
         const roles = Array.isArray(result.roles) ? result.roles : [];
         const count = Number(result.count != null ? result.count : roles.length);
         const heading = count > 0
-            ? `✓ O utilizador ${escapeHtml(user)} tem ${count} função(ões) Z* em PRD.`
-            : `O utilizador ${escapeHtml(user)} não tem funções Z* atribuídas em PRD.`;
+            ? `✓ O utilizador ${escapeHtml(user)} tem ${count} função(ões) atribuída(s) em PRD.`
+            : `O utilizador ${escapeHtml(user)} não tem funções atribuídas em PRD.`;
         const bodyHtml = roles.length
             ? roles.map((item) => {
                 const validity = (item.valid_from || item.valid_to)
