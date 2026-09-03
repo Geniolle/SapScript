@@ -75,6 +75,19 @@
     ];
     // Opções de "O que deseja fazer com o Perfil de Autorização?" (filhas de
     // perfil-autorizacao no salsaAgentActions), para re-apresentar após um resultado.
+    // Menu a re-apresentar depois de um resultado, conforme o contexto:
+    // 'utilizador' -> "O que deseja analisar do utilizador?"; senao -> menu do Perfil.
+    function asiPostResultMenu() {
+        if (asiConfigContext === 'utilizador') {
+            const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
+            const children = uNode && Array.isArray(uNode.children) ? uNode.children.slice() : [];
+            children.sort((a, b) =>
+                ((a && a.id === ASI_MAIN_MENU_ACTION.id) ? 1 : 0) - ((b && b.id === ASI_MAIN_MENU_ACTION.id) ? 1 : 0));
+            return { actions: children, actionLevel: 2, parentActionId: 'utilizador', selectionGroupKey: 'utilizador' };
+        }
+        return { actions: asiPfcgRootMenuActions(), ...ASI_PFCG_ROOT_MENU_META };
+    }
+
     function asiPfcgRootMenuActions() {
         const node = asiFindQuickAction('perfil-autorizacao', salsaAgentActions);
         const children = node && Array.isArray(node.children) ? node.children.slice() : [];
@@ -2588,8 +2601,7 @@
                     html: asiBuildPfcgTransactionRolesResultHtml(result),
                     isProcessing: false,
                     wide: true,
-                    actions: asiPfcgRootMenuActions(),
-                    ...ASI_PFCG_ROOT_MENU_META
+                    ...asiPostResultMenu()
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
@@ -2759,8 +2771,7 @@
                     html: asiBuildPfcgObjectRolesResultHtml(result),
                     isProcessing: false,
                     wide: true,
-                    actions: asiPfcgRootMenuActions(),
-                    ...ASI_PFCG_ROOT_MENU_META
+                    ...asiPostResultMenu()
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
@@ -2935,8 +2946,7 @@
                     html: asiBuildPfcgUserRolesResultHtml(result),
                     isProcessing: false,
                     wide: true,
-                    actions: asiPfcgRootMenuActions(),
-                    ...ASI_PFCG_ROOT_MENU_META
+                    ...asiPostResultMenu()
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
@@ -3083,8 +3093,7 @@
                     html: asiBuildUserDataResultHtml(result),
                     isProcessing: false,
                     wide: true,
-                    actions: asiPfcgRootMenuActions(),
-                    ...ASI_PFCG_ROOT_MENU_META
+                    ...asiPostResultMenu()
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
@@ -6030,8 +6039,7 @@
                 }));
             } else {
                 asiAppendMessage(asiCreateMessage('assistant', `O que deseja fazer com o Perfil de Autorização? (sistema: ${asiPfcgSystem})`, {
-                    actions: asiPfcgRootMenuActions(),
-                    ...ASI_PFCG_ROOT_MENU_META
+                    ...asiPostResultMenu()
                 }));
             }
             asiUpdateComposerState();
