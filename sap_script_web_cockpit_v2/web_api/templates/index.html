@@ -6355,8 +6355,8 @@
         const entries = Object.entries(summary).filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '');
         if (!entries.length) return '';
         return `
-            <div class="asi-pfcg-summary-grid">
-                ${entries.map(([key, value]) => asiBuildPfcgDetailRow(key.replaceAll('_', ' '), value)).join('')}
+            <div class="asi-pfcg-excel-summary-grid">
+                ${entries.map(([key, value]) => asiBuildPfcgExcelSummaryItem(key.replaceAll('_', ' '), value)).join('')}
             </div>
         `;
     }
