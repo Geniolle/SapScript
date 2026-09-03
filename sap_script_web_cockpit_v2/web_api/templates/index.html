@@ -5653,6 +5653,16 @@
         `;
     }
 
+    function asiBuildPfcgExcelSummaryItem(label, value) {
+        if (value === null || value === undefined || value === '') return '';
+        return `
+            <div class="asi-pfcg-excel-summary-item">
+                <div class="asi-pfcg-excel-summary-label">${escapeHtml(String(label).toUpperCase())}</div>
+                <div class="asi-pfcg-excel-summary-value">${escapeHtml(String(value))}</div>
+            </div>
+        `;
+    }
+
     function asiEnsurePfcgResultStyles() {
         if (document.getElementById('asi-pfcg-result-styles')) return;
         const style = document.createElement('style');
@@ -5684,6 +5694,48 @@
                 gap: 12px;
                 align-items: start;
                 min-width: 0;
+            }
+
+            .asi-pfcg-excel-summary-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 16px;
+                width: 100%;
+                align-items: start;
+            }
+
+            .asi-pfcg-excel-summary-item {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                min-width: 0;
+            }
+
+            .asi-pfcg-excel-summary-label {
+                font-size: 11px;
+                line-height: 1.2;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                font-weight: 700;
+            }
+
+            .asi-pfcg-excel-summary-value {
+                min-width: 0;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+                line-height: 1.35;
+                color: var(--text-primary);
+                font-size: 13px;
+                font-weight: 600;
+            }
+
+            .asi-pfcg-excel-summary-note {
+                margin-top: 10px;
+                font-size: 0.82rem;
+                color: var(--text-secondary);
+                line-height: 1.35;
+                overflow-wrap: anywhere;
             }
 
             .asi-pfcg-result-heading-row {
@@ -5784,6 +5836,9 @@
             }
 
             @media (max-width: 900px) {
+                .asi-pfcg-excel-summary-grid {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
                 .asi-pfcg-result-grid {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
@@ -5793,6 +5848,9 @@
             }
 
             @media (max-width: 550px) {
+                .asi-pfcg-excel-summary-grid {
+                    grid-template-columns: 1fr;
+                }
                 .asi-pfcg-result-grid {
                     grid-template-columns: 1fr;
                 }
@@ -6387,7 +6445,12 @@
         const roleMatches = result?.role && roleInExcel && result.role !== roleInExcel
             ? `<div style="margin-top:10px;font-size:0.82rem;color:#f59e0b;font-weight:600;">O Perfil informado no Excel não corresponde ao Perfil analisado em PRD.</div>`
             : '';
-        const description = result?.description ? asiBuildPfcgDetailRow('Descrição', result.description) : '';
+        const description = result?.description
+            ? `<div class="asi-pfcg-excel-summary-note"><strong>Descrição:</strong> ${escapeHtml(String(result.description))}</div>`
+            : '';
+        const sheet = result?.sheet
+            ? `<div class="asi-pfcg-excel-summary-note"><strong>Sheet:</strong> ${escapeHtml(String(result.sheet))}</div>`
+            : '';
         const summaryHtml = asiBuildPfcgExcelSummaryHtml(result?.summary);
         const warningsHtml = asiBuildPfcgExcelWarningsHtml(result?.warnings || [], 'Avisos');
         const errorsHtml = status === 'VALID'
@@ -6406,12 +6469,14 @@
             <div>
                 <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:${accent};">${heading}</div>
                 <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.2);">
-                    ${asiBuildPfcgDetailRow('Perfil', roleValue)}
-                    ${asiBuildPfcgDetailRow('Ficheiro', fileName)}
                     ${description}
-                    ${asiBuildPfcgDetailRow('Sistema', result?.system)}
-                    ${asiBuildPfcgDetailRow('Cliente', result?.client)}
-                    ${asiBuildPfcgDetailRow('Sheet', result?.sheet)}
+                    <div class="asi-pfcg-excel-summary-grid">
+                        ${asiBuildPfcgExcelSummaryItem('Perfil', roleValue)}
+                        ${asiBuildPfcgExcelSummaryItem('Ficheiro', fileName)}
+                        ${asiBuildPfcgExcelSummaryItem('Sistema', result?.system)}
+                        ${asiBuildPfcgExcelSummaryItem('Cliente', result?.client)}
+                    </div>
+                    ${sheet}
                 </div>
                 ${roleMatches}
                 ${summaryHtml}
