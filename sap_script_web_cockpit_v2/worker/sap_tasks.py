@@ -1107,6 +1107,40 @@ def _run_f110_payment(job: dict[str, Any], params: dict[str, Any]) -> tuple[str,
         raise SapExecutionError(str(exc)) from exc
 
 
+def _handle_ping_status(job: dict[str, Any], params: dict[str, Any]) -> tuple[str, str]:
+    session = get_first_available_session()
+    status = read_sbar_status(session)
+    return status or "STATUS vazio em wnd[0]/sbar", "STATUS atual lido sem navegar no SAP."
+
+
+# Dispatch das tasks simples: task -> callable(job, params) -> (status, log).
+# `sap_cockpit` fica FORA (streaming/threads/documentacao proprios em run_sap_task).
+TASK_HANDLERS: dict[str, "Any"] = {
+    "sap_agent_analysis": lambda job, params: _run_sap_agent_analysis(params),
+    "sap_cockpit_auto_trigger": lambda job, params: _run_sap_cockpit(params),
+    "pfcg_role_analysis": lambda job, params: _run_pfcg_role_analysis(params),
+    "pfcg_role_transactions_analysis": lambda job, params: _run_pfcg_role_transactions_analysis(params),
+    "pfcg_role_users_analysis": lambda job, params: _run_pfcg_role_users_analysis(params),
+    "pfcg_create_excel_analysis": lambda job, params: _run_pfcg_create_excel_analysis(params),
+    "pfcg_role_create_preview": lambda job, params: _run_pfcg_role_create_preview(params),
+    "pfcg_role_create_rfc": lambda job, params: _run_pfcg_role_create_rfc(params),
+    "pfcg_composta_create_preview": lambda job, params: _run_pfcg_composta_create_preview(params),
+    "pfcg_composta_create": lambda job, params: _run_pfcg_composta_create(params),
+    "pfcg_role_delete_preview": lambda job, params: _run_pfcg_role_delete_preview(params),
+    "pfcg_role_delete_rfc": lambda job, params: _run_pfcg_role_delete_rfc(params),
+    "pfcg_transport_search": lambda job, params: _run_pfcg_transport_search(params),
+    "sap_search_requests": lambda job, params: _run_sap_search_requests(params),
+    "select_excel_file": lambda job, params: select_excel_file_on_windows(params),
+    "ping_status": _handle_ping_status,
+    "open_transaction": lambda job, params: _open_transaction(params),
+    "sap_gui_chat_action": lambda job, params: _run_sap_gui_chat_action(params),
+    "fi_default_document": _run_fi_default_document,
+    "f110_proposal": _run_f110_proposal,
+    "f110_payment": _run_f110_payment,
+}
+
+
+
 def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     _project_dir = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
     if _project_dir:
@@ -1117,111 +1151,12 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
     log_lines: list[str] = [f"Job: {job['id']}", f"Task: {task}", f"Params: {params}"]
 
     try:
-        if task == "sap_agent_analysis":
-            status, log = _run_sap_agent_analysis(params)
+        handler = TASK_HANDLERS.get(task)
+        if handler is not None:
+            status, log = handler(job, params)
             log_lines.append(log)
             return status, "\n".join(log_lines)
 
-        if task == "sap_cockpit_auto_trigger":
-            status, log = _run_sap_cockpit(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_role_analysis":
-            status, log = _run_pfcg_role_analysis(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_role_transactions_analysis":
-            status, log = _run_pfcg_role_transactions_analysis(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_role_users_analysis":
-            status, log = _run_pfcg_role_users_analysis(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_create_excel_analysis":
-            status, log = _run_pfcg_create_excel_analysis(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_role_create_preview":
-            status, log = _run_pfcg_role_create_preview(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_role_create_rfc":
-            status, log = _run_pfcg_role_create_rfc(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_composta_create_preview":
-            status, log = _run_pfcg_composta_create_preview(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_composta_create":
-            status, log = _run_pfcg_composta_create(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_role_delete_preview":
-            status, log = _run_pfcg_role_delete_preview(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_role_delete_rfc":
-            status, log = _run_pfcg_role_delete_rfc(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "pfcg_transport_search":
-            status, log = _run_pfcg_transport_search(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "sap_search_requests":
-            status, log = _run_sap_search_requests(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "select_excel_file":
-            status, log = select_excel_file_on_windows(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "ping_status":
-            session = get_first_available_session()
-            status = read_sbar_status(session)
-            log_lines.append("STATUS atual lido sem navegar no SAP.")
-            return status or "STATUS vazio em wnd[0]/sbar", "\n".join(log_lines)
-
-        if task == "open_transaction":
-            status, log = _open_transaction(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "sap_gui_chat_action":
-            status, log = _run_sap_gui_chat_action(params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "fi_default_document":
-            status, log = _run_fi_default_document(job, params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "f110_proposal":
-            status, log = _run_f110_proposal(job, params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
-
-        if task == "f110_payment":
-            status, log = _run_f110_payment(job, params)
-            log_lines.append(log)
-            return status, "\n".join(log_lines)
 
         if task == "sap_cockpit":
             os.environ["SAP_JOB_ID"] = str(job["id"])
