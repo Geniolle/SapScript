@@ -38,6 +38,8 @@
     const ASI_PFCG_USER_PATTERN = /^[A-Z0-9_.\-]{1,12}$/;
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
+    // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador').
+    let asiConfigContext = 'perfil';
     const ASI_PFCG_SYSTEM_ACTIONS = [
         { id: 'pfcg-system-dev', label: 'DEV', icon: 'analysis' },
         { id: 'pfcg-system-qad', label: 'QAD', icon: 'analysis' },
@@ -276,6 +278,44 @@
             followupText: 'Escolha uma opção de Configurações:',
             followupActionsSource: 'children',
             children: [
+                {
+                    id: 'utilizador',
+                    label: 'Utilizador',
+                    icon: 'user-plus',
+                    prompt: 'Quero analisar dados de um utilizador.',
+                    followupText: 'O que deseja analisar do utilizador?',
+                    followupActionsSource: 'children',
+                    children: [
+                        {
+                            id: 'user-analyze-master',
+                            label: 'Dados Mestre',
+                            icon: 'analysis',
+                            prompt: 'Quero ver os dados mestre do utilizador.',
+                            followupText: 'Qual é o utilizador SAP? (ex.: CLOPES)',
+                            children: []
+                        },
+                        {
+                            id: 'user-analyze-personal',
+                            label: 'Dados Pessoais',
+                            icon: 'analysis',
+                            prompt: 'Quero ver os dados pessoais do utilizador.',
+                            followupText: 'Qual é o utilizador SAP? (ex.: CLOPES)',
+                            children: []
+                        },
+                        {
+                            id: 'user-analyze-roles',
+                            label: 'Funções',
+                            icon: 'user-plus',
+                            prompt: 'Quero ver as funções atribuídas ao utilizador.',
+                            followupText: 'Qual é o utilizador SAP? (ex.: CLOPES)',
+                            children: []
+                        },
+                        {
+                            ...ASI_MAIN_MENU_ACTION,
+                            prompt: 'Quero voltar ao menu principal.'
+                        }
+                    ]
+                },
                 {
                     id: 'perfil-autorizacao',
                     label: 'Perfil de Autorização',
@@ -2950,6 +2990,155 @@
         }
     }
 
+    function asiBuildUserDataResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const user = String(result.username || '');
+        const sys = escapeHtml(result.system || asiPfcgSystem);
+        const kindLabel = result.kind === 'master' ? 'Dados Mestre' : (result.kind === 'personal' ? 'Dados Pessoais' : 'Utilizador');
+        const fields = Array.isArray(result.fields) ? result.fields : [];
+        const heading = fields.length
+            ? `✓ ${kindLabel} de ${escapeHtml(user)} em ${sys}.`
+            : `Sem dados (${kindLabel}) para ${escapeHtml(user)} em ${sys}.`;
+        const rows = fields.length
+            ? fields.map((f) => `
+                <div class="asi-pfcg-result-field">
+                    <span class="asi-pfcg-result-label">${escapeHtml(f.label || '')}</span>
+                    <span class="asi-pfcg-result-value">${escapeHtml(f.value || '-')}</span>
+                </div>
+            `).join('')
+            : `<div class="asi-pfcg-result-field"><span class="asi-pfcg-result-value">Utilizador não encontrado ou sem dados.</span></div>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${fields.length ? '#16a34a' : '#b45309'};">${heading}</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">${rows}</div>
+                    ${asiBuildPfcgRoleWarningNoteHtml(result)}
+                </div>
+            </div>
+        `;
+    }
+
+    async function asiPollUserData(jobId, username, kind, messageId) {
+        const startedAt = Date.now();
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A análise do utilizador está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A análise do utilizador está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                return;
+            }
+
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/user/data/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do utilizador.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do utilizador.', data.message || ''),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const detail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do utilizador.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do utilizador.', detail),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: `Dados do utilizador ${username}.`,
+                    html: asiBuildUserDataResultHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    actions: asiPfcgRootMenuActions(),
+                    ...ASI_PFCG_ROOT_MENU_META
+                });
+                asiResetPfcgInteraction();
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a análise do utilizador.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do utilizador.'),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartUserData(username, kind) {
+        const { input } = asiGetElements();
+        const label = kind === 'master' ? 'os dados mestre' : 'os dados pessoais';
+        const processingText = `A consultar ${label} do utilizador ${username} em SAP ${asiPfcgSystem}...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username, kind, system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+            await asiPollUserData(jobId, username, kind, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível iniciar a análise do utilizador.',
+                html: asiBuildPfcgErrorHtml('Não foi possível iniciar a análise do utilizador.', error.message || ''),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
     async function asiStartPfcgCreateExcelSelection() {
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
@@ -4832,7 +5021,12 @@
                 input.focus();
                 return;
             }
-            await asiStartPfcgUserRoles(username);
+            const kind = asiConversationState.pfcgUserKind || 'roles';
+            if (kind === 'master' || kind === 'personal') {
+                await asiStartUserData(username, kind);
+            } else {
+                await asiStartPfcgUserRoles(username);
+            }
             return;
         }
 
@@ -5806,15 +6000,16 @@
             return;
         }
 
-        // Passo "Em que sistema?" antes do menu do Perfil de Autorizacao.
-        if (actionId === 'perfil-autorizacao') {
+        // Passo "Em que sistema?" antes dos menus de Perfil de Autorizacao / Utilizador.
+        if (actionId === 'perfil-autorizacao' || actionId === 'utilizador') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
-            const node = asiFindQuickAction('perfil-autorizacao', salsaAgentActions);
-            asiAppendMessage(asiCreateMessage('user', node && node.prompt ? node.prompt : 'Quero trabalhar com Perfil de Autorização.'));
+            asiConfigContext = actionId;
+            const node = asiFindQuickAction(actionId, salsaAgentActions);
+            asiAppendMessage(asiCreateMessage('user', node && node.prompt ? node.prompt : ''));
             asiAppendMessage(asiCreateMessage('assistant', 'Em que sistema quer trabalhar?', {
                 actions: ASI_PFCG_SYSTEM_ACTIONS,
                 actionLevel: 2,
-                parentActionId: 'perfil-autorizacao',
+                parentActionId: actionId,
                 selectionGroupKey: '__pfcg_system__'
             }));
             asiUpdateComposerState();
@@ -5825,10 +6020,20 @@
             const sys = actionId.replace('pfcg-system-', '').toUpperCase();
             asiPfcgSystem = ['DEV', 'QAD', 'PRD', 'CUA'].indexOf(sys) >= 0 ? sys : 'PRD';
             asiAppendMessage(asiCreateMessage('user', `Sistema: ${asiPfcgSystem}`));
-            asiAppendMessage(asiCreateMessage('assistant', `O que deseja fazer com o Perfil de Autorização? (sistema: ${asiPfcgSystem})`, {
-                actions: asiPfcgRootMenuActions(),
-                ...ASI_PFCG_ROOT_MENU_META
-            }));
+            if (asiConfigContext === 'utilizador') {
+                const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
+                asiAppendMessage(asiCreateMessage('assistant', `O que deseja analisar do utilizador? (sistema: ${asiPfcgSystem})`, {
+                    actions: (uNode && Array.isArray(uNode.children)) ? uNode.children : [],
+                    actionLevel: 2,
+                    parentActionId: 'utilizador',
+                    selectionGroupKey: 'utilizador'
+                }));
+            } else {
+                asiAppendMessage(asiCreateMessage('assistant', `O que deseja fazer com o Perfil de Autorização? (sistema: ${asiPfcgSystem})`, {
+                    actions: asiPfcgRootMenuActions(),
+                    ...ASI_PFCG_ROOT_MENU_META
+                }));
+            }
             asiUpdateComposerState();
             return;
         }
@@ -5915,17 +6120,24 @@
             return;
         }
 
-        if (action.id === 'pfcg-role-analyze-utilizador') {
+        if (action.id === 'pfcg-role-analyze-utilizador'
+            || action.id === 'user-analyze-roles'
+            || action.id === 'user-analyze-master'
+            || action.id === 'user-analyze-personal') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
             }
+            const kind = action.id === 'user-analyze-master' ? 'master'
+                : action.id === 'user-analyze-personal' ? 'personal'
+                : 'roles';
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP? (ex.: CLOPES)'));
             asiConversationState = {
                 ...asiConversationState,
-                awaitingInput: ASI_PFCG_USER_INPUT
+                awaitingInput: ASI_PFCG_USER_INPUT,
+                pfcgUserKind: kind
             };
             asiUpdateComposerState();
             const { input } = asiGetElements();

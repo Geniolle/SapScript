@@ -244,6 +244,43 @@ class SalsaAgentRoutesTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_user_data_create_job_and_shape(self) -> None:
+        created = _body(
+            main.api_salsa_it_user_data(
+                main.SalsaItUserDataRequest(username="clopes", kind="master", system="qad")
+            )
+        )
+        self.assertEqual(created["username"], "CLOPES")
+        self.assertEqual(created["kind"], "master")
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["task"], "user_data")
+        self.assertEqual(job["params"].get("kind"), "master")
+        self.assertEqual(job["params"].get("system"), "QAD")
+
+        store.complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps(
+                {
+                    "ok": True, "status": "OK", "username": "CLOPES", "kind": "master",
+                    "fields": [{"label": "Tipo", "value": "A - Dialog", "x": 1}],
+                    "system": "QAD", "client": "100",
+                }
+            ),
+            "",
+        )
+        done = _body(main.api_salsa_it_user_data_job(created["job_id"]))
+        self.assertEqual(done["state"], "succeeded")
+        self.assertEqual(done["result"]["fields"][0]["label"], "Tipo")
+        self.assertNotIn("x", done["result"]["fields"][0])
+
+    def test_user_data_rejects_bad_kind(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_user_data(
+                main.SalsaItUserDataRequest(username="X", kind="xpto")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
     # ---- GET: mapeamento de estado / validacao do job ----------------------
 
     def test_analyze_job_pending_state(self) -> None:

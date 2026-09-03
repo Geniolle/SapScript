@@ -744,6 +744,12 @@ class SalsaItPfcgUserRolesRequest(BaseModel):
     system: str = "PRD"
 
 
+class SalsaItUserDataRequest(BaseModel):
+    username: str
+    kind: str  # "master" | "personal"
+    system: str = "PRD"
+
+
 
 
 
@@ -1137,6 +1143,73 @@ def api_salsa_it_pfcg_user_roles_job(job_id: str) -> JSONResponse:
             }
             for item in raw_roles
             if isinstance(item, dict)
+        ],
+    }
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+    if result.get("warning"):
+        safe_result["warning"] = result.get("warning")
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/user/data")
+def api_salsa_it_user_data(payload: SalsaItUserDataRequest) -> JSONResponse:
+    username = str(payload.username or "").strip().upper()
+    if not username or len(username) > 12:
+        raise HTTPException(status_code=400, detail="Indique um utilizador SAP válido.")
+    kind = str(payload.kind or "").strip().lower()
+    if kind not in {"master", "personal"}:
+        raise HTTPException(status_code=400, detail="Tipo de análise inválido (use master ou personal).")
+    system = _validate_pfcg_system_or_400(payload.system)
+
+    try:
+        job = create_job("user_data", {"username": username, "kind": kind, "system": system})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "username": username, "kind": kind})
+
+
+@app.get("/api/salsa-it-agent/user/data/{job_id}")
+def api_salsa_it_user_data_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "user_data":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à análise de utilizador.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    raw_fields = result.get("fields") if isinstance(result.get("fields"), list) else []
+    safe_result = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "username": str(result.get("username") or ""),
+        "kind": str(result.get("kind") or ""),
+        "system": result.get("system"),
+        "client": result.get("client"),
+        "fields": [
+            {"label": str(f.get("label") or ""), "value": str(f.get("value") or "")}
+            for f in raw_fields
+            if isinstance(f, dict)
         ],
     }
     if not safe_result["ok"]:
