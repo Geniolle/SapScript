@@ -30,6 +30,7 @@ EXPECTED_TASKS = {
     "pfcg_role_transactions_analysis",
     "pfcg_role_users_analysis",
     "pfcg_transaction_roles",
+    "pfcg_object_roles",
     "pfcg_create_excel_analysis",
     "pfcg_role_create_preview",
     "pfcg_role_create_rfc",

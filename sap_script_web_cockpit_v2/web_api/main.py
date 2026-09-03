@@ -728,6 +728,10 @@ class SalsaItPfcgTransactionRolesRequest(BaseModel):
     tcode: str
 
 
+class SalsaItPfcgObjectRolesRequest(BaseModel):
+    auth_object: str
+
+
 
 
 
@@ -967,6 +971,74 @@ def api_salsa_it_pfcg_transaction_roles_job(job_id: str) -> JSONResponse:
         "status": str(result.get("status") or ""),
         "tcode": str(result.get("tcode") or ""),
         "tcode_description": result.get("tcode_description"),
+        "count": result.get("count"),
+        "system": result.get("system"),
+        "client": result.get("client"),
+        "roles": [
+            {
+                "role": str(item.get("role") or ""),
+                "description": item.get("description"),
+                "composite_parents": item.get("composite_parents") or [],
+            }
+            for item in raw_roles
+            if isinstance(item, dict)
+        ],
+    }
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+    if result.get("warning"):
+        safe_result["warning"] = result.get("warning")
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/object/roles")
+def api_salsa_it_pfcg_object_roles(payload: SalsaItPfcgObjectRolesRequest) -> JSONResponse:
+    auth_object = str(payload.auth_object or "").strip().upper()
+    if not auth_object or len(auth_object) > 40:
+        raise HTTPException(status_code=400, detail="Indique um objeto de autorização válido.")
+
+    try:
+        job = create_job("pfcg_object_roles", {"auth_object": auth_object})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "auth_object": auth_object})
+
+
+@app.get("/api/salsa-it-agent/pfcg/object/roles/{job_id}")
+def api_salsa_it_pfcg_object_roles_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_object_roles":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à análise de objeto de autorização PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    raw_roles = result.get("roles") if isinstance(result.get("roles"), list) else []
+    safe_result = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "auth_object": str(result.get("auth_object") or ""),
+        "auth_object_text": result.get("auth_object_text"),
         "count": result.get("count"),
         "system": result.get("system"),
         "client": result.get("client"),

@@ -133,6 +133,49 @@ class SalsaAgentRoutesTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_object_roles_create_job_and_shape(self) -> None:
+        created = _body(
+            main.api_salsa_it_pfcg_object_roles(
+                main.SalsaItPfcgObjectRolesRequest(auth_object="s_tcode")
+            )
+        )
+        self.assertEqual(created["auth_object"], "S_TCODE")
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["task"], "pfcg_object_roles")
+        self.assertEqual(job["params"].get("auth_object"), "S_TCODE")
+
+        got = _body(main.api_salsa_it_pfcg_object_roles_job(created["job_id"]))
+        self.assertEqual(got["state"], "pending")
+
+        store.complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps(
+                {
+                    "ok": True,
+                    "status": "OK",
+                    "auth_object": "S_TCODE",
+                    "auth_object_text": "Transaction Code Check at Transaction Start",
+                    "count": 1,
+                    "roles": [{"role": "Z_X", "description": "X", "composite_parents": [], "seg": "x"}],
+                    "system": "PRD",
+                    "client": "100",
+                }
+            ),
+            "",
+        )
+        done = _body(main.api_salsa_it_pfcg_object_roles_job(created["job_id"]))
+        self.assertEqual(done["state"], "succeeded")
+        self.assertEqual(done["result"]["roles"][0]["role"], "Z_X")
+        self.assertNotIn("seg", done["result"]["roles"][0])
+
+    def test_object_roles_rejects_bad_object(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_pfcg_object_roles(
+                main.SalsaItPfcgObjectRolesRequest(auth_object="")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
     # ---- GET: mapeamento de estado / validacao do job ----------------------
 
     def test_analyze_job_pending_state(self) -> None:

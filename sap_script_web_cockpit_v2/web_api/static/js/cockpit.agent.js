@@ -32,6 +32,8 @@
     const ASI_PFCG_AWAITING_INPUT = 'pfcg_role_analysis_name';
     const ASI_PFCG_TCODE_INPUT = 'pfcg_transaction_code';
     const ASI_PFCG_TCODE_PATTERN = /^[A-Z0-9_/$+.\-]{1,40}$/;
+    const ASI_PFCG_AUTHOBJ_INPUT = 'pfcg_auth_object';
+    const ASI_PFCG_AUTHOBJ_PATTERN = /^[A-Z0-9_/]{1,40}$/;
     const ASI_PFCG_POLL_INTERVAL_MS = 1000;
     const ASI_PFCG_POLL_TIMEOUT_MS = 60000;
     const ASI_PFCG_INVALID_MESSAGE = 'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".';
@@ -2560,6 +2562,174 @@
         }
     }
 
+    function asiBuildPfcgObjectRolesResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const obj = String(result.auth_object || '');
+        const objDesc = result.auth_object_text ? ` — ${escapeHtml(result.auth_object_text)}` : '';
+        const roles = Array.isArray(result.roles) ? result.roles : [];
+        const count = Number(result.count != null ? result.count : roles.length);
+        const heading = count > 0
+            ? `✓ O objeto ${escapeHtml(obj)} está em ${count} função(ões).`
+            : `O objeto ${escapeHtml(obj)} não está em nenhuma função em PRD.`;
+        const bodyHtml = roles.length
+            ? roles.map((item) => {
+                const parents = Array.isArray(item.composite_parents) ? item.composite_parents : [];
+                const via = parents.length
+                    ? `Composta: ${parents.map((p) => escapeHtml(p)).join(', ')}`
+                    : 'Direta';
+                return `
+                    <tr>
+                        <td>${escapeHtml(item.role || '')}</td>
+                        <td>${escapeHtml(item.description || '-')}</td>
+                        <td>${via}</td>
+                    </tr>
+                `;
+            }).join('')
+            : `<tr><td colspan="3" class="asi-pfcg-list-empty">Nenhuma função encontrada.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${count > 0 ? '#16a34a' : '#b45309'};">${heading}</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
+                        <span class="asi-pfcg-result-label">Objeto</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(obj)}${objDesc}</span>
+                    </div>
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead>
+                                    <tr><th>Função</th><th>Descrição</th><th>Atribuição</th></tr>
+                                </thead>
+                                <tbody>${bodyHtml}</tbody>
+                            </table>
+                        </div>
+                        <div class="asi-pfcg-list-footer">Total: ${count} função(ões)</div>
+                    </div>
+                    ${asiBuildPfcgRoleWarningNoteHtml(result)}
+                </div>
+            </div>
+        `;
+    }
+
+    async function asiPollPfcgObjectRoles(jobId, authObject, messageId) {
+        const startedAt = Date.now();
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A análise do objeto de autorização está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A análise do objeto de autorização está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                return;
+            }
+
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/object/roles/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do objeto de autorização em PRD.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do objeto de autorização em PRD.', data.message || ''),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const detail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do objeto de autorização em PRD.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do objeto de autorização em PRD.', detail),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: `Funções com o objeto ${authObject}.`,
+                    html: asiBuildPfcgObjectRolesResultHtml(result),
+                    isProcessing: false,
+                    wide: true
+                });
+                asiResetPfcgInteraction();
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a análise do objeto de autorização em PRD.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do objeto de autorização em PRD.'),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartPfcgObjectRoles(authObject) {
+        const { input } = asiGetElements();
+        const processingText = `A procurar as funções com o objeto ${authObject} em SAP PRD...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/object/roles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ auth_object: authObject })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+            await asiPollPfcgObjectRoles(jobId, authObject, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível iniciar a análise do objeto de autorização.',
+                html: asiBuildPfcgErrorHtml('Não foi possível iniciar a análise do objeto de autorização.', error.message || ''),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
     async function asiStartPfcgCreateExcelSelection() {
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
@@ -4412,6 +4582,22 @@
             return;
         }
 
+        if (asiConversationState.awaitingInput === ASI_PFCG_AUTHOBJ_INPUT) {
+            const authObject = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_AUTHOBJ_PATTERN.test(authObject)) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    'Objeto de autorização inválido. Use apenas letras, números, "_" ou "/" (máx. 40).'
+                ));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_PFCG_AUTHOBJ_INPUT, isBusy: false };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+            await asiStartPfcgObjectRoles(authObject);
+            return;
+        }
+
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
             const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
             if (!normalizedRoleName) {
@@ -5453,10 +5639,14 @@
             }
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
-            asiAppendMessage(asiCreateMessage(
-                'assistant',
-                'Esta análise ainda está em preparação. Para já, use "Função" (por nome) ou "Transação".'
-            ));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o objeto de autorização? (ex.: S_TCODE)'));
+            asiConversationState = {
+                ...asiConversationState,
+                awaitingInput: ASI_PFCG_AUTHOBJ_INPUT
+            };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
             return;
         }
 
