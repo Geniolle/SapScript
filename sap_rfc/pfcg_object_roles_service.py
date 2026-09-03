@@ -59,6 +59,11 @@ def _error_result(auth_object: str, error_type: str, message: str, *, details: s
     return payload
 
 
+def _is_custom_role(name: str) -> bool:
+    """Apenas funcoes personalizadas (comecam por Z)."""
+    return name.strip().upper().startswith("Z")
+
+
 def _fetch_roles_with_object(connection: Any, guard: Any, auth_object: str) -> list[str]:
     rows = read_table(
         connection,
@@ -73,7 +78,7 @@ def _fetch_roles_with_object(connection: Any, guard: Any, auth_object: str) -> l
         if str(deleted).strip().upper() == "X":
             continue
         name = agr_name.strip()
-        if name:
+        if name and _is_custom_role(name):
             roles.add(name)
     return sorted(roles)
 
@@ -114,7 +119,7 @@ def _fetch_parent_composites(connection: Any, guard: Any, child_roles: list[str]
     out: dict[str, list[str]] = {}
     for parent, child in rows:
         parent, child = parent.strip(), child.strip()
-        if parent and child:
+        if parent and child and _is_custom_role(parent):
             out.setdefault(child, []).append(parent)
     return {k: sorted(set(v)) for k, v in out.items()}
 

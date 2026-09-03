@@ -2402,8 +2402,8 @@
         const roles = Array.isArray(result.roles) ? result.roles : [];
         const count = Number(result.count != null ? result.count : roles.length);
         const heading = count > 0
-            ? `✓ A transação ${escapeHtml(tcode)} está atribuída a ${count} função(ões).`
-            : `A transação ${escapeHtml(tcode)} não está atribuída a nenhuma função em PRD.`;
+            ? `✓ A transação ${escapeHtml(tcode)} está em ${count} função(ões) Z* em PRD.`
+            : `A transação ${escapeHtml(tcode)} não está em nenhuma função Z* em PRD.`;
         const bodyHtml = roles.length
             ? roles.map((item) => {
                 const parents = Array.isArray(item.composite_parents) ? item.composite_parents : [];
@@ -2570,8 +2570,8 @@
         const roles = Array.isArray(result.roles) ? result.roles : [];
         const count = Number(result.count != null ? result.count : roles.length);
         const heading = count > 0
-            ? `✓ O objeto ${escapeHtml(obj)} está em ${count} função(ões).`
-            : `O objeto ${escapeHtml(obj)} não está em nenhuma função em PRD.`;
+            ? `✓ O objeto ${escapeHtml(obj)} está em ${count} função(ões) Z* em PRD.`
+            : `O objeto ${escapeHtml(obj)} não está em nenhuma função Z* em PRD.`;
         const bodyHtml = roles.length
             ? roles.map((item) => {
                 const parents = Array.isArray(item.composite_parents) ? item.composite_parents : [];

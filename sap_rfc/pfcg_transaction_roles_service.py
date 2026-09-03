@@ -58,6 +58,11 @@ def _error_result(tcode: str, error_type: str, message: str, *, details: str | N
     return payload
 
 
+def _is_custom_role(name: str) -> bool:
+    """Apenas funcoes personalizadas (comecam por Z)."""
+    return name.strip().upper().startswith("Z")
+
+
 def _fetch_roles_with_tcode(connection: Any, guard: Any, tcode: str) -> list[str]:
     rows = read_table(
         connection,
@@ -67,7 +72,9 @@ def _fetch_roles_with_tcode(connection: Any, guard: Any, tcode: str) -> list[str
         options=make_option_eq("TCODE", tcode),
         rowcount=0,
     )
-    return sorted({row[0].strip() for row in rows if row[0].strip()})
+    return sorted(
+        {row[0].strip() for row in rows if row[0].strip() and _is_custom_role(row[0])}
+    )
 
 
 def _fetch_role_descriptions(connection: Any, guard: Any, roles: list[str]) -> dict[str, str]:
@@ -107,7 +114,7 @@ def _fetch_parent_composites(connection: Any, guard: Any, child_roles: list[str]
     out: dict[str, list[str]] = {}
     for parent, child in rows:
         parent, child = parent.strip(), child.strip()
-        if parent and child:
+        if parent and child and _is_custom_role(parent):
             out.setdefault(child, []).append(parent)
     return {k: sorted(set(v)) for k, v in out.items()}
 
