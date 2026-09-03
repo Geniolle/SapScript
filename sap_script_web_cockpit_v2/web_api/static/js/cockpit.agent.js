@@ -65,7 +65,14 @@
     // perfil-autorizacao no salsaAgentActions), para re-apresentar após um resultado.
     function asiPfcgRootMenuActions() {
         const node = asiFindQuickAction('perfil-autorizacao', salsaAgentActions);
-        return node && Array.isArray(node.children) ? node.children : [];
+        const children = node && Array.isArray(node.children) ? node.children.slice() : [];
+        // "Menu Inicial" e sempre a ultima opcao.
+        children.sort((a, b) => {
+            const am = a && a.id === ASI_MAIN_MENU_ACTION.id ? 1 : 0;
+            const bm = b && b.id === ASI_MAIN_MENU_ACTION.id ? 1 : 0;
+            return am - bm;
+        });
+        return children;
     }
     const ASI_PFCG_ROOT_MENU_META = {
         actionLevel: 2,
@@ -356,10 +363,6 @@
                             ]
                         },
                         {
-                            ...ASI_MAIN_MENU_ACTION,
-                            prompt: 'Quero voltar ao menu principal.'
-                        },
-                        {
                             id: 'pfcg-composta',
                             label: 'Função Composta',
                             icon: 'layers',
@@ -490,6 +493,10 @@
                             prompt: 'Quero remover um utilizador.',
                             followupText: 'Certo. Vamos preparar a remoção do utilizador.',
                             children: []
+                        },
+                        {
+                            ...ASI_MAIN_MENU_ACTION,
+                            prompt: 'Quero voltar ao menu principal.'
                         }
                     ]
                 }
