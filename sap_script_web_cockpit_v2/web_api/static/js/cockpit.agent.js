@@ -34,6 +34,8 @@
     const ASI_PFCG_TCODE_PATTERN = /^[A-Z0-9_/$+.\-]{1,40}$/;
     const ASI_PFCG_AUTHOBJ_INPUT = 'pfcg_auth_object';
     const ASI_PFCG_AUTHOBJ_PATTERN = /^[A-Z0-9_/]{1,40}$/;
+    const ASI_PFCG_USER_INPUT = 'pfcg_username';
+    const ASI_PFCG_USER_PATTERN = /^[A-Z0-9_.\-]{1,12}$/;
     const ASI_PFCG_POLL_INTERVAL_MS = 1000;
     const ASI_PFCG_POLL_TIMEOUT_MS = 60000;
     const ASI_PFCG_INVALID_MESSAGE = 'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".';
@@ -311,6 +313,15 @@
                                     processo: 'Funções PFCG',
                                     subprocesso: 'A. PFCG_CREATE.py',
                                     prompt: 'Quero analisar por objeto de autorização.',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-role-analyze-utilizador',
+                                    label: 'Utilizador',
+                                    icon: 'user-plus',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero analisar por utilizador.',
                                     children: []
                                 }
                             ]
@@ -2752,6 +2763,181 @@
         }
     }
 
+    function asiPfcgAssignmentBadge(status) {
+        const s = String(status || '').toUpperCase();
+        const color = s === 'ATIVO' ? '#16a34a' : (s === 'FUTURO' ? '#2563eb' : '#b45309');
+        return `<span style="color:${color};font-weight:600;">${escapeHtml(s || '-')}</span>`;
+    }
+
+    function asiBuildPfcgUserRolesResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const user = String(result.username || '');
+        const roles = Array.isArray(result.roles) ? result.roles : [];
+        const count = Number(result.count != null ? result.count : roles.length);
+        const heading = count > 0
+            ? `✓ O utilizador ${escapeHtml(user)} tem ${count} função(ões) Z* em PRD.`
+            : `O utilizador ${escapeHtml(user)} não tem funções Z* atribuídas em PRD.`;
+        const bodyHtml = roles.length
+            ? roles.map((item) => {
+                const validity = (item.valid_from || item.valid_to)
+                    ? `${escapeHtml(item.valid_from || '?')} — ${escapeHtml(item.valid_to || '?')}`
+                    : '-';
+                return `
+                    <tr>
+                        <td>${escapeHtml(item.role || '')}</td>
+                        <td>${escapeHtml(item.description || '-')}</td>
+                        <td>${validity}</td>
+                        <td>${asiPfcgAssignmentBadge(item.assignment_status)}</td>
+                    </tr>
+                `;
+            }).join('')
+            : `<tr><td colspan="4" class="asi-pfcg-list-empty">Nenhuma função encontrada.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${count > 0 ? '#16a34a' : '#b45309'};">${heading}</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
+                        <span class="asi-pfcg-result-label">Utilizador</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(user)}</span>
+                    </div>
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead>
+                                    <tr><th>Função</th><th>Descrição</th><th>Validade</th><th>Estado</th></tr>
+                                </thead>
+                                <tbody>${bodyHtml}</tbody>
+                            </table>
+                        </div>
+                        <div class="asi-pfcg-list-footer">Total: ${count} função(ões)</div>
+                    </div>
+                    ${asiBuildPfcgRoleWarningNoteHtml(result)}
+                </div>
+            </div>
+        `;
+    }
+
+    async function asiPollPfcgUserRoles(jobId, username, messageId) {
+        const startedAt = Date.now();
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A análise do utilizador está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A análise do utilizador está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                return;
+            }
+
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/user/roles/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do utilizador em PRD.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do utilizador em PRD.', data.message || ''),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const detail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a análise do utilizador em PRD.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do utilizador em PRD.', detail),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: `Funções do utilizador ${username}.`,
+                    html: asiBuildPfcgUserRolesResultHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    actions: asiPfcgRootMenuActions(),
+                    ...ASI_PFCG_ROOT_MENU_META
+                });
+                asiResetPfcgInteraction();
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a análise do utilizador em PRD.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a análise do utilizador em PRD.'),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartPfcgUserRoles(username) {
+        const { input } = asiGetElements();
+        const processingText = `A procurar as funções do utilizador ${username} em SAP PRD...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/user/roles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+            await asiPollPfcgUserRoles(jobId, username, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível iniciar a análise do utilizador.',
+                html: asiBuildPfcgErrorHtml('Não foi possível iniciar a análise do utilizador.', error.message || ''),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
     async function asiStartPfcgCreateExcelSelection() {
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
@@ -4620,6 +4806,22 @@
             return;
         }
 
+        if (asiConversationState.awaitingInput === ASI_PFCG_USER_INPUT) {
+            const username = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_USER_PATTERN.test(username)) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    'Utilizador inválido. Use apenas letras, números, "_", "." ou "-" (máx. 12).'
+                ));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_PFCG_USER_INPUT, isBusy: false };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+            await asiStartPfcgUserRoles(username);
+            return;
+        }
+
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
             const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
             if (!normalizedRoleName) {
@@ -5665,6 +5867,24 @@
             asiConversationState = {
                 ...asiConversationState,
                 awaitingInput: ASI_PFCG_AUTHOBJ_INPUT
+            };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'pfcg-role-analyze-utilizador') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP? (ex.: CLOPES)'));
+            asiConversationState = {
+                ...asiConversationState,
+                awaitingInput: ASI_PFCG_USER_INPUT
             };
             asiUpdateComposerState();
             const { input } = asiGetElements();

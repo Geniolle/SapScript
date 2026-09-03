@@ -732,6 +732,10 @@ class SalsaItPfcgObjectRolesRequest(BaseModel):
     auth_object: str
 
 
+class SalsaItPfcgUserRolesRequest(BaseModel):
+    username: str
+
+
 
 
 
@@ -1047,6 +1051,75 @@ def api_salsa_it_pfcg_object_roles_job(job_id: str) -> JSONResponse:
                 "role": str(item.get("role") or ""),
                 "description": item.get("description"),
                 "composite_parents": item.get("composite_parents") or [],
+            }
+            for item in raw_roles
+            if isinstance(item, dict)
+        ],
+    }
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+    if result.get("warning"):
+        safe_result["warning"] = result.get("warning")
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/user/roles")
+def api_salsa_it_pfcg_user_roles(payload: SalsaItPfcgUserRolesRequest) -> JSONResponse:
+    username = str(payload.username or "").strip().upper()
+    if not username or len(username) > 12:
+        raise HTTPException(status_code=400, detail="Indique um utilizador SAP válido.")
+
+    try:
+        job = create_job("pfcg_user_roles", {"username": username})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "username": username})
+
+
+@app.get("/api/salsa-it-agent/pfcg/user/roles/{job_id}")
+def api_salsa_it_pfcg_user_roles_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_user_roles":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à análise de utilizador PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    raw_roles = result.get("roles") if isinstance(result.get("roles"), list) else []
+    safe_result = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "username": str(result.get("username") or ""),
+        "count": result.get("count"),
+        "system": result.get("system"),
+        "client": result.get("client"),
+        "roles": [
+            {
+                "role": str(item.get("role") or ""),
+                "description": item.get("description"),
+                "valid_from": item.get("valid_from"),
+                "valid_to": item.get("valid_to"),
+                "assignment_status": item.get("assignment_status"),
             }
             for item in raw_roles
             if isinstance(item, dict)

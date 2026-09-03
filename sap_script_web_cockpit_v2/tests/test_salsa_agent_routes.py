@@ -176,6 +176,58 @@ class SalsaAgentRoutesTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_user_roles_create_job_and_shape(self) -> None:
+        created = _body(
+            main.api_salsa_it_pfcg_user_roles(
+                main.SalsaItPfcgUserRolesRequest(username="clopes")
+            )
+        )
+        self.assertEqual(created["username"], "CLOPES")
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["task"], "pfcg_user_roles")
+        self.assertEqual(job["params"].get("username"), "CLOPES")
+
+        got = _body(main.api_salsa_it_pfcg_user_roles_job(created["job_id"]))
+        self.assertEqual(got["state"], "pending")
+
+        store.complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps(
+                {
+                    "ok": True,
+                    "status": "OK",
+                    "username": "CLOPES",
+                    "count": 1,
+                    "roles": [
+                        {
+                            "role": "Z_FI",
+                            "description": "FI",
+                            "valid_from": "01/01/2026",
+                            "valid_to": "31/12/9999",
+                            "assignment_status": "ATIVO",
+                            "seg": "x",
+                        }
+                    ],
+                    "system": "PRD",
+                    "client": "100",
+                }
+            ),
+            "",
+        )
+        done = _body(main.api_salsa_it_pfcg_user_roles_job(created["job_id"]))
+        self.assertEqual(done["state"], "succeeded")
+        self.assertEqual(done["result"]["roles"][0]["role"], "Z_FI")
+        self.assertEqual(done["result"]["roles"][0]["assignment_status"], "ATIVO")
+        self.assertNotIn("seg", done["result"]["roles"][0])
+
+    def test_user_roles_rejects_bad_user(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_pfcg_user_roles(
+                main.SalsaItPfcgUserRolesRequest(username="")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
     # ---- GET: mapeamento de estado / validacao do job ----------------------
 
     def test_analyze_job_pending_state(self) -> None:
