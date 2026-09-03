@@ -691,6 +691,7 @@ class SalsaItPfcgCreateAnalyzeRequest(BaseModel):
 
 class SalsaItPfcgCreateRfcPreviewRequest(BaseModel):
     role_name: str
+    system: str = "DEV"
     description: str
     tcodes: list[str] = []
     transport_mode: str = "LOCAL"
@@ -704,6 +705,7 @@ class SalsaItPfcgCreateRfcConfirmRequest(BaseModel):
 
 class SalsaItPfcgDeleteRfcPreviewRequest(BaseModel):
     role_name: str
+    system: str = "DEV"
     transport_mode: str = "LOCAL"
     request_number: str = ""
     request_description: str = ""
@@ -715,6 +717,7 @@ class SalsaItPfcgDeleteRfcConfirmRequest(BaseModel):
 
 class SalsaItPfcgCompostaPreviewRequest(BaseModel):
     role_name: str
+    system: str = "DEV"
     description: str
     child_roles: list[str] = []
     transport_mode: str = "LOCAL"
@@ -1301,12 +1304,13 @@ def api_salsa_it_pfcg_create_analyze_job(job_id: str) -> JSONResponse:
 @app.post("/api/salsa-it-agent/pfcg/delete/rfc/preview")
 def api_salsa_it_pfcg_delete_rfc_preview(payload: SalsaItPfcgDeleteRfcPreviewRequest) -> JSONResponse:
     role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    system = _validate_pfcg_system_or_400(payload.system)
 
     try:
         job = create_job(
             "pfcg_role_delete_preview",
             {
-                "environment": PFCG_RFC_DELETE_ENVIRONMENT,
+                "environment": system,
                 "role_name": role_name,
                 "transport_mode": str(payload.transport_mode or "LOCAL").strip().upper(),
                 "request_number": str(payload.request_number or "").strip(),
@@ -1425,6 +1429,7 @@ def api_salsa_it_pfcg_delete_rfc_confirm_job(job_id: str) -> JSONResponse:
 @app.post("/api/salsa-it-agent/pfcg/create/rfc/preview")
 def api_salsa_it_pfcg_create_rfc_preview(payload: SalsaItPfcgCreateRfcPreviewRequest) -> JSONResponse:
     role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    system = _validate_pfcg_system_or_400(payload.system)
     description = str(payload.description or "").strip()
     if not description:
         raise HTTPException(status_code=400, detail="Informe uma descrição para o Perfil de Autorização.")
@@ -1433,7 +1438,7 @@ def api_salsa_it_pfcg_create_rfc_preview(payload: SalsaItPfcgCreateRfcPreviewReq
         job = create_job(
             "pfcg_role_create_preview",
             {
-                "environment": PFCG_RFC_CREATE_ENVIRONMENT,
+                "environment": system,
                 "role_name": role_name,
                 "description": description,
                 "tcodes": list(payload.tcodes or []),
@@ -1557,6 +1562,7 @@ def api_salsa_it_pfcg_create_rfc_confirm_job(job_id: str) -> JSONResponse:
 @app.post("/api/salsa-it-agent/pfcg/composta/preview")
 def api_salsa_it_pfcg_composta_preview(payload: SalsaItPfcgCompostaPreviewRequest) -> JSONResponse:
     role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    system = _validate_pfcg_system_or_400(payload.system)
     description = str(payload.description or "").strip()
     if not description:
         raise HTTPException(status_code=400, detail="Informe uma descrição para a Função Composta.")
@@ -1567,7 +1573,7 @@ def api_salsa_it_pfcg_composta_preview(payload: SalsaItPfcgCompostaPreviewReques
         job = create_job(
             "pfcg_composta_create_preview",
             {
-                "environment": "DEV",
+                "environment": system,
                 "role_name": role_name,
                 "description": description,
                 "child_roles": [str(r).strip().upper() for r in payload.child_roles if str(r).strip()],
@@ -1617,7 +1623,7 @@ def api_salsa_it_pfcg_composta_preview_job(job_id: str) -> JSONResponse:
     if result.get("ok") and result.get("status") == "PREVIEW_READY":
         transport_preview = result.get("transport") or {}
         PFCG_COMPOSTA_CREATE_PREVIEWS[job_id] = {
-            "environment": "DEV",
+            "environment": result.get("environment") or "DEV",
             "role_name": result.get("role"),
             "description": result.get("description"),
             "child_roles": list(result.get("child_roles") or []),
@@ -1685,16 +1691,20 @@ def api_salsa_it_pfcg_composta_confirm_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": result})
 
 
-@app.post("/api/salsa-it-agent/pfcg/transport/search")
-def api_salsa_it_pfcg_transport_search() -> JSONResponse:
-    """Pesquisa (read-only via RFC) das Requests de transporte abertas do utilizador RFC em DEV.
+class SalsaItPfcgTransportSearchRequest(BaseModel):
+    system: str = "DEV"
 
-    Endpoint de propósito fixo: não aceita nenhum parâmetro do cliente — o ambiente é sempre
-    PFCG_RFC_CREATE_ENVIRONMENT (DEV) e a função RFC a chamar é decidida inteiramente dentro
-    de sap_rfc.pfcg_transport_service.
+
+@app.post("/api/salsa-it-agent/pfcg/transport/search")
+def api_salsa_it_pfcg_transport_search(payload: SalsaItPfcgTransportSearchRequest | None = None) -> JSONResponse:
+    """Pesquisa (read-only via RFC) das Requests de transporte abertas do utilizador RFC.
+
+    O ambiente e o escolhido no menu do Perfil de Autorizacao (default DEV); a
+    funcao RFC a chamar e decidida dentro de sap_rfc.pfcg_transport_service.
     """
+    system = _validate_pfcg_system_or_400((payload.system if payload else "DEV"))
     try:
-        job = create_job("pfcg_transport_search", {"environment": PFCG_RFC_CREATE_ENVIRONMENT})
+        job = create_job("pfcg_transport_search", {"environment": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

@@ -5,6 +5,7 @@ from typing import Any
 
 from sap_rfc._rfc_common import (
     build_connection_params_for_env,
+    KNOWN_ENVIRONMENTS,
     classify_import_error,
     classify_rfc_error,
     find_project_root,
@@ -24,7 +25,7 @@ from sap_rfc.pfcg_transport_service import (
 
 MAX_ROLE_NAME_LENGTH = 30
 
-ALLOWED_DELETE_ENVIRONMENTS = ("DEV",)
+ALLOWED_DELETE_ENVIRONMENTS = KNOWN_ENVIRONMENTS  # escrita permitida em DEV/QAD/PRD/CUA (autorizado explicitamente)
 
 TRANSPORT_MODE_LOCAL = "LOCAL"
 TRANSPORT_MODE_CREATE_REQUEST = "CREATE_REQUEST"

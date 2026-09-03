@@ -1157,7 +1157,7 @@ def _run_pfcg_composta_create_preview(params: dict[str, Any]) -> tuple[str, str]
         "description": description,
         "child_roles": child_roles,
         "tipo": "Função Composta",
-        "system": "DEV",
+        "system": environment,
         "client": "100",
         "transport": {
             "transport_mode": transport["transport_mode"],

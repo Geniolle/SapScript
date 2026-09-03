@@ -5,6 +5,7 @@ from typing import Any
 
 from sap_rfc._rfc_common import (
     build_connection_params_for_env,
+    KNOWN_ENVIRONMENTS,
     classify_import_error,
     classify_rfc_error,
     find_project_root,
@@ -34,7 +35,7 @@ MAX_TCODE_LENGTH = 20
 MAX_PROFILE_TEXT_LENGTH = 60  # AGR_PROF-PTEXT
 
 # Apenas DEV pode receber escrita nesta primeira fase (secção "restrição de ambiente").
-ALLOWED_CREATE_ENVIRONMENTS = ("DEV",)
+ALLOWED_CREATE_ENVIRONMENTS = KNOWN_ENVIRONMENTS  # escrita permitida em DEV/QAD/PRD/CUA (autorizado explicitamente)
 
 # Modos de transporte suportados pelo fluxo "Criar Individualmente":
 #   LOCAL            -> REQUEST="" (objeto local, sem transporte, como acontecia até agora).

@@ -3764,7 +3764,7 @@
     function asiAskPfcgTransportMode() {
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Deseja utilizar ordem de transporte em DEV?',
+            `Deseja utilizar ordem de transporte em ${asiPfcgSystem}?`,
             {
                 actions: [ASI_PFCG_TRANSPORT_LOCAL_ACTION, ASI_PFCG_TRANSPORT_CREATE_ACTION, ASI_PFCG_TRANSPORT_EXISTING_ACTION],
                 actionLevel: 0,
@@ -4000,7 +4000,7 @@
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
-                body: JSON.stringify({})
+                body: JSON.stringify({ system: asiPfcgSystem })
             });
             const data = await response.json().catch(() => ({}));
 
@@ -4067,6 +4067,7 @@
                     request_number: String(asiConversationState.pfcgCreateTransportRequestNumber || '').trim(),
                     request_description: String(asiConversationState.pfcgCreateTransportRequestDescription || '').trim()
                 };
+            previewBody.system = asiPfcgSystem;
             const response = await fetch(previewEndpoint, {
                 method: 'POST',
                 headers: {
@@ -4306,7 +4307,7 @@
     function asiAskPfcgDeleteTransportMode() {
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Deseja utilizar ordem de transporte em DEV?',
+            `Deseja utilizar ordem de transporte em ${asiPfcgSystem}?`,
             {
                 actions: [ASI_PFCG_DELETE_TRANSPORT_LOCAL_ACTION, ASI_PFCG_DELETE_TRANSPORT_CREATE_ACTION, ASI_PFCG_DELETE_TRANSPORT_EXISTING_ACTION],
                 actionLevel: 0,
@@ -4381,6 +4382,7 @@
                 },
                 body: JSON.stringify({
                     role_name: roleName,
+                    system: asiPfcgSystem,
                     transport_mode: String(asiConversationState.pfcgDeleteTransportMode || 'LOCAL').trim().toUpperCase(),
                     request_number: String(asiConversationState.pfcgDeleteTransportRequestNumber || '').trim(),
                     request_description: String(asiConversationState.pfcgDeleteTransportRequestDescription || '').trim()

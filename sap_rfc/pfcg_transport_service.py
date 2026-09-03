@@ -4,6 +4,7 @@ from typing import Any
 
 from sap_rfc._rfc_common import (
     build_connection_params_for_env,
+    KNOWN_ENVIRONMENTS,
     classify_import_error,
     classify_rfc_error,
     find_project_root,
@@ -35,7 +36,7 @@ TRANSPORT_STATE_OPEN = "CHANGEABLE"
 
 # Apenas DEV pode receber escrita nesta primeira fase (mesma restrição de ambiente
 # aplicada em sap_rfc.pfcg_role_create_service).
-ALLOWED_TRANSPORT_ENVIRONMENTS = ("DEV",)
+ALLOWED_TRANSPORT_ENVIRONMENTS = KNOWN_ENVIRONMENTS  # DEV/QAD/PRD/CUA (autorizado explicitamente)
 
 TRANSPORT_ALLOWED_FUNCTIONS = (
     "RFC_PING",
