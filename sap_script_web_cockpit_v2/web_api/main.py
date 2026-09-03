@@ -80,6 +80,21 @@ from pydantic import BaseModel
 
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, reap_orphan_running_jobs, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
 from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
+from web_api.common import _json_no_store
+from web_api.pfcg_common import (
+    PFCG_EXCEL_SELECTIONS,
+    PFCG_RFC_CREATE_PREVIEWS,
+    PFCG_COMPOSTA_CREATE_PREVIEWS,
+    PFCG_RFC_DELETE_PREVIEWS,
+    PFCG_RFC_CREATE_ENVIRONMENT,
+    PFCG_RFC_DELETE_ENVIRONMENT,
+    _validate_pfcg_role_name_or_400,
+    _safe_pfcg_failed_message,
+    _safe_pfcg_sub_result,
+    _safe_pfcg_rfc_create_result,
+    _safe_pfcg_rfc_delete_result,
+    _safe_pfcg_transport_search_result,
+)
 import asyncio
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
@@ -709,34 +724,10 @@ class SalsaItPfcgCompostaConfirmRequest(BaseModel):
     preview_job_id: str
 
 
-PFCG_EXCEL_SELECTIONS: dict[str, dict[str, str]] = {}
-PFCG_RFC_CREATE_PREVIEWS: dict[str, dict[str, Any]] = {}
-PFCG_COMPOSTA_CREATE_PREVIEWS: dict[str, dict[str, Any]] = {}
-
-PFCG_RFC_CREATE_ENVIRONMENT = "DEV"
-PFCG_RFC_DELETE_PREVIEWS: dict[str, dict[str, Any]] = {}
-PFCG_RFC_DELETE_ENVIRONMENT = "DEV"
 
 
-def _validate_pfcg_role_name_or_400(role_name: str) -> str:
-    try:
-        from sap_rfc import validate_role_name
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Não foi possível carregar a validação PFCG no backend.",
-        ) from exc
-
-    try:
-        return validate_role_name(role_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _safe_pfcg_failed_message() -> str:
-    return "Não foi possível concluir a análise PFCG."
 
 
 @app.post("/api/salsa-it-agent/pfcg/analyze")
@@ -808,37 +799,6 @@ def api_salsa_it_pfcg_analyze_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
-def _safe_pfcg_sub_result(result: dict[str, Any], *, items_key: str, item_fields: tuple[str, ...]) -> dict[str, Any]:
-    safe_result: dict[str, Any] = {
-        "ok": bool(result.get("ok")),
-        "status": str(result.get("status") or ""),
-        "role": str(result.get("role") or ""),
-        "count": result.get("count"),
-        "system": result.get("system"),
-        "client": result.get("client"),
-        "is_composite": bool(result.get("is_composite")),
-    }
-    if safe_result["is_composite"]:
-        composite_members = result.get("composite_members")
-        safe_result["composite_members"] = composite_members if isinstance(composite_members, list) else []
-    if result.get("warning"):
-        safe_result["warning"] = result.get("warning")
-
-    raw_items = result.get(items_key)
-    if isinstance(raw_items, list):
-        safe_result[items_key] = [
-            {field: item.get(field) for field in item_fields}
-            for item in raw_items
-            if isinstance(item, dict)
-        ]
-    else:
-        safe_result[items_key] = []
-
-    if not safe_result["ok"]:
-        safe_result["error_type"] = result.get("error_type")
-        safe_result["message"] = result.get("message")
-
-    return safe_result
 
 
 @app.post("/api/salsa-it-agent/pfcg/transactions/analyze")
@@ -1103,80 +1063,9 @@ def api_salsa_it_pfcg_create_analyze_job(job_id: str) -> JSONResponse:
 
 
 
-def _safe_pfcg_rfc_delete_result(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "ok": bool(result.get("ok")),
-        "status": str(result.get("status") or "ERROR"),
-        "environment": str(result.get("environment") or PFCG_RFC_DELETE_ENVIRONMENT),
-        "role": str(result.get("role") or ""),
-        "description": result.get("description"),
-        "tcodes": result.get("tcodes") or [],
-        "tcodes_count": result.get("tcodes_count"),
-        "users_count": result.get("users_count"),
-        "transport": result.get("transport"),
-        "transport_mode": result.get("transport_mode"),
-        "transport_request": result.get("transport_request"),
-        "error_type": result.get("error_type"),
-        "message": result.get("message"),
-    }
-
-def _safe_pfcg_rfc_create_result(result: dict[str, Any]) -> dict[str, Any]:
-    safe_result: dict[str, Any] = {
-        "ok": bool(result.get("ok")),
-        "status": str(result.get("status") or ""),
-        "environment": result.get("environment"),
-        "role": result.get("role"),
-    }
-    if not safe_result["ok"]:
-        safe_result["error_type"] = result.get("error_type")
-        safe_result["message"] = result.get("message")
-        if result.get("missing_tcodes"):
-            safe_result["missing_tcodes"] = result.get("missing_tcodes")
-        return safe_result
-
-    # Campos apenas do fluxo de sucesso (preview e/ou criação real)
-    for field in (
-        "description",
-        "tcodes",
-        "tcodes_count",
-        "tcodes_requested",
-        "tcodes_created",
-        "profile_generated",
-        "transport",
-        "transport_mode",
-        "transport_request",
-        "transport_request_created",
-    ):
-        if field in result:
-            safe_result[field] = result.get(field)
-    return safe_result
 
 
-def _safe_pfcg_transport_search_result(result: dict[str, Any]) -> dict[str, Any]:
-    safe_result: dict[str, Any] = {
-        "ok": bool(result.get("ok")),
-        "status": str(result.get("status") or ""),
-        "environment": result.get("environment"),
-    }
-    if not safe_result["ok"]:
-        safe_result["error_type"] = result.get("error_type")
-        safe_result["message"] = result.get("message")
-        return safe_result
 
-    safe_result["owner"] = result.get("owner")
-    safe_result["requests_count"] = result.get("requests_count")
-    safe_result["requests"] = [
-        {
-            "request": row.get("request"),
-            "description": row.get("description"),
-            "trtype": row.get("trtype"),
-            "target_system": row.get("target_system"),
-            "state": row.get("state"),
-        }
-        for row in (result.get("requests") or [])
-        if isinstance(row, dict)
-    ]
-    return safe_result
 
 
 
@@ -2478,12 +2367,6 @@ class AgentRuleRequest(BaseModel):
     tags: str = ""
 
 
-def _json_no_store(payload: dict[str, Any], status_code: int = 200) -> JSONResponse:
-    response = JSONResponse(content=payload, status_code=status_code)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
 
 
 @app.get("/api/agent/rules")
