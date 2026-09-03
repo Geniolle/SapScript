@@ -660,7 +660,7 @@ class SalsaItPfcgAnalyzeRequest(BaseModel):
 
 class SalsaItPfcgCreateAnalyzeRequest(BaseModel):
     selection_id: str
-    role_name: str
+    role_name: str = ""
 
 
 class SalsaItPfcgCreateRfcPreviewRequest(BaseModel):
@@ -1002,7 +1002,7 @@ def api_salsa_it_pfcg_create_select_excel_job(job_id: str) -> JSONResponse:
 
 @app.post("/api/salsa-it-agent/pfcg/create/analyze")
 def api_salsa_it_pfcg_create_analyze(payload: SalsaItPfcgCreateAnalyzeRequest) -> JSONResponse:
-    role_name = _validate_pfcg_role_name_or_400(payload.role_name)
+    role_name = str(payload.role_name or "PFCG_CREATE").strip().upper() or "PFCG_CREATE"
     selection_id = str(payload.selection_id or "").strip()
     if not selection_id:
         raise HTTPException(status_code=400, detail="Seleção de Excel inválida.")
@@ -1079,6 +1079,12 @@ def api_salsa_it_pfcg_create_analyze_job(job_id: str) -> JSONResponse:
         "warnings": result.get("warnings") or [],
         "errors": result.get("errors") or [],
     }
+    if result.get("layout_mode") is not None:
+        safe_result["layout_mode"] = result.get("layout_mode")
+    if result.get("filled_rows") is not None:
+        safe_result["filled_rows"] = result.get("filled_rows")
+    if result.get("groups") is not None:
+        safe_result["groups"] = result.get("groups")
     if result.get("role_in_excel") is not None:
         safe_result["role_in_excel"] = result.get("role_in_excel")
     return _json_no_store({

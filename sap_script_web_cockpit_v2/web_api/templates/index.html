@@ -4757,7 +4757,7 @@
                     children: [
                         {
                             id: 'pfcg-create',
-                            label: 'Criar Perfil',
+                            label: 'Função Simples',
                             icon: 'shield-plus',
                             processo: 'Funções PFCG',
                             subprocesso: 'A. PFCG_CREATE.py',
@@ -5646,7 +5646,7 @@
     function asiBuildPfcgDetailRow(label, value) {
         if (value === null || value === undefined || value === '') return '';
         return `
-            <div style="display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start;margin-top:10px;">
+            <div class="asi-pfcg-summary-item">
                 <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-secondary);">${escapeHtml(label)}</div>
                 <div style="font-size:0.84rem;font-weight:600;color:var(--text-primary);word-break:break-word;">${escapeHtml(String(value))}</div>
             </div>
@@ -5667,6 +5667,23 @@
                 margin-top: 8px;
                 padding-top: 8px;
                 border-top: 1px solid rgba(148, 163, 184, 0.18);
+            }
+
+            .asi-pfcg-summary-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 12px 18px;
+                margin-top: 14px;
+                padding-top: 10px;
+                border-top: 1px solid rgba(148, 163, 184, 0.2);
+            }
+
+            .asi-pfcg-summary-item {
+                display: grid;
+                grid-template-columns: 92px minmax(0, 1fr);
+                gap: 12px;
+                align-items: start;
+                min-width: 0;
             }
 
             .asi-pfcg-result-heading-row {
@@ -5770,6 +5787,9 @@
                 .asi-pfcg-result-grid {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
+                .asi-pfcg-summary-grid {
+                    grid-template-columns: 1fr;
+                }
             }
 
             @media (max-width: 550px) {
@@ -5778,6 +5798,9 @@
                 }
                 .asi-pfcg-result-field--span2 {
                     grid-column: span 1;
+                }
+                .asi-pfcg-summary-grid {
+                    grid-template-columns: 1fr;
                 }
             }
         `;
@@ -6274,7 +6297,7 @@
         const entries = Object.entries(summary).filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '');
         if (!entries.length) return '';
         return `
-            <div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.2);">
+            <div class="asi-pfcg-summary-grid">
                 ${entries.map(([key, value]) => asiBuildPfcgDetailRow(key.replaceAll('_', ' '), value)).join('')}
             </div>
         `;
@@ -6292,9 +6315,71 @@
         `;
     }
 
+    function asiBuildPfcgExcelRowsHtml(rows) {
+        if (!Array.isArray(rows) || !rows.length) return '';
+        const groups = new Map();
+        rows.forEach((row) => {
+            const agrName = String(row?.AGR_NAME || '').trim() || 'SEM_NOME';
+            if (!groups.has(agrName)) {
+                groups.set(agrName, {
+                    agrName,
+                    text: String(row?.TEXT || '').trim(),
+                    rows: [],
+                    tcodes: []
+                });
+            }
+            const group = groups.get(agrName);
+            const tcode = String(row?.TCODE || '').trim();
+            const text = String(row?.TEXT || '').trim();
+            if (!group.text && text) group.text = text;
+            if (tcode) group.tcodes.push(tcode);
+            group.rows.push(row);
+        });
+
+        const groupCardsHtml = Array.from(groups.values()).map((group) => {
+            const uniqueTcodes = Array.from(new Set(group.tcodes.filter(Boolean)));
+            const visibleTcodes = uniqueTcodes.slice(0, 6);
+            const hiddenCount = Math.max(uniqueTcodes.length - visibleTcodes.length, 0);
+            return `
+                <div style="height:100%;display:flex;flex-direction:column;padding:12px 12px 10px;border:1px solid rgba(148,163,184,0.18);border-radius:12px;background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);box-shadow:0 1px 2px rgba(15,23,42,0.04);box-sizing:border-box;">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                        <div style="min-width:0;flex:1 1 auto;">
+                            <div style="font-size:0.68rem;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-secondary);">Função Simples</div>
+                            <div style="margin-top:3px;font-size:0.9rem;font-weight:800;line-height:1.18;color:var(--text-primary);word-break:break-word;">${escapeHtml(group.agrName)}</div>
+                            ${group.text ? `<div style="margin-top:4px;font-size:0.76rem;line-height:1.35;color:var(--text-secondary);word-break:break-word;">${escapeHtml(group.text)}</div>` : ''}
+                        </div>
+                        <div style="text-align:right;min-width:82px;flex:0 0 auto;">
+                            <div style="font-size:0.68rem;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-secondary);">Registos</div>
+                            <div style="margin-top:4px;font-size:0.92rem;font-weight:800;color:var(--text-primary);">${group.rows.length}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:auto;padding-top:10px;display:flex;flex-wrap:wrap;gap:6px;">
+                        ${visibleTcodes.map((tcode) => `
+                            <span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#eef2ff;border:1px solid rgba(59,130,246,0.18);font-size:0.72rem;font-weight:700;color:#1d4ed8;line-height:1.15;">${escapeHtml(tcode)}</span>
+                        `).join('')}
+                        ${hiddenCount > 0 ? `<span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#f8fafc;border:1px dashed rgba(148,163,184,0.55);font-size:0.72rem;font-weight:700;color:var(--text-secondary);line-height:1.15;">+${hiddenCount}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.2);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                    <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-secondary);">Linhas preenchidas</div>
+                    <div style="font-size:0.78rem;color:var(--text-secondary);font-weight:600;">Total: ${rows.length}</div>
+                </div>
+                <div class="pfcg-create-grid">
+                    ${groupCardsHtml}
+                </div>
+            </div>
+        `;
+    }
+
     function asiBuildPfcgExcelResultHtml(result, fileName) {
         const status = String(result?.status || '').toUpperCase();
         const roleInExcel = result?.role_in_excel || result?.role || '';
+        const roleValue = result?.role || (result?.sheet === 'PFCG_CREATE' ? 'PFCG_CREATE' : (roleInExcel || 'N/D'));
         const heading = status === 'VALID'
             ? '✓ Ficheiro analisado com sucesso.'
             : 'Não é possível preparar a criação.';
@@ -6308,15 +6393,20 @@
         const errorsHtml = status === 'VALID'
             ? ''
             : asiBuildPfcgExcelWarningsHtml(result?.errors || [], 'Problemas encontrados');
+        const rowsHtml = result?.sheet === 'PFCG_CREATE'
+            ? asiBuildPfcgExcelRowsHtml(result?.filled_rows || [])
+            : '';
         const finalNote = status === 'VALID'
-            ? `<div style="margin-top:14px;font-size:0.84rem;color:var(--text-secondary);font-weight:600;">O Perfil está pronto para preparação da execução.</div>`
+            ? (result?.sheet === 'PFCG_CREATE'
+                ? `<div style="margin-top:14px;font-size:0.84rem;color:var(--text-secondary);font-weight:600;">Os registos da sheet PFCG_CREATE foram carregados para revisão.</div>`
+                : `<div style="margin-top:14px;font-size:0.84rem;color:var(--text-secondary);font-weight:600;">O Perfil está pronto para preparação da execução.</div>`)
             : '';
 
         return `
             <div>
                 <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:${accent};">${heading}</div>
                 <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.2);">
-                    ${asiBuildPfcgDetailRow('Perfil', result?.role || roleInExcel)}
+                    ${asiBuildPfcgDetailRow('Perfil', roleValue)}
                     ${asiBuildPfcgDetailRow('Ficheiro', fileName)}
                     ${description}
                     ${asiBuildPfcgDetailRow('Sistema', result?.system)}
@@ -6327,6 +6417,7 @@
                 ${summaryHtml}
                 ${warningsHtml}
                 ${errorsHtml}
+                ${rowsHtml}
                 ${finalNote}
             </div>
         `;
@@ -6600,6 +6691,28 @@
 
     async function asiStartPfcgAnalysis(roleName) {
         const { input } = asiGetElements();
+        const pendingExcelSelectionJobId = String(asiConversationState.pendingExcelSelectionJobId || '').trim();
+        const pendingExcelFileName = String(asiConversationState.pendingExcelFileName || '').trim();
+        const pendingExcelMessageId = String(asiConversationState.pendingExcelMessageId || '').trim();
+
+        if (pendingExcelSelectionJobId && pendingExcelFileName && pendingExcelMessageId) {
+            asiConversationState = {
+                ...asiConversationState,
+                awaitingInput: '',
+                pendingRoleName: roleName,
+                lastPfcgRoleName: roleName,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiStartPfcgCreateExcelAnalysis(
+                roleName,
+                pendingExcelSelectionJobId,
+                pendingExcelFileName,
+                pendingExcelMessageId
+            );
+            return;
+        }
+
         const processingMessage = asiCreateMessage('assistant', `A analisar ${roleName} no SAP PRD...`, {
             html: asiBuildPfcgProcessingHtml(roleName),
             isProcessing: true
@@ -6681,10 +6794,6 @@
     async function asiStartPfcgCreateExcelSelection() {
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
-        if (!roleName) {
-            asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível identificar a função analisada em PRD. Volte a analisar a função e tente novamente.'));
-            return;
-        }
 
         const processingMessage = asiCreateMessage('assistant', 'A abrir o seletor de ficheiros Excel...', {
             html: asiBuildPfcgExcelProcessingHtml('', 'A abrir o seletor de ficheiros Excel...'),
@@ -6751,6 +6860,7 @@
     }
 
     async function asiStartPfcgCreateExcelSelectionPolling(jobId, roleName, messageId) {
+        const { input } = asiGetElements();
         const startedAt = Date.now();
 
         asiStopPfcgPolling();
@@ -6825,11 +6935,12 @@
                     pendingExcelFileName: fileName,
                     pendingExcelMessageId: messageId,
                     lastPfcgRoleName: roleName,
+                    awaitingInput: '',
                     isBusy: true
                 };
                 asiUpdateMessage(messageId, {
-                    text: `A analisar o ficheiro ${fileName}...`,
-                    html: asiBuildPfcgExcelProcessingHtml(fileName, `A analisar o ficheiro ${fileName}...`),
+                    text: `Ficheiro ${fileName} selecionado. A ler registos da sheet PFCG_CREATE...`,
+                    html: asiBuildPfcgExcelProcessingHtml(fileName, `Ficheiro ${fileName} selecionado. A ler registos da sheet PFCG_CREATE...`),
                     isProcessing: true
                 });
                 asiUpdateComposerState();
@@ -6860,6 +6971,7 @@
 
     async function asiStartPfcgCreateExcelAnalysis(roleName, selectionId, fileName, messageId) {
         try {
+            const fallbackRoleName = String(roleName || 'PFCG_CREATE').trim().toUpperCase() || 'PFCG_CREATE';
             const response = await fetch('/api/salsa-it-agent/pfcg/create/analyze', {
                 method: 'POST',
                 headers: {
@@ -6867,7 +6979,7 @@
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    role_name: roleName,
+                    role_name: fallbackRoleName,
                     selection_id: selectionId
                 })
             });
@@ -6911,6 +7023,7 @@
     }
 
     async function asiStartPfcgCreateExcelAnalysisPolling(jobId, roleName, fileName, messageId) {
+        const { input } = asiGetElements();
         const startedAt = Date.now();
 
         asiStopPfcgPolling();
@@ -6995,9 +7108,13 @@
                     return;
                 }
 
+                const successText = result?.sheet === 'PFCG_CREATE'
+                    ? 'Registos da sheet PFCG_CREATE carregados com sucesso.'
+                    : 'O Perfil está pronto para preparação da execução.';
+
                 if (String(result.status || '').toUpperCase() === 'VALID') {
                     asiUpdateMessage(messageId, {
-                        text: 'O Perfil está pronto para preparação da execução.',
+                        text: successText,
                         html: asiBuildPfcgExcelResultHtml(result, fileName),
                         isProcessing: false
                     });
@@ -7372,7 +7489,7 @@
         };
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Envie o Nome do perfil que vamos criar'
+            'Envie o Nome da Função Simples que vamos criar'
         ));
         asiUpdateComposerState();
         const { input } = asiGetElements();
@@ -8593,7 +8710,7 @@
         if (asiConversationState.awaitingInput === ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT) {
             const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
             if (!normalizedRoleName) {
-                asiAppendMessage(asiCreateMessage('assistant', 'Envie o Nome do perfil que vamos criar'));
+                asiAppendMessage(asiCreateMessage('assistant', 'Envie o Nome da Função Simples que vamos criar'));
                 asiConversationState = {
                     ...asiConversationState,
                     awaitingInput: ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT,
@@ -9153,45 +9270,27 @@
     }
 
     function asiBuildF110ProposalCompactHtml(result, documentNumber) {
-        const status = String(result?.status || result?.job_status || '').trim().toUpperCase();
-        const statusLabel = status || 'SUCESSO';
         const runId = String(result?.run_id || '').trim();
-        const proposalItems = Array.isArray(result?.proposal_items) ? result.proposal_items.length : 0;
-        const included = result?.document_included_in_proposal === true || result?.document_found === true;
-        const inclusionLabel = included ? 'Documento incluído' : 'Documento não incluído';
-        const canRunPayment = included || proposalItems > 0;
+        const runDate = String(result?.run_date || '').trim();
+        const displayDate = runDate && /^\d{8}$/.test(runDate)
+            ? `${runDate.slice(6, 8)}${runDate.slice(4, 6)}${runDate.slice(0, 4)}`
+            : runDate;
+        const summary = `Proposta F110 ${displayDate || '-'}${runId ? `/${runId}` : ''}`;
 
         return `
             <div class="asi-f110-proposal-summary">
-                <div class="asi-f110-proposal-title">Proposta F110 executada</div>
-                <div class="asi-f110-proposal-grid">
-                    <div class="asi-f110-proposal-field">
-                        <span class="asi-f110-proposal-label">RUN</span>
-                        <span class="asi-f110-proposal-value">${escapeHtml(runId || '-')}</span>
-                    </div>
-                    <div class="asi-f110-proposal-field">
-                        <span class="asi-f110-proposal-label">Estado</span>
-                        <span class="asi-f110-proposal-value">${escapeHtml(statusLabel)}</span>
-                    </div>
-                    <div class="asi-f110-proposal-field">
-                        <span class="asi-f110-proposal-label">Documento</span>
-                        <span class="asi-f110-proposal-value">${escapeHtml(String(documentNumber || '-'))}</span>
-                    </div>
-                    <div class="asi-f110-proposal-field">
-                        <span class="asi-f110-proposal-label">Proposta</span>
-                        <span class="asi-f110-proposal-value">${escapeHtml(inclusionLabel)}${proposalItems ? ` (${proposalItems})` : ''}</span>
-                    </div>
-                </div>
-                ${result?.message ? `<div class="asi-f110-proposal-message">${escapeHtml(String(result.message)).replace(/\n/g, '<br>')}</div>` : ''}
-                ${canRunPayment ? `
-                    <div style="margin-top:12px;display:flex;justify-content:flex-end;">
-                        <button type="button" onclick="asiStartF110PaymentWorkflowFromLastProposal()" style="padding:8px 14px;border:none;border-radius:10px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;font-size:0.8rem;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(14,165,233,0.28);">
-                            Executar pagamento
-                        </button>
-                    </div>
-                ` : ''}
+                <div class="asi-f110-proposal-title">${escapeHtml(summary)}</div>
             </div>
         `;
+    }
+
+    function asiFormatF110ShortLabel(result) {
+        const runId = String(result?.run_id || '').trim();
+        const runDate = String(result?.run_date || '').trim();
+        const displayDate = runDate && /^\d{8}$/.test(runDate)
+            ? `${runDate.slice(6, 8)}${runDate.slice(4, 6)}${runDate.slice(0, 4)}`
+            : runDate;
+        return `Proposta F110 ${displayDate || '-'}${runId ? `/${runId}` : ''}`;
     }
 
     function asiStartF110DefaultWorkflow(action) {
@@ -9429,7 +9528,7 @@
                 lastFiDocumentWorkflow: 'f110_default_document',
             };
             asiUpdateMessage(processingMessage.id, {
-                text: `Proposta F110 executada para ${normalizedDocumentNumber}.`,
+                text: asiFormatF110ShortLabel(data),
                 html: asiBuildF110ProposalCompactHtml(data, normalizedDocumentNumber),
                 belowBubbleHtml: '',
                 isProcessing: false,

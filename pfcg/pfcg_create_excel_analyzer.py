@@ -66,27 +66,45 @@ def _error_result(role_name: str, error_type: str, message: str, status: str = "
 
 
 def _analyze_create_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[str, Any]:
-    required_columns = {"AGR_NAME", "TEXT", "TCODE", "STATUS", "MSG", "TIMESTEMP"}
+    full_required_columns = {"AGR_NAME", "TEXT", "TCODE", "STATUS", "MSG", "TIMESTEMP"}
+    compact_required_columns = {"ID", "AGR_NAME", "TEXT", "TCODE"}
     header_row = None
     header_map: dict[str, int] = {}
     best_row = 0
     max_matches = 0
+    layout_mode = ""
 
     for row_idx in range(1, min(ws.max_row, 20) + 1):
         row_values = [_norm_col(cell.value) for cell in ws[row_idx]]
-        found = set(row_values).intersection(required_columns)
+        row_set = set(row_values)
+        full_found = row_set.intersection(full_required_columns)
+        compact_found = row_set.intersection(compact_required_columns)
+
+        found = full_found if len(full_found) >= len(compact_found) else compact_found
         if len(found) > max_matches:
             max_matches = len(found)
             best_row = row_idx
-        if len(found) == len(required_columns):
+
+        if full_required_columns.issubset(row_set):
             header_row = row_idx
+            layout_mode = "full"
+            header_map.clear()
+            for col_idx, name in enumerate(row_values, start=1):
+                if name:
+                    header_map[name] = col_idx
+            break
+
+        if compact_required_columns.issubset(row_set):
+            header_row = row_idx
+            layout_mode = "compact"
+            header_map.clear()
             for col_idx, name in enumerate(row_values, start=1):
                 if name:
                     header_map[name] = col_idx
             break
 
     if not header_row:
-        missing = sorted(required_columns - set(header_map))
+        missing = sorted((full_required_columns | compact_required_columns) - set(header_map))
         return {
             "ok": False,
             "status": "INVALID",
@@ -98,13 +116,131 @@ def _analyze_create_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[str,
             "sheet": sheet_name,
             "summary": {
                 "header_row": best_row or None,
-                "required_columns": sorted(required_columns),
+                "required_columns": sorted(full_required_columns),
+                "compact_columns": sorted(compact_required_columns),
             },
             "warnings": [],
             "errors": [
                 "Nao foi encontrada a linha de cabecalho completa.",
                 *( [f"Colunas em falta: {', '.join(missing)}"] if missing else [] ),
             ],
+        }
+
+    if layout_mode == "compact":
+        col_id = header_map.get("ID")
+        col_agr = header_map.get("AGR_NAME")
+        col_text = header_map.get("TEXT")
+        col_tcode = header_map.get("TCODE")
+
+        records: list[dict[str, Any]] = []
+        for row_idx in range(header_row + 1, ws.max_row + 1):
+            agr = str(ws.cell(row=row_idx, column=col_agr).value or "").strip() if col_agr else ""
+            if not agr:
+                continue
+            record = {
+                "_row": row_idx,
+                "ID": str(ws.cell(row=row_idx, column=col_id).value or "").strip() if col_id else "",
+                "AGR_NAME": agr,
+                "TEXT": str(ws.cell(row=row_idx, column=col_text).value or "").strip() if col_text else "",
+                "TCODE": str(ws.cell(row=row_idx, column=col_tcode).value or "").strip() if col_tcode else "",
+            }
+            records.append(record)
+
+        if not records:
+            return {
+                "ok": False,
+                "status": "INVALID",
+                "role": role_name,
+                "description": None,
+                "language": None,
+                "system": "DEV",
+                "client": "100",
+                "sheet": sheet_name,
+                "layout_mode": "compact",
+                "filled_rows": [],
+                "summary": {
+                    "header_row": header_row,
+                    "records": 0,
+                },
+                "warnings": [],
+                "errors": ["Nao encontrei linhas para processar."],
+            }
+
+        roles_map: dict[str, dict[str, Any]] = {}
+        for record in records:
+            agr = str(record["AGR_NAME"]).strip().upper()
+            if agr not in roles_map:
+                roles_map[agr] = {
+                    "AGR_NAME": agr,
+                    "TEXT": str(record["TEXT"]).strip(),
+                    "TCODE_LIST": [],
+                    "rows": [],
+                }
+            if not roles_map[agr]["TEXT"] and str(record["TEXT"]).strip():
+                roles_map[agr]["TEXT"] = str(record["TEXT"]).strip()
+            roles_map[agr]["TCODE_LIST"].extend(_split_tokens(record["TCODE"]))
+            roles_map[agr]["rows"].append(record["_row"])
+
+        distinct_roles = sorted(roles_map)
+        target_role = role_name if role_name and role_name.upper() in roles_map else ""
+
+        if target_role:
+            role_data = roles_map[target_role.upper()]
+            tcode_list = list(dict.fromkeys(role_data["TCODE_LIST"]))
+            description = str(role_data["TEXT"]).strip() or None
+            return {
+                "ok": True,
+                "status": "VALID",
+                "role": target_role.upper(),
+                "description": description,
+                "language": None,
+                "system": "DEV",
+                "client": "100",
+                "sheet": sheet_name,
+                "layout_mode": "compact",
+                "filled_rows": [record for record in records if str(record["AGR_NAME"]).strip().upper() == target_role.upper()],
+                "summary": {
+                    "header_row": header_row,
+                    "records": len(records),
+                    "rows": role_data["rows"],
+                    "tcode_count": len(tcode_list),
+                    "unique_tcodes": tcode_list,
+                    "compact_layout": True,
+                },
+                "warnings": [],
+                "errors": [],
+            }
+
+        groups = [
+            {
+                "AGR_NAME": agr,
+                "TEXT": data["TEXT"],
+                "TCODE_LIST": list(dict.fromkeys(data["TCODE_LIST"])),
+                "rows": data["rows"],
+            }
+            for agr, data in sorted(roles_map.items())
+        ]
+        return {
+            "ok": True,
+            "status": "VALID",
+            "role": None,
+            "description": None,
+            "language": None,
+            "system": "DEV",
+            "client": "100",
+            "sheet": sheet_name,
+            "layout_mode": "compact",
+            "filled_rows": records,
+            "groups": groups,
+            "summary": {
+                "header_row": header_row,
+                "records": len(records),
+                "roles_count": len(groups),
+                "roles_found": distinct_roles,
+                "compact_layout": True,
+            },
+            "warnings": [],
+            "errors": [],
         }
 
     col_agr = header_map.get("AGR_NAME")
@@ -130,6 +266,19 @@ def _analyze_create_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[str,
         }
         records.append(record)
 
+    filled_rows = [
+        {
+            "row": record["_row"],
+            "AGR_NAME": record["AGR_NAME"],
+            "TEXT": record["TEXT"],
+            "TCODE": record["TCODE"],
+            "STATUS": record["STATUS"],
+            "MSG": record["MSG"],
+            "TIMESTEMP": record["TIMESTEMP"],
+        }
+        for record in records
+    ]
+
     if not records:
         return {
             "ok": False,
@@ -140,6 +289,7 @@ def _analyze_create_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[str,
             "system": "DEV",
             "client": "100",
             "sheet": sheet_name,
+            "filled_rows": [],
             "summary": {
                 "header_row": header_row,
                 "records": 0,
@@ -199,6 +349,7 @@ def _analyze_create_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[str,
             "system": "DEV",
             "client": "100",
             "sheet": sheet_name,
+            "filled_rows": filled_rows,
             "summary": {
                 "header_row": header_row,
                 "records": len(records),
@@ -235,6 +386,7 @@ def _analyze_create_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[str,
             "system": "DEV",
             "client": "100",
             "sheet": sheet_name,
+            "filled_rows": filled_rows,
             "summary": {
                 "header_row": header_row,
                 "records": len(records),
@@ -254,6 +406,7 @@ def _analyze_create_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[str,
         "system": "DEV",
         "client": "100",
         "sheet": sheet_name,
+        "filled_rows": filled_rows,
         "summary": {
             "header_row": header_row,
             "records": len(records),
@@ -452,7 +605,7 @@ def _analyze_composta_sheet(ws: Any, sheet_name: str, role_name: str) -> dict[st
 
 
 def analyze_pfcg_create_excel(excel_path: str, expected_role_name: str) -> dict[str, Any]:
-    role_name = _norm_text(expected_role_name)
+    role_name = _norm_text(expected_role_name or "PFCG_CREATE")
     path = Path(str(excel_path or "").strip())
     if not path:
         return _error_result(role_name, "INVALID_INPUT", "Caminho do ficheiro vazio.")
@@ -470,14 +623,14 @@ def analyze_pfcg_create_excel(excel_path: str, expected_role_name: str) -> dict[
 
     try:
         sheet_names = wb.sheetnames
-        if "PFCG_COMPOSTA" in sheet_names:
-            sheet_name = "PFCG_COMPOSTA"
-            ws = wb[sheet_name]
-            return _analyze_composta_sheet(ws, sheet_name, role_name)
-        elif "PFCG_CREATE" in sheet_names:
+        if "PFCG_CREATE" in sheet_names:
             sheet_name = "PFCG_CREATE"
             ws = wb[sheet_name]
             return _analyze_create_sheet(ws, sheet_name, role_name)
+        elif "PFCG_COMPOSTA" in sheet_names:
+            sheet_name = "PFCG_COMPOSTA"
+            ws = wb[sheet_name]
+            return _analyze_composta_sheet(ws, sheet_name, role_name)
         elif len(sheet_names) == 1:
             sheet_name = sheet_names[0]
             ws = wb[sheet_name]

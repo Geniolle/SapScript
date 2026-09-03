@@ -217,7 +217,7 @@ def select_excel_file_on_windows(params: dict[str, Any] | None = None) -> tuple[
 
 def _run_pfcg_create_excel_analysis(params: dict[str, Any]) -> tuple[str, str]:
     excel_path = str(params.get("excel_path") or "").strip()
-    role_name = str(params.get("role_name") or "").strip()
+    role_name = str(params.get("role_name") or "PFCG_CREATE").strip() or "PFCG_CREATE"
     result = analyze_pfcg_create_excel(excel_path=excel_path, expected_role_name=role_name)
     if result.get("ok") is True:
         log = (
