@@ -61,12 +61,17 @@
         ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION,
         ASI_PFCG_ROLE_ANALYZE_USERS_ACTION
     ];
-    // Opções de "O que deseja analisar?" para re-apresentar depois de um resultado.
-    const ASI_PFCG_ANALYZE_MENU_ACTIONS = [
-        { id: 'pfcg-role-analyze-funcao', label: 'Função', icon: 'analysis' },
-        { id: 'pfcg-role-analyze-transacao', label: 'Transação', icon: 'analysis' },
-        { id: 'pfcg-role-analyze-objeto', label: 'Objeto de autorização', icon: 'authorization' }
-    ];
+    // Opções de "O que deseja fazer com o Perfil de Autorização?" (filhas de
+    // perfil-autorizacao no salsaAgentActions), para re-apresentar após um resultado.
+    function asiPfcgRootMenuActions() {
+        const node = asiFindQuickAction('perfil-autorizacao', salsaAgentActions);
+        return node && Array.isArray(node.children) ? node.children : [];
+    }
+    const ASI_PFCG_ROOT_MENU_META = {
+        actionLevel: 2,
+        parentActionId: 'perfil-autorizacao',
+        selectionGroupKey: 'perfil-autorizacao'
+    };
     const ASI_PFCG_INDIVIDUAL_ROLE_NAME_INPUT = 'pfcg_individual_role_name';
     const ASI_PFCG_COMPOSTA_ROLE_NAME_INPUT = 'pfcg_composta_role_name';
     const ASI_PFCG_COMPOSTA_DESCRIPTION_INPUT = 'pfcg_composta_description';
@@ -2515,10 +2520,8 @@
                     html: asiBuildPfcgTransactionRolesResultHtml(result),
                     isProcessing: false,
                     wide: true,
-                    actions: ASI_PFCG_ANALYZE_MENU_ACTIONS,
-                    actionLevel: 0,
-                    parentActionId: '',
-                    selectionGroupKey: '__pfcg_analyze_menu__'
+                    actions: asiPfcgRootMenuActions(),
+                    ...ASI_PFCG_ROOT_MENU_META
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
@@ -2687,10 +2690,8 @@
                     html: asiBuildPfcgObjectRolesResultHtml(result),
                     isProcessing: false,
                     wide: true,
-                    actions: ASI_PFCG_ANALYZE_MENU_ACTIONS,
-                    actionLevel: 0,
-                    parentActionId: '',
-                    selectionGroupKey: '__pfcg_analyze_menu__'
+                    actions: asiPfcgRootMenuActions(),
+                    ...ASI_PFCG_ROOT_MENU_META
                 });
                 asiResetPfcgInteraction();
             } catch (error) {
