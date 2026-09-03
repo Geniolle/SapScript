@@ -4644,20 +4644,8 @@
         return 'cliente';
     }
 
-    function asiGetFiActionContext(action) {
-        const actionId = String(action?.id || '').toLowerCase();
-        const environment = String(
-            action?.environment
-            || (actionId.includes('-dev-') ? 'DEV' : '')
-            || (actionId.includes('-prd-') ? 'PRD' : '')
-            || (actionId.includes('-qad-') ? 'QAD' : 'QAD')
-        ).trim().toUpperCase();
-        const branch = asiNormalizeFiBranch(
-            action?.branch
-            || (actionId.includes('fornecedor') ? 'fornecedor' : actionId.includes('razao') ? 'razao' : 'cliente')
-        );
-        return { environment, branch };
-    }
+    // asiGetFiActionContext: definicao unica mais abaixo (antes de asiBuildFiDefaultPayload).
+    // A copia identica que existia aqui foi removida na Fase 1 da refatoracao.
 
     function asiBuildF110DefaultInfoAction(environment, branch) {
         const env = String(environment || 'QAD').trim().toUpperCase();
@@ -9083,94 +9071,9 @@
         }, pollIntervalMs);
     }
 
-    async function asiStartFiDefaultJob(action) {
-        if (asiChatMockTimer) {
-            clearTimeout(asiChatMockTimer);
-            asiChatMockTimer = null;
-        }
-
-        const userPrompt = String(action && action.prompt ? action.prompt : 'Usar informações Default.').trim();
-        const processo = String(action && action.processo ? action.processo : 'Testes Unitários').trim();
-        const subprocesso = String(action && action.subprocesso ? action.subprocesso : '').trim();
-        const ambiente = String(action && action.environment ? action.environment : 'QAD').trim().toUpperCase();
-        const workflow = String(action && action.workflow ? action.workflow : '').trim().toLowerCase();
-        const isF110DefaultWorkflow = workflow === 'f110_default_document';
-        const branchLabel = String(action && action.branch ? action.branch : '').trim().toLowerCase() === 'fornecedor'
-            ? 'Fornecedor'
-            : String(action && action.branch ? action.branch : '').trim().toLowerCase() === 'razao'
-                ? 'Razão'
-                : 'Cliente';
-        const processingText = isF110DefaultWorkflow
-            ? `A criar o documento FI de apoio à Execução F110 em ${ambiente} com os dados Default...`
-            : `A criar o documento FI padrão de ${branchLabel} em ${ambiente} com os dados Default...`;
-
-        asiAppendMessage(asiCreateMessage('user', userPrompt));
-
-        const processingMessage = asiCreateMessage('assistant', processingText, {
-            html: asiBuildThinkingDotsHtml(processingText),
-            isProcessing: true
-        });
-        asiAppendMessage(processingMessage);
-
-        asiConversationState = { ...asiConversationState, isBusy: true };
-        asiUpdateComposerState();
-
-        try {
-            const response = await fetch('/api/jobs', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    task: 'sap_cockpit',
-                    params: {
-                        ambiente,
-                        environment: ambiente,
-                        processo,
-                        subprocesso,
-                        workflow_name: workflow || [processo, subprocesso].filter(Boolean).join(' | ') || 'sap_cockpit',
-                        data_mode: 'default'
-                    }
-                })
-            });
-            const data = await response.json().catch(() => ({}));
-
-            if (!response.ok) {
-                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
-            }
-
-            const jobId = String(data && data.id ? data.id : '').trim();
-            if (!jobId) {
-                throw new Error('Resposta do backend sem id de job.');
-            }
-
-            const successText = isF110DefaultWorkflow
-                ? `Documento FI de apoio à Execução F110 enviado para execução em ${ambiente}.`
-                : `Documento FI padrão enviado para execução em ${ambiente}.`;
-            const errorText = isF110DefaultWorkflow
-                ? `Não foi possível executar o documento FI de apoio à Execução F110 em ${ambiente}.`
-                : `Não foi possível executar o documento FI padrão em ${ambiente}.`;
-
-            await asiPollGenericJob(
-                jobId,
-                processingMessage.id,
-                successText,
-                errorText
-            );
-        } catch (error) {
-            const errorText = isF110DefaultWorkflow
-                ? `Não foi possível executar o documento FI de apoio à Execução F110 em ${ambiente}.`
-                : `Não foi possível executar o documento FI padrão em ${ambiente}.`;
-            asiUpdateMessage(processingMessage.id, {
-                text: errorText,
-                html: `${escapeHtml(errorText)}<br><span style="color: var(--danger);">${escapeHtml(error.message || 'Falha desconhecida.').replace(/\n/g, '<br>')}</span>`,
-                isProcessing: false
-            });
-            asiConversationState = { ...asiConversationState, isBusy: false };
-            asiUpdateComposerState();
-        }
-    }
+    // asiStartFiDefaultJob: definicao unica mais abaixo, com assinatura
+    // (action, options = {}). A copia anterior, que estava aqui e era codigo
+    // morto (sombreada pela definicao seguinte), foi removida na Fase 1.
 
     function asiGetFiActionContext(action) {
         const actionId = String(action?.id || '').toLowerCase();
@@ -9855,17 +9758,6 @@
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiStartPfcgCompostaIndividualCreate();
-            return;
-        }
-
-        if (false && (action.id === 'pfcg-create-individual')) {
-            if (asiChatMockTimer) {
-                clearTimeout(asiChatMockTimer);
-                asiChatMockTimer = null;
-            }
-
-            asiAppendMessage(asiCreateMessage('user', action.prompt));
-            asiStartPfcgIndividualCreate();
             return;
         }
 
