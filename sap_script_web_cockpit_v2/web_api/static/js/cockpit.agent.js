@@ -311,6 +311,16 @@
                             children: []
                         },
                         {
+                            id: 'cua-enddate',
+                            label: 'Alterar Data Fim',
+                            icon: 'calendar',
+                            processo: 'Funções PFCG',
+                            subprocesso: 'I. CUA_ENDDATE.py',
+                            prompt: 'Quero alterar a data fim de um utilizador.',
+                            followupText: 'Certo. Vamos preparar a alteração da data fim do utilizador.',
+                            children: []
+                        },
+                        {
                             ...ASI_MAIN_MENU_ACTION,
                             prompt: 'Quero voltar ao menu principal.'
                         }
@@ -531,16 +541,6 @@
                             subprocesso: 'H. CUA_ADICIONAR.py',
                             prompt: 'Quero adicionar um utilizador.',
                             followupText: 'Certo. Vamos preparar a adição do utilizador.',
-                            children: []
-                        },
-                        {
-                            id: 'cua-enddate',
-                            label: 'Alterar Data Fim',
-                            icon: 'calendar',
-                            processo: 'Funções PFCG',
-                            subprocesso: 'I. CUA_ENDDATE.py',
-                            prompt: 'Quero alterar a data fim de um utilizador.',
-                            followupText: 'Certo. Vamos preparar a alteração da data fim do utilizador.',
                             children: []
                         },
                         {
