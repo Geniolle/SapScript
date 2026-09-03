@@ -13,6 +13,7 @@ Usar o Python do venv do cockpit (tem fastapi/pydantic):
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import unittest
@@ -20,6 +21,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 COCKPIT_DIR = HERE.parent
+REPO_ROOT = COCKPIT_DIR.parent
+
+# Funciona seja qual for a CWD de onde e invocado.
+os.chdir(COCKPIT_DIR)
+for _p in (str(COCKPIT_DIR), str(REPO_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 def run_js_smoke() -> int:
