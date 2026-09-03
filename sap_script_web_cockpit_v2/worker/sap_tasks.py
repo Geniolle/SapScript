@@ -674,6 +674,88 @@ def _run_pfcg_role_users_analysis(params: dict[str, Any]) -> tuple[str, str]:
     )
 
 
+def _run_pfcg_transaction_roles(params: dict[str, Any]) -> tuple[str, str]:
+    """Read-only via bridge RFC isolada: funcoes PFCG a que uma transacao esta
+    atribuida em PRD. Aceita EXCLUSIVAMENTE `tcode` de params."""
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+    raw_tcode = str(params.get("tcode") or "").strip().upper()
+
+    try:
+        from sap_rfc.pfcg_transaction_roles_service import validate_tcode
+        tcode = validate_tcode(raw_tcode)
+    except ValueError as exc:
+        payload = {
+            "ok": False,
+            "status": "ERRO",
+            "tcode": raw_tcode,
+            "error_type": "INVALID_INPUT",
+            "message": str(exc),
+            "system": "PRD",
+            "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
+        }
+        return json.dumps(payload, ensure_ascii=False), (
+            f"Analise 'transacao -> funcoes' rejeitada antes da bridge RFC.\nTcode: {raw_tcode}\nMotivo: {exc}"
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Nao foi possivel importar a validacao de transacao: {exc}") from exc
+
+    rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
+    if not rfc_python.exists():
+        raise SapExecutionError(f"Python RFC nao encontrado: {rfc_python}")
+
+    env = _build_rfc_bridge_env(project_dir)
+    command = [str(rfc_python), "-m", "sap_rfc.pfcg_transaction_roles_cli", "--tcode", tcode]
+
+    try:
+        run = subprocess.run(
+            command,
+            cwd=str(project_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            check=False,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SapExecutionError(f"Timeout ao consultar funcoes da transacao {tcode}.") from exc
+
+    stdout = str(run.stdout or "").strip()
+    stderr = str(run.stderr or "").strip()
+
+    if run.returncode not in RFC_ALLOWED_EXIT_CODES:
+        raise SapExecutionError(f"Bridge RFC (transacao -> funcoes) falhou com exit code {run.returncode}.")
+    if not stdout:
+        raise SapExecutionError("Bridge RFC (transacao -> funcoes) nao devolveu JSON em stdout.")
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise SapExecutionError("Bridge RFC (transacao -> funcoes) devolveu JSON invalido.") from exc
+    if not isinstance(payload, dict):
+        raise SapExecutionError("Bridge RFC (transacao -> funcoes) devolveu payload invalido.")
+
+    log_lines = [
+        "Analise 'transacao -> funcoes' via subprocesso RFC controlado.",
+        f"Tcode: {tcode}",
+        f"Python RFC: {rfc_python}",
+        f"Exit code: {run.returncode}",
+        f"Status: {payload.get('status', '-')}",
+        f"Count: {payload.get('count', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+    if payload.get("warning"):
+        log_lines.append(f"Aviso: {payload['warning']}")
+    if stderr:
+        log_lines.append(f"stderr: {stderr}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_pfcg_role_create_preview(params: dict[str, Any]) -> tuple[str, str]:
     """Pré-visualização (read-only) da criação individual de função PFCG via RFC.
 
@@ -1121,6 +1203,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_role_analysis": lambda job, params: _run_pfcg_role_analysis(params),
     "pfcg_role_transactions_analysis": lambda job, params: _run_pfcg_role_transactions_analysis(params),
     "pfcg_role_users_analysis": lambda job, params: _run_pfcg_role_users_analysis(params),
+    "pfcg_transaction_roles": lambda job, params: _run_pfcg_transaction_roles(params),
     "pfcg_create_excel_analysis": lambda job, params: _run_pfcg_create_excel_analysis(params),
     "pfcg_role_create_preview": lambda job, params: _run_pfcg_role_create_preview(params),
     "pfcg_role_create_rfc": lambda job, params: _run_pfcg_role_create_rfc(params),

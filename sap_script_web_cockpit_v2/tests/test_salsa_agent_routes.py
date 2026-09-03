@@ -84,6 +84,55 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         self.assertEqual(store.get_job(t["job_id"])["task"], "pfcg_role_transactions_analysis")
         self.assertEqual(store.get_job(u["job_id"])["task"], "pfcg_role_users_analysis")
 
+    def test_transaction_roles_create_job_and_states(self) -> None:
+        created = _body(
+            main.api_salsa_it_pfcg_transaction_roles(
+                main.SalsaItPfcgTransactionRolesRequest(tcode="fb01")
+            )
+        )
+        self.assertEqual(created["tcode"], "FB01")
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["task"], "pfcg_transaction_roles")
+        self.assertEqual(job["params"].get("tcode"), "FB01")
+
+        got = _body(main.api_salsa_it_pfcg_transaction_roles_job(created["job_id"]))
+        self.assertEqual(got["state"], "pending")
+
+        store.complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps(
+                {
+                    "ok": True,
+                    "status": "OK",
+                    "tcode": "FB01",
+                    "tcode_description": "Enter Incoming Invoice",
+                    "count": 1,
+                    "roles": [
+                        {"role": "Z_FI_X", "description": "FI X", "composite_parents": ["C_FI"], "segredo": "x"}
+                    ],
+                    "system": "PRD",
+                    "client": "100",
+                    "segredo_top": "x",
+                }
+            ),
+            "",
+        )
+        done = _body(main.api_salsa_it_pfcg_transaction_roles_job(created["job_id"]))
+        self.assertEqual(done["state"], "succeeded")
+        self.assertEqual(done["result"]["count"], 1)
+        self.assertEqual(done["result"]["roles"][0]["role"], "Z_FI_X")
+        self.assertEqual(done["result"]["roles"][0]["composite_parents"], ["C_FI"])
+        self.assertNotIn("segredo", done["result"]["roles"][0])
+        self.assertNotIn("segredo_top", done["result"])
+
+    def test_transaction_roles_rejects_bad_tcode(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_pfcg_transaction_roles(
+                main.SalsaItPfcgTransactionRolesRequest(tcode="")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
     # ---- GET: mapeamento de estado / validacao do job ----------------------
 
     def test_analyze_job_pending_state(self) -> None:
