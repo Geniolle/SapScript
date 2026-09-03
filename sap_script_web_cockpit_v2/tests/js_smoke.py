@@ -36,6 +36,10 @@ import unittest
 from pathlib import Path
 
 TEMPLATE = Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html"
+STATIC_JS_DIR = Path(__file__).resolve().parents[1] / "web_api" / "static" / "js"
+
+# Ordem de carregamento dos ficheiros de /static/js (tem de bater com index.html).
+STATIC_JS_ORDER = ["cockpit.js"]
 
 # Funcoes que TEM de existir no fim da avaliacao do script para o cockpit arrancar.
 REQUIRED_GLOBALS = [
@@ -168,15 +172,30 @@ def run_node(js: str) -> subprocess.CompletedProcess[str]:
         Path(tmp).unlink(missing_ok=True)
 
 
+def collect_js() -> str:
+    """Junta o(s) <script> inline do template + os ficheiros /static/js na ordem real."""
+    html = TEMPLATE.read_text(encoding="utf-8", errors="replace")
+    parts = [neutralize_jinja(b) for b in extract_inline_scripts(html)]
+
+    ordered = list(STATIC_JS_ORDER)
+    if STATIC_JS_DIR.is_dir():
+        for extra in sorted(p.name for p in STATIC_JS_DIR.glob("*.js")):
+            if extra not in ordered:
+                ordered.append(extra)
+    for name in ordered:
+        fpath = STATIC_JS_DIR / name
+        if fpath.is_file():
+            parts.append(fpath.read_text(encoding="utf-8", errors="replace"))
+
+    return "\n;\n".join(parts)
+
+
 def check() -> list[str]:
     """Devolve lista de erros. Vazia = OK."""
     errors: list[str] = []
-    html = TEMPLATE.read_text(encoding="utf-8", errors="replace")
-    blocks = extract_inline_scripts(html)
-    if not blocks:
-        return ["Nenhum bloco <script> inline encontrado no template."]
-
-    js = neutralize_jinja("\n;\n".join(blocks))
+    js = collect_js()
+    if not js.strip():
+        return ["Nao foi encontrado JavaScript (nem inline em index.html nem em static/js)."]
 
     dups = find_duplicate_top_level_functions(js)
     for name, lines in sorted(dups.items()):
