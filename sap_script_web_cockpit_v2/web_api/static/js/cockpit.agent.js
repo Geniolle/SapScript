@@ -354,7 +354,7 @@
                         },
                         {
                             id: 'cua-remove',
-                            label: 'Remover Utilizador',
+                            label: 'Remover Utilizador Função',
                             icon: 'user-minus',
                             processo: 'Funções PFCG',
                             subprocesso: 'J. CUA_REMOVE.py',
