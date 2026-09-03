@@ -253,6 +253,47 @@
                     followupActionsSource: 'children',
                     children: [
                         {
+                            id: 'pfcg-role-analyze',
+                            label: 'Analisar',
+                            icon: 'analysis',
+                            processo: 'Funções PFCG',
+                            subprocesso: 'A. PFCG_CREATE.py',
+                            prompt: 'Quero analisar um Perfil de Autorização.',
+                            followupText: 'O que deseja analisar?',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'pfcg-role-analyze-funcao',
+                                    label: 'Função',
+                                    icon: 'analysis',
+                                    mode: 'analyze',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero analisar a função.',
+                                    followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-role-analyze-transacao',
+                                    label: 'Transação',
+                                    icon: 'analysis',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero analisar por transação.',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-role-analyze-objeto',
+                                    label: 'Objeto de autorização',
+                                    icon: 'authorization',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero analisar por objeto de autorização.',
+                                    children: []
+                                }
+                            ]
+                        },
+                        {
                             id: 'pfcg-create',
                             label: 'Criar funções',
                             icon: 'shield-plus',
@@ -296,47 +337,6 @@
                                             children: []
                                         }
                                     ]
-                                }
-                            ]
-                        },
-                        {
-                            id: 'pfcg-role-analyze',
-                            label: 'Analisar',
-                            icon: 'analysis',
-                            processo: 'Funções PFCG',
-                            subprocesso: 'A. PFCG_CREATE.py',
-                            prompt: 'Quero analisar um Perfil de Autorização.',
-                            followupText: 'O que deseja analisar?',
-                            followupActionsSource: 'children',
-                            children: [
-                                {
-                                    id: 'pfcg-role-analyze-funcao',
-                                    label: 'Função',
-                                    icon: 'analysis',
-                                    mode: 'analyze',
-                                    processo: 'Funções PFCG',
-                                    subprocesso: 'A. PFCG_CREATE.py',
-                                    prompt: 'Quero analisar a função.',
-                                    followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
-                                    children: []
-                                },
-                                {
-                                    id: 'pfcg-role-analyze-transacao',
-                                    label: 'Transação',
-                                    icon: 'analysis',
-                                    processo: 'Funções PFCG',
-                                    subprocesso: 'A. PFCG_CREATE.py',
-                                    prompt: 'Quero analisar por transação.',
-                                    children: []
-                                },
-                                {
-                                    id: 'pfcg-role-analyze-objeto',
-                                    label: 'Objeto de autorização',
-                                    icon: 'authorization',
-                                    processo: 'Funções PFCG',
-                                    subprocesso: 'A. PFCG_CREATE.py',
-                                    prompt: 'Quero analisar por objeto de autorização.',
-                                    children: []
                                 }
                             ]
                         },
