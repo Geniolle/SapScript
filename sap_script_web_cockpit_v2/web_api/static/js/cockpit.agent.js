@@ -37,6 +37,9 @@
     const ASI_PFCG_USER_INPUT = 'pfcg_username';
     const ASI_PFCG_USER_PATTERN = /^[A-Z0-9_.\-]{1,12}$/;
     const ASI_USER_SEARCH_INPUT = 'user_search_name';
+    const ASI_CUA_ADD_USER_INPUT = 'cua_add_user';
+    const ASI_CUA_ADD_ROLE_INPUT = 'cua_add_role';
+    const ASI_CUA_ADD_SUB_INPUT = 'cua_add_sub';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
     // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador').
@@ -3299,6 +3302,139 @@
         }
     }
 
+    // ── CUA: Adicionar Utilizador Função (Excel ou individual) via job sap_cockpit ──
+    async function asiPollCuaJob(jobId, messageId, titulo) {
+        const startedAt = Date.now();
+        const timeoutMs = 300000; // GUI scripting pode ser lento
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= timeoutMs) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: `${titulo} está a demorar mais do que o esperado.`,
+                    html: asiBuildPfcgErrorHtml(`${titulo} está a demorar mais do que o esperado.`, 'Verifique o worker Windows e a sessão SAP GUI aberta.'),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                return;
+            }
+            asiPfcgPollingInFlight = true;
+            try {
+                const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { headers: { 'Accept': 'application/json' } });
+                const job = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error((job && job.detail) || `Erro HTTP ${r.status}`);
+                const state = String(job.state || '').toLowerCase();
+                if (state === 'pending' || state === 'running') return;
+                asiStopPfcgPolling();
+                const detalhe = String(job.status || job.log || '').trim();
+                if (state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: `${titulo}: falhou.`,
+                        html: asiBuildPfcgErrorHtml(`${titulo}: falhou.`, detalhe),
+                        isProcessing: false
+                    });
+                } else {
+                    asiUpdateMessage(messageId, {
+                        text: `${titulo}: ${detalhe || 'concluído.'}`,
+                        html: `${escapeHtml(titulo)}<br><span style="color:var(--text-secondary);">${escapeHtml(detalhe || 'concluído.').replace(/\n/g, '<br>')}</span>`,
+                        isProcessing: false,
+                        wide: true,
+                        ...asiPostResultMenu()
+                    });
+                }
+                asiResetPfcgInteraction();
+            } catch (e) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: `${titulo}: erro.`,
+                    html: asiBuildPfcgErrorHtml(`${titulo}: erro.`, e.message || ''),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, 2000);
+    }
+
+    async function asiCuaAdicionarCriarJob(body, titulo, processingMessage) {
+        const resp = await fetch('/api/salsa-it-agent/cua/adicionar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error((data && data.detail) || `Erro HTTP ${resp.status}`);
+        const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+        if (!jobId) throw new Error('Resposta do backend sem job_id.');
+        await asiPollCuaJob(jobId, processingMessage.id, titulo);
+    }
+
+    async function asiStartCuaAdicionarExcel() {
+        const { input } = asiGetElements();
+        const titulo = `Adicionar Utilizador Função (Excel, ${asiPfcgSystem})`;
+        const pm = asiCreateMessage('assistant', 'A abrir o seletor de ficheiros Excel...', {
+            html: asiBuildPfcgGenericProcessingHtml('A abrir o seletor de ficheiros Excel...'),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+        try {
+            const sel = await fetch('/api/salsa-it-agent/pfcg/create/select-excel', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: '{}'
+            });
+            const selData = await sel.json().catch(() => ({}));
+            if (!sel.ok) throw new Error((selData && selData.detail) || `Erro HTTP ${sel.status}`);
+            const selJob = String(selData.job_id || '').trim();
+            if (!selJob) throw new Error('Sem job de seleção de Excel.');
+
+            asiUpdateMessage(pm.id, { text: 'Escolha o ficheiro Excel na janela do worker...', html: asiBuildPfcgGenericProcessingHtml('Escolha o ficheiro Excel na janela do worker...'), isProcessing: true });
+
+            const started = Date.now();
+            let selectionId = '';
+            while (Date.now() - started < 120000) {
+                await new Promise(r => setTimeout(r, 1500));
+                const p = await fetch(`/api/salsa-it-agent/pfcg/create/select-excel/${encodeURIComponent(selJob)}`, { headers: { 'Accept': 'application/json' } });
+                const pd = await p.json().catch(() => ({}));
+                if (!p.ok) throw new Error((pd && pd.detail) || `Erro HTTP ${p.status}`);
+                if (pd.state === 'pending' || pd.state === 'running') continue;
+                if (pd.state === 'failed') throw new Error(pd.message || 'Seleção de Excel falhou.');
+                selectionId = String(pd.selection_id || '').trim();
+                if (pd.file_name) asiAppendMessage(asiCreateMessage('user', `Ficheiro: ${pd.file_name}`));
+                break;
+            }
+            if (!selectionId) throw new Error('Seleção de Excel expirou.');
+
+            asiUpdateMessage(pm.id, { text: `${titulo} em curso...`, html: asiBuildPfcgGenericProcessingHtml(`${titulo} em curso...`), isProcessing: true });
+            await asiCuaAdicionarCriarJob({ mode: 'excel', selection_id: selectionId, system: asiPfcgSystem }, titulo, { id: pm.id });
+        } catch (e) {
+            asiUpdateMessage(pm.id, { text: `${titulo}: não iniciado.`, html: asiBuildPfcgErrorHtml(`${titulo}: não iniciado.`, e.message || ''), isProcessing: false });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiStartCuaAdicionarIndividual(username, agrName, subsystem) {
+        const { input } = asiGetElements();
+        const titulo = `Adicionar ${agrName} a ${username} (${asiPfcgSystem})`;
+        const pm = asiCreateMessage('assistant', `${titulo} em curso...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`${titulo} em curso...`),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true, cuaAdd: {} };
+        asiUpdateComposerState();
+        try {
+            await asiCuaAdicionarCriarJob({ mode: 'individual', username, agr_name: agrName, subsystem, system: asiPfcgSystem }, titulo, { id: pm.id });
+        } catch (e) {
+            asiUpdateMessage(pm.id, { text: `${titulo}: não iniciado.`, html: asiBuildPfcgErrorHtml(`${titulo}: não iniciado.`, e.message || ''), isProcessing: false });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
     async function asiStartPfcgCreateExcelSelection() {
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
@@ -5203,6 +5339,40 @@
             return;
         }
 
+        if (asiConversationState.awaitingInput === ASI_CUA_ADD_USER_INPUT) {
+            const u = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_USER_PATTERN.test(u)) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Utilizador inválido. Letras, números, "_", "." ou "-" (máx. 12).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_ADD_USER_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_ADD_ROLE_INPUT, cuaAdd: { ...(asiConversationState.cuaAdd || {}), username: u } };
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é a função (AGR_NAME)?'));
+            asiUpdateComposerState(); input.focus(); return;
+        }
+        if (asiConversationState.awaitingInput === ASI_CUA_ADD_ROLE_INPUT) {
+            const r = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_ROLE_PATTERN.test(r)) {
+                asiAppendMessage(asiCreateMessage('assistant', ASI_PFCG_INVALID_MESSAGE));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_ADD_ROLE_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_ADD_SUB_INPUT, cuaAdd: { ...(asiConversationState.cuaAdd || {}), agr_name: r } };
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o subsistema (SUBSYSTEM na SU10, ex.: S4DCLNT100)?'));
+            asiUpdateComposerState(); input.focus(); return;
+        }
+        if (asiConversationState.awaitingInput === ASI_CUA_ADD_SUB_INPUT) {
+            const sub = rawMessage.toUpperCase().trim();
+            if (sub.length < 3) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Indique um subsistema válido (ex.: S4DCLNT100).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_ADD_SUB_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            const cua = { ...(asiConversationState.cuaAdd || {}), subsystem: sub };
+            await asiStartCuaAdicionarIndividual(cua.username, cua.agr_name, cua.subsystem);
+            return;
+        }
+
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
             const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
             if (!normalizedRoleName) {
@@ -6297,6 +6467,38 @@
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiAppendMessage(asiCreateMessage('assistant', 'Escreva o nome (ou parte) a pesquisar:'));
             asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'cua-adicionar') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', `Adicionar função a utilizador em ${asiPfcgSystem}. Como deseja prosseguir?`, {
+                actions: [
+                    { id: 'cua-add-excel', label: 'Selecionar Excel', icon: 'upload' },
+                    { id: 'cua-add-individual', label: 'Individualmente', icon: 'user-plus' }
+                ],
+                actionLevel: 3,
+                parentActionId: 'cua-adicionar',
+                selectionGroupKey: '__cua_add__'
+            }));
+            asiUpdateComposerState();
+            return;
+        }
+        if (action.id === 'cua-add-excel') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', 'Selecionar Excel'));
+            asiStartCuaAdicionarExcel();
+            return;
+        }
+        if (action.id === 'cua-add-individual') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', 'Individualmente'));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP? (ex.: CLOPES)'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_ADD_USER_INPUT, cuaAdd: {} };
             asiUpdateComposerState();
             const { input } = asiGetElements();
             if (input) input.focus();

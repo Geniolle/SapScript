@@ -830,39 +830,68 @@ def _resumir(df_proc):
     return {"total": total, "sucesso": sucesso, "erro": erro, "aviso": aviso}
 
 
+def _df_individual(utilizador, agr_name, subsystem):
+    """DataFrame de 1 linha no formato da sheet (modo individual, sem Excel)."""
+    import pandas as pd
+    return pd.DataFrame([{
+        "ID": "1",
+        "UTILIZADOR": str(utilizador or "").strip().upper(),
+        "SISTEMA": str(subsystem or "").strip().upper(),
+        "AGR_NAME": str(agr_name or "").strip().upper(),
+        "STATUS": "",
+        "MSG": "",
+        "TIMESTEMP": "",
+    }])
+
+
 def executar(
     ambiente_cockpit,
     caminho_ficheiro=None,
+    utilizador=None,
+    agr_name=None,
+    subsystem=None,
     modo_nao_interativo=False,
     pedir_confirmacao=True,
 ):
-    """Entrada compativel com o cockpit web.
+    """Entrada compativel com o cockpit web. Dois modos:
 
-    - `caminho_ficheiro` vem do worker (Excel ja escolhido na web) -> sem popup Tkinter.
-    - `modo_nao_interativo`/`pedir_confirmacao` -> salta o input() [S/N].
-    - Anexa a uma sessao SAP GUI ja aberta cujo SID == MAPA_SISTEMA[ambiente].
-    - Devolve dict {ok, status, message, resumo} (o cockpit tambem le o sbar).
+    - EXCEL: `caminho_ficheiro` vem do worker -> le a sheet CUA_ADICIONAR.
+    - INDIVIDUAL: sem `caminho_ficheiro`, com `utilizador` + `agr_name` +
+      `subsystem` -> processa uma unica atribuicao (df em memoria, sem ficheiro).
+
+    `modo_nao_interativo`/`pedir_confirmacao` saltam o input() [S/N].
+    Anexa a uma sessao SAP GUI ja aberta cujo SID == MAPA_SISTEMA[ambiente].
+    Devolve dict {ok, status, message, resumo}.
     """
     ambiente = str(ambiente_cockpit or "").strip().upper()
     sheet = NOME_SHEET
     web = bool(modo_nao_interativo) or not bool(pedir_confirmacao)
+    individual = bool(not caminho_ficheiro and (utilizador or agr_name or subsystem))
 
     print(f"✅ Processo selecionado: {NOME_SCRIPT}")
-    print(f"📄 Sheet alvo: '{sheet}' | Ambiente: {ambiente} | Modo cockpit: {web}")
+    print(f"📄 Modo: {'INDIVIDUAL' if individual else 'EXCEL'} | Ambiente: {ambiente} | Cockpit: {web}")
 
-    if caminho_ficheiro:
-        caminho = str(caminho_ficheiro).strip()
-        if not os.path.exists(caminho):
-            return {"ok": False, "status": "ERRO", "message": f"Ficheiro nao encontrado no worker: {caminho}"}
+    caminho = None
+    if individual:
+        u = str(utilizador or "").strip().upper()
+        a = str(agr_name or "").strip().upper()
+        sub = str(subsystem or "").strip().upper()
+        if not (u and a and sub):
+            return {"ok": False, "status": "ERRO", "message": "Modo individual: indique utilizador, funcao (AGR_NAME) e subsistema."}
+        df = _df_individual(u, a, sub)
     else:
-        caminho = selecionar_ficheiro_excel()
-        if not caminho:
-            return {"ok": False, "status": "ERRO", "message": "Ficheiro nao selecionado."}
-
-    print("\n[Etapa 1] Leitura do Excel")
-    df = ler_ficheiro(caminho, sheet)
-    if df is None:
-        return {"ok": False, "status": "ERRO", "message": f"Nao foi possivel ler a sheet '{sheet}' de {caminho}"}
+        if caminho_ficheiro:
+            caminho = str(caminho_ficheiro).strip()
+            if not os.path.exists(caminho):
+                return {"ok": False, "status": "ERRO", "message": f"Ficheiro nao encontrado no worker: {caminho}"}
+        else:
+            caminho = selecionar_ficheiro_excel()
+            if not caminho:
+                return {"ok": False, "status": "ERRO", "message": "Ficheiro nao selecionado."}
+        print("\n[Etapa 1] Leitura do Excel")
+        df = ler_ficheiro(caminho, sheet)
+        if df is None:
+            return {"ok": False, "status": "ERRO", "message": f"Nao foi possivel ler a sheet '{sheet}' de {caminho}"}
 
     sistema_desejado = MAPA_SISTEMA.get(ambiente)
     if not sistema_desejado:
@@ -878,9 +907,20 @@ def executar(
 
     df_proc = atribuir_funcao_usuario(df_pend.copy(), session, sistema_desejado, pular_confirmacao=web)
 
+    if individual:
+        r = df_proc.iloc[0]
+        st = str(r.get("STATUS") or "").strip()
+        detalhe = str(r.get("MSG") or "").strip()
+        ok = st[:1].upper() == "S"
+        return {
+            "ok": ok,
+            "status": "SUCESSO" if ok else "ERRO",
+            "message": f"{r.get('UTILIZADOR')} <- {r.get('AGR_NAME')} ({ambiente}): {st or 'sem status'}" + (f" | {detalhe}" if detalhe else ""),
+            "resumo": {"total": 1, "sucesso": 1 if ok else 0, "erro": 0 if ok else 1},
+        }
+
     print("\n[Etapa 4] Gravação de Resultados")
     ok_save = gravar_preservando_formatacao(caminho, sheet, df_proc)
-
     resumo = _resumir(df_proc)
     msg = (
         f"Adicionar Utilizador Funcao ({ambiente}): {resumo.get('sucesso', 0)} OK, "

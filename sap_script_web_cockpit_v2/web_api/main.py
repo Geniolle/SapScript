@@ -755,6 +755,15 @@ class SalsaItUserSearchRequest(BaseModel):
     system: str = "PRD"
 
 
+class SalsaItCuaAdicionarRequest(BaseModel):
+    mode: str  # "excel" | "individual"
+    system: str = "DEV"
+    selection_id: str = ""
+    username: str = ""
+    agr_name: str = ""
+    subsystem: str = ""
+
+
 
 
 
@@ -1288,6 +1297,42 @@ def api_salsa_it_user_search_job(job_id: str) -> JSONResponse:
         safe_result["warning"] = result.get("warning")
 
     return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/cua/adicionar")
+def api_salsa_it_cua_adicionar(payload: SalsaItCuaAdicionarRequest) -> JSONResponse:
+    """Cria um job sap_cockpit que corre CUA_ADICIONAR_WEB.py (Excel ou individual)."""
+    system = _validate_pfcg_system_or_400(payload.system)
+    mode = str(payload.mode or "").strip().lower()
+    base = {
+        "processo": "Funções PFCG",
+        "subprocesso": "CUA_ADICIONAR_WEB.py",
+        "ambiente": system,
+        "environment": system,
+    }
+
+    if mode == "excel":
+        selection_id = str(payload.selection_id or "").strip()
+        selection = PFCG_EXCEL_SELECTIONS.get(selection_id)
+        if not selection or not selection.get("excel_path"):
+            raise HTTPException(status_code=404, detail="Seleção de Excel não encontrada ou expirada.")
+        base["caminho_ficheiro"] = selection["excel_path"]
+    elif mode == "individual":
+        username = str(payload.username or "").strip().upper()
+        agr_name = str(payload.agr_name or "").strip().upper()
+        subsystem = str(payload.subsystem or "").strip().upper()
+        if not (username and agr_name and subsystem):
+            raise HTTPException(status_code=400, detail="Modo individual: indique utilizador, função (AGR_NAME) e subsistema.")
+        base.update({"utilizador": username, "agr_name": agr_name, "subsystem": subsystem})
+    else:
+        raise HTTPException(status_code=400, detail="mode inválido (use 'excel' ou 'individual').")
+
+    try:
+        job = create_job("sap_cockpit", base)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "mode": mode, "system": system})
 
 
 @app.post("/api/salsa-it-agent/pfcg/create/select-excel")
