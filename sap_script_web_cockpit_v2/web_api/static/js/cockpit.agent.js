@@ -301,14 +301,44 @@
                         },
                         {
                             id: 'pfcg-role-analyze',
-                            label: 'Analisar Função',
+                            label: 'Analisar',
                             icon: 'analysis',
-                            mode: 'analyze',
                             processo: 'Funções PFCG',
                             subprocesso: 'A. PFCG_CREATE.py',
                             prompt: 'Quero analisar um Perfil de Autorização.',
-                            followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
-                            children: []
+                            followupText: 'O que deseja analisar?',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'pfcg-role-analyze-funcao',
+                                    label: 'Função',
+                                    icon: 'analysis',
+                                    mode: 'analyze',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero analisar a função.',
+                                    followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-role-analyze-transacao',
+                                    label: 'Transação',
+                                    icon: 'analysis',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero analisar por transação.',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-role-analyze-objeto',
+                                    label: 'Objeto de autorização',
+                                    icon: 'authorization',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero analisar por objeto de autorização.',
+                                    children: []
+                                }
+                            ]
                         },
                         {
                             ...ASI_MAIN_MENU_ACTION,
@@ -5212,7 +5242,21 @@
             return;
         }
 
-        if (action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze') {
+        if (action.id === 'pfcg-role-analyze-transacao' || action.id === 'pfcg-role-analyze-objeto') {
+            if (asiChatMockTimer) {
+                clearTimeout(asiChatMockTimer);
+                asiChatMockTimer = null;
+            }
+
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Esta análise ainda está em preparação. Para já, use "Função" para analisar um Perfil de Autorização pelo nome.'
+            ));
+            return;
+        }
+
+        if (action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze-funcao') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
