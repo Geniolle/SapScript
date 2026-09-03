@@ -40,6 +40,8 @@
     const ASI_CUA_ADD_USER_INPUT = 'cua_add_user';
     const ASI_CUA_ADD_ROLE_INPUT = 'cua_add_role';
     const ASI_CUA_ADD_SUB_INPUT = 'cua_add_sub';
+    const ASI_CUA_RM_USER_INPUT = 'cua_rm_user';
+    const ASI_CUA_RM_SUB_INPUT = 'cua_rm_sub';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
     // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador').
@@ -360,9 +362,9 @@
                             label: 'Remover Utilizador Função',
                             icon: 'user-minus',
                             processo: 'Funções PFCG',
-                            subprocesso: 'J. CUA_REMOVE.py',
-                            prompt: 'Quero remover um utilizador.',
-                            followupText: 'Certo. Vamos preparar a remoção do utilizador.',
+                            subprocesso: 'CUA_REMOVE_WEB.py',
+                            prompt: 'Quero remover uma função de um utilizador.',
+                            followupText: 'Certo. Vamos preparar a remoção da função do utilizador.',
                             children: []
                         },
                         {
@@ -3435,6 +3437,113 @@
         }
     }
 
+    // Remover Utilizador Função: pede utilizador -> lista as funções dele -> escolhe -> subsistema -> remove
+    async function asiStartCuaRemoveList(username) {
+        const { input } = asiGetElements();
+        const processingText = `A procurar as funções de ${username} em SAP ${asiPfcgSystem}...`;
+        const pm = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+        try {
+            const resp = await fetch('/api/salsa-it-agent/pfcg/user/roles', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username, system: asiPfcgSystem })
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error((data && data.detail) || `Erro HTTP ${resp.status}`);
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job_id.');
+
+            const startedAt = Date.now();
+            asiStopPfcgPolling();
+            asiPfcgPollingTimer = setInterval(async () => {
+                if (asiPfcgPollingInFlight) return;
+                if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                    asiStopPfcgPolling();
+                    asiUpdateMessage(pm.id, { text: 'A procura das funções demorou demasiado.', html: asiBuildPfcgErrorHtml('A procura das funções demorou demasiado.', 'Verifique o worker Windows.'), isProcessing: false });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+                asiPfcgPollingInFlight = true;
+                try {
+                    const p = await fetch(`/api/salsa-it-agent/pfcg/user/roles/${encodeURIComponent(jobId)}`, { headers: { 'Accept': 'application/json' } });
+                    const pd = await p.json().catch(() => ({}));
+                    if (!p.ok) throw new Error((pd && pd.detail) || `Erro HTTP ${p.status}`);
+                    if (pd.state === 'pending' || pd.state === 'running') return;
+                    asiStopPfcgPolling();
+                    if (pd.state === 'failed' || !pd.result || pd.result.ok !== true) {
+                        asiUpdateMessage(pm.id, { text: 'Não foi possível obter as funções do utilizador.', html: asiBuildPfcgErrorHtml('Não foi possível obter as funções do utilizador.', (pd.result && pd.result.message) || pd.message || ''), isProcessing: false });
+                        asiResetPfcgInteraction();
+                        return;
+                    }
+                    const roles = Array.isArray(pd.result.roles) ? pd.result.roles : [];
+                    if (!roles.length) {
+                        asiUpdateMessage(pm.id, {
+                            text: `${username} não tem funções atribuídas em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgUserRolesResultHtml(pd.result),
+                            isProcessing: false, wide: true, ...asiPostResultMenu()
+                        });
+                        asiResetPfcgInteraction();
+                        return;
+                    }
+                    const actions = roles.slice(0, 30).map((r) => ({
+                        id: `cuarm|${username}|${r.role}`,
+                        label: r.role + (r.description ? ` — ${r.description}` : ''),
+                        icon: 'trash'
+                    }));
+                    asiUpdateMessage(pm.id, {
+                        text: `Funções de ${username}. Escolha a que deseja remover:`,
+                        html: asiBuildPfcgUserRolesResultHtml(pd.result),
+                        isProcessing: false, wide: true,
+                        actions, actionLevel: 3, parentActionId: 'cua-remove', selectionGroupKey: '__cua_rm__'
+                    });
+                    asiResetPfcgInteraction();
+                } catch (e) {
+                    asiStopPfcgPolling();
+                    asiUpdateMessage(pm.id, { text: 'Erro ao obter as funções do utilizador.', html: asiBuildPfcgErrorHtml('Erro ao obter as funções do utilizador.', e.message || ''), isProcessing: false });
+                    asiResetPfcgInteraction();
+                } finally {
+                    asiPfcgPollingInFlight = false;
+                }
+            }, ASI_PFCG_POLL_INTERVAL_MS);
+        } catch (e) {
+            asiUpdateMessage(pm.id, { text: 'Não foi possível iniciar a listagem das funções.', html: asiBuildPfcgErrorHtml('Não foi possível iniciar a listagem das funções.', e.message || ''), isProcessing: false });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiStartCuaRemoverIndividual(username, agrName, subsystem) {
+        const { input } = asiGetElements();
+        const titulo = `Remover ${agrName} de ${username} (${asiPfcgSystem})`;
+        const pm = asiCreateMessage('assistant', `${titulo} em curso...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`${titulo} em curso...`),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true, cuaRm: {} };
+        asiUpdateComposerState();
+        try {
+            const resp = await fetch('/api/salsa-it-agent/cua/remover', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ mode: 'individual', username, agr_name: agrName, subsystem, system: asiPfcgSystem })
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error((data && data.detail) || `Erro HTTP ${resp.status}`);
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job_id.');
+            await asiPollCuaJob(jobId, pm.id, titulo);
+        } catch (e) {
+            asiUpdateMessage(pm.id, { text: `${titulo}: não iniciado.`, html: asiBuildPfcgErrorHtml(`${titulo}: não iniciado.`, e.message || ''), isProcessing: false });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
     async function asiStartPfcgCreateExcelSelection() {
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
@@ -5373,6 +5482,28 @@
             return;
         }
 
+        if (asiConversationState.awaitingInput === ASI_CUA_RM_USER_INPUT) {
+            const u = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_USER_PATTERN.test(u)) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Utilizador inválido. Letras, números, "_", "." ou "-" (máx. 12).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_RM_USER_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            await asiStartCuaRemoveList(u);
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_CUA_RM_SUB_INPUT) {
+            const sub = rawMessage.toUpperCase().trim();
+            if (sub.length < 3) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Indique um subsistema válido (ex.: S4DCLNT100).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_RM_SUB_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            const rm = { ...(asiConversationState.cuaRm || {}), subsystem: sub };
+            await asiStartCuaRemoverIndividual(rm.username, rm.agr_name, rm.subsystem);
+            return;
+        }
+
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
             const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
             if (!normalizedRoleName) {
@@ -6358,6 +6489,20 @@
             asiUpdateComposerState();
             return;
         }
+        if (typeof actionId === 'string' && actionId.indexOf('cuarm|') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            const parts = actionId.split('|');
+            const u = parts[1] || '';
+            const role = parts.slice(2).join('|');
+            asiAppendMessage(asiCreateMessage('user', `Remover ${role} de ${u}`));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o subsistema (SUBSYSTEM na SU10, ex.: S4DCLNT100)?'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_RM_SUB_INPUT, cuaRm: { username: u, agr_name: role } };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
         if (typeof actionId === 'string' && actionId.indexOf('pfcg-system-') === 0) {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             const sys = actionId.replace('pfcg-system-', '').toUpperCase();
@@ -6467,6 +6612,17 @@
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiAppendMessage(asiCreateMessage('assistant', 'Escreva o nome (ou parte) a pesquisar:'));
             asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'cua-remove') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP? (ex.: CLOPES)'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_RM_USER_INPUT };
             asiUpdateComposerState();
             const { input } = asiGetElements();
             if (input) input.focus();

@@ -314,6 +314,61 @@ class SalsaAgentRoutesTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
 
+    # ---- CUA (SU10) via job sap_cockpit / script CUA_*_WEB.py --------------
+
+    def test_cua_remover_individual_cria_job_sap_cockpit(self) -> None:
+        created = _body(
+            main.api_salsa_it_cua_remover(
+                main.SalsaItCuaAdicionarRequest(
+                    mode="individual", system="prd",
+                    username="clopes", agr_name="z_fi", subsystem="s4pclnt100",
+                )
+            )
+        )
+        self.assertIn("job_id", created)
+        self.assertEqual(created["mode"], "individual")
+        self.assertEqual(created["system"], "PRD")
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["task"], "sap_cockpit")
+        self.assertEqual(job["params"].get("subprocesso"), "CUA_REMOVE_WEB.py")
+        self.assertEqual(job["params"].get("ambiente"), "PRD")
+        self.assertEqual(job["params"].get("utilizador"), "CLOPES")
+        self.assertEqual(job["params"].get("agr_name"), "Z_FI")
+        self.assertEqual(job["params"].get("subsystem"), "S4PCLNT100")
+
+    def test_cua_adicionar_usa_script_web(self) -> None:
+        created = _body(
+            main.api_salsa_it_cua_adicionar(
+                main.SalsaItCuaAdicionarRequest(
+                    mode="individual", system="dev",
+                    username="x", agr_name="z_x", subsystem="s4dclnt100",
+                )
+            )
+        )
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["params"].get("subprocesso"), "CUA_ADICIONAR_WEB.py")
+
+    def test_cua_remover_individual_incompleto_da_400(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_cua_remover(
+                main.SalsaItCuaAdicionarRequest(mode="individual", system="prd", username="clopes")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_cua_remover_mode_invalido_da_400(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_cua_remover(
+                main.SalsaItCuaAdicionarRequest(mode="xpto", system="prd")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_cua_remover_excel_selecao_inexistente_da_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_cua_remover(
+                main.SalsaItCuaAdicionarRequest(mode="excel", system="prd", selection_id="nao-existe")
+            )
+        self.assertEqual(ctx.exception.status_code, 404)
+
     # ---- GET: mapeamento de estado / validacao do job ----------------------
 
     def test_analyze_job_pending_state(self) -> None:

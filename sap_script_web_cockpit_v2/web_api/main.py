@@ -1299,14 +1299,13 @@ def api_salsa_it_user_search_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
-@app.post("/api/salsa-it-agent/cua/adicionar")
-def api_salsa_it_cua_adicionar(payload: SalsaItCuaAdicionarRequest) -> JSONResponse:
-    """Cria um job sap_cockpit que corre CUA_ADICIONAR_WEB.py (Excel ou individual)."""
+def _cua_criar_job(subprocesso: str, payload: SalsaItCuaAdicionarRequest) -> JSONResponse:
+    """Cria um job sap_cockpit para um script CUA_*_WEB.py (Excel ou individual)."""
     system = _validate_pfcg_system_or_400(payload.system)
     mode = str(payload.mode or "").strip().lower()
     base = {
         "processo": "Funções PFCG",
-        "subprocesso": "CUA_ADICIONAR_WEB.py",
+        "subprocesso": subprocesso,
         "ambiente": system,
         "environment": system,
     }
@@ -1333,6 +1332,16 @@ def api_salsa_it_cua_adicionar(payload: SalsaItCuaAdicionarRequest) -> JSONRespo
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return _json_no_store({"job_id": job["id"], "state": job["state"], "mode": mode, "system": system})
+
+
+@app.post("/api/salsa-it-agent/cua/adicionar")
+def api_salsa_it_cua_adicionar(payload: SalsaItCuaAdicionarRequest) -> JSONResponse:
+    return _cua_criar_job("CUA_ADICIONAR_WEB.py", payload)
+
+
+@app.post("/api/salsa-it-agent/cua/remover")
+def api_salsa_it_cua_remover(payload: SalsaItCuaAdicionarRequest) -> JSONResponse:
+    return _cua_criar_job("CUA_REMOVE_WEB.py", payload)
 
 
 @app.post("/api/salsa-it-agent/pfcg/create/select-excel")
