@@ -4284,7 +4284,7 @@
         };
         asiAppendMessage(asiCreateMessage(
             'assistant',
-            'Envie o Nome do perfil que vamos eliminar'
+            'Envie o nome da função que vamos eliminar'
         ));
         asiUpdateComposerState();
         const { input } = asiGetElements();
@@ -4825,7 +4825,7 @@
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_ROLE_NAME_INPUT) {
             const normalizedRoleName = asiNormalizePfcgRoleName(rawMessage);
             if (!normalizedRoleName) {
-                asiAppendMessage(asiCreateMessage('assistant', 'Envie o Nome do perfil que vamos eliminar'));
+                asiAppendMessage(asiCreateMessage('assistant', 'Envie o nome da função que vamos eliminar'));
                 asiConversationState = {
                     ...asiConversationState,
                     awaitingInput: ASI_PFCG_DELETE_ROLE_NAME_INPUT,
