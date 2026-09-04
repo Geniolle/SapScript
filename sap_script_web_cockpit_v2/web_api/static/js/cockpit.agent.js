@@ -71,6 +71,8 @@
     let asiPfcgIndividualPollingInFlight = false;
     let asiPfcgTransportSearchPollingTimer = null;
     let asiPfcgTransportSearchPollingInFlight = false;
+    let asiPfcgCreateExistsCheckTimer = null;
+    let asiPfcgCreateExistsCheckInFlight = false;
 
     const ASI_PFCG_ROLE_BACK_ACTION = { id: 'pfcg-role-back', label: '← Voltar', icon: 'analysis' };
     const ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION = { id: 'pfcg-role-analyze-transactions', label: 'Analisar por Transação', icon: 'analysis' };
@@ -1647,6 +1649,44 @@
         `;
     }
 
+    // Consulta o estado do worker Windows (GET /api/worker/status). Qualquer
+    // falha de rede/parsing é tratada como "offline" (mais seguro do que
+    // arrancar um job que nunca vai ser reclamado).
+    async function asiCheckWorkerOnline() {
+        try {
+            const response = await fetch('/api/worker/status', { headers: { 'Accept': 'application/json' } });
+            if (!response.ok) return false;
+            const data = await response.json().catch(() => ({}));
+            return Boolean(data && data.status === 'online');
+        } catch (error) {
+            return false;
+        }
+    }
+
+    // Guarda de pré-voo a chamar como primeira instrução de qualquer fluxo que
+    // crie um job para o worker Windows: evita iniciar um job que ficaria
+    // preso em "pending" (ou, no caso de rotas que aguardam a conclusão no
+    // backend, como o F110, um timeout de vários minutos) quando o worker
+    // está desligado. Mostra um aviso imediato e devolve false nesse caso.
+    async function asiEnsureWorkerOnlineOrWarn() {
+        const online = await asiCheckWorkerOnline();
+        if (online) return true;
+
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'O worker Windows está desligado.',
+            {
+                html: asiBuildPfcgErrorHtml(
+                    'O worker Windows está desligado.',
+                    'Ligue o worker no computador Windows e tente novamente.'
+                )
+            }
+        ));
+        asiConversationState = { ...asiConversationState, isBusy: false };
+        asiUpdateComposerState();
+        return false;
+    }
+
     function asiBuildPfcgGenericProcessingHtml(message) {
         return `
             <div style="display:flex;align-items:center;gap:10px;">
@@ -1926,6 +1966,19 @@
             : resultTransportLabel;
         const isCompostaResult = result.tipo === 'Função Composta' || Array.isArray(result.child_roles);
         const childRolesRes = Array.isArray(result.child_roles) ? result.child_roles : [];
+
+        // Passo adicional (SAP GUI Scripting via PFCG_MASS_TRANSPORT) executado pelo worker depois
+        // da criação por RFC — PRGN_RFC_CREATE_ACTIVITY_GROUP não vincula a função à Request sozinho.
+        // Mostrado sempre que existe uma Request (result.transport_request), para nunca sugerir um
+        // vínculo que não foi confirmado.
+        const transportAssignment = result.transport_assignment || null;
+        const transportAssignmentValue = transportAssignment
+            ? (transportAssignment.ok === true ? '✓ Confirmado' : '⚠ Requer ação manual (ver nota abaixo)')
+            : '';
+        const transportAssignmentField = result.transport_request
+            ? asiBuildPfcgResultField('Vínculo ao transporte', transportAssignmentValue, '', true)
+            : '';
+
         const rowFields = ok
             ? (isCompostaResult
                 ? [
@@ -1934,7 +1987,8 @@
                     asiBuildPfcgResultField('Descrição', result.description),
                     asiBuildPfcgResultField('Total Componentes', childRolesRes.length),
                     asiBuildPfcgResultField('Funções Componentes', childRolesRes.join(', '), '', true),
-                    asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)
+                    asiBuildPfcgResultField('Transporte', resultTransportValue, '', true),
+                    transportAssignmentField
                 ].join('')
                 : [
                     asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
@@ -1943,7 +1997,8 @@
                     asiBuildPfcgResultField('Perfil gerado', result.profile_generated === true ? 'Sim' : (result.profile_generated === false ? 'Não' : '')),
                     asiBuildPfcgResultField('Transações pedidas', result.tcodes_requested),
                     asiBuildPfcgResultField('Transações criadas', result.tcodes_created),
-                    asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)
+                    asiBuildPfcgResultField('Transporte', resultTransportValue, '', true),
+                    transportAssignmentField
                 ].join(''))
             : [
                 asiBuildPfcgResultField('Ambiente', result.environment || 'DEV'),
@@ -1953,6 +2008,9 @@
 
         const message = !ok && result.message
             ? `<div class="asi-pfcg-result-note">${escapeHtml(String(result.message))}</div>`
+            : '';
+        const transportAssignmentNote = transportAssignment && transportAssignment.ok !== true
+            ? `<div class="asi-pfcg-result-note" style="color:#f59e0b;font-weight:600;">⚠ ${escapeHtml(String(transportAssignment.message || 'Não foi possível confirmar a atribuição da função ao transporte. Verifique manualmente.'))}</div>`
             : '';
 
         return `
@@ -1966,6 +2024,7 @@
                         ${rowFields}
                     </div>
                     ${message}
+                    ${transportAssignmentNote}
                 </div>
             </div>
         `;
@@ -2621,6 +2680,7 @@
     }
 
     async function asiStartPfcgAnalysis(roleName) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const pendingExcelSelectionJobId = String(asiConversationState.pendingExcelSelectionJobId || '').trim();
         const pendingExcelFileName = String(asiConversationState.pendingExcelFileName || '').trim();
@@ -2857,6 +2917,7 @@
     }
 
     async function asiStartPfcgTransactionRoles(tcode) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const processingText = `A procurar as funções com a transação ${tcode} em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
@@ -3027,6 +3088,7 @@
     }
 
     async function asiStartPfcgObjectRoles(authObject) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const processingText = `A procurar as funções com o objeto ${authObject} em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
@@ -3202,6 +3264,7 @@
     }
 
     async function asiStartPfcgUserRoles(username) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const processingText = `A procurar as funções do utilizador ${username} em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
@@ -3349,6 +3412,7 @@
     }
 
     async function asiStartUserData(username, kind) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const label = kind === 'master' ? 'os dados mestre' : 'os dados pessoais';
         const processingText = `A consultar ${label} do utilizador ${username} em SAP ${asiPfcgSystem}...`;
@@ -3497,6 +3561,7 @@
     }
 
     async function asiStartUserSearch(query) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const processingText = `A pesquisar utilizadores com "${query}" em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
@@ -3677,6 +3742,7 @@
     }
 
     async function asiStartPfcgRoleSearch(pattern) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const processingText = `A pesquisar funções com "${pattern}" em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
@@ -3778,6 +3844,7 @@
     }
 
     async function asiStartCuaAdicionarExcel() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const titulo = `Adicionar Utilizador Função (Excel, ${asiPfcgSystem})`;
         const pm = asiCreateMessage('assistant', 'A abrir o seletor de ficheiros Excel...', {
@@ -3823,6 +3890,7 @@
     }
 
     async function asiStartCuaAdicionarIndividual(username, agrName, subsystem) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const titulo = `Adicionar ${agrName} a ${username} (${asiPfcgSystem})`;
         const pm = asiCreateMessage('assistant', `${titulo} em curso...`, {
@@ -3866,6 +3934,7 @@
     }
 
     async function asiStartCuaRemoveList(username) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const processingText = `A procurar as funções de ${username} em SAP ${asiPfcgSystem}...`;
         const pm = asiCreateMessage('assistant', processingText, {
@@ -3939,6 +4008,7 @@
     }
 
     async function asiStartCuaRemoverIndividual(username, agrName, subsystem) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const titulo = `Remover ${agrName} de ${username} (${asiPfcgSystem})`;
         const pm = asiCreateMessage('assistant', `${titulo} em curso...`, {
@@ -3966,6 +4036,7 @@
     }
 
     async function asiStartPfcgCreateExcelSelection() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.lastPfcgRoleName || asiConversationState.pendingRoleName || '').trim();
 
@@ -4144,6 +4215,7 @@
     }
 
     async function asiStartPfcgCreateExcelAnalysis(roleName, selectionId, fileName, messageId) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         try {
             const fallbackRoleName = String(roleName || 'PFCG_CREATE').trim().toUpperCase() || 'PFCG_CREATE';
             const response = await fetch('/api/salsa-it-agent/pfcg/create/analyze', {
@@ -4463,6 +4535,7 @@
     }
 
     async function asiStartPfcgRoleSubAnalysis(kind) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const roleName = asiPfcgRoleState && asiPfcgRoleState.role
             ? String(asiPfcgRoleState.role).trim()
             : '';
@@ -4672,6 +4745,182 @@
         if (input) input.focus();
     }
 
+    function asiStopPfcgCreateExistsCheck() {
+        if (asiPfcgCreateExistsCheckTimer) {
+            clearInterval(asiPfcgCreateExistsCheckTimer);
+            asiPfcgCreateExistsCheckTimer = null;
+        }
+        asiPfcgCreateExistsCheckInFlight = false;
+    }
+
+    // Antes de pedir a descrição do Perfil de Autorização (Função Simples > Preparar
+    // criação > Criar Individualmente), confirma no sistema já indicado na conversa
+    // (asiPfcgSystem) se a função já existe. Se existir, avisa e não avança (volta a
+    // pedir o nome); se não existir, confirma que pode ser criada e segue para a
+    // descrição. Reutiliza o mesmo job de análise (pfcg_role_analysis) usado no
+    // fluxo "Analisar".
+    async function asiCheckPfcgRoleExistsForCreate(roleName) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) {
+            // Mantém o utilizador no fluxo: volta a pedir o nome em vez de deixar
+            // a conversa parada depois do aviso de worker desligado.
+            asiStartPfcgIndividualCreate();
+            return;
+        }
+
+        const processingMessage = asiCreateMessage(
+            'assistant',
+            `A verificar se ${roleName} já existe em ${asiPfcgSystem}...`,
+            {
+                html: asiBuildPfcgGenericProcessingHtml(`A verificar se ${roleName} já existe em ${asiPfcgSystem}...`),
+                isProcessing: true
+            }
+        );
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ role_name: roleName, system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+            await asiPollPfcgCreateExistsCheck(jobId, roleName, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível verificar se ${roleName} já existe em ${asiPfcgSystem}.`,
+                html: asiBuildPfcgErrorHtml(`Não foi possível verificar se ${roleName} já existe em ${asiPfcgSystem}.`),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            asiStartPfcgIndividualCreate();
+        }
+    }
+
+    async function asiPollPfcgCreateExistsCheck(jobId, roleName, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgCreateExistsCheck();
+        return new Promise((resolve) => {
+            asiPfcgCreateExistsCheckTimer = setInterval(async () => {
+                if (asiPfcgCreateExistsCheckInFlight) return;
+                if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                    asiStopPfcgCreateExistsCheck();
+                    asiUpdateMessage(messageId, {
+                        text: 'A verificação está a demorar mais do que o esperado.',
+                        html: asiBuildPfcgErrorHtml(
+                            'A verificação está a demorar mais do que o esperado.',
+                            'Verifique se o worker Windows está ativo e tente novamente.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    asiStartPfcgIndividualCreate();
+                    resolve();
+                    return;
+                }
+
+                asiPfcgCreateExistsCheckInFlight = true;
+                try {
+                    const response = await fetch(`/api/salsa-it-agent/pfcg/analyze/${encodeURIComponent(jobId)}`, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                    }
+                    if (data.state === 'pending' || data.state === 'running') {
+                        return;
+                    }
+
+                    asiStopPfcgCreateExistsCheck();
+
+                    const result = data && data.state === 'succeeded' && typeof data.result === 'object' ? data.result : null;
+                    if (!result || result.ok !== true) {
+                        const safeDetail = result && typeof result.message === 'string' ? result.message : (data.message || '');
+                        asiUpdateMessage(messageId, {
+                            text: `Não foi possível verificar se ${roleName} já existe em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgErrorHtml(`Não foi possível verificar se ${roleName} já existe em ${asiPfcgSystem}.`, safeDetail),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false };
+                        asiUpdateComposerState();
+                        asiStartPfcgIndividualCreate();
+                        resolve();
+                        return;
+                    }
+
+                    if (result.status === 'EXISTE') {
+                        asiUpdateMessage(messageId, {
+                            text: `A função ${roleName} já existe em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgErrorHtml(
+                                `A função ${roleName} já existe em ${asiPfcgSystem}.`,
+                                'Não é possível criar novamente. Indique outro nome para o Perfil de Autorização.'
+                            ),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false };
+                        asiUpdateComposerState();
+                        asiStartPfcgIndividualCreate();
+                        resolve();
+                        return;
+                    }
+
+                    asiLastAnalyzedPfcgRole = roleName;
+                    asiConversationState = {
+                        ...asiConversationState,
+                        pfcgCreateRoleName: roleName,
+                        pfcgCreateDescription: '',
+                        awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
+                        isBusy: false
+                    };
+                    asiUpdateMessage(messageId, {
+                        text: `A função ${roleName} não existe em ${asiPfcgSystem} e pode ser criada.`,
+                        // Bug real (2026-09-04): esta mensagem foi criada com `html` do spinner
+                        // (asiBuildPfcgGenericProcessingHtml) e o renderizador (asiRenderMessages)
+                        // dá sempre prioridade a `msg.html` sobre `msg.text`. Sem limpar aqui, a
+                        // mensagem ficava visualmente presa em "A verificar..." para sempre, mesmo
+                        // com o job já terminado com sucesso e a pergunta seguinte já adicionada.
+                        html: '',
+                        isProcessing: false
+                    });
+                    asiAppendMessage(asiCreateMessage(
+                        'assistant',
+                        'Qual é a descrição do Perfil de Autorização?'
+                    ));
+                    asiUpdateComposerState();
+                    const { input } = asiGetElements();
+                    if (input) input.focus();
+                    resolve();
+                } catch (error) {
+                    asiStopPfcgCreateExistsCheck();
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível verificar se ${roleName} já existe em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível verificar se ${roleName} já existe em ${asiPfcgSystem}.`),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    asiStartPfcgIndividualCreate();
+                    resolve();
+                } finally {
+                    asiPfcgCreateExistsCheckInFlight = false;
+                }
+            }, ASI_PFCG_POLL_INTERVAL_MS);
+        });
+    }
+
     async function asiPollPfcgIndividualPreview(jobId, messageId) {
         const startedAt = Date.now();
 
@@ -4781,7 +5030,12 @@
             'assistant',
             `Deseja utilizar ordem de transporte em ${asiPfcgSystem}?`,
             {
-                actions: [ASI_PFCG_TRANSPORT_LOCAL_ACTION, ASI_PFCG_TRANSPORT_CREATE_ACTION, ASI_PFCG_TRANSPORT_EXISTING_ACTION],
+                // Bug real (2026-09-04): faltava aqui uma opção de "← Voltar" — o utilizador
+                // ficava sem forma de corrigir a descrição/transações já indicadas nem de
+                // sair deste ecrã sem escolher um dos 3 modos de transporte. Reutiliza o
+                // mesmo botão/handler do "Voltar" da pré-visualização (reinicia o fluxo de
+                // criação individual desde o nome da função).
+                actions: [ASI_PFCG_INDIVIDUAL_BACK_ACTION, ASI_PFCG_TRANSPORT_LOCAL_ACTION, ASI_PFCG_TRANSPORT_CREATE_ACTION, ASI_PFCG_TRANSPORT_EXISTING_ACTION],
                 actionLevel: 0,
                 parentActionId: '',
                 selectionGroupKey: '__pfcg_transport_mode__'
@@ -5007,6 +5261,7 @@
     }
 
     async function asiStartPfcgTransportSearch() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         if (asiChatMockTimer) {
             clearTimeout(asiChatMockTimer);
             asiChatMockTimer = null;
@@ -5059,6 +5314,7 @@
     }
 
     async function asiStartPfcgIndividualPreview() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.pfcgCreateRoleName || '').trim();
         const description = String(asiConversationState.pfcgCreateDescription || '').trim();
@@ -5235,6 +5491,7 @@
     }
 
     async function asiHandlePfcgIndividualConfirm() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const previewJobId = String(asiConversationState.pfcgCreatePreviewJobId || '').trim();
         if (!previewJobId) {
@@ -5385,6 +5642,7 @@
     }
 
     async function asiStartPfcgDeletePreview() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const roleName = String(asiConversationState.pfcgDeleteRoleName || '').trim();
 
@@ -5562,6 +5820,7 @@
     }
 
     async function asiHandlePfcgDeleteConfirm() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const previewJobId = String(asiConversationState.pfcgDeletePreviewJobId || '').trim();
         if (!previewJobId) {
@@ -5800,6 +6059,7 @@
     }
 
     async function asiStartPfcgBulkDeletePreview() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const roleNames = Array.isArray(asiConversationState.pfcgDeleteBulkRoleNames) ? asiConversationState.pfcgDeleteBulkRoleNames : [];
 
@@ -5962,6 +6222,7 @@
     }
 
     async function asiHandlePfcgBulkDeleteConfirm() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
         const previewJobId = String(asiConversationState.pfcgDeleteBulkPreviewJobId || '').trim();
         if (!previewJobId) {
@@ -6537,20 +6798,7 @@
                 return;
             }
 
-            asiLastAnalyzedPfcgRole = normalizedRoleName;
-            asiConversationState = {
-                ...asiConversationState,
-                pfcgCreateRoleName: normalizedRoleName,
-                pfcgCreateDescription: '',
-                awaitingInput: ASI_PFCG_INDIVIDUAL_DESCRIPTION_INPUT,
-                isBusy: false
-            };
-            asiAppendMessage(asiCreateMessage(
-                'assistant',
-                'Qual é a descrição do Perfil de Autorização?'
-            ));
-            asiUpdateComposerState();
-            input.focus();
+            await asiCheckPfcgRoleExistsForCreate(normalizedRoleName);
             return;
         }
 
@@ -7002,6 +7250,7 @@
     }
 
     async function asiStartFiDefaultJob(action, options = {}) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         if (asiChatMockTimer) {
             clearTimeout(asiChatMockTimer);
             asiChatMockTimer = null;
@@ -7131,6 +7380,7 @@
     }
 
     async function asiStartF110ProposalWorkflow(action, fiPayload, documentNumber, returnActionId = 'testes-unitarios') {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const config = asiGetF110ProposalConfig(action, fiPayload, documentNumber);
         const { environment, branch, branchLabel, operationType, payload } = config;
         const normalizedDocumentNumber = String(documentNumber || '').trim();
@@ -7260,6 +7510,7 @@
     }
 
     async function asiStartF110PaymentWorkflowFromLastProposal(returnActionId = 'testes-unitarios') {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const proposalPayload = asiConversationState.lastF110ProposalPayload || null;
         const proposalResult = asiConversationState.lastF110ProposalResult || null;
         const documentNumber = String(

@@ -1225,6 +1225,29 @@ def _run_pfcg_role_create_rfc(params: dict[str, Any]) -> tuple[str, str]:
     if payload.get("message"):
         log_lines.append(f"Mensagem: {payload['message']}")
 
+    # Passo em falta confirmado empiricamente (bug real, 2026-09-04): PRGN_RFC_CREATE_ACTIVITY_GROUP
+    # aceita REQUEST=<número> mas nunca regista a função em E071 (confirmado por leitura RFC_READ_TABLE
+    # devolvendo TABLE_WITHOUT_DATA sob a Request criada) — TR_OBJECT_INSERT não é remote-enabled
+    # neste sistema (ver sap_rfc/pfcg_gui_transport.py), por isso a única via funcional é reproduzir
+    # PFCG_MASS_TRANSPORT via SAP GUI Scripting, aqui no processo do worker (que já tem pywin32),
+    # nunca no subprocesso .venv-rfc (sem pywin32) que só executou a criação via RFC acima.
+    transport_request = str(payload.get("transport_request") or "").strip()
+    if payload.get("ok") and transport_request:
+        try:
+            from sap_rfc.pfcg_gui_transport import assign_role_to_transport
+
+            assignment = assign_role_to_transport(environment, role_name, transport_request)
+        except Exception as exc:
+            assignment = {
+                "ok": False,
+                "status": "GUI_AUTOMATION_ERROR",
+                "message": f"Falha ao tentar atribuir a função à Request via SAP GUI Scripting: {exc}",
+            }
+        payload["transport_assignment"] = assignment
+        log_lines.append(f"Atribuição ao transporte: {assignment.get('status', '-')}")
+        if assignment.get("message"):
+            log_lines.append(f"Mensagem da atribuição: {assignment['message']}")
+
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
