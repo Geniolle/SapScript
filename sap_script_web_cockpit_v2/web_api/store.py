@@ -28,7 +28,14 @@ def utc_now() -> str:
 
 def get_connection() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    # timeout=30 + busy_timeout: em vez de falhar de imediato com "database is
+    # locked" quando outra ligação (worker a fazer polling, sync do JIRA, etc.)
+    # está a escrever, o SQLite espera até 30s antes de desistir.
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA busy_timeout = 30000")
+    # WAL permite leitores concorrentes enquanto há uma escrita em curso,
+    # reduzindo bastante a contenção entre o worker (polling) e o web app.
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.row_factory = sqlite3.Row
     return conn
 

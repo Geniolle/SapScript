@@ -406,3 +406,346 @@ def delete_pfcg_role_rfc(
         "transport_request": resolved_request_number or None,
         "message": f"Função {normalized_role} eliminada com sucesso em {env}.",
     }
+
+
+def _bulk_error_result(
+    environment: str,
+    role_names: list[str] | None,
+    error_type: str,
+    message: str,
+    *,
+    details: str | None = None,
+    status: str = "ERROR",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "status": status,
+        "environment": environment,
+        "roles": list(role_names or []),
+        "error_type": error_type,
+        "message": message,
+    }
+    if details:
+        payload["details"] = details
+    return payload
+
+
+def _normalize_bulk_role_names(role_names: list[str]) -> list[str] | ValueError:
+    """Valida e normaliza a lista de funcoes, sem duplicados, mantendo ordem alfabetica.
+    Devolve a excecao (nao a levanta) para o chamador decidir como reportar o erro."""
+    normalized: list[str] = []
+    for raw in role_names or []:
+        try:
+            normalized.append(validate_role_name_for_delete(raw))
+        except ValueError as exc:
+            return exc
+    return sorted(dict.fromkeys(normalized))
+
+
+def preview_pfcg_bulk_role_delete(
+    environment: str,
+    role_names: list[str],
+    transport_mode: str = TRANSPORT_MODE_LOCAL,
+    request_number: str = "",
+    request_description: str = "",
+) -> dict[str, Any]:
+    """Read-only preview da eliminação em massa de funções PFCG em DEV."""
+    try:
+        env = _assert_delete_environment_allowed(environment)
+    except ValueError as exc:
+        return _bulk_error_result(str(environment or "").strip().upper(), role_names, "ENVIRONMENT_BLOCKED", str(exc))
+
+    normalized_roles = _normalize_bulk_role_names(role_names)
+    if isinstance(normalized_roles, ValueError):
+        return _bulk_error_result(env, role_names, "INVALID_INPUT", str(normalized_roles))
+    if not normalized_roles:
+        return _bulk_error_result(env, role_names, "INVALID_INPUT", "Nenhuma função selecionada para eliminação.")
+
+    try:
+        transport = validate_transport_inputs(transport_mode, request_number, request_description)
+    except ValueError as exc:
+        return _bulk_error_result(env, normalized_roles, "INVALID_TRANSPORT_INPUT", str(exc))
+
+    try:
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for_env(env)
+    except Exception as exc:
+        return _bulk_error_result(env, normalized_roles, "CONFIG_ERROR", str(exc), details=format_exception(exc))
+
+    try:
+        from pyrfc import Connection  # type: ignore
+    except Exception as exc:
+        error_type, message = classify_import_error(exc)
+        return _bulk_error_result(env, normalized_roles, error_type, message, details=format_exception(exc))
+
+    guard = make_write_guard(DELETE_ALLOWED_FUNCTIONS, DELETE_ALLOWED_TABLES)
+    connection = None
+    try:
+        connection = Connection(**params)
+        guard.assert_function_allowed("RFC_PING")
+        connection.call("RFC_PING")
+    except Exception as exc:
+        error_type, message = classify_rfc_error(exc)
+        return _bulk_error_result(env, normalized_roles, error_type, message, details=format_exception(exc))
+
+    try:
+        transport_preview: dict[str, Any] = {"transport_mode": transport["transport_mode"]}
+        if transport["transport_mode"] == TRANSPORT_MODE_EXISTING_REQUEST:
+            request_check = validate_transport_request(env, transport["request_number"])
+            if not request_check.get("ok"):
+                return _bulk_error_result(
+                    env,
+                    normalized_roles,
+                    request_check.get("error_type") or "REQUEST_NOT_VALID",
+                    request_check.get("message") or "A Request de transporte selecionada não é válida.",
+                )
+            transport_preview.update(
+                {
+                    "request_number": request_check.get("request"),
+                    "request_description": request_check.get("description"),
+                    "request_state": request_check.get("state"),
+                    "request_target_system": request_check.get("target_system"),
+                }
+            )
+        elif transport["transport_mode"] == TRANSPORT_MODE_CREATE_REQUEST:
+            transport_preview.update(
+                {
+                    "request_description": transport["request_description"],
+                    "request_category": "Customizing",
+                }
+            )
+
+        # 1 pré-visualização por função (reaproveita a mesma ligação RFC para todo o lote).
+        items: list[dict[str, Any]] = []
+        for role_name in normalized_roles:
+            if not role_exists(connection, guard, role_name):
+                items.append({
+                    "role": role_name,
+                    "ok": False,
+                    "status": "NOT_FOUND",
+                    "message": f"A função '{role_name}' não existe no ambiente {env}.",
+                })
+                continue
+
+            description = ""
+            try:
+                text_rows = read_table(
+                    connection,
+                    guard,
+                    table_name="AGR_TEXTS",
+                    fields=["TEXT"],
+                    options=make_option_eq("AGR_NAME", role_name),
+                    rowcount=1,
+                )
+                if text_rows and text_rows[0] and text_rows[0][0]:
+                    description = str(text_rows[0][0]).strip()
+            except Exception:
+                pass
+
+            users_count = 0
+            try:
+                user_rows = read_table(
+                    connection,
+                    guard,
+                    table_name="AGR_USERS",
+                    fields=["UNAME"],
+                    options=make_option_eq("AGR_NAME", role_name),
+                    rowcount=200,
+                )
+                users_count = len({row[0].strip().upper() for row in user_rows if row and row[0].strip()})
+            except Exception:
+                pass
+
+            items.append({
+                "role": role_name,
+                "ok": True,
+                "status": "PREVIEW_READY",
+                "description": description or "(Sem descrição)",
+                "users_count": users_count,
+            })
+
+        found_count = sum(1 for item in items if item["ok"])
+        return {
+            "ok": True,
+            "status": "PREVIEW_READY",
+            "environment": env,
+            "roles": normalized_roles,
+            "items": items,
+            "found_count": found_count,
+            "not_found_count": len(items) - found_count,
+            "transport": transport_preview,
+        }
+    finally:
+        try:
+            if connection is not None:
+                connection.close()
+        except Exception:
+            pass
+
+
+def bulk_delete_pfcg_roles_rfc(
+    environment: str,
+    role_names: list[str],
+    transport_mode: str = TRANSPORT_MODE_LOCAL,
+    request_number: str = "",
+    request_description: str = "",
+) -> dict[str, Any]:
+    """Elimina em massa funções PFCG via RFC (BPC_DELETE_SINGLE_ROLE), apenas em DEV.
+
+    Todas as funções do lote partilham a MESMA Request de transporte (criada ou
+    resolvida uma única vez), em vez de uma Request por função.
+    """
+    try:
+        env = _assert_delete_environment_allowed(environment)
+    except ValueError as exc:
+        return _bulk_error_result(str(environment or "").strip().upper(), role_names, "ENVIRONMENT_BLOCKED", str(exc))
+
+    normalized_roles = _normalize_bulk_role_names(role_names)
+    if isinstance(normalized_roles, ValueError):
+        return _bulk_error_result(env, role_names, "INVALID_INPUT", str(normalized_roles))
+    if not normalized_roles:
+        return _bulk_error_result(env, role_names, "INVALID_INPUT", "Nenhuma função selecionada para eliminação.")
+
+    try:
+        transport = validate_transport_inputs(transport_mode, request_number, request_description)
+    except ValueError as exc:
+        return _bulk_error_result(env, normalized_roles, "INVALID_TRANSPORT_INPUT", str(exc))
+
+    try:
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for_env(env)
+    except Exception as exc:
+        return _bulk_error_result(env, normalized_roles, "CONFIG_ERROR", str(exc), details=format_exception(exc))
+
+    try:
+        from pyrfc import Connection  # type: ignore
+    except Exception as exc:
+        error_type, message = classify_import_error(exc)
+        return _bulk_error_result(env, normalized_roles, error_type, message, details=format_exception(exc))
+
+    guard = make_write_guard(DELETE_ALLOWED_FUNCTIONS, DELETE_ALLOWED_TABLES)
+    connection = None
+    resolved_request_number = ""
+    try:
+        connection = Connection(**params)
+        guard.assert_function_allowed("RFC_PING")
+        connection.call("RFC_PING")
+    except Exception as exc:
+        error_type, message = classify_rfc_error(exc)
+        return _bulk_error_result(env, normalized_roles, error_type, message, details=format_exception(exc))
+
+    items: list[dict[str, Any]] = []
+    try:
+        if transport["transport_mode"] == TRANSPORT_MODE_EXISTING_REQUEST:
+            request_check = validate_transport_request(env, transport["request_number"])
+            if not request_check.get("ok"):
+                return _bulk_error_result(
+                    env,
+                    normalized_roles,
+                    request_check.get("error_type") or "REQUEST_NOT_VALID",
+                    request_check.get("message") or "A Request de transporte selecionada não é válida.",
+                )
+            resolved_request_number = str(request_check.get("request") or "")
+        elif transport["transport_mode"] == TRANSPORT_MODE_CREATE_REQUEST:
+            request_create_result = create_transport_request(env, transport["request_description"])
+            if not request_create_result.get("ok"):
+                return _bulk_error_result(
+                    env,
+                    normalized_roles,
+                    request_create_result.get("error_type") or "REQUEST_CREATE_FAILED",
+                    request_create_result.get("message") or "Falha ao criar nova Request de transporte.",
+                    details=request_create_result.get("details"),
+                )
+            resolved_request_number = str(request_create_result.get("request") or "")
+
+        for role_name in normalized_roles:
+            if not role_exists(connection, guard, role_name):
+                items.append({
+                    "role": role_name,
+                    "ok": False,
+                    "status": "NOT_FOUND",
+                    "message": f"A função '{role_name}' não existe em {env}.",
+                })
+                continue
+
+            guard.assert_function_allowed("BPC_DELETE_SINGLE_ROLE")
+            try:
+                rfc_result = connection.call(
+                    "BPC_DELETE_SINGLE_ROLE",
+                    IV_NAME_PREFIX="",
+                    IV_PREF_AGR_NAME=role_name,
+                    NO_DIALOG="X",
+                    REQUEST=resolved_request_number,
+                )
+                messages = rfc_result.get("ET_MESSAGES") or []
+                error_msgs = [
+                    str(m.get("MESSAGE") or m)
+                    for m in messages
+                    if isinstance(m, dict) and m.get("TYPE") in {"E", "A"}
+                ]
+                if error_msgs:
+                    items.append({
+                        "role": role_name,
+                        "ok": False,
+                        "status": "SAP_DELETE_ERROR",
+                        "message": f"Erro retornado pelo SAP ao eliminar função: {'; '.join(error_msgs)}",
+                    })
+                    continue
+            except Exception as exc:
+                error_type, message = classify_rfc_error(exc)
+                items.append({
+                    "role": role_name,
+                    "ok": False,
+                    "status": f"DELETE_FAILED_{error_type}",
+                    "message": f"Falha ao eliminar a função via RFC: {message}",
+                })
+                continue
+
+            items.append({"role": role_name, "ok": True, "status": "DELETED"})
+    finally:
+        try:
+            if connection is not None:
+                connection.close()
+        except Exception:
+            pass
+
+    # Verificação pós-execução via ligação independente (apenas para as eliminadas com sucesso).
+    post_check_connection = None
+    try:
+        post_check_connection = Connection(**params)
+        for item in items:
+            if not item["ok"]:
+                continue
+            if role_exists(post_check_connection, guard, item["role"]):
+                item["ok"] = False
+                item["status"] = "DELETE_VERIFICATION_FAILED"
+                item["message"] = (
+                    f"A chamada RFC concluiu mas a função {item['role']} ainda consta em AGR_DEFINE em {env}."
+                )
+    except Exception as exc:
+        for item in items:
+            if item["ok"]:
+                item["verification_error"] = f"Função eliminada mas ocorreu erro ao validar no SAP: {exc}"
+    finally:
+        try:
+            if post_check_connection is not None:
+                post_check_connection.close()
+        except Exception:
+            pass
+
+    deleted_count = sum(1 for item in items if item["ok"])
+    total_count = len(items)
+    return {
+        "ok": deleted_count > 0,
+        "status": "DELETED" if deleted_count == total_count else ("PARTIAL" if deleted_count > 0 else "ERROR"),
+        "environment": env,
+        "roles": normalized_roles,
+        "items": items,
+        "deleted_count": deleted_count,
+        "failed_count": total_count - deleted_count,
+        "transport_mode": transport["transport_mode"],
+        "transport_request": resolved_request_number or None,
+        "message": f"{deleted_count}/{total_count} função(ões) eliminada(s) com sucesso em {env}.",
+    }

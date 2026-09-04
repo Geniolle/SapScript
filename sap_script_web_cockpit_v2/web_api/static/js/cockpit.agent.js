@@ -37,6 +37,7 @@
     const ASI_PFCG_USER_INPUT = 'pfcg_username';
     const ASI_PFCG_USER_PATTERN = /^[A-Z0-9_.\-]{1,12}$/;
     const ASI_USER_SEARCH_INPUT = 'user_search_name';
+    const ASI_PFCG_ROLE_SEARCH_INPUT = 'pfcg_role_search_pattern';
     const ASI_CUA_ADD_USER_INPUT = 'cua_add_user';
     const ASI_CUA_ADD_ROLE_INPUT = 'cua_add_role';
     const ASI_CUA_ADD_SUB_INPUT = 'cua_add_sub';
@@ -135,6 +136,14 @@
     const ASI_PFCG_DELETE_TRANSPORT_LOCAL_ACTION = { id: 'pfcg-delete-transport-local', label: 'Sem transporte (Local)', icon: 'analysis' };
     const ASI_PFCG_DELETE_TRANSPORT_CREATE_ACTION = { id: 'pfcg-delete-transport-create', label: 'Criar nova Request', icon: 'shield-plus' };
     const ASI_PFCG_DELETE_TRANSPORT_EXISTING_ACTION = { id: 'pfcg-delete-transport-existing', label: 'Usar Request existente', icon: 'analysis' };
+    // Eliminação em massa (Eliminar Perfil > Pesquisar por Texto > marcar funções > Eliminar Funções).
+    const ASI_PFCG_BULK_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT = 'pfcg_bulk_delete_transport_create_description';
+    const ASI_PFCG_DELETE_BULK_START_ACTION = { id: 'pfcg-delete-bulk-start', label: 'Eliminar Funções', icon: 'trash' };
+    const ASI_PFCG_DELETE_BULK_BACK_ACTION = { id: 'pfcg-delete-bulk-back', label: '← Voltar', icon: 'analysis' };
+    const ASI_PFCG_DELETE_BULK_CONFIRM_ACTION = { id: 'pfcg-delete-bulk-confirm', label: 'Confirmar eliminação', icon: 'trash' };
+    const ASI_PFCG_DELETE_BULK_TRANSPORT_LOCAL_ACTION = { id: 'pfcg-delete-bulk-transport-local', label: 'Sem transporte (Local)', icon: 'analysis' };
+    const ASI_PFCG_DELETE_BULK_TRANSPORT_CREATE_ACTION = { id: 'pfcg-delete-bulk-transport-create', label: 'Criar nova Request', icon: 'shield-plus' };
+    const ASI_PFCG_DELETE_BULK_TRANSPORT_EXISTING_ACTION = { id: 'pfcg-delete-bulk-transport-existing', label: 'Usar Request existente', icon: 'analysis' };
     const ASI_PFCG_DYNAMIC_ACTION_IDS = new Set([
         'pfcg-role-back',
         'pfcg-role-back-to-card',
@@ -150,7 +159,13 @@
         'pfcg-delete-individual-confirm',
         'pfcg-delete-transport-local',
         'pfcg-delete-transport-create',
-        'pfcg-delete-transport-existing'
+        'pfcg-delete-transport-existing',
+        'pfcg-delete-bulk-start',
+        'pfcg-delete-bulk-back',
+        'pfcg-delete-bulk-confirm',
+        'pfcg-delete-bulk-transport-local',
+        'pfcg-delete-bulk-transport-create',
+        'pfcg-delete-bulk-transport-existing'
     ]);
 
     function asiDefaultConversationState() {
@@ -190,6 +205,12 @@
             pfcgDeleteTransportRequestNumber: '',
             pfcgDeleteTransportRequestDescription: '',
             pfcgDeletePreviewJobId: '',
+            pfcgDeleteBulkRoleNames: [],
+            pfcgDeleteBulkTransportMode: '',
+            pfcgDeleteBulkTransportRequestNumber: '',
+            pfcgDeleteBulkTransportRequestDescription: '',
+            pfcgDeleteBulkPreviewJobId: '',
+            pfcgDeleteBulkResultMessageId: '',
             isBusy: false
         };
     }
@@ -384,7 +405,7 @@
                     children: [
                         {
                             id: 'pfcg-role-analyze',
-                            label: 'Analisar',
+                            label: 'Pesquisar',
                             icon: 'analysis',
                             processo: 'Funções PFCG',
                             subprocesso: 'A. PFCG_CREATE.py',
@@ -394,13 +415,23 @@
                             children: [
                                 {
                                     id: 'pfcg-role-analyze-funcao',
-                                    label: 'Função',
+                                    label: 'Nome da Função',
                                     icon: 'analysis',
                                     mode: 'analyze',
                                     processo: 'Funções PFCG',
                                     subprocesso: 'A. PFCG_CREATE.py',
                                     prompt: 'Quero analisar a função.',
                                     followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-role-analyze-pesquisar',
+                                    label: 'Pesquisar por Texto',
+                                    icon: 'analysis',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'A. PFCG_CREATE.py',
+                                    prompt: 'Quero pesquisar funções por nome aproximado.',
+                                    followupText: 'Escreva o padrão a pesquisar, usando * como curinga (ex.: Z*EQUIPA*):',
                                     children: []
                                 },
                                 {
@@ -434,7 +465,7 @@
                         },
                         {
                             id: 'pfcg-create',
-                            label: 'Criar funções',
+                            label: 'Função Simples',
                             icon: 'shield-plus',
                             processo: 'Funções PFCG',
                             subprocesso: 'A. PFCG_CREATE.py',
@@ -567,6 +598,27 @@
                                     subprocesso: 'B. PFCG_DELETE.py',
                                     prompt: 'Quero eliminar o Perfil de Autorização individualmente via RFC.',
                                     followupText: '',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-delete-search-text',
+                                    label: 'Pesquisar por Texto',
+                                    icon: 'analysis',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'B. PFCG_DELETE.py',
+                                    prompt: 'Quero pesquisar funções por nome aproximado.',
+                                    followupText: 'Escreva o padrão a pesquisar, usando * como curinga (ex.: Z*EQUIPA*):',
+                                    children: []
+                                },
+                                {
+                                    id: 'pfcg-delete-search-name',
+                                    label: 'Pesquisar por Nome',
+                                    icon: 'analysis',
+                                    mode: 'analyze',
+                                    processo: 'Funções PFCG',
+                                    subprocesso: 'B. PFCG_DELETE.py',
+                                    prompt: 'Quero pesquisar a função pelo nome exato.',
+                                    followupText: 'Qual é o nome do Perfil de Autorização que deseja pesquisar?',
                                     children: []
                                 }
                             ]
@@ -961,6 +1013,28 @@
         return null;
     }
 
+    // Constrói a "hierarquia percorrida" (ex.: Configurações>Perfil de Autorização>PRD)
+    // a partir do caminho de opções já selecionado (asiSelectedActions), incluindo o
+    // sistema (PRD/DEV/...) logo a seguir a "Perfil de Autorização"/"Utilizador", quando
+    // já tiver sido escolhido nesse ponto da conversa.
+    function asiBuildBreadcrumbTrail() {
+        const parts = [];
+        const visited = new Set();
+        let currentId = asiSelectedActions['__root__'];
+        while (currentId && !visited.has(currentId)) {
+            visited.add(currentId);
+            const node = asiFindQuickAction(currentId, salsaAgentActions);
+            if (!node) break;
+            parts.push(node.label);
+            if ((currentId === 'perfil-autorizacao' || currentId === 'utilizador') && asiSelectedActions['__pfcg_system__']) {
+                const sysNode = ASI_PFCG_SYSTEM_ACTIONS.find((a) => a.id === asiSelectedActions['__pfcg_system__']);
+                if (sysNode) parts.push(sysNode.label);
+            }
+            currentId = asiSelectedActions[currentId];
+        }
+        return parts;
+    }
+
     function asiCreateMessage(role, text, options = {}) {
         asiChatMessageCounter += 1;
 
@@ -968,6 +1042,7 @@
             id: `asi-msg-${asiChatMessageCounter}`,
             role,
             text,
+            breadcrumb: role === 'assistant' ? asiBuildBreadcrumbTrail() : [],
             html: typeof options.html === 'string' ? options.html : '',
             belowBubbleHtml: typeof options.belowBubbleHtml === 'string' ? options.belowBubbleHtml : '',
             bubbleClassName: typeof options.bubbleClassName === 'string' ? options.bubbleClassName : '',
@@ -1727,6 +1802,115 @@
         `;
     }
 
+    function asiBuildPfcgBulkDeleteStatusPill(item) {
+        if (item.ok) return `<span class="asi-pfcg-status-pill asi-pfcg-status-pill--ativo">OK</span>`;
+        if (item.status === 'NOT_FOUND') return `<span class="asi-pfcg-status-pill asi-pfcg-status-pill--futuro">NÃO EXISTE</span>`;
+        return `<span class="asi-pfcg-status-pill asi-pfcg-status-pill--expirado">ERRO</span>`;
+    }
+
+    function asiBuildPfcgBulkDeletePreviewHtml(result) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const items = Array.isArray(result.items) ? result.items : [];
+        const transport = result.transport || {};
+        const transportLabel = asiPfcgTransportModeLabel(transport.transport_mode);
+        const transportValue = transport.request_number
+            ? `${transportLabel} — ${transport.request_number}`
+            : transportLabel;
+
+        const body = items.length
+            ? items.map((item) => `
+                <tr>
+                    <td style="font-family:monospace;">${escapeHtml(item.role || '')}</td>
+                    <td>${item.ok ? escapeHtml(item.description || '-') : escapeHtml(item.message || '-')}</td>
+                    <td>${asiBuildPfcgBulkDeleteStatusPill(item)}</td>
+                </tr>
+            `).join('')
+            : `<tr><td colspan="3" class="asi-pfcg-list-empty">Sem funções.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#dc2626;">⚠ Confirme a eliminação em massa em ${asiPfcgSystem}</div>
+                    <span class="asi-pfcg-result-pill asi-pfcg-result-pill--warning" style="background:rgba(220,38,38,0.12);color:#dc2626;">DELETE PREVIEW</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">
+                        ${asiBuildPfcgResultField('Ambiente', result.environment || 'DEV')}
+                        ${asiBuildPfcgResultField('Funções encontradas', `${result.found_count || 0}/${items.length}`)}
+                        ${asiBuildPfcgResultField('Transporte', transportValue, '', true)}
+                    </div>
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead><tr><th>Função</th><th>Descrição / Mensagem</th><th>Estado</th></tr></thead>
+                                <tbody>${body}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="asi-pfcg-result-note" style="color:#dc2626;font-weight:600;">Esta ação ELIMINA permanentemente, em ${asiPfcgSystem}, todas as funções acima marcadas como "OK". Reveja com atenção antes de confirmar.</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildPfcgBulkDeleteResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const ok = result.ok === true;
+        const items = Array.isArray(result.items) ? result.items : [];
+        const deletedCount = Number(result.deleted_count || 0);
+        const totalCount = items.length;
+        const heading = ok
+            ? `✓ ${deletedCount}/${totalCount} função(ões) eliminada(s) em ${asiPfcgSystem}`
+            : `✗ Falha na eliminação em massa em ${asiPfcgSystem}`;
+        const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
+        const status = String(result.status || (ok ? 'DELETED' : 'ERROR'));
+
+        const resultTransportLabel = asiPfcgTransportModeLabel(result.transport_mode);
+        const resultTransportValue = result.transport_request
+            ? `${resultTransportLabel} — ${result.transport_request}`
+            : resultTransportLabel;
+
+        const body = items.length
+            ? items.map((item) => `
+                <tr>
+                    <td style="font-family:monospace;">${escapeHtml(item.role || '')}</td>
+                    <td>${item.ok ? 'Eliminada com sucesso.' : escapeHtml(item.message || '-')}</td>
+                    <td>${asiBuildPfcgBulkDeleteStatusPill(item)}</td>
+                </tr>
+            `).join('')
+            : `<tr><td colspan="3" class="asi-pfcg-list-empty">Sem funções.</td></tr>`;
+
+        const topMessage = result.message
+            ? `<div class="asi-pfcg-result-note">${escapeHtml(String(result.message))}</div>`
+            : '';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${ok ? '#16a34a' : '#dc2626'};">${heading}</div>
+                    <span class="asi-pfcg-result-pill ${pillClass}">${escapeHtml(status)}</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">
+                        ${asiBuildPfcgResultField('Ambiente', result.environment || 'DEV')}
+                        ${asiBuildPfcgResultField('Transporte', resultTransportValue, '', true)}
+                    </div>
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead><tr><th>Função</th><th>Resultado</th><th>Estado</th></tr></thead>
+                                <tbody>${body}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                    ${topMessage}
+                </div>
+            </div>
+        `;
+    }
+
     function asiBuildPfcgIndividualResultHtml(result) {
         asiEnsurePfcgResultStyles();
         const ok = result.ok === true;
@@ -1835,6 +2019,25 @@
 
             .asi-pfcg-list-table tbody tr:last-child td {
                 border-bottom: none;
+            }
+
+            .asi-pfcg-list-table td:has(> input[type="checkbox"]) {
+                width: 28px;
+                text-align: center;
+            }
+
+            .asi-pfcg-bulk-select-all {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 0.78rem;
+                color: #475569;
+                white-space: nowrap;
+                cursor: pointer;
+            }
+
+            .asi-pfcg-bulk-select-all input[type="checkbox"] {
+                cursor: pointer;
             }
 
             .asi-pfcg-list-footer {
@@ -2247,9 +2450,13 @@
             const actionsHtml = !isUser && Array.isArray(msg.actions) && msg.actions.length > 0
                 ? `<div class="agent-salsa-quick-actions-stack">${asiRenderQuickActionButtons(msg.actions, msg.actionLevel || 0, msg.parentActionId || '', msg.selectionGroupKey || '__root__')}</div>`
                 : '';
+            const breadcrumbHtml = !isUser && Array.isArray(msg.breadcrumb) && msg.breadcrumb.length > 0
+                ? `<p class="agent-salsa-message-breadcrumb">${escapeHtml(msg.breadcrumb.join('>'))}</p>`
+                : '';
 
             return `
                 <div class="${wrapperClass}">
+                    ${breadcrumbHtml}
                     <p class="agent-salsa-message-label">${label}</p>
                     <div class="${bubbleClass}">${bubbleContent}</div>
                     ${belowBubbleHtml}
@@ -2379,6 +2586,22 @@
                     };
                 } else {
                     asiPfcgRoleState = null;
+                    // Veio do menu "O que deseja analisar?" (Nome da Função) e não encontrou
+                    // a função: volta a mostrar esse menu para o utilizador escolher outra opção.
+                    if (asiConversationState.actionId === 'pfcg-role-analyze-funcao') {
+                        const parentNode = asiFindQuickAction('pfcg-role-analyze', salsaAgentActions);
+                        const children = parentNode && Array.isArray(parentNode.children) ? parentNode.children : [];
+                        asiAppendMessage(asiCreateMessage(
+                            'assistant',
+                            (parentNode && parentNode.followupText) || 'O que deseja analisar?',
+                            {
+                                actions: children,
+                                actionLevel: 2,
+                                parentActionId: 'pfcg-role-analyze',
+                                selectionGroupKey: 'pfcg-role-analyze'
+                            }
+                        ));
+                    }
                 }
                 asiResetPfcgInteraction();
             } catch (error) {
@@ -3298,6 +3521,186 @@
             asiUpdateMessage(processingMessage.id, {
                 text: 'Não foi possível iniciar a pesquisa de utilizadores.',
                 html: asiBuildPfcgErrorHtml('Não foi possível iniciar a pesquisa de utilizadores.', error.message || ''),
+                isProcessing: false
+            });
+            asiResetPfcgInteraction();
+            if (input) input.focus();
+        }
+    }
+
+    function asiBuildPfcgRoleSearchResultHtml(result, options = {}) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
+        const p = escapeHtml(result.pattern || '');
+        const sys = escapeHtml(result.system || asiPfcgSystem);
+        const roles = Array.isArray(result.roles) ? result.roles : [];
+        const count = Number(result.count != null ? result.count : roles.length);
+        const heading = count > 0
+            ? `✓ ${count} função(ões) com "${p}" em ${sys}.`
+            : `Nenhuma função com "${p}" em ${sys}.`;
+        // "selectable": usado apenas no contexto Eliminar Perfil > Pesquisar por Texto,
+        // para permitir marcar as funções a eliminar em massa (checkbox por linha).
+        const selectable = Boolean(options.selectable) && roles.length > 0;
+        const selectId = selectable ? `asi-pfcg-bulk-select-${escapeHtml(String(options.messageId || ''))}` : '';
+        const body = roles.length
+            ? roles.map((r) => `
+                <tr>
+                    ${selectable ? `<td><input type="checkbox" class="asi-pfcg-bulk-role-checkbox" value="${escapeHtml(r.role || '')}"></td>` : ''}
+                    <td style="font-family:monospace;">${escapeHtml(r.role || '')}</td>
+                    <td>${escapeHtml(r.description || '-')}</td>
+                </tr>
+            `).join('')
+            : `<tr><td colspan="${selectable ? 3 : 2}" class="asi-pfcg-list-empty">Sem resultados.</td></tr>`;
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${count > 0 ? '#16a34a' : '#b45309'};">${heading}</div>
+                    ${selectable ? `
+                        <label class="asi-pfcg-bulk-select-all">
+                            <input type="checkbox" onchange="asiTogglePfcgBulkSelectAll('${selectId}', this.checked)">
+                            Marcar tudo / Desmarcar tudo
+                        </label>
+                    ` : ''}
+                </div>
+                <div class="asi-pfcg-result-shell"${selectable ? ` id="${selectId}"` : ''}>
+                    <div class="asi-pfcg-list-wrap">
+                        <div class="asi-pfcg-list-scroll">
+                            <table class="asi-pfcg-list-table">
+                                <thead><tr>${selectable ? '<th></th>' : ''}<th>Função</th><th>Descrição</th></tr></thead>
+                                <tbody>${body}</tbody>
+                            </table>
+                        </div>
+                        <div class="asi-pfcg-list-footer">Total: ${count}</div>
+                    </div>
+                    ${asiBuildPfcgRoleWarningNoteHtml(result)}
+                </div>
+            </div>
+        `;
+    }
+
+    // Marca/desmarca todos os checkboxes de funções do card de pesquisa (contexto
+    // Eliminar Perfil > Pesquisar por Texto), a partir do checkbox "Marcar tudo".
+    function asiTogglePfcgBulkSelectAll(selectId, checked) {
+        const container = document.getElementById(selectId);
+        if (!container) return;
+        container.querySelectorAll('input.asi-pfcg-bulk-role-checkbox').forEach((el) => {
+            el.checked = checked;
+        });
+    }
+
+    async function asiPollPfcgRoleSearch(jobId, pattern, messageId) {
+        const startedAt = Date.now();
+        asiStopPfcgPolling();
+        asiPfcgPollingTimer = setInterval(async () => {
+            if (asiPfcgPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A pesquisa de funções PFCG está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A pesquisa de funções PFCG está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+                return;
+            }
+            asiPfcgPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/search/${encodeURIComponent(jobId)}`, {
+                    method: 'GET', headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                if (data.state === 'pending' || data.state === 'running') return;
+
+                asiStopPfcgPolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a pesquisa de funções PFCG.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a pesquisa de funções PFCG.', data.message || ''),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+                const result = data && typeof data.result === 'object' ? data.result : null;
+                if (!result || result.ok !== true) {
+                    const detail = result && typeof result.message === 'string' ? result.message : '';
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a pesquisa de funções PFCG.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a pesquisa de funções PFCG.', detail),
+                        isProcessing: false
+                    });
+                    asiResetPfcgInteraction();
+                    return;
+                }
+                // Contexto "Eliminar Perfil > Pesquisar por Texto": mostra checkbox por
+                // função e troca o menu seguinte por "Eliminar Funções" / "Menu Inicial".
+                const isDeleteSearchContext = asiConversationState.actionId === 'pfcg-delete-search-text';
+                const resultHtml = isDeleteSearchContext
+                    ? asiBuildPfcgRoleSearchResultHtml(result, { selectable: true, messageId })
+                    : asiBuildPfcgRoleSearchResultHtml(result);
+                const postMenu = isDeleteSearchContext
+                    ? {
+                        actions: [ASI_PFCG_DELETE_BULK_START_ACTION, ASI_MAIN_MENU_ACTION],
+                        actionLevel: 0,
+                        parentActionId: '',
+                        selectionGroupKey: '__pfcg_delete_bulk_start__'
+                    }
+                    : asiPostResultMenu();
+                if (isDeleteSearchContext) {
+                    asiConversationState = { ...asiConversationState, pfcgDeleteBulkResultMessageId: messageId };
+                }
+                asiUpdateMessage(messageId, {
+                    text: `Resultados da pesquisa "${pattern}".`,
+                    html: resultHtml,
+                    isProcessing: false,
+                    wide: true,
+                    ...postMenu
+                });
+                asiResetPfcgInteraction();
+            } catch (error) {
+                asiStopPfcgPolling();
+                asiUpdateMessage(messageId, {
+                    text: 'Não foi possível concluir a pesquisa de funções PFCG.',
+                    html: asiBuildPfcgErrorHtml('Não foi possível concluir a pesquisa de funções PFCG.'),
+                    isProcessing: false
+                });
+                asiResetPfcgInteraction();
+            } finally {
+                asiPfcgPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartPfcgRoleSearch(pattern) {
+        const { input } = asiGetElements();
+        const processingText = `A pesquisar funções com "${pattern}" em SAP ${asiPfcgSystem}...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ pattern, system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) throw new Error('Resposta do backend sem job_id.');
+            await asiPollPfcgRoleSearch(jobId, pattern, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível iniciar a pesquisa de funções PFCG.',
+                html: asiBuildPfcgErrorHtml('Não foi possível iniciar a pesquisa de funções PFCG.', error.message || ''),
                 isProcessing: false
             });
             asiResetPfcgInteraction();
@@ -4476,6 +4879,19 @@
         }
         asiAppendMessage(asiCreateMessage('user', `Usar a Request ${normalized}`));
 
+        if (Array.isArray(asiConversationState.pfcgDeleteBulkRoleNames) && asiConversationState.pfcgDeleteBulkRoleNames.length) {
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgDeleteBulkTransportMode: 'EXISTING_REQUEST',
+                pfcgDeleteBulkTransportRequestNumber: normalized,
+                pfcgDeleteBulkTransportRequestDescription: '',
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            asiStartPfcgBulkDeletePreview();
+            return;
+        }
+
         if (asiConversationState.pfcgDeleteRoleName) {
             asiConversationState = {
                 ...asiConversationState,
@@ -5300,6 +5716,404 @@
         asiStartPfcgIndividualDelete();
     }
 
+    // ── Eliminação em massa: Eliminar Perfil > Pesquisar por Texto > marcar funções > "Eliminar Funções" ──
+    function asiStartPfcgBulkDelete() {
+        const messageId = asiConversationState.pfcgDeleteBulkResultMessageId;
+        const container = messageId ? document.getElementById(`asi-pfcg-bulk-select-${messageId}`) : null;
+        const checked = container
+            ? Array.from(container.querySelectorAll('input.asi-pfcg-bulk-role-checkbox:checked')).map((el) => el.value)
+            : [];
+
+        if (!checked.length) {
+            asiAppendMessage(asiCreateMessage('assistant', 'Selecione pelo menos uma função na lista antes de eliminar.'));
+            return;
+        }
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiAppendMessage(asiCreateMessage('user', `Eliminar Funções (${checked.length} selecionada(s))`));
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgDeleteBulkRoleNames: checked,
+            pfcgDeleteBulkTransportMode: '',
+            pfcgDeleteBulkTransportRequestNumber: '',
+            pfcgDeleteBulkTransportRequestDescription: '',
+            isBusy: false
+        };
+        asiUpdateComposerState();
+        asiAskPfcgBulkDeleteTransportMode();
+    }
+
+    function asiAskPfcgBulkDeleteTransportMode() {
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            `Deseja utilizar ordem de transporte em ${asiPfcgSystem}?`,
+            {
+                actions: [ASI_PFCG_DELETE_BULK_TRANSPORT_LOCAL_ACTION, ASI_PFCG_DELETE_BULK_TRANSPORT_CREATE_ACTION, ASI_PFCG_DELETE_BULK_TRANSPORT_EXISTING_ACTION],
+                actionLevel: 0,
+                parentActionId: '',
+                selectionGroupKey: '__pfcg_delete_bulk_transport_mode__'
+            }
+        ));
+        asiConversationState = { ...asiConversationState, isBusy: false };
+        asiUpdateComposerState();
+    }
+
+    function asiSelectPfcgBulkDeleteTransportLocal() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', 'Sem transporte (Local)'));
+        asiConversationState = {
+            ...asiConversationState,
+            pfcgDeleteBulkTransportMode: 'LOCAL',
+            pfcgDeleteBulkTransportRequestNumber: '',
+            pfcgDeleteBulkTransportRequestDescription: '',
+            isBusy: true
+        };
+        asiUpdateComposerState();
+        asiStartPfcgBulkDeletePreview();
+    }
+
+    function asiAskPfcgBulkDeleteTransportCreateDescription() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiAppendMessage(asiCreateMessage('user', 'Criar nova Request'));
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: ASI_PFCG_BULK_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT,
+            isBusy: false
+        };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            `Envie a descrição/nome para a nova Request de transporte a criar em ${asiPfcgSystem}:`
+        ));
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
+    async function asiStartPfcgBulkDeletePreview() {
+        const { input } = asiGetElements();
+        const roleNames = Array.isArray(asiConversationState.pfcgDeleteBulkRoleNames) ? asiConversationState.pfcgDeleteBulkRoleNames : [];
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        const processingText = `A validar dados para eliminação de ${roleNames.length} função(ões) em ${asiPfcgSystem}...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/delete/rfc/bulk/preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    role_names: roleNames,
+                    system: asiPfcgSystem,
+                    transport_mode: String(asiConversationState.pfcgDeleteBulkTransportMode || 'LOCAL').trim().toUpperCase(),
+                    request_number: String(asiConversationState.pfcgDeleteBulkTransportRequestNumber || '').trim(),
+                    request_description: String(asiConversationState.pfcgDeleteBulkTransportRequestDescription || '').trim()
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgDeleteBulkPreviewJobId: jobId,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiPollPfcgBulkDeletePreview(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível preparar a pré-visualização da eliminação em massa em ${asiPfcgSystem}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível preparar a pré-visualização da eliminação em massa em ${asiPfcgSystem}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollPfcgBulkDeletePreview(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgDeletePolling();
+        asiPfcgDeletePollingTimer = setInterval(async () => {
+            if (asiPfcgDeletePollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A validação está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A validação está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgDeletePollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/delete/rfc/bulk/preview/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgDeletePolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível validar as funções em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(
+                            `Não foi possível validar as funções em ${asiPfcgSystem}.`,
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : {};
+
+                if (!result.ok) {
+                    asiUpdateMessage(messageId, {
+                        text: result.message || `A validação das funções em ${asiPfcgSystem} devolveu erro.`,
+                        html: asiBuildPfcgErrorHtml(
+                            `Não é possível eliminar as funções em ${asiPfcgSystem}`,
+                            result.message || 'Verifique as mensagens de erro antes de prosseguir.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: `Confirme os dados antes de eliminar as funções em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgBulkDeletePreviewHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [ASI_PFCG_DELETE_BULK_BACK_ACTION, ASI_PFCG_DELETE_BULK_CONFIRM_ACTION],
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__pfcg_delete_bulk_preview__'
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: `Não foi possível validar as funções em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgErrorHtml(`Não foi possível validar as funções em ${asiPfcgSystem}.`),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgDeletePollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiHandlePfcgBulkDeleteConfirm() {
+        const { input } = asiGetElements();
+        const previewJobId = String(asiConversationState.pfcgDeleteBulkPreviewJobId || '').trim();
+        if (!previewJobId) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Não foi possível localizar a pré-visualização. Repita a preparação da eliminação em massa.'
+            ));
+            return;
+        }
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        asiAppendMessage(asiCreateMessage('user', 'Confirmar eliminação'));
+        const processingText = `A eliminar as funções em ${asiPfcgSystem} via RFC...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/delete/rfc/bulk/confirm', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ preview_job_id: previewJobId })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollPfcgBulkDeleteConfirm(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível concluir a eliminação em massa em ${asiPfcgSystem}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível concluir a eliminação em massa em ${asiPfcgSystem}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollPfcgBulkDeleteConfirm(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopPfcgDeletePolling();
+        asiPfcgDeletePollingTimer = setInterval(async () => {
+            if (asiPfcgDeletePollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: 'A eliminação está a demorar mais do que o esperado.',
+                    html: asiBuildPfcgErrorHtml(
+                        'A eliminação está a demorar mais do que o esperado.',
+                        'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiPfcgDeletePollingInFlight = true;
+            try {
+                const response = await fetch(`/api/salsa-it-agent/pfcg/delete/rfc/bulk/confirm/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (data.state === 'pending' || data.state === 'running') {
+                    return;
+                }
+
+                asiStopPfcgDeletePolling();
+
+                if (data.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível concluir a eliminação em massa em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(
+                            `Não foi possível concluir a eliminação em massa em ${asiPfcgSystem}.`,
+                            data.message || ''
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const result = data && typeof data.result === 'object' ? data.result : {};
+
+                asiUpdateMessage(messageId, {
+                    text: result.message || `Eliminação em massa concluída em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgBulkDeleteResultHtml(result),
+                    isProcessing: false,
+                    wide: true
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiUpdateComposerState();
+                setTimeout(() => {
+                    asiPresentConfiguracoesMenu();
+                }, 400);
+            } catch (error) {
+                asiStopPfcgDeletePolling();
+                asiUpdateMessage(messageId, {
+                    text: `Não foi possível concluir a eliminação em massa em ${asiPfcgSystem}.`,
+                    html: asiBuildPfcgErrorHtml(`Não foi possível concluir a eliminação em massa em ${asiPfcgSystem}.`),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiPfcgDeletePollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    function asiHandlePfcgBulkDeleteBack() {
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+        asiStopPfcgDeletePolling();
+        asiAppendMessage(asiCreateMessage('user', 'Quero rever o modo de transporte da eliminação em massa.'));
+        asiAskPfcgBulkDeleteTransportMode();
+    }
+
     function asiHandlePfcgRoleDynamicAction(actionId) {
         if (actionId === 'pfcg-delete-individual-back') {
             asiHandlePfcgDeleteBack();
@@ -5318,6 +6132,30 @@
             return;
         }
         if (actionId === 'pfcg-delete-transport-existing') {
+            asiStartPfcgTransportSearch();
+            return;
+        }
+        if (actionId === 'pfcg-delete-bulk-start') {
+            asiStartPfcgBulkDelete();
+            return;
+        }
+        if (actionId === 'pfcg-delete-bulk-back') {
+            asiHandlePfcgBulkDeleteBack();
+            return;
+        }
+        if (actionId === 'pfcg-delete-bulk-confirm') {
+            asiHandlePfcgBulkDeleteConfirm();
+            return;
+        }
+        if (actionId === 'pfcg-delete-bulk-transport-local') {
+            asiSelectPfcgBulkDeleteTransportLocal();
+            return;
+        }
+        if (actionId === 'pfcg-delete-bulk-transport-create') {
+            asiAskPfcgBulkDeleteTransportCreateDescription();
+            return;
+        }
+        if (actionId === 'pfcg-delete-bulk-transport-existing') {
             asiStartPfcgTransportSearch();
             return;
         }
@@ -5463,6 +6301,19 @@
                 return;
             }
             await asiStartUserSearch(query);
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_ROLE_SEARCH_INPUT) {
+            const pattern = rawMessage.replace(/["'%\\]/g, '').trim().toUpperCase();
+            if (pattern.replace(/\*/g, '').length < 2) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Indique pelo menos 2 caracteres fora dos curingas (*).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_PFCG_ROLE_SEARCH_INPUT, isBusy: false };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+            await asiStartPfcgRoleSearch(pattern);
             return;
         }
 
@@ -5612,6 +6463,33 @@
             };
             asiUpdateComposerState();
             await asiStartPfcgDeletePreview();
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_PFCG_BULK_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
+            const requestDescription = rawMessage.trim();
+            if (!requestDescription) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Informe uma descrição válida para a nova Request de transporte.'));
+                asiConversationState = {
+                    ...asiConversationState,
+                    awaitingInput: ASI_PFCG_BULK_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT,
+                    isBusy: false
+                };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                pfcgDeleteBulkTransportMode: 'CREATE_REQUEST',
+                pfcgDeleteBulkTransportRequestDescription: requestDescription,
+                pfcgDeleteBulkTransportRequestNumber: '',
+                awaitingInput: '',
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiStartPfcgBulkDeletePreview();
             return;
         }
 
@@ -6507,6 +7385,22 @@
         if (actionId === 'perfil-autorizacao' || actionId === 'utilizador') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             asiConfigContext = actionId;
+
+            // Marca a opção clicada (ex.: "Utilizador") como selecionada e volta a
+            // renderizar as mensagens anteriores para o botão ficar em cinza claro.
+            const clickedPath = asiFindActionPath(actionId, salsaAgentActions) || [];
+            const nextSelectedActions = { '__root__': null };
+            if (clickedPath.length > 0) {
+                nextSelectedActions['__root__'] = clickedPath[0].id;
+                for (let i = 1; i < clickedPath.length; i += 1) {
+                    nextSelectedActions[clickedPath[i - 1].id] = clickedPath[i].id;
+                }
+            } else {
+                nextSelectedActions[selectionGroupKey || '__root__'] = actionId;
+            }
+            asiSelectedActions = nextSelectedActions;
+            asiRenderMessages();
+
             const node = asiFindQuickAction(actionId, salsaAgentActions);
             asiAppendMessage(asiCreateMessage('user', node && node.prompt ? node.prompt : ''));
             asiAppendMessage(asiCreateMessage('assistant', 'Em que sistema quer trabalhar?', {
@@ -6536,6 +7430,12 @@
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             const sys = actionId.replace('pfcg-system-', '').toUpperCase();
             asiPfcgSystem = ['DEV', 'QAD', 'PRD', 'CUA'].indexOf(sys) >= 0 ? sys : 'PRD';
+
+            // Marca o sistema escolhido (ex.: "PRD") como selecionado e volta a
+            // renderizar as mensagens anteriores para o botão ficar em cinza claro.
+            asiSelectedActions = { ...asiSelectedActions, [selectionGroupKey || '__pfcg_system__']: actionId };
+            asiRenderMessages();
+
             asiAppendMessage(asiCreateMessage('user', `Sistema: ${asiPfcgSystem}`));
             if (asiConfigContext === 'utilizador') {
                 const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
@@ -6559,7 +7459,9 @@
         if (!action) return;
 
         const actionPath = asiFindActionPath(actionId, salsaAgentActions) || [];
-        const nextSelectedActions = { '__root__': null };
+        // Preserva o sistema já escolhido (ex.: "PRD") para a hierarquia percorrida
+        // continuar a aparecer nas mensagens seguintes, mesmo em níveis mais fundos.
+        const nextSelectedActions = { '__root__': null, '__pfcg_system__': asiSelectedActions['__pfcg_system__'] };
 
         if (actionPath.length > 0) {
             nextSelectedActions['__root__'] = actionPath[0].id;
@@ -6647,6 +7549,20 @@
             return;
         }
 
+        if (action.id === 'pfcg-role-analyze-pesquisar' || action.id === 'pfcg-delete-search-text') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                action.followupText || 'Escreva o padrão a pesquisar, usando * como curinga (ex.: Z*EQUIPA*):'
+            ));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_PFCG_ROLE_SEARCH_INPUT };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
         if (action.id === 'cua-remove') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             asiAppendMessage(asiCreateMessage('user', action.prompt));
@@ -6715,7 +7631,7 @@
             return;
         }
 
-        if (action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze-funcao') {
+        if (action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze-funcao' || action.id === 'pfcg-delete-search-name') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;

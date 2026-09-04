@@ -650,6 +650,13 @@ input, select {
   color: #64748b;
 }
 
+.agent-salsa-message-breadcrumb {
+  margin: 0 0 2px;
+  font-size: 0.952rem;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
 .agent-salsa-quick-actions-stack {
   display: flex;
   flex-direction: column;
@@ -732,9 +739,16 @@ input, select {
 }
 
 .agent-salsa-quick-action-sub.selected {
-  background: linear-gradient(180deg, #eff6ff, #e0ecff);
-  border-color: rgba(148, 163, 184, 0.85);
-  color: #1e40af;
+  background: linear-gradient(180deg, #f1f5f9, #e5e7eb);
+  border-color: #cbd5e1;
+  color: #334155;
+  box-shadow: none;
+}
+
+.agent-salsa-quick-action-sub.selected:hover {
+  transform: none;
+  background: linear-gradient(180deg, #eef2f7, #e2e8f0);
+  border-color: #cbd5e1;
   box-shadow: none;
 }
 

@@ -86,14 +86,17 @@ from web_api.pfcg_common import (
     PFCG_RFC_CREATE_PREVIEWS,
     PFCG_COMPOSTA_CREATE_PREVIEWS,
     PFCG_RFC_DELETE_PREVIEWS,
+    PFCG_RFC_BULK_DELETE_PREVIEWS,
     PFCG_RFC_CREATE_ENVIRONMENT,
     PFCG_RFC_DELETE_ENVIRONMENT,
     _validate_pfcg_role_name_or_400,
     _validate_pfcg_system_or_400,
     _safe_pfcg_failed_message,
     _safe_pfcg_sub_result,
+    _safe_pfcg_role_search_result,
     _safe_pfcg_rfc_create_result,
     _safe_pfcg_rfc_delete_result,
+    _safe_pfcg_rfc_bulk_delete_result,
     _safe_pfcg_transport_search_result,
 )
 import asyncio
@@ -684,6 +687,11 @@ class SalsaItPfcgAnalyzeRequest(BaseModel):
     system: str = "PRD"
 
 
+class SalsaItPfcgSearchRequest(BaseModel):
+    pattern: str
+    system: str = "PRD"
+
+
 class SalsaItPfcgCreateAnalyzeRequest(BaseModel):
     selection_id: str
     role_name: str = ""
@@ -712,6 +720,18 @@ class SalsaItPfcgDeleteRfcPreviewRequest(BaseModel):
 
 
 class SalsaItPfcgDeleteRfcConfirmRequest(BaseModel):
+    preview_job_id: str
+
+
+class SalsaItPfcgBulkDeleteRfcPreviewRequest(BaseModel):
+    role_names: list[str]
+    system: str = "DEV"
+    transport_mode: str = "LOCAL"
+    request_number: str = ""
+    request_description: str = ""
+
+
+class SalsaItPfcgBulkDeleteRfcConfirmRequest(BaseModel):
     preview_job_id: str
 
 
@@ -840,6 +860,50 @@ def api_salsa_it_pfcg_analyze_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
+
+
+@app.post("/api/salsa-it-agent/pfcg/search")
+def api_salsa_it_pfcg_search(payload: SalsaItPfcgSearchRequest) -> JSONResponse:
+    raw_pattern = str(payload.pattern or "").strip().upper()
+    if len(raw_pattern.replace("*", "")) < 2:
+        raise HTTPException(status_code=400, detail="Indique pelo menos 2 caracteres fora dos curingas (*).")
+    system = _validate_pfcg_system_or_400(payload.system)
+
+    try:
+        job = create_job("pfcg_role_search", {"pattern": raw_pattern, "system": system})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "pattern": raw_pattern})
+
+
+@app.get("/api/salsa-it-agent/pfcg/search/{job_id}")
+def api_salsa_it_pfcg_search_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_search":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pesquisa de funções PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    return _json_no_store({"state": "succeeded", "result": _safe_pfcg_role_search_result(result)})
 
 
 @app.post("/api/salsa-it-agent/pfcg/transactions/analyze")
@@ -1620,6 +1684,133 @@ def api_salsa_it_pfcg_delete_rfc_confirm_job(job_id: str) -> JSONResponse:
         return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
 
     return _json_no_store({"state": "succeeded", "result": _safe_pfcg_rfc_delete_result(result)})
+
+
+@app.post("/api/salsa-it-agent/pfcg/delete/rfc/bulk/preview")
+def api_salsa_it_pfcg_bulk_delete_rfc_preview(payload: SalsaItPfcgBulkDeleteRfcPreviewRequest) -> JSONResponse:
+    role_names = [_validate_pfcg_role_name_or_400(name) for name in (payload.role_names or [])]
+    if not role_names:
+        raise HTTPException(status_code=400, detail="Selecione pelo menos uma função para eliminar.")
+    system = _validate_pfcg_system_or_400(payload.system)
+
+    try:
+        job = create_job(
+            "pfcg_role_bulk_delete_preview",
+            {
+                "environment": system,
+                "role_names": role_names,
+                "transport_mode": str(payload.transport_mode or "LOCAL").strip().upper(),
+                "request_number": str(payload.request_number or "").strip(),
+                "request_description": str(payload.request_description or "").strip(),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_names": role_names,
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/delete/rfc/bulk/preview/{job_id}")
+def api_salsa_it_pfcg_bulk_delete_rfc_preview_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_bulk_delete_preview":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pré-visualização de eliminação em massa PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    safe_result = _safe_pfcg_rfc_bulk_delete_result(result)
+
+    if safe_result.get("ok") and safe_result.get("status") == "PREVIEW_READY":
+        transport_preview = result.get("transport") or {}
+        PFCG_RFC_BULK_DELETE_PREVIEWS[job_id] = {
+            "environment": result.get("environment"),
+            "role_names": result.get("roles") or [],
+            "transport_mode": str(transport_preview.get("transport_mode") or "LOCAL"),
+            "request_number": str(transport_preview.get("request_number") or ""),
+            "request_description": str(transport_preview.get("request_description") or ""),
+        }
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/pfcg/delete/rfc/bulk/confirm")
+def api_salsa_it_pfcg_bulk_delete_rfc_confirm(payload: SalsaItPfcgBulkDeleteRfcConfirmRequest) -> JSONResponse:
+    preview_job_id = str(payload.preview_job_id or "").strip()
+    if not preview_job_id:
+        raise HTTPException(status_code=400, detail="Identificador da pré-visualização em falta.")
+
+    validated = PFCG_RFC_BULK_DELETE_PREVIEWS.get(preview_job_id)
+    if not validated:
+        raise HTTPException(
+            status_code=404,
+            detail="Pré-visualização não encontrada ou expirada. Repita a preparação antes de confirmar.",
+        )
+
+    try:
+        job = create_job("pfcg_role_bulk_delete_rfc", dict(validated))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "role_names": validated.get("role_names"),
+    })
+
+
+@app.get("/api/salsa-it-agent/pfcg/delete/rfc/bulk/confirm/{job_id}")
+def api_salsa_it_pfcg_bulk_delete_rfc_confirm_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "pfcg_role_bulk_delete_rfc":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à confirmação de eliminação em massa PFCG.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
+
+    return _json_no_store({"state": "succeeded", "result": _safe_pfcg_rfc_bulk_delete_result(result)})
 
 
 @app.post("/api/salsa-it-agent/pfcg/create/rfc/preview")

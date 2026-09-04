@@ -551,6 +551,76 @@ def _run_pfcg_role_analysis(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_pfcg_role_search(params: dict[str, Any]) -> tuple[str, str]:
+    """Read-only via bridge RFC isolada: pesquisa funções/perfis PFCG por padrão de nome (curinga '*')."""
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+    raw_pattern = str(params.get("pattern") or "").strip()
+
+    try:
+        from sap_rfc.pfcg_role_search_service import sanitize_role_pattern
+        pattern = sanitize_role_pattern(raw_pattern)
+    except ValueError as exc:
+        payload = {
+            "ok": False, "status": "ERRO", "pattern": raw_pattern.strip().upper(),
+            "error_type": "INVALID_INPUT", "message": str(exc), "system": "PRD",
+            "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
+        }
+        return json.dumps(payload, ensure_ascii=False), (
+            f"Pesquisa de função PFCG rejeitada antes da bridge RFC.\nPadrão: {raw_pattern}\nMotivo: {exc}"
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar a validação de pesquisa PFCG: {exc}") from exc
+
+    rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
+    if not rfc_python.exists():
+        raise SapExecutionError(f"Python RFC não encontrado: {rfc_python}")
+
+    env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
+    command = [str(rfc_python), "-m", "sap_rfc.pfcg_role_search_cli", "--pattern", pattern]
+
+    try:
+        run = subprocess.run(
+            command, cwd=str(project_dir), env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=90, check=False, shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SapExecutionError(f"Timeout ao pesquisar funções PFCG com padrão '{pattern}'.") from exc
+
+    stdout = str(run.stdout or "").strip()
+    stderr = str(run.stderr or "").strip()
+
+    if run.returncode not in RFC_ALLOWED_EXIT_CODES:
+        raise SapExecutionError(f"Bridge RFC (pesquisa de função PFCG) falhou com exit code {run.returncode}.")
+    if not stdout:
+        raise SapExecutionError("Bridge RFC (pesquisa de função PFCG) não devolveu JSON em stdout.")
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise SapExecutionError("Bridge RFC (pesquisa de função PFCG) devolveu JSON inválido.") from exc
+    if not isinstance(payload, dict):
+        raise SapExecutionError("Bridge RFC (pesquisa de função PFCG) devolveu payload inválido.")
+
+    log_lines = [
+        "Pesquisa de função PFCG via subprocesso RFC controlado.",
+        f"Padrão: {pattern}",
+        f"Python RFC: {rfc_python}",
+        f"Exit code: {run.returncode}",
+        f"Status: {payload.get('status', '-')}",
+        f"Count: {payload.get('count', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+    if payload.get("warning"):
+        log_lines.append(f"Aviso: {payload['warning']}")
+    if stderr:
+        log_lines.append(f"stderr: {stderr}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_pfcg_role_sub_analysis(
     params: dict[str, Any],
     *,
@@ -1193,6 +1263,76 @@ def _run_pfcg_role_delete_preview(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_pfcg_role_bulk_delete_preview(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    role_names = [str(name or "").strip() for name in (params.get("role_names") or []) if str(name or "").strip()]
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip()
+    request_description = str(params.get("request_description") or "").strip()
+
+    try:
+        from pfcg.pfcg_delete_rfc_service import preview_pfcg_bulk_role_delete_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de pré-visualização de eliminação em massa PFCG: {exc}") from exc
+
+    try:
+        payload = preview_pfcg_bulk_role_delete_rfc(
+            environment, role_names, transport_mode, request_number, request_description
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de pré-visualização de eliminação em massa PFCG (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Pré-visualização de eliminação em massa PFCG (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Funções: {', '.join(role_names)}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_pfcg_role_bulk_delete_rfc(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    role_names = [str(name or "").strip() for name in (params.get("role_names") or []) if str(name or "").strip()]
+    transport_mode = str(params.get("transport_mode") or "LOCAL").strip().upper()
+    request_number = str(params.get("request_number") or "").strip()
+    request_description = str(params.get("request_description") or "").strip()
+
+    try:
+        from pfcg.pfcg_delete_rfc_service import bulk_delete_pfcg_roles_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de eliminação em massa PFCG: {exc}") from exc
+
+    try:
+        payload = bulk_delete_pfcg_roles_rfc(
+            environment, role_names, transport_mode, request_number, request_description
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de eliminação em massa PFCG (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Eliminação em massa PFCG (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Funções: {', '.join(role_names)}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_pfcg_role_delete_rfc(params: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
     project_dir = _get_project_dir()
@@ -1513,6 +1653,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "sap_agent_analysis": lambda job, params: _run_sap_agent_analysis(params),
     "sap_cockpit_auto_trigger": lambda job, params: _run_sap_cockpit(params),
     "pfcg_role_analysis": lambda job, params: _run_pfcg_role_analysis(params),
+    "pfcg_role_search": lambda job, params: _run_pfcg_role_search(params),
     "pfcg_role_transactions_analysis": lambda job, params: _run_pfcg_role_transactions_analysis(params),
     "pfcg_role_users_analysis": lambda job, params: _run_pfcg_role_users_analysis(params),
     "pfcg_transaction_roles": lambda job, params: _run_pfcg_transaction_roles(params),
@@ -1527,6 +1668,8 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_composta_create": lambda job, params: _run_pfcg_composta_create(params),
     "pfcg_role_delete_preview": lambda job, params: _run_pfcg_role_delete_preview(params),
     "pfcg_role_delete_rfc": lambda job, params: _run_pfcg_role_delete_rfc(params),
+    "pfcg_role_bulk_delete_preview": lambda job, params: _run_pfcg_role_bulk_delete_preview(params),
+    "pfcg_role_bulk_delete_rfc": lambda job, params: _run_pfcg_role_bulk_delete_rfc(params),
     "pfcg_transport_search": lambda job, params: _run_pfcg_transport_search(params),
     "sap_search_requests": lambda job, params: _run_sap_search_requests(params),
     "select_excel_file": lambda job, params: select_excel_file_on_windows(params),

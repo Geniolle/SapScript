@@ -15,6 +15,7 @@ PFCG_COMPOSTA_CREATE_PREVIEWS: dict[str, dict[str, Any]] = {}
 PFCG_RFC_CREATE_ENVIRONMENT = "DEV"
 PFCG_RFC_DELETE_PREVIEWS: dict[str, dict[str, Any]] = {}
 PFCG_RFC_DELETE_ENVIRONMENT = "DEV"
+PFCG_RFC_BULK_DELETE_PREVIEWS: dict[str, dict[str, Any]] = {}
 
 
 def _validate_pfcg_role_name_or_400(role_name: str) -> str:
@@ -84,6 +85,32 @@ def _safe_pfcg_sub_result(result: dict[str, Any], *, items_key: str, item_fields
     return safe_result
 
 
+def _safe_pfcg_role_search_result(result: dict[str, Any]) -> dict[str, Any]:
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "pattern": str(result.get("pattern") or ""),
+        "count": result.get("count"),
+        "system": result.get("system"),
+        "client": result.get("client"),
+    }
+    if result.get("warning"):
+        safe_result["warning"] = result.get("warning")
+
+    raw_roles = result.get("roles")
+    safe_result["roles"] = [
+        {"role": str(item.get("role") or ""), "description": item.get("description")}
+        for item in raw_roles
+        if isinstance(item, dict)
+    ] if isinstance(raw_roles, list) else []
+
+    if not safe_result["ok"]:
+        safe_result["error_type"] = result.get("error_type")
+        safe_result["message"] = result.get("message")
+
+    return safe_result
+
+
 def _safe_pfcg_rfc_delete_result(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": bool(result.get("ok")),
@@ -94,6 +121,39 @@ def _safe_pfcg_rfc_delete_result(result: dict[str, Any]) -> dict[str, Any]:
         "tcodes": result.get("tcodes") or [],
         "tcodes_count": result.get("tcodes_count"),
         "users_count": result.get("users_count"),
+        "transport": result.get("transport"),
+        "transport_mode": result.get("transport_mode"),
+        "transport_request": result.get("transport_request"),
+        "error_type": result.get("error_type"),
+        "message": result.get("message"),
+    }
+
+
+def _safe_pfcg_rfc_bulk_delete_result(result: dict[str, Any]) -> dict[str, Any]:
+    raw_items = result.get("items")
+    items = [
+        {
+            "role": str(item.get("role") or ""),
+            "ok": bool(item.get("ok")),
+            "status": str(item.get("status") or ""),
+            "description": item.get("description"),
+            "users_count": item.get("users_count"),
+            "message": item.get("message"),
+        }
+        for item in raw_items
+        if isinstance(item, dict)
+    ] if isinstance(raw_items, list) else []
+
+    return {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or "ERROR"),
+        "environment": str(result.get("environment") or PFCG_RFC_DELETE_ENVIRONMENT),
+        "roles": result.get("roles") or [],
+        "items": items,
+        "found_count": result.get("found_count"),
+        "not_found_count": result.get("not_found_count"),
+        "deleted_count": result.get("deleted_count"),
+        "failed_count": result.get("failed_count"),
         "transport": result.get("transport"),
         "transport_mode": result.get("transport_mode"),
         "transport_request": result.get("transport_request"),

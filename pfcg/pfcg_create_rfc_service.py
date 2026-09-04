@@ -46,7 +46,7 @@ def _build_bridge_env(project_dir: Path) -> dict[str, str]:
     return env
 
 
-def _run_bridge_cli(cli_module: str, args: list[str]) -> dict[str, Any]:
+def _run_bridge_cli(cli_module: str, args: list[str], *, timeout: int = RFC_TIMEOUT_SECONDS) -> dict[str, Any]:
     project_dir = _find_project_root()
     rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
     if not rfc_python.exists():
@@ -64,7 +64,7 @@ def _run_bridge_cli(cli_module: str, args: list[str]) -> dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=RFC_TIMEOUT_SECONDS,
+            timeout=timeout,
             check=False,
             shell=False,
         )

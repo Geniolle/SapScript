@@ -314,6 +314,54 @@ class SalsaAgentRoutesTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_pfcg_search_create_job_and_shape(self) -> None:
+        created = _body(
+            main.api_salsa_it_pfcg_search(
+                main.SalsaItPfcgSearchRequest(pattern="z*equipa*", system="qad")
+            )
+        )
+        self.assertEqual(created["pattern"], "Z*EQUIPA*")
+        job = store.get_job(created["job_id"])
+        self.assertEqual(job["task"], "pfcg_role_search")
+        self.assertEqual(job["params"].get("pattern"), "Z*EQUIPA*")
+        self.assertEqual(job["params"].get("system"), "QAD")
+
+        got = _body(main.api_salsa_it_pfcg_search_job(created["job_id"]))
+        self.assertEqual(got["state"], "pending")
+
+        store.complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps({
+                "ok": True, "status": "OK", "pattern": "Z*EQUIPA*", "count": 1,
+                "roles": [{"role": "Z_IT_EQUIPA_INTERNA", "description": "Equipa Interna IT", "x": 1}],
+                "system": "QAD", "client": "100",
+            }),
+            "",
+        )
+        done = _body(main.api_salsa_it_pfcg_search_job(created["job_id"]))
+        self.assertEqual(done["state"], "succeeded")
+        self.assertEqual(done["result"]["roles"][0]["role"], "Z_IT_EQUIPA_INTERNA")
+        self.assertNotIn("x", done["result"]["roles"][0])
+
+    def test_pfcg_search_rejects_short_pattern(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_pfcg_search(
+                main.SalsaItPfcgSearchRequest(pattern="a*")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_pfcg_search_job_wrong_task_returns_400(self) -> None:
+        other = store.create_job("select_excel_file", {})
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_pfcg_search_job(other["id"])
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_pfcg_search_job_unknown_id_returns_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_pfcg_search_job("nao-existe-1234")
+        self.assertEqual(ctx.exception.status_code, 404)
+
     # ---- CUA (SU10) via job sap_cockpit / script CUA_*_WEB.py --------------
 
     def test_cua_remover_individual_cria_job_sap_cockpit(self) -> None:
