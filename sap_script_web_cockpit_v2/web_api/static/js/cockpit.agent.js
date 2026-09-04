@@ -41,6 +41,7 @@
     const ASI_CUA_ADD_ROLE_INPUT = 'cua_add_role';
     const ASI_CUA_ADD_SUB_INPUT = 'cua_add_sub';
     const ASI_CUA_RM_USER_INPUT = 'cua_rm_user';
+    const ASI_CUA_RM_ROLE_INPUT = 'cua_rm_role';
     const ASI_CUA_RM_SUB_INPUT = 'cua_rm_sub';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
@@ -3438,6 +3439,29 @@
     }
 
     // Remover Utilizador Função: pede utilizador -> lista as funções dele -> escolhe -> subsistema -> remove
+    // Quando não é possível listar as funções do utilizador (ex.: RFC do CUA
+    // indisponível), oferece a entrada manual do AGR_NAME e segue o mesmo fluxo.
+    function asiCuaRemovePedirFuncaoManual(username, messageId, motivo) {
+        asiStopPfcgPolling();
+        const detalhe = motivo ? ` (${motivo})` : '';
+        if (messageId) {
+            asiUpdateMessage(messageId, {
+                text: `Não consegui listar as funções de ${username}${detalhe}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não consegui listar as funções de ${username}${detalhe}.`,
+                    'Indique manualmente a função (AGR_NAME) a remover.'
+                ),
+                isProcessing: false
+            });
+        }
+        asiAppendMessage(asiCreateMessage('assistant', `Qual é a função (AGR_NAME) a remover de ${username}?`));
+        asiResetPfcgInteraction({ awaitingInput: ASI_CUA_RM_ROLE_INPUT });
+        asiConversationState = { ...asiConversationState, cuaRm: { username } };
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
     async function asiStartCuaRemoveList(username) {
         const { input } = asiGetElements();
         const processingText = `A procurar as funções de ${username} em SAP ${asiPfcgSystem}...`;
@@ -3463,9 +3487,7 @@
             asiPfcgPollingTimer = setInterval(async () => {
                 if (asiPfcgPollingInFlight) return;
                 if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
-                    asiStopPfcgPolling();
-                    asiUpdateMessage(pm.id, { text: 'A procura das funções demorou demasiado.', html: asiBuildPfcgErrorHtml('A procura das funções demorou demasiado.', 'Verifique o worker Windows.'), isProcessing: false });
-                    asiResetPfcgInteraction();
+                    asiCuaRemovePedirFuncaoManual(username, pm.id, 'a procura demorou demasiado');
                     return;
                 }
                 asiPfcgPollingInFlight = true;
@@ -3476,8 +3498,8 @@
                     if (pd.state === 'pending' || pd.state === 'running') return;
                     asiStopPfcgPolling();
                     if (pd.state === 'failed' || !pd.result || pd.result.ok !== true) {
-                        asiUpdateMessage(pm.id, { text: 'Não foi possível obter as funções do utilizador.', html: asiBuildPfcgErrorHtml('Não foi possível obter as funções do utilizador.', (pd.result && pd.result.message) || pd.message || ''), isProcessing: false });
-                        asiResetPfcgInteraction();
+                        const motivo = (pd.result && pd.result.message) || pd.message || 'RFC indisponível';
+                        asiCuaRemovePedirFuncaoManual(username, pm.id, motivo);
                         return;
                     }
                     const roles = Array.isArray(pd.result.roles) ? pd.result.roles : [];
@@ -3503,17 +3525,13 @@
                     });
                     asiResetPfcgInteraction();
                 } catch (e) {
-                    asiStopPfcgPolling();
-                    asiUpdateMessage(pm.id, { text: 'Erro ao obter as funções do utilizador.', html: asiBuildPfcgErrorHtml('Erro ao obter as funções do utilizador.', e.message || ''), isProcessing: false });
-                    asiResetPfcgInteraction();
+                    asiCuaRemovePedirFuncaoManual(username, pm.id, e.message || 'erro ao consultar');
                 } finally {
                     asiPfcgPollingInFlight = false;
                 }
             }, ASI_PFCG_POLL_INTERVAL_MS);
         } catch (e) {
-            asiUpdateMessage(pm.id, { text: 'Não foi possível iniciar a listagem das funções.', html: asiBuildPfcgErrorHtml('Não foi possível iniciar a listagem das funções.', e.message || ''), isProcessing: false });
-            asiResetPfcgInteraction();
-            if (input) input.focus();
+            asiCuaRemovePedirFuncaoManual(username, pm.id, e.message || 'não foi possível iniciar');
         }
     }
 
@@ -5491,6 +5509,17 @@
             }
             await asiStartCuaRemoveList(u);
             return;
+        }
+        if (asiConversationState.awaitingInput === ASI_CUA_RM_ROLE_INPUT) {
+            const r = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_ROLE_PATTERN.test(r)) {
+                asiAppendMessage(asiCreateMessage('assistant', ASI_PFCG_INVALID_MESSAGE));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_RM_ROLE_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_RM_SUB_INPUT, cuaRm: { ...(asiConversationState.cuaRm || {}), agr_name: r } };
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o subsistema (SUBSYSTEM na SU10, ex.: S4DCLNT100)?'));
+            asiUpdateComposerState(); input.focus(); return;
         }
         if (asiConversationState.awaitingInput === ASI_CUA_RM_SUB_INPUT) {
             const sub = rawMessage.toUpperCase().trim();
