@@ -16,6 +16,8 @@ import time
 from dotenv import load_dotenv
 
 last_worker_ping: float = 0.0
+PROJECT_DIR = Path(os.getenv("SAP_SCRIPT_PROJECT_DIR", str(Path(__file__).resolve().parent.parent)))
+WORKER_HEARTBEAT_PATH = PROJECT_DIR / "sap_script_web_cockpit_v2" / "worker" / ".sap_script_web_worker_heartbeat.txt"
 _JIRA_ENV_SOURCE = "process environment"
 _JIRA_ENV_KEYS = (
     "JIRA_DADOS_COMP_HASH",
@@ -1408,6 +1410,217 @@ def api_salsa_it_cua_remover(payload: SalsaItCuaAdicionarRequest) -> JSONRespons
     return _cua_criar_job("CUA_REMOVE_WEB.py", payload)
 
 
+def _obyc_criar_job(payload: dict[str, Any] | None = None) -> JSONResponse:
+    """Cria um job sap_cockpit para abrir a transação OBYC no sistema escolhido."""
+    payload = payload or {}
+    system = _validate_pfcg_system_or_400(str(payload.get("system") or "DEV"))
+
+    try:
+        job = create_job(
+            "open_transaction",
+            {
+                "processo": "Configurações",
+                "subprocesso": "OBYC.py",
+                "ambiente": system,
+                "environment": system,
+                "transacao": "OBYC",
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "system": system})
+
+
+@app.post("/api/salsa-it-agent/configuracoes/obyc")
+def api_salsa_it_configuracoes_obyc(payload: dict[str, Any] | None = None) -> JSONResponse:
+    return _obyc_criar_job(payload)
+
+
+def _obyc_analisar_criar_job(payload: dict[str, Any] | None = None) -> JSONResponse:
+    """Cria um job read-only para consultar tabelas OBYC via RFC_READ_TABLE."""
+    payload = payload or {}
+    system = _validate_pfcg_system_or_400(str(payload.get("system") or "DEV"))
+    table = str(payload.get("table") or "T030").strip().upper()
+    filters = payload.get("filters") or []
+    if not table:
+        raise HTTPException(status_code=400, detail="Informe a tabela OBYC a consultar.")
+    if not isinstance(filters, list):
+        raise HTTPException(status_code=400, detail="Os filtros devem ser enviados como lista.")
+
+    try:
+        job = create_job(
+            "obyc_rfc_read_table",
+            {
+                "environment": system,
+                "table": table,
+                "filters": filters,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "system": system, "table": table})
+
+
+@app.post("/api/salsa-it-agent/configuracoes/obyc/analisar")
+def api_salsa_it_configuracoes_obyc_analisar(payload: dict[str, Any] | None = None) -> JSONResponse:
+    return _obyc_analisar_criar_job(payload)
+
+
+@app.post("/api/salsa-it-agent/configuracoes/obyc/excel/preview")
+def api_salsa_it_configuracoes_obyc_excel_preview() -> JSONResponse:
+    try:
+        job = create_job("obyc_excel_preview", {})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar job de pré-visualização do Excel OBYC: {str(exc)}")
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+    })
+
+
+@app.get("/api/salsa-it-agent/configuracoes/obyc/excel/preview/{job_id}")
+def api_salsa_it_configuracoes_obyc_excel_preview_job(job_id: str) -> JSONResponse:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+
+    if job.get("task") != "obyc_excel_preview":
+        raise HTTPException(status_code=400, detail="O job não pertence ao fluxo de pré-visualização do Excel OBYC.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        failure_message = str(job.get("status") or "Não foi possível ler o ficheiro Excel OBYC.").strip()
+        return _json_no_store({
+            "state": "failed",
+            "message": failure_message,
+        })
+
+    raw_status = job.get("status")
+    try:
+        result = json.loads(raw_status) if isinstance(raw_status, str) else raw_status
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({
+            "state": "failed",
+            "message": "Resultado de pré-visualização inválido.",
+        })
+
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": result.get("status"),
+        "file_name": result.get("file_name"),
+        "sheet_name": result.get("sheet_name"),
+        "headers": result.get("headers") or [],
+        "rows": result.get("rows") or [],
+        "all_rows": result.get("all_rows") or [],
+        "validation_headers": result.get("validation_headers") or [],
+        "validation_row_count": result.get("validation_row_count"),
+        "row_count": result.get("row_count"),
+        "preview_count": result.get("preview_count"),
+        "message": result.get("message"),
+    }
+    return _json_no_store({
+        "state": "succeeded",
+        "result": safe_result,
+    })
+
+
+@app.post("/api/salsa-it-agent/configuracoes/obyc/excel/validate")
+def api_salsa_it_configuracoes_obyc_excel_validate(payload: dict[str, Any] | None = None) -> JSONResponse:
+    payload = payload or {}
+    preview_job_id = str(payload.get("preview_job_id") or "").strip()
+    system = _validate_pfcg_system_or_400(str(payload.get("system") or "DEV"))
+    table = str(payload.get("table") or "T030").strip().upper() or "T030"
+    preview_data = payload.get("preview_data")
+    if not preview_job_id and not isinstance(preview_data, dict):
+        raise HTTPException(status_code=400, detail="Informe o job de pré-visualização do Excel OBYC.")
+
+    try:
+        job = create_job(
+            "obyc_excel_validate",
+            {
+                "preview_job_id": preview_job_id,
+                "preview_data": preview_data if isinstance(preview_data, dict) else {},
+                "system": system,
+                "table": table,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar job de validação do Excel OBYC: {str(exc)}")
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "preview_job_id": preview_job_id,
+        "has_preview_data": isinstance(preview_data, dict),
+        "system": system,
+        "table": table,
+    })
+
+
+@app.get("/api/salsa-it-agent/configuracoes/obyc/excel/validate/{job_id}")
+def api_salsa_it_configuracoes_obyc_excel_validate_job(job_id: str) -> JSONResponse:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+
+    if job.get("task") != "obyc_excel_validate":
+        raise HTTPException(status_code=400, detail="O job não pertence ao fluxo de validação do Excel OBYC.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        failure_message = str(job.get("status") or "Não foi possível validar o ficheiro Excel OBYC.").strip()
+        return _json_no_store({
+            "state": "failed",
+            "message": failure_message,
+        })
+
+    raw_status = job.get("status")
+    try:
+        result = json.loads(raw_status) if isinstance(raw_status, str) else raw_status
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({
+            "state": "failed",
+            "message": "Resultado de validação inválido.",
+        })
+
+    safe_result: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "status": result.get("status"),
+        "system": result.get("system"),
+        "table": result.get("table"),
+        "file_name": result.get("file_name"),
+        "sheet_name": result.get("sheet_name"),
+        "headers": result.get("headers") or [],
+        "total_rows": result.get("total_rows"),
+        "validated_rows": result.get("validated_rows"),
+        "matched_rows": result.get("matched_rows"),
+        "missing_rows": result.get("missing_rows"),
+        "mismatched_rows": result.get("mismatched_rows"),
+        "skipped_rows": result.get("skipped_rows"),
+        "issues": result.get("issues") or [],
+        "message": result.get("message"),
+    }
+    return _json_no_store({
+        "state": "succeeded",
+        "result": safe_result,
+    })
+
+
 @app.post("/api/salsa-it-agent/pfcg/create/select-excel")
 def api_salsa_it_pfcg_create_select_excel() -> JSONResponse:
     try:
@@ -2512,7 +2725,13 @@ def api_environments() -> dict[str, Any]:
 @app.get("/api/worker/status")
 def api_worker_status() -> dict[str, Any]:
     global last_worker_ping
-    is_online = (time.time() - last_worker_ping) < 15.0
+    heartbeat_exists = False
+    try:
+        heartbeat_exists = WORKER_HEARTBEAT_PATH.exists()
+    except Exception:
+        heartbeat_exists = False
+
+    is_online = heartbeat_exists
     return {"status": "online" if is_online else "offline"}
 
 

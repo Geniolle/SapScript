@@ -14,7 +14,8 @@ if (-not (Test-Path -LiteralPath $WorkerScript)) {
     exit 1
 }
 
-$Command = "`"$PowerShellExe`" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WorkerScript`""
+# Abrir o worker com janela visível para o utilizador acompanhar a execução.
+$Command = "`"$PowerShellExe`" -NoProfile -ExecutionPolicy Bypass -File `"$WorkerScript`""
 
 $RegistryPath = "HKCU:\Software\Classes\$ProtocolName"
 $CommandPath = "$RegistryPath\shell\open\command"

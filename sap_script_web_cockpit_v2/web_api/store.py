@@ -16,6 +16,8 @@ INTERNAL_TASKS = {
     "sap_search_requests",
     "sap_agent_analysis",
     "pfcg_role_analysis",
+    "obyc_excel_preview",
+    "obyc_excel_validate",
     "fi_default_document",
     "f110_proposal",
     "f110_payment",

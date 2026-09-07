@@ -46,7 +46,12 @@
     const ASI_CUA_RM_SUB_INPUT = 'cua_rm_sub';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
-    // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador').
+    let asiObycPollingTimer = null;
+    let asiObycPollingInFlight = false;
+    let asiObycMode = 'configurar';
+    let asiObycAnalysisMode = '';
+    let asiObycAnalysisTable = 'T030';
+    // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador' | 'obyc-configurar' | 'obyc-analisar').
     let asiConfigContext = 'perfil';
     const ASI_PFCG_SYSTEM_ACTIONS = [
         { id: 'pfcg-system-dev', label: 'DEV', icon: 'analysis' },
@@ -185,6 +190,13 @@
             lastFiDocumentWorkflow: '',
             lastF110ProposalPayload: null,
             lastF110ProposalResult: null,
+            obycExcelPreviewJobId: '',
+            obycExcelValidationJobId: '',
+            obycExcelFileName: '',
+            obycExcelSheetName: '',
+            obycExcelHeaders: [],
+            obycExcelRows: [],
+            obycExcelRowCount: 0,
             awaitingInput: '',
             pendingJobId: '',
             pendingRoleName: '',
@@ -394,6 +406,35 @@
                         {
                             ...ASI_MAIN_MENU_ACTION,
                             prompt: 'Quero voltar ao menu principal.'
+                        }
+                    ]
+                },
+                {
+                    id: 'obyc',
+                    label: 'OBYC',
+                    icon: 'settings',
+                    prompt: 'Quero trabalhar com a OBYC.',
+                    followupText: 'O que deseja fazer em OBYC?',
+                    children: [
+                        {
+                            id: 'obyc-configurar',
+                            label: 'Configurar',
+                            icon: 'settings',
+                            processo: 'Configurações',
+                            subprocesso: 'OBYC Configurar.py',
+                            prompt: 'Quero configurar a OBYC.',
+                            followupText: 'Em que sistema quer trabalhar?',
+                            children: []
+                        },
+                        {
+                            id: 'obyc-analisar',
+                            label: 'Analisar',
+                            icon: 'analysis',
+                            processo: 'Configurações',
+                            subprocesso: 'OBYC Analisar.py',
+                            prompt: 'Quero analisar a OBYC.',
+                            followupText: 'Em que sistema quer trabalhar?',
+                            children: []
                         }
                     ]
                 },
@@ -1039,12 +1080,17 @@
 
     function asiCreateMessage(role, text, options = {}) {
         asiChatMessageCounter += 1;
+        const breadcrumb = Array.isArray(options.breadcrumb)
+            ? options.breadcrumb.slice()
+            : (typeof options.breadcrumb === 'string' && options.breadcrumb.trim()
+                ? [options.breadcrumb.trim()]
+                : (role === 'assistant' ? asiBuildBreadcrumbTrail() : []));
 
         return {
             id: `asi-msg-${asiChatMessageCounter}`,
             role,
             text,
-            breadcrumb: role === 'assistant' ? asiBuildBreadcrumbTrail() : [],
+            breadcrumb,
             html: typeof options.html === 'string' ? options.html : '',
             belowBubbleHtml: typeof options.belowBubbleHtml === 'string' ? options.belowBubbleHtml : '',
             bubbleClassName: typeof options.bubbleClassName === 'string' ? options.bubbleClassName : '',
@@ -2510,7 +2556,7 @@
                 ? `<div class="agent-salsa-quick-actions-stack">${asiRenderQuickActionButtons(msg.actions, msg.actionLevel || 0, msg.parentActionId || '', msg.selectionGroupKey || '__root__')}</div>`
                 : '';
             const breadcrumbHtml = !isUser && Array.isArray(msg.breadcrumb) && msg.breadcrumb.length > 0
-                ? `<p class="agent-salsa-message-breadcrumb">${escapeHtml(msg.breadcrumb.join('>'))}</p>`
+                ? `<p class="agent-salsa-message-breadcrumb">${escapeHtml(msg.breadcrumb.join(' > '))}</p>`
                 : '';
 
             return `
@@ -4035,6 +4081,542 @@
         }
     }
 
+    function asiStopObycPolling() {
+        if (asiObycPollingTimer) {
+            clearInterval(asiObycPollingTimer);
+            asiObycPollingTimer = null;
+        }
+        asiObycPollingInFlight = false;
+    }
+
+    function asiBuildObycResultHtml(system, statusText = '') {
+        const safeSystem = escapeHtml(String(system || '').trim().toUpperCase() || 'SAP');
+        const cleanedStatus = String(statusText || '').trim();
+        const safeStatus = cleanedStatus
+            ? escapeHtml(cleanedStatus).replace(/\n/g, '<br>')
+            : '<span style="color:var(--text-secondary);">Sem mensagem adicional devolvida pelo SAP.</span>';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">✓ OBYC aberta em ${safeSystem}</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
+                        <span class="asi-pfcg-result-label">Transação</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">OBYC</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
+                        <span class="asi-pfcg-result-label">Estado</span>
+                        <span class="asi-pfcg-result-value">${safeStatus}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiParseObycFilters(rawText) {
+        const text = String(rawText || '').trim();
+        if (!text) return [];
+
+        return text
+            .split(/[;\n,]+/)
+            .map((chunk) => chunk.trim())
+            .filter(Boolean)
+            .map((chunk) => {
+                const idx = chunk.indexOf('=');
+                if (idx < 0) return null;
+                const field = chunk.slice(0, idx).trim().toUpperCase();
+                const value = chunk.slice(idx + 1).trim();
+                if (!field || !value) return null;
+                return { field, value };
+            })
+            .filter(Boolean);
+    }
+
+    function asiFindQuickActionTrail(actionId, actions = salsaAgentActions, trail = []) {
+        for (const action of actions) {
+            if (!action) continue;
+            const nextTrail = trail.concat(action);
+            if (action.id === actionId) {
+                return nextTrail;
+            }
+            if (Array.isArray(action.children) && action.children.length > 0) {
+                const found = asiFindQuickActionTrail(actionId, action.children, nextTrail);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    function asiBuildQuickActionTrail(actionId, fallbackParts = []) {
+        const path = asiFindQuickActionTrail(actionId);
+        const labels = Array.isArray(path)
+            ? path.map((action) => String(action && (action.label || action.id) || '').trim()).filter(Boolean)
+            : [];
+        if (labels.length === 0) {
+            return fallbackParts.filter(Boolean).join(' > ');
+        }
+        return labels.join(' > ');
+    }
+
+    function asiBuildQuickActionBreadcrumb(actionId, extraLabels = []) {
+        const path = asiFindQuickActionTrail(actionId);
+        const labels = [];
+        if (Array.isArray(path)) {
+            for (const action of path) {
+                const label = String(action && (action.label || action.id) || '').trim();
+                if (label) labels.push(label);
+            }
+        }
+        for (const label of extraLabels) {
+            const text = String(label || '').trim();
+            if (text) labels.push(text);
+        }
+        if (labels.length === 0) {
+            return extraLabels
+                .map((label) => String(label || '').trim())
+                .filter(Boolean);
+        }
+        return labels;
+    }
+
+    function asiBuildObycAnalysisHtml(payload, system) {
+        const safeSystem = escapeHtml(String(system || payload.system || 'SAP').trim().toUpperCase() || 'SAP');
+        const safeTable = escapeHtml(String(payload.table || 'T030').trim().toUpperCase() || 'T030');
+        const filters = Array.isArray(payload.filters) ? payload.filters : [];
+        const rows = Array.isArray(payload.rows) ? payload.rows : [];
+        const columns = Array.isArray(payload.fields) && payload.fields.length > 0
+            ? payload.fields
+            : (rows[0] ? Object.keys(rows[0]) : []);
+        const message = escapeHtml(String(payload.message || `Consulta read-only concluída na tabela ${safeTable}.`));
+        const filtersHtml = filters.length > 0
+            ? filters.map((f) => `
+                <span class="asi-pfcg-result-field" style="display:inline-flex;gap:8px;align-items:center;margin:0 8px 8px 0;">
+                    <span class="asi-pfcg-result-label">${escapeHtml(String(f.field || ''))}</span>
+                    <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(String(f.value || ''))}</span>
+                </span>
+            `).join('')
+            : '<span class="asi-pfcg-result-value">Sem filtros informados.</span>';
+        const headerCells = columns.map((col) => `<th>${escapeHtml(String(col || ''))}</th>`).join('');
+        const bodyRows = rows.length > 0
+            ? rows.map((row) => {
+                const cells = columns.map((col) => `<td>${escapeHtml(String((row && row[col]) || ''))}</td>`).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('')
+            : `<tr><td colspan="${Math.max(columns.length, 1)}" class="asi-pfcg-list-empty">Sem registos encontrados.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">✓ OBYC consultada em ${safeSystem}</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Tabela</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${safeTable}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Chaves</span>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                            ${filtersHtml}
+                        </div>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Mensagem</span>
+                        <span class="asi-pfcg-result-value">${message}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Registos</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${rows.length}</span>
+                    </div>
+                    <div class="asi-pfcg-result-shell" style="overflow:auto;">
+                        <table class="asi-pfcg-list-table">
+                            <thead><tr>${headerCells}</tr></thead>
+                            <tbody>${bodyRows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildObycExcelPreviewHtml(result) {
+        const fileName = escapeHtml(String(result && result.file_name ? result.file_name : 'Excel').trim());
+        const sheetName = escapeHtml(String(result && result.sheet_name ? result.sheet_name : '').trim());
+        const headers = Array.isArray(result && result.headers) ? result.headers : [];
+        const rows = Array.isArray(result && result.rows) ? result.rows : [];
+        const rowCount = Number(result && result.row_count ? result.row_count : rows.length || 0);
+        const previewCount = Number(result && result.preview_count ? result.preview_count : rows.length || 0);
+        const columns = headers.length > 0 ? headers : (rows[0] ? Object.keys(rows[0]) : []);
+        const safeColumns = columns.map((column) => String(column || '').trim()).filter(Boolean);
+        const headerHtml = safeColumns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
+        const bodyHtml = rows.length > 0
+            ? rows.map((row) => {
+                const cells = safeColumns.map((column) => `<td>${escapeHtml(String((row && row[column]) || ''))}</td>`).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('')
+            : `<tr><td colspan="${Math.max(safeColumns.length, 1)}" class="asi-pfcg-list-empty">Sem linhas lidas.</td></tr>`;
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#0f766e;">✓ Excel lido em modo leitura</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Ficheiro</span>
+                        <span class="asi-pfcg-result-value">${fileName}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Folha</span>
+                        <span class="asi-pfcg-result-value">${sheetName || 'Folha principal'}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Linhas lidas</span>
+                        <span class="asi-pfcg-result-value">${rowCount}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Pré-visualização</span>
+                        <span class="asi-pfcg-result-value">${previewCount} linhas</span>
+                    </div>
+                    <div class="asi-pfcg-result-shell" style="overflow:auto;">
+                        <table class="asi-pfcg-list-table">
+                            <thead><tr>${headerHtml}</tr></thead>
+                            <tbody>${bodyHtml}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiPresentObycTableSelection() {
+        asiAppendMessage(asiCreateMessage('assistant', 'Que tabela deseja consultar em OBYC?', {
+            breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem]),
+            actions: [
+                { id: 'obyc-table-t030', label: 'T030', icon: 'database', level: 0, parentActionId: 'obyc-analisar', selectionGroupKey: 'obyc-table' },
+                { id: 'obyc-table-t030k', label: 'T030K', icon: 'database', level: 0, parentActionId: 'obyc-analisar', selectionGroupKey: 'obyc-table' },
+                { id: 'obyc-table-t030r', label: 'T030R', icon: 'database', level: 0, parentActionId: 'obyc-analisar', selectionGroupKey: 'obyc-table' },
+                { id: 'obyc-table-other', label: 'Outra tabela', icon: 'database', level: 0, parentActionId: 'obyc-analisar', selectionGroupKey: 'obyc-table' },
+                ASI_MAIN_MENU_ACTION,
+            ],
+            selectionGroupKey: 'obyc-table',
+        }));
+    }
+
+    function asiPresentObycAnalysisModeMenu() {
+        asiAppendMessage(asiCreateMessage('assistant', 'Como pretende pesquisar a OBYC?', {
+            breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem]),
+            actions: [
+                { id: 'obyc-analisar-excel', label: 'Ficheiro Excel', icon: 'upload', level: 0, parentActionId: 'obyc-analisar', selectionGroupKey: 'obyc-analysis-mode' },
+                { id: 'obyc-analisar-individual', label: 'Individual', icon: 'analysis', level: 0, parentActionId: 'obyc-analisar', selectionGroupKey: 'obyc-analysis-mode' },
+                ASI_MAIN_MENU_ACTION,
+            ],
+            selectionGroupKey: 'obyc-analysis-mode',
+        }));
+    }
+
+    async function asiPollObycJob(jobId, system, messageId) {
+        const startedAt = Date.now();
+        asiStopObycPolling();
+        asiObycPollingTimer = setInterval(async () => {
+            if (asiObycPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopObycPolling();
+                asiUpdateMessage(messageId, {
+                    text: `A abertura da OBYC está a demorar mais do que o esperado em ${system}.`,
+                    html: asiBuildPfcgErrorHtml(
+                        `A abertura da OBYC está a demorar mais do que o esperado em ${system}.`,
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiObycPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const job = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((job && job.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (job.state === 'pending' || job.state === 'running') {
+                    return;
+                }
+
+                asiStopObycPolling();
+
+                if (job.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível abrir a OBYC em ${system}.`,
+                        html: asiBuildPfcgErrorHtml(
+                            `Não foi possível abrir a OBYC em ${system}.`,
+                            String(job.status || job.error || 'Verifique o log do worker SAP.').trim()
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                asiUpdateMessage(messageId, {
+                    text: `OBYC aberta em ${system}.`,
+                    html: asiBuildObycResultHtml(system, String(job.status || '').trim()),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [ASI_MAIN_MENU_ACTION],
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__obyc_result__'
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopObycPolling();
+                asiUpdateMessage(messageId, {
+                    text: `Não foi possível concluir a abertura da OBYC em ${system}.`,
+                    html: asiBuildPfcgErrorHtml(
+                        `Não foi possível concluir a abertura da OBYC em ${system}.`,
+                        error.message || ''
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiObycPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartObycOpenTransaction(mode = 'configurar') {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const system = String(asiPfcgSystem || 'PRD').trim().toUpperCase() || 'PRD';
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        const processingText = mode === 'analisar'
+            ? `A analisar OBYC em SAP ${system}...`
+            : `A configurar OBYC em SAP ${system}...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/configuracoes/obyc', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ system })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollObycJob(jobId, system, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível abrir a OBYC em ${system}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível abrir a OBYC em ${system}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
+    async function asiPollObycAnalysisJob(jobId, system, messageId) {
+        const startedAt = Date.now();
+        asiStopObycPolling();
+        asiObycPollingTimer = setInterval(async () => {
+            if (asiObycPollingInFlight) return;
+            if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                asiStopObycPolling();
+                asiUpdateMessage(messageId, {
+                    text: `A consulta da OBYC demorou mais do que o esperado em ${system}.`,
+                    html: asiBuildPfcgErrorHtml(
+                        `A consulta da OBYC demorou mais do que o esperado em ${system}.`,
+                        'Verifique se o worker Windows está ativo e tente novamente.'
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                return;
+            }
+
+            asiObycPollingInFlight = true;
+            try {
+                const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const job = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error((job && job.detail) || `Erro HTTP ${response.status}`);
+                }
+
+                if (job.state === 'pending' || job.state === 'running') {
+                    return;
+                }
+
+                asiStopObycPolling();
+
+                if (job.state === 'failed') {
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível consultar a OBYC em ${system}.`,
+                        html: asiBuildPfcgErrorHtml(
+                            `Não foi possível consultar a OBYC em ${system}.`,
+                            String(job.status || job.error || 'Verifique o log do worker SAP.').trim()
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                }
+
+                const rawStatus = String(job.status || '').trim();
+                let payload = null;
+                if (rawStatus) {
+                    try {
+                        payload = JSON.parse(rawStatus);
+                    } catch {
+                        payload = null;
+                    }
+                }
+
+                const safePayload = payload && typeof payload === 'object'
+                    ? payload
+                    : {
+                        system,
+                        table: asiObycAnalysisTable,
+                        filters: [],
+                        rows: [],
+                        fields: [],
+                        message: rawStatus || 'Consulta read-only concluída.',
+                    };
+
+                asiUpdateMessage(messageId, {
+                    text: safePayload.message || `OBYC consultada em ${system}.`,
+                    html: asiBuildObycAnalysisHtml(safePayload, system),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [ASI_MAIN_MENU_ACTION],
+                    actionLevel: 0,
+                    parentActionId: '',
+                    selectionGroupKey: '__obyc_result__'
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } catch (error) {
+                asiStopObycPolling();
+                asiUpdateMessage(messageId, {
+                    text: `Não foi possível concluir a consulta da OBYC em ${system}.`,
+                    html: asiBuildPfcgErrorHtml(
+                        `Não foi possível concluir a consulta da OBYC em ${system}.`,
+                        error.message || ''
+                    ),
+                    isProcessing: false
+                });
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+            } finally {
+                asiObycPollingInFlight = false;
+            }
+        }, ASI_PFCG_POLL_INTERVAL_MS);
+    }
+
+    async function asiStartObycAnalysis(table, filters) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const system = String(asiPfcgSystem || 'PRD').trim().toUpperCase() || 'PRD';
+        const normalizedTable = String(table || 'T030').trim().toUpperCase() || 'T030';
+        const normalizedFilters = Array.isArray(filters) ? filters : [];
+
+        if (asiChatMockTimer) {
+            clearTimeout(asiChatMockTimer);
+            asiChatMockTimer = null;
+        }
+
+        const filterLabel = normalizedFilters.length > 0
+            ? normalizedFilters.map((item) => `${item.field}=${item.value}`).join('; ')
+            : '';
+        const processingText = filterLabel
+            ? `A consultar ${normalizedTable} em SAP ${system} via RFC...`
+            : `A consultar ${normalizedTable} em SAP ${system} via RFC...`;
+        const processingMessage = asiCreateMessage('assistant', processingText, {
+            html: asiBuildPfcgGenericProcessingHtml(processingText),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/configuracoes/obyc/analisar', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ system, table: normalizedTable, filters: normalizedFilters })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollObycAnalysisJob(jobId, system, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível consultar a OBYC em ${system}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível consultar a OBYC em ${system}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
     async function asiStartPfcgCreateExcelSelection() {
         if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
@@ -4650,6 +5232,7 @@
         const text = (configAction && configAction.followupText) || 'Escolha uma opção de Configurações:';
         const actions = (configAction && Array.isArray(configAction.children)) ? configAction.children : [];
         asiAppendMessage(asiCreateMessage('assistant', text, {
+            breadcrumb: ['Configurações'],
             actions: actions,
             actionLevel: 1,
             parentActionId: 'configuracoes',
@@ -5702,6 +6285,326 @@
                 isProcessing: false
             });
             asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiStartObycExcelPreview() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+        const breadcrumb = asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem, 'Ficheiro Excel']);
+        const pm = asiCreateMessage('assistant', 'A preparar a pré-visualização do Excel da OBYC...', {
+            breadcrumb,
+            html: asiBuildPfcgGenericProcessingHtml('A preparar a pré-visualização do Excel da OBYC...'),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: '',
+            isBusy: true,
+            obycExcelPreviewJobId: '',
+            obycExcelValidationJobId: '',
+            obycExcelFileName: '',
+            obycExcelSheetName: '',
+            obycExcelHeaders: [],
+            obycExcelRows: [],
+            obycExcelRowCount: 0
+        };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/configuracoes/obyc/excel/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: '{}'
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job de pré-visualização do Excel.');
+
+            asiUpdateMessage(pm.id, {
+                text: 'Abra o ficheiro Excel da OBYC na janela do worker...',
+                html: asiBuildPfcgGenericProcessingHtml('Abra o ficheiro Excel da OBYC na janela do worker...'),
+                isProcessing: true
+            });
+
+            const started = Date.now();
+            while (Date.now() - started < 120000) {
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const poll = await fetch(`/api/salsa-it-agent/configuracoes/obyc/excel/preview/${encodeURIComponent(jobId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pollData = await poll.json().catch(() => ({}));
+                if (!poll.ok) throw new Error((pollData && pollData.message) || `Erro HTTP ${poll.status}`);
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state === 'failed') throw new Error(pollData.message || 'Leitura do Excel da OBYC falhou.');
+
+                const result = pollData && typeof pollData.result === 'object' ? pollData.result : {};
+                const fileName = String(result.file_name || '').trim();
+                const sheetName = String(result.sheet_name || '').trim();
+                const headers = Array.isArray(result.headers) ? result.headers : [];
+                const rows = Array.isArray(result.all_rows) && result.all_rows.length ? result.all_rows : (Array.isArray(result.rows) ? result.rows : []);
+                const rowCount = Number(result.validation_row_count || result.row_count || rows.length || 0);
+                const previewCount = Number(result.preview_count || rows.length || 0);
+
+                asiConversationState = {
+                    ...asiConversationState,
+                    obycExcelPreviewJobId: jobId,
+                    obycExcelFileName: fileName,
+                    obycExcelSheetName: sheetName,
+                    obycExcelHeaders: Array.isArray(result.validation_headers) && result.validation_headers.length ? result.validation_headers : headers,
+                    obycExcelRows: rows,
+                    obycExcelRowCount: rowCount,
+                    awaitingInput: '',
+                    isBusy: false
+                };
+
+                asiUpdateMessage(pm.id, {
+                    text: `Pré-visualização pronta para ${fileName || 'o Excel da OBYC'}.`,
+                    breadcrumb,
+                    html: asiBuildObycExcelPreviewHtml({
+                        file_name: fileName,
+                        sheet_name: sheetName,
+                        headers,
+                        rows,
+                        row_count: rowCount,
+                        preview_count: previewCount
+                    }),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [
+                        { id: 'obyc-excel-verificar', label: 'Verificar', icon: 'shield-plus', level: 0, parentActionId: 'obyc-analisar-excel', selectionGroupKey: 'obyc-excel-preview' },
+                        { id: 'obyc-excel-voltar', label: 'Voltar ao menu', icon: 'analysis', level: 0, parentActionId: 'obyc-analisar-excel', selectionGroupKey: 'obyc-excel-preview' },
+                    ],
+                    actionLevel: 0,
+                    parentActionId: 'obyc-analisar-excel',
+                    selectionGroupKey: 'obyc-excel-preview'
+                });
+                asiUpdateComposerState();
+                if (input) input.focus();
+                return;
+            }
+
+            throw new Error('A leitura do Excel da OBYC expirou.');
+        } catch (error) {
+            asiConversationState = {
+                ...asiConversationState,
+                isBusy: false
+            };
+            asiUpdateMessage(pm.id, {
+                text: 'Não foi possível ler o Excel da OBYC.',
+                breadcrumb,
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível ler o Excel da OBYC.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiUpdateComposerState();
+            asiPresentObycAnalysisModeMenu();
+            if (input) input.focus();
+        }
+    }
+
+    function asiBuildObycValidationHtml(result) {
+        const fileName = escapeHtml(String(result && result.file_name ? result.file_name : 'Excel da OBYC').trim());
+        const sheetName = escapeHtml(String(result && result.sheet_name ? result.sheet_name : '').trim());
+        const table = escapeHtml(String(result && result.table ? result.table : 'T030').trim());
+        const system = escapeHtml(String(result && result.system ? result.system : asiPfcgSystem).trim().toUpperCase() || asiPfcgSystem);
+        const totalRows = Number(result && result.total_rows ? result.total_rows : 0);
+        const validatedRows = Number(result && result.validated_rows ? result.validated_rows : 0);
+        const matchedRows = Number(result && result.matched_rows ? result.matched_rows : 0);
+        const missingRows = Number(result && result.missing_rows ? result.missing_rows : 0);
+        const mismatchedRows = Number(result && result.mismatched_rows ? result.mismatched_rows : 0);
+        const skippedRows = Number(result && result.skipped_rows ? result.skipped_rows : 0);
+        const issues = Array.isArray(result && result.issues) ? result.issues : [];
+        const hasProblems = missingRows > 0 || mismatchedRows > 0;
+        const issuesHtml = issues.length > 0
+            ? issues.map((issue) => {
+                const rowNumber = escapeHtml(String(issue && issue.row_number ? issue.row_number : '?'));
+                const reason = escapeHtml(String(issue && issue.reason ? issue.reason : ''));
+                const message = escapeHtml(String(issue && issue.message ? issue.message : ''));
+                const filters = Array.isArray(issue && issue.filters) ? issue.filters : [];
+                const differences = Array.isArray(issue && issue.differences) ? issue.differences : [];
+                const filtersHtml = filters.length > 0
+                    ? filters.map((filter) => `<span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(String(filter.field || ''))}=${escapeHtml(String(filter.value || ''))}</span>`).join(' ')
+                    : '<span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">Sem chaves</span>';
+                const differencesHtml = differences.length > 0
+                    ? differences.map((diff) => `<div class="asi-pfcg-excel-summary-note">${escapeHtml(String(diff.field || ''))}: Excel <strong>${escapeHtml(String(diff.excel || ''))}</strong> vs SAP <strong>${escapeHtml(String(diff.sap || ''))}</strong></div>`).join('')
+                    : '';
+                return `
+                    <div class="asi-pfcg-result-shell" style="margin-bottom:10px;">
+                        <div class="asi-pfcg-result-field" style="margin-bottom:6px;">
+                            <span class="asi-pfcg-result-label">Linha</span>
+                            <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${rowNumber}</span>
+                        </div>
+                        <div class="asi-pfcg-result-field" style="margin-bottom:6px;">
+                            <span class="asi-pfcg-result-label">Estado</span>
+                            <span class="asi-pfcg-result-value">${reason}</span>
+                        </div>
+                        <div class="asi-pfcg-result-field" style="margin-bottom:6px;">
+                            <span class="asi-pfcg-result-label">Chaves</span>
+                            <div style="display:flex;flex-wrap:wrap;gap:6px;">${filtersHtml}</div>
+                        </div>
+                        ${message ? `<div class="asi-pfcg-excel-summary-note">${message}</div>` : ''}
+                        ${differencesHtml}
+                    </div>
+                `;
+            }).join('')
+            : '<div class="asi-pfcg-list-empty">Sem divergências encontradas.</div>';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${hasProblems ? '#b45309' : '#16a34a'};">✓ Validação da OBYC concluída</div>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Ficheiro</span>
+                        <span class="asi-pfcg-result-value">${fileName}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Folha</span>
+                        <span class="asi-pfcg-result-value">${sheetName || 'Folha principal'}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Sistema</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${system}</span>
+                    </div>
+                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
+                        <span class="asi-pfcg-result-label">Tabela</span>
+                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${table}</span>
+                    </div>
+                    <div class="asi-pfcg-result-grid">
+                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Linhas no ficheiro</div><div class="asi-pfcg-excel-summary-value">${totalRows}</div></div>
+                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Verificadas</div><div class="asi-pfcg-excel-summary-value">${validatedRows}</div></div>
+                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Coincidentes</div><div class="asi-pfcg-excel-summary-value">${matchedRows}</div></div>
+                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Sem correspondência</div><div class="asi-pfcg-excel-summary-value">${missingRows}</div></div>
+                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Divergentes</div><div class="asi-pfcg-excel-summary-value">${mismatchedRows}</div></div>
+                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Ignoradas</div><div class="asi-pfcg-excel-summary-value">${skippedRows}</div></div>
+                    </div>
+                    <div class="asi-pfcg-excel-summary-note" style="margin-top:12px;">${escapeHtml(String(result && result.message ? result.message : ''))}</div>
+                    <div style="margin-top:14px;">${issuesHtml}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    async function asiStartObycExcelValidation() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+        const previewJobId = String(asiConversationState.obycExcelPreviewJobId || '').trim();
+        const fileName = String(asiConversationState.obycExcelFileName || '').trim();
+        const previewData = {
+            file_name: fileName,
+            sheet_name: String(asiConversationState.obycExcelSheetName || '').trim(),
+            headers: Array.isArray(asiConversationState.obycExcelHeaders) ? asiConversationState.obycExcelHeaders : [],
+            rows: Array.isArray(asiConversationState.obycExcelRows) ? asiConversationState.obycExcelRows : [],
+            row_count: Number(asiConversationState.obycExcelRowCount || 0)
+        };
+        if (!previewJobId) {
+            asiAppendMessage(asiCreateMessage('assistant', 'Não existe um Excel carregado para validar.', {
+                breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem, 'Ficheiro Excel']),
+                html: asiBuildPfcgErrorHtml(
+                    'Não existe um Excel carregado para validar.',
+                    'Abra primeiro um ficheiro Excel da OBYC.'
+                )
+            }));
+            asiUpdateComposerState();
+            return;
+        }
+
+        const breadcrumb = asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem, 'Ficheiro Excel', 'Validar']);
+        const pm = asiCreateMessage('assistant', `A validar o Excel da OBYC em ${asiPfcgSystem}...`, {
+            breadcrumb,
+            html: asiBuildPfcgGenericProcessingHtml(`A validar o Excel da OBYC em ${asiPfcgSystem}...`),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = {
+            ...asiConversationState,
+            awaitingInput: '',
+            isBusy: true
+        };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/configuracoes/obyc/excel/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    preview_job_id: previewJobId,
+                    preview_data: previewData,
+                    system: asiPfcgSystem,
+                    table: 'T030'
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job de validação do Excel.');
+
+            asiUpdateMessage(pm.id, {
+                text: `A validar o ficheiro ${fileName || 'Excel da OBYC'}...`,
+                html: asiBuildPfcgGenericProcessingHtml(`A validar o ficheiro ${fileName || 'Excel da OBYC'}...`),
+                isProcessing: true
+            });
+
+            const started = Date.now();
+            while (Date.now() - started < 120000) {
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const poll = await fetch(`/api/salsa-it-agent/configuracoes/obyc/excel/validate/${encodeURIComponent(jobId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pollData = await poll.json().catch(() => ({}));
+                if (!poll.ok) throw new Error((pollData && pollData.message) || `Erro HTTP ${poll.status}`);
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state === 'failed') throw new Error(pollData.message || 'Validação do Excel da OBYC falhou.');
+
+                const result = pollData && typeof pollData.result === 'object' ? pollData.result : {};
+                asiConversationState = {
+                    ...asiConversationState,
+                    obycExcelValidationJobId: jobId,
+                    isBusy: false
+                };
+                asiUpdateMessage(pm.id, {
+                    text: result.message || `Validação concluída para ${fileName || 'o Excel da OBYC'}.`,
+                    breadcrumb,
+                    html: asiBuildObycValidationHtml(result),
+                    isProcessing: false,
+                    wide: true,
+                    actions: [
+                        { id: 'obyc-excel-voltar', label: 'Voltar ao menu', icon: 'analysis', level: 0, parentActionId: 'obyc-analisar-excel', selectionGroupKey: 'obyc-excel-validation' },
+                    ],
+                    actionLevel: 0,
+                    parentActionId: 'obyc-analisar-excel',
+                    selectionGroupKey: 'obyc-excel-validation'
+                });
+                asiUpdateComposerState();
+                if (input) input.focus();
+                return;
+            }
+
+            throw new Error('A validação do Excel OBYC expirou.');
+        } catch (error) {
+            asiConversationState = {
+                ...asiConversationState,
+                isBusy: false
+            };
+            asiUpdateMessage(pm.id, {
+                text: 'Não foi possível validar o Excel da OBYC.',
+                breadcrumb,
+                html: asiBuildPfcgErrorHtml(
+                    'Não foi possível validar o Excel da OBYC.',
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
             asiUpdateComposerState();
             if (input) input.focus();
         }
@@ -7621,7 +8524,7 @@
         }
     }
 
-    function asiHandleQuickActionSelection(actionId, level, parentActionId = '', selectionGroupKey = '__root__') {
+    async function asiHandleQuickActionSelection(actionId, level, parentActionId = '', selectionGroupKey = '__root__') {
         if (ASI_PFCG_DYNAMIC_ACTION_IDS.has(actionId)) {
             asiHandlePfcgRoleDynamicAction(actionId);
             return;
@@ -7630,6 +8533,209 @@
         if (actionId === ASI_MAIN_MENU_ACTION.id) {
             asiPresentMainMenu();
             return;
+        }
+
+        if (typeof actionId === 'string' && actionId.indexOf('obyc-') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+
+            if (actionId === 'obyc-analisar-excel') {
+                asiConfigContext = 'obyc-analisar-excel';
+                asiObycAnalysisMode = 'excel';
+                asiAppendMessage(asiCreateMessage('user', 'Ficheiro Excel'));
+                await asiStartObycExcelPreview();
+                return;
+            }
+
+            if (actionId === 'obyc-analisar-individual') {
+                asiConfigContext = 'obyc-analisar-individual';
+                asiObycAnalysisMode = 'individual';
+                asiAppendMessage(asiCreateMessage('user', 'Individual'));
+                asiPresentObycTableSelection();
+                asiUpdateComposerState();
+                return;
+            }
+
+            if (actionId === 'obyc-excel-verificar') {
+                asiAppendMessage(asiCreateMessage('user', 'Verificar'));
+                await asiStartObycExcelValidation();
+                asiUpdateComposerState();
+                return;
+            }
+
+            if (actionId === 'obyc-excel-voltar') {
+                asiAppendMessage(asiCreateMessage('user', 'Voltar ao menu'));
+                asiConfigContext = 'perfil';
+                asiObycAnalysisMode = '';
+                asiConversationState = {
+                    ...asiConversationState,
+                    obycExcelPreviewJobId: '',
+                    obycExcelValidationJobId: '',
+                    obycExcelFileName: '',
+                    obycExcelSheetName: '',
+                    obycExcelHeaders: [],
+                    obycExcelRows: [],
+                    obycExcelRowCount: 0,
+                    isBusy: false
+                };
+                asiPresentConfiguracoesMenu();
+                asiUpdateComposerState();
+                return;
+            }
+
+            if (actionId === 'obyc-table-t030' || actionId === 'obyc-table-t030k' || actionId === 'obyc-table-t030r' || actionId === 'obyc-table-other') {
+                let table = 'T030';
+                if (actionId === 'obyc-table-t030k') {
+                    table = 'T030K';
+                } else if (actionId === 'obyc-table-t030r') {
+                    table = 'T030R';
+                } else if (actionId === 'obyc-table-other') {
+                    const typedTable = window.prompt('Indique a tabela OBYC a consultar, por exemplo T030:', asiObycAnalysisTable || 'T030');
+                    table = String(typedTable || '').trim().toUpperCase();
+                }
+
+                if (!table) return;
+
+                asiObycAnalysisTable = table;
+                asiAppendMessage(asiCreateMessage('user', actionId === 'obyc-table-other' ? `Outra tabela: ${table}` : table));
+
+                const defaultFilters = table === 'T030'
+                    ? 'KTOPL=; KTOSL=; BWMOD='
+                    : '';
+                const rawFilters = window.prompt(
+                    `Introduza as chaves para consultar ${table}.\nFormato: CAMPO=VALOR; CAMPO2=VALOR2`,
+                    defaultFilters
+                );
+                if (rawFilters === null) return;
+
+                const filters = asiParseObycFilters(rawFilters);
+                if (filters.length === 0) {
+                    asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível iniciar a consulta porque não foram indicadas chaves válidas.', {
+                        breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem, table]),
+                    }));
+                    return;
+                }
+
+                asiConfigContext = 'perfil';
+                asiObycMode = 'configurar';
+                await asiStartObycAnalysis(table, filters);
+                return;
+            }
+        }
+
+        if (typeof actionId === 'string' && actionId.indexOf('pfcg-system-') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            try {
+                const sys = actionId.replace('pfcg-system-', '').toUpperCase();
+                asiPfcgSystem = ['DEV', 'QAD', 'PRD', 'CUA'].indexOf(sys) >= 0 ? sys : 'PRD';
+
+                asiSelectedActions = { ...asiSelectedActions, [selectionGroupKey || '__pfcg_system__']: actionId };
+                asiRenderMessages();
+
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiAppendMessage(asiCreateMessage('user', `Sistema: ${asiPfcgSystem}`));
+                if (asiConfigContext === 'obyc-configurar') {
+                    const obycMode = asiObycMode;
+                    asiConfigContext = 'perfil';
+                    asiObycMode = 'configurar';
+                    await asiStartObycOpenTransaction(obycMode);
+                } else if (asiConfigContext === 'obyc-analisar') {
+                    asiConfigContext = 'obyc-analisar';
+                    asiObycMode = 'analisar';
+                    asiObycAnalysisMode = '';
+                    setTimeout(() => {
+                        try {
+                            asiPresentObycAnalysisModeMenu();
+                            asiUpdateComposerState();
+                        } catch (error) {
+                            asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível abrir o menu de análise da OBYC.', {
+                                breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem]),
+                                html: asiBuildPfcgErrorHtml(
+                                    'Não foi possível abrir o menu de análise da OBYC.',
+                                    asiNormalizeErrorText(error, 'Erro inesperado ao apresentar as opções de análise.')
+                                )
+                            }));
+                            asiUpdateComposerState();
+                        }
+                    }, 0);
+                } else if (asiConfigContext === 'utilizador') {
+                    const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
+                    asiAppendMessage(asiCreateMessage('assistant', 'O que deseja analisar do utilizador?', {
+                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                        actions: (uNode && Array.isArray(uNode.children)) ? uNode.children : [],
+                        actionLevel: 2,
+                        parentActionId: 'utilizador',
+                        selectionGroupKey: 'utilizador'
+                    }));
+                } else {
+                    asiAppendMessage(asiCreateMessage('assistant', 'O que deseja fazer com o Perfil de Autorização?', {
+                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                        ...asiPostResultMenu()
+                    }));
+                }
+                asiUpdateComposerState();
+                return;
+            } catch (error) {
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível concluir a seleção do sistema.', {
+                    breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem]),
+                    html: asiBuildPfcgErrorHtml(
+                        'Não foi possível concluir a seleção do sistema.',
+                        asiNormalizeErrorText(error, 'Erro inesperado ao processar o clique no sistema.')
+                    )
+                }));
+                asiUpdateComposerState();
+                return;
+            }
+        }
+
+        const action = asiFindQuickAction(actionId, salsaAgentActions);
+        if (!action) return;
+
+        if (actionId === 'obyc') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiConfigContext = 'obyc';
+            asiAppendMessage(asiCreateMessage('user', action.prompt || 'Quero trabalhar com a OBYC.'));
+            asiAppendMessage(asiCreateMessage('assistant', 'O que deseja fazer em OBYC?', {
+                breadcrumb: asiBuildQuickActionBreadcrumb('obyc'),
+                actions: [
+                    {
+                        id: 'obyc-configurar',
+                        label: 'Configurar',
+                        icon: 'settings',
+                        level: 0,
+                        parentActionId: 'obyc',
+                        selectionGroupKey: 'obyc',
+                    },
+                    {
+                        id: 'obyc-analisar',
+                        label: 'Analisar',
+                        icon: 'analysis',
+                        level: 0,
+                        parentActionId: 'obyc',
+                        selectionGroupKey: 'obyc',
+                    },
+                    ASI_MAIN_MENU_ACTION,
+                ],
+                selectionGroupKey: 'obyc',
+            }));
+            asiUpdateComposerState();
+            return true;
+        }
+
+        if (actionId === 'obyc-configurar' || actionId === 'obyc-analisar') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiConfigContext = actionId;
+            asiObycMode = actionId === 'obyc-analisar' ? 'analisar' : 'configurar';
+            asiAppendMessage(asiCreateMessage('user', action.prompt || actionId));
+            asiAppendMessage(asiCreateMessage('assistant', asiObycMode === 'analisar'
+                ? 'Em que sistema quer analisar a OBYC?'
+                : 'Em que sistema quer configurar a OBYC?', {
+                    breadcrumb: asiBuildQuickActionBreadcrumb(actionId),
+                    actions: ASI_PFCG_SYSTEM_ACTIONS,
+                    selectionGroupKey: 'obyc-system',
+                }));
+            asiUpdateComposerState();
+            return true;
         }
 
         // Passo "Em que sistema?" antes dos menus de Perfil de Autorizacao / Utilizador.
@@ -7655,6 +8761,7 @@
             const node = asiFindQuickAction(actionId, salsaAgentActions);
             asiAppendMessage(asiCreateMessage('user', node && node.prompt ? node.prompt : ''));
             asiAppendMessage(asiCreateMessage('assistant', 'Em que sistema quer trabalhar?', {
+                breadcrumb: asiBuildQuickActionBreadcrumb(actionId),
                 actions: ASI_PFCG_SYSTEM_ACTIONS,
                 actionLevel: 2,
                 parentActionId: actionId,
@@ -7679,35 +8786,73 @@
 
         if (typeof actionId === 'string' && actionId.indexOf('pfcg-system-') === 0) {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
-            const sys = actionId.replace('pfcg-system-', '').toUpperCase();
-            asiPfcgSystem = ['DEV', 'QAD', 'PRD', 'CUA'].indexOf(sys) >= 0 ? sys : 'PRD';
+            try {
+                const sys = actionId.replace('pfcg-system-', '').toUpperCase();
+                asiPfcgSystem = ['DEV', 'QAD', 'PRD', 'CUA'].indexOf(sys) >= 0 ? sys : 'PRD';
 
-            // Marca o sistema escolhido (ex.: "PRD") como selecionado e volta a
-            // renderizar as mensagens anteriores para o botão ficar em cinza claro.
-            asiSelectedActions = { ...asiSelectedActions, [selectionGroupKey || '__pfcg_system__']: actionId };
-            asiRenderMessages();
+                // Marca o sistema escolhido (ex.: "PRD") como selecionado e volta a
+                // renderizar as mensagens anteriores para o botão ficar em cinza claro.
+                asiSelectedActions = { ...asiSelectedActions, [selectionGroupKey || '__pfcg_system__']: actionId };
+                asiRenderMessages();
 
-            asiAppendMessage(asiCreateMessage('user', `Sistema: ${asiPfcgSystem}`));
-            if (asiConfigContext === 'utilizador') {
-                const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
-                asiAppendMessage(asiCreateMessage('assistant', `O que deseja analisar do utilizador? (sistema: ${asiPfcgSystem})`, {
-                    actions: (uNode && Array.isArray(uNode.children)) ? uNode.children : [],
-                    actionLevel: 2,
-                    parentActionId: 'utilizador',
-                    selectionGroupKey: 'utilizador'
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiAppendMessage(asiCreateMessage('user', `Sistema: ${asiPfcgSystem}`));
+                if (asiConfigContext === 'obyc-configurar') {
+                    const obycMode = asiObycMode;
+                    asiConfigContext = 'perfil';
+                    asiObycMode = 'configurar';
+                    await asiStartObycOpenTransaction(obycMode);
+                } else if (asiConfigContext === 'obyc-analisar') {
+                    asiConfigContext = 'obyc-analisar';
+                    asiObycMode = 'analisar';
+                    asiObycAnalysisMode = '';
+                    setTimeout(() => {
+                        try {
+                            asiPresentObycAnalysisModeMenu();
+                            asiUpdateComposerState();
+                        } catch (error) {
+                            asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível abrir o menu de análise da OBYC.', {
+                                breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem]),
+                                html: asiBuildPfcgErrorHtml(
+                                    'Não foi possível abrir o menu de análise da OBYC.',
+                                    asiNormalizeErrorText(error, 'Erro inesperado ao apresentar as opções de análise.')
+                                )
+                            }));
+                            asiUpdateComposerState();
+                        }
+                    }, 0);
+                } else if (asiConfigContext === 'utilizador') {
+                    const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
+                    asiAppendMessage(asiCreateMessage('assistant', 'O que deseja analisar do utilizador?', {
+                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                        actions: (uNode && Array.isArray(uNode.children)) ? uNode.children : [],
+                        actionLevel: 2,
+                        parentActionId: 'utilizador',
+                        selectionGroupKey: 'utilizador'
+                    }));
+                } else {
+                    asiAppendMessage(asiCreateMessage('assistant', 'O que deseja fazer com o Perfil de Autorização?', {
+                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                        ...asiPostResultMenu()
+                    }));
+                }
+                asiUpdateComposerState();
+                return;
+            } catch (error) {
+                asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível concluir a seleção do sistema.', {
+                    breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem]),
+                    html: asiBuildPfcgErrorHtml(
+                        'Não foi possível concluir a seleção do sistema.',
+                        asiNormalizeErrorText(error, 'Erro inesperado ao processar o clique no sistema.')
+                    )
                 }));
-            } else {
-                asiAppendMessage(asiCreateMessage('assistant', `O que deseja fazer com o Perfil de Autorização? (sistema: ${asiPfcgSystem})`, {
-                    ...asiPostResultMenu()
-                }));
+                asiUpdateComposerState();
+                return;
             }
-            asiUpdateComposerState();
-            return;
         }
 
         const numericLevel = Number(level);
-        const action = asiFindQuickAction(actionId, salsaAgentActions);
-        if (!action) return;
 
         const actionPath = asiFindActionPath(actionId, salsaAgentActions) || [];
         // Preserva o sistema já escolhido (ex.: "PRD") para a hierarquia percorrida
@@ -11528,4 +12673,3 @@
         startPolling();
         switchView('jira');
     });
-

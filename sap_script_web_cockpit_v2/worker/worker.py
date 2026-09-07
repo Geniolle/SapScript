@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import socket
+import atexit
 import sys
 import time
 import traceback
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +86,53 @@ def _resolve_api_base_url() -> str:
 API_BASE_URL = _resolve_api_base_url()
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
 WORKER_NAME = os.getenv("WORKER_NAME", socket.gethostname())
+WORKER_DIR = Path(__file__).resolve().parent
+WORKER_PID_PATH = WORKER_DIR / ".sap_script_web_worker.pid"
+WORKER_HEARTBEAT_PATH = WORKER_DIR / ".sap_script_web_worker_heartbeat.txt"
+
+
+def _write_worker_pid() -> None:
+    try:
+        WORKER_PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _touch_worker_heartbeat() -> None:
+    try:
+        WORKER_HEARTBEAT_PATH.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _remove_worker_pid() -> None:
+    try:
+        if WORKER_PID_PATH.exists():
+            WORKER_PID_PATH.unlink()
+    except Exception:
+        pass
+
+
+def _remove_worker_heartbeat() -> None:
+    try:
+        if WORKER_HEARTBEAT_PATH.exists():
+            WORKER_HEARTBEAT_PATH.unlink()
+    except Exception:
+        pass
+
+
+atexit.register(_remove_worker_pid)
+atexit.register(_remove_worker_heartbeat)
+_write_worker_pid()
+_touch_worker_heartbeat()
+
+_HEARTBEAT_STOP = threading.Event()
+
+
+def _heartbeat_loop() -> None:
+    while not _HEARTBEAT_STOP.is_set():
+        _touch_worker_heartbeat()
+        _HEARTBEAT_STOP.wait(5.0)
 
 
 def headers() -> dict[str, str]:
@@ -146,6 +195,8 @@ def process_job(job: dict[str, Any]) -> None:
 
 
 def main() -> None:
+    heartbeat_thread = threading.Thread(target=_heartbeat_loop, name="worker-heartbeat", daemon=True)
+    heartbeat_thread.start()
     api_source = "API_BASE_URL" if os.getenv("API_BASE_URL", "").strip() else "default fallback"
     print(f"Worker {WORKER_NAME} iniciado.")
     print(f"API ativa: {API_BASE_URL} ({api_source})")
@@ -154,6 +205,7 @@ def main() -> None:
     reap_orphan_jobs()
     while True:
         try:
+            _touch_worker_heartbeat()
             job = claim_next_job()
             if job:
                 print(f"A executar job {job['id']} ({job['task']})")
@@ -169,8 +221,8 @@ def main() -> None:
         except BaseException:
             print(traceback.format_exc())
             time.sleep(JOB_POLL_INTERVAL_SECONDS)
+    _HEARTBEAT_STOP.set()
 
 
 if __name__ == "__main__":
     main()
-

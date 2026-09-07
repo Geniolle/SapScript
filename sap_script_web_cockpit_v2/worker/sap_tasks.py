@@ -4,6 +4,8 @@ import importlib
 import dataclasses
 import json
 import os
+import re
+import unicodedata
 import subprocess
 import sys
 import time
@@ -215,6 +217,499 @@ def select_excel_file_on_windows(params: dict[str, Any] | None = None) -> tuple[
     return selected_path, log
 
 
+def _normalize_excel_preview_value(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        from datetime import date, datetime
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+    except Exception:
+        pass
+    return str(value).strip()
+
+
+def _build_excel_preview(excel_path: str, max_preview_rows: int = 12) -> dict[str, Any]:
+    _prepare_project_imports()
+    import openpyxl
+
+    if not excel_path:
+        raise SapExecutionError("Caminho do Excel vazio.")
+
+    suffix = Path(excel_path).suffix.lower()
+    if suffix not in {".xlsx", ".xlsm"}:
+        raise SapExecutionError("Formato de Excel não suportado. Use .xlsx ou .xlsm.")
+
+    workbook = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
+    try:
+        if not workbook.sheetnames:
+            raise SapExecutionError("O ficheiro Excel não contém folhas visíveis.")
+
+        sheet = workbook[workbook.sheetnames[0]]
+        rows_iter = sheet.iter_rows(values_only=True)
+        header_row = next(rows_iter, ())
+        headers: list[str] = []
+        for index, value in enumerate(header_row, start=1):
+            text = _normalize_excel_preview_value(value)
+            headers.append(text if text else f"COL{index}")
+        if not headers:
+            headers = ["COL1"]
+
+        preview_rows: list[dict[str, Any]] = []
+        for raw_row in rows_iter:
+            normalized = [_normalize_excel_preview_value(value) for value in raw_row[: len(headers)]]
+            if not any(normalized):
+                continue
+            row_data = {
+                headers[index]: (normalized[index] if index < len(normalized) else "")
+                for index in range(len(headers))
+            }
+            preview_rows.append(row_data)
+            if len(preview_rows) >= max_preview_rows:
+                break
+
+        total_rows = max(int(sheet.max_row or 0) - 1, 0)
+        return {
+            "ok": True,
+            "status": "PREVIEW_READY",
+            "excel_path": excel_path,
+            "file_name": Path(excel_path).name,
+            "sheet_name": sheet.title,
+            "headers": headers,
+            "rows": preview_rows,
+            "row_count": total_rows,
+            "preview_count": len(preview_rows),
+            "message": f"Pré-visualização lida de {Path(excel_path).name}.",
+        }
+    finally:
+        workbook.close()
+
+
+def _run_obyc_excel_preview(params: dict[str, Any]) -> tuple[str, str]:
+    selected_path, selection_log = select_excel_file_on_windows(params)
+    preview = _build_excel_preview(selected_path)
+    workbook_rows = _load_excel_rows_for_validation(selected_path, preview["sheet_name"])
+    preview["all_rows"] = workbook_rows["rows"]
+    preview["validation_headers"] = workbook_rows["headers"]
+    preview["validation_row_count"] = workbook_rows["row_count"]
+    log = (
+        f"{selection_log}\n"
+        f"Folha lida: {preview['sheet_name']}\n"
+        f"Linhas de pré-visualização: {preview['preview_count']}\n"
+        f"Linhas totais para validação: {workbook_rows['row_count']}"
+    )
+    return json.dumps(preview, ensure_ascii=False), log
+
+
+def _load_excel_rows_for_validation(excel_path: str, sheet_name: str | None = None) -> dict[str, Any]:
+    _prepare_project_imports()
+    import openpyxl
+
+    if not excel_path:
+        raise SapExecutionError("Caminho do Excel vazio.")
+
+    suffix = Path(excel_path).suffix.lower()
+    if suffix not in {".xlsx", ".xlsm"}:
+        raise SapExecutionError("Formato de Excel não suportado. Use .xlsx ou .xlsm.")
+
+    workbook = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
+    try:
+        if not workbook.sheetnames:
+            raise SapExecutionError("O ficheiro Excel não contém folhas visíveis.")
+
+        if sheet_name and sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+        else:
+            sheet = workbook[workbook.sheetnames[0]]
+
+        rows_iter = sheet.iter_rows(values_only=True)
+        header_row = next(rows_iter, ())
+
+        headers: list[str] = []
+        for index, value in enumerate(header_row, start=1):
+            text = _normalize_obyc_excel_header(_normalize_excel_preview_value(value))
+            headers.append(text if text else f"COL{index}")
+        if not headers:
+            headers = ["COL1"]
+
+        rows: list[dict[str, Any]] = []
+        total_rows = 0
+        for row_number, raw_row in enumerate(rows_iter, start=2):
+            normalized_row: dict[str, Any] = {"_row_number": row_number}
+            has_value = False
+            for index, header in enumerate(headers):
+                value = _normalize_excel_preview_value(raw_row[index]) if index < len(raw_row) else ""
+                normalized_row[header] = value
+                if value:
+                    has_value = True
+            if not has_value:
+                continue
+            rows.append(normalized_row)
+            total_rows += 1
+
+        return {
+            "ok": True,
+            "file_name": Path(excel_path).name,
+            "excel_path": excel_path,
+            "sheet_name": sheet.title,
+            "headers": headers,
+            "rows": rows,
+            "row_count": total_rows,
+        }
+    finally:
+        workbook.close()
+
+
+OBYC_VALIDATION_PRIMARY_FIELDS = ("KTOPL", "KTOSL", "BWMOD", "KOMOK", "BKLAS")
+OBYC_VALIDATION_SAFE_FIELD_RE = re.compile(r"^[A-Z0-9_]{1,30}$")
+OBYC_VALIDATION_FIELD_MAP = {
+    "PLANO DE CONTAS": "KTOPL",
+    "PLANO CONTAS": "KTOPL",
+    "OPERACAO": "KTOSL",
+    "OPERAÇÃO": "KTOSL",
+    "COD AGRUP AVALIACAO": "BWMOD",
+    "COD. AGRUP. AVALIACAO": "BWMOD",
+    "COD AGRUP AVALIAÇÃO": "BWMOD",
+    "CÓD.AGRUP.AVALIAÇÃO": "BWMOD",
+    "MODIFICACAO CONTAS": "KOMOK",
+    "MODIFICAÇÃO CONTAS": "KOMOK",
+    "CLASSE DE AVALIACAO": "BKLAS",
+    "CLASSE DE AVALIAÇÃO": "BKLAS",
+    "CONTA DO RAZAO": "KONTS",
+    "CONTA DO RAZÃO": "KONTS",
+}
+
+
+def _normalize_obyc_excel_header(header: str) -> str:
+    raw = str(header or "").strip()
+    if not raw:
+        return ""
+    normalized = unicodedata.normalize("NFKD", raw)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = normalized.upper()
+    normalized = re.sub(r"[^A-Z0-9]+", " ", normalized).strip()
+    return OBYC_VALIDATION_FIELD_MAP.get(normalized, normalized.replace(" ", "_"))
+
+
+def _obyc_validation_query_fields(row: dict[str, Any]) -> list[str]:
+    candidate_fields: list[str] = []
+    for field in OBYC_VALIDATION_PRIMARY_FIELDS:
+        value = str(row.get(field) or "").strip()
+        if value and field not in candidate_fields:
+            candidate_fields.append(field)
+
+    if len(candidate_fields) < 3:
+        for field, value in row.items():
+            if field == "_row_number":
+                continue
+            field_name = str(field or "").strip().upper()
+            if not field_name or field_name in candidate_fields:
+                continue
+            if not OBYC_VALIDATION_SAFE_FIELD_RE.match(field_name):
+                continue
+            if str(value or "").strip():
+                candidate_fields.append(field_name)
+            if len(candidate_fields) >= 3:
+                break
+
+    return candidate_fields[:5]
+
+
+def _obyc_validation_comparable_fields(excel_row: dict[str, Any], rfc_row: dict[str, Any]) -> list[str]:
+    fields: list[str] = []
+    for field in excel_row.keys():
+        if field == "_row_number":
+            continue
+        if field in rfc_row and field not in fields:
+            fields.append(field)
+        if field == "KONTS" and "KONTH" in rfc_row and "KONTH" not in fields:
+            fields.append("KONTH")
+        if field == "KONTH" and "KONTS" in rfc_row and "KONTS" not in fields:
+            fields.append("KONTS")
+    return fields
+
+
+def _obyc_row_value(row: dict[str, Any], field: str) -> str:
+    if field in {"KONTS", "KONTH"}:
+        first = str(row.get("KONTS") or "").strip()
+        if first:
+            return first.lstrip("0") or "0" if first.isdigit() else first
+        second = str(row.get("KONTH") or "").strip()
+        if second:
+            return second.lstrip("0") or "0" if second.isdigit() else second
+        return ""
+    return str(row.get(field) or "").strip()
+
+
+def _obyc_validation_filter_value(field: str, value: Any) -> str:
+    text = str(value or "").strip()
+    if field in {"KONTS", "KONTH"} and text.isdigit():
+        return text.zfill(10)
+    return text
+
+
+def _obyc_connection_params(environment: str) -> dict[str, str]:
+    prefix = f"SAP_{environment}_"
+    required = ["USER", "PASSWD", "ASHOST", "SYSNR", "CLIENT"]
+    missing = [f"{prefix}{key}" for key in required if not os.getenv(f"{prefix}{key}")]
+    if missing:
+        raise SapExecutionError(f"Missing SAP environment variables: {', '.join(missing)}")
+
+    return {
+        "user": os.environ[f"{prefix}USER"],
+        "passwd": os.environ[f"{prefix}PASSWD"],
+        "ashost": os.environ[f"{prefix}ASHOST"],
+        "sysnr": os.environ[f"{prefix}SYSNR"],
+        "client": os.environ[f"{prefix}CLIENT"],
+        "lang": os.getenv(f"{prefix}LANG", "EN"),
+    }
+
+
+def _obyc_read_table_rfc(environment: str, table: str, filters: list[dict[str, str]], fields: list[str]) -> list[dict[str, Any]]:
+    _prepare_project_imports()
+
+    try:
+        from pyrfc import Connection
+        from sap_agent.safety import SafetyGuard
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o cliente RFC read-only: {exc}") from exc
+
+    conn = None
+    try:
+        safety_guard = SafetyGuard.build(
+            allow_write_operations=False,
+            allowed_functions=("RFC_PING", "RFC_READ_TABLE"),
+            allowed_tables=OBYC_ALLOWED_TABLES,
+        )
+        safety_guard.assert_function_allowed("RFC_READ_TABLE")
+        safety_guard.assert_table_allowed(table)
+        conn = Connection(**_obyc_connection_params(environment))
+        fields_payload = [{"FIELDNAME": field} for field in fields]
+        options_payload = []
+        for index, item in enumerate(filters):
+            prefix = "AND " if index else ""
+            value = str(item["value"]).replace("'", "''")
+            options_payload.append(f"{prefix}{item['field']} = '{value}'")
+        result = conn.call(
+            "RFC_READ_TABLE",
+            QUERY_TABLE=table,
+            DELIMITER="|",
+            FIELDS=fields_payload,
+            OPTIONS=[{"TEXT": option} for option in options_payload],
+            ROWCOUNT=50,
+        )
+        sap_fields = [str(entry.get("FIELDNAME") or "").strip() for entry in result.get("FIELDS", []) if str(entry.get("FIELDNAME") or "").strip()]
+        rows: list[dict[str, Any]] = []
+        for row in result.get("DATA", []):
+            values = str(row.get("WA", "")).split("|")
+            rows.append({
+                field: (values[index].strip() if index < len(values) else "")
+                for index, field in enumerate(sap_fields)
+            })
+        return rows
+    except Exception as exc:
+        raise SapExecutionError(f"Falha na consulta read-only OBYC via RFC: {exc}") from exc
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+
+
+def _obyc_validation_fetch_rows(environment: str, table: str, filters: list[dict[str, str]], fields: list[str]) -> list[dict[str, Any]]:
+    return _obyc_read_table_rfc(environment, table, filters, fields)
+
+
+def _run_obyc_excel_validate(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+
+    try:
+        from web_api.store import get_job
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar a loja de jobs: {exc}") from exc
+
+    preview_job_id = str(params.get("preview_job_id") or "").strip()
+    preview_data = params.get("preview_data")
+    environment = str(params.get("system") or "DEV").strip().upper() or "DEV"
+    table = str(params.get("table") or "T030").strip().upper() or "T030"
+
+    if table not in OBYC_ALLOWED_TABLES:
+        raise SapExecutionError(
+            f"Tabela OBYC não permitida: {table}. Tabelas permitidas: {', '.join(OBYC_ALLOWED_TABLES)}."
+        )
+    preview_result: dict[str, Any] | None = None
+    if isinstance(preview_data, dict) and preview_data.get("rows"):
+        workbook = {
+            "file_name": str(preview_data.get("file_name") or "Excel da OBYC").strip() or "Excel da OBYC",
+            "sheet_name": str(preview_data.get("sheet_name") or "Folha principal").strip() or "Folha principal",
+            "headers": list(preview_data.get("headers") or []),
+            "rows": [row for row in preview_data.get("rows") if isinstance(row, dict)],
+            "row_count": int(preview_data.get("row_count") or len(preview_data.get("rows") or [])),
+        }
+    else:
+        if not preview_job_id:
+            raise SapExecutionError("Job de pré-visualização do Excel não informado.")
+
+        preview_job = get_job(preview_job_id)
+        if not preview_job:
+            raise SapExecutionError("Job de pré-visualização do Excel não encontrado.")
+        if preview_job.get("task") != "obyc_excel_preview":
+            raise SapExecutionError("O job informado não pertence ao fluxo de pré-visualização da OBYC.")
+
+        raw_status = preview_job.get("status")
+        try:
+            preview_result = json.loads(raw_status) if isinstance(raw_status, str) else raw_status
+        except Exception as exc:
+            raise SapExecutionError(f"Não foi possível ler o resultado do Excel OBYC: {exc}") from exc
+
+        if not isinstance(preview_result, dict):
+            raise SapExecutionError("Resultado da pré-visualização do Excel OBYC inválido.")
+
+        file_name = str(preview_result.get("file_name") or "").strip()
+        sheet_name = str(preview_result.get("sheet_name") or "").strip()
+        workbook_rows = preview_result.get("all_rows")
+        if isinstance(workbook_rows, list):
+            workbook = {
+                "file_name": file_name or "Excel da OBYC",
+                "sheet_name": sheet_name or "Folha principal",
+                "headers": list(preview_result.get("validation_headers") or preview_result.get("headers") or []),
+                "rows": [row for row in workbook_rows if isinstance(row, dict)],
+                "row_count": int(preview_result.get("validation_row_count") or preview_result.get("row_count") or len(workbook_rows)),
+            }
+        else:
+            excel_path = str(preview_result.get("excel_path") or "").strip()
+            if not excel_path:
+                raise SapExecutionError("O caminho do ficheiro Excel OBYC não está disponível.")
+            workbook = _load_excel_rows_for_validation(excel_path, sheet_name or None)
+
+    excel_rows = [row for row in workbook["rows"] if isinstance(row, dict)]
+
+    validated_rows = 0
+    matched_rows = 0
+    missing_rows = 0
+    mismatched_rows = 0
+    skipped_rows = 0
+    issues: list[dict[str, Any]] = []
+    query_cache: dict[tuple[tuple[str, str], ...], list[dict[str, Any]]] = {}
+
+    for excel_row in excel_rows:
+        row_number = int(excel_row.get("_row_number") or 0)
+        query_fields = _obyc_validation_query_fields(excel_row)
+        filters = [
+            {"field": field, "value": _obyc_validation_filter_value(field, excel_row.get(field))}
+            for field in query_fields
+            if str(excel_row.get(field) or "").strip()
+        ]
+        if not filters:
+            skipped_rows += 1
+            issues.append({
+                "row_number": row_number,
+                "reason": "sem_chaves",
+                "message": "A linha não contém chaves suficientes para validação.",
+            })
+            continue
+
+        validated_rows += 1
+        cache_key = tuple((item["field"], item["value"]) for item in filters)
+        if cache_key not in query_cache:
+            query_cache[cache_key] = _obyc_validation_fetch_rows(
+                environment,
+                table,
+                filters,
+                [
+                    field
+                    for field in excel_row.keys()
+                    if field != "_row_number" and OBYC_VALIDATION_SAFE_FIELD_RE.match(str(field))
+                ],
+            )
+        sap_rows = query_cache[cache_key]
+
+        if not sap_rows:
+            missing_rows += 1
+            issues.append({
+                "row_number": row_number,
+                "reason": "nao_encontrado",
+                "filters": filters,
+                "message": f"Nenhum registo encontrado em {table} para as chaves informadas.",
+            })
+            continue
+
+        row_matched = False
+        best_differences: list[dict[str, Any]] = []
+        for sap_row in sap_rows:
+            comparable_fields = _obyc_validation_comparable_fields(excel_row, sap_row)
+            differences = []
+            for field in comparable_fields:
+                excel_value = _obyc_row_value(excel_row, field)
+                sap_value = _obyc_row_value(sap_row, field)
+                if excel_value != sap_value:
+                    differences.append({
+                        "field": field,
+                        "excel": excel_value,
+                        "sap": sap_value,
+                    })
+            if not differences:
+                row_matched = True
+                break
+            if not best_differences or len(differences) < len(best_differences):
+                best_differences = differences
+
+        if row_matched:
+            matched_rows += 1
+            continue
+
+        mismatched_rows += 1
+        issues.append({
+            "row_number": row_number,
+            "reason": "chave_existente_conta_diferente",
+            "filters": filters,
+            "differences": best_differences[:12],
+            "message": f"Chave existente em {table} com contas diferentes.",
+        })
+
+    message = (
+        f"Validação do Excel concluída em {table} ({environment}). "
+        f"Linhas verificadas: {validated_rows}. "
+        f"Coincidentes: {matched_rows}. "
+        f"Chave existente com contas diferentes: {mismatched_rows}. "
+        f"Sem correspondência: {missing_rows}. "
+        f"Ignoradas: {skipped_rows}."
+    )
+
+    result = {
+        "ok": True,
+        "status": "VALIDATION_READY",
+        "system": environment,
+        "table": table,
+        "file_name": file_name or workbook["file_name"],
+        "sheet_name": workbook["sheet_name"],
+        "headers": workbook["headers"],
+        "total_rows": workbook["row_count"],
+        "validated_rows": validated_rows,
+        "matched_rows": matched_rows,
+        "missing_rows": missing_rows,
+        "mismatched_rows": mismatched_rows,
+        "skipped_rows": skipped_rows,
+        "issues": issues[:20],
+        "message": message,
+    }
+    log = "\n".join(
+        [
+            "Validação read-only do Excel OBYC executada via RFC.",
+            f"Ambiente: {environment}",
+            f"Tabela: {table}",
+            f"Ficheiro: {file_name or workbook['file_name']}",
+            f"Linhas verificadas: {validated_rows}",
+            f"Coincidentes: {matched_rows}",
+            f"Chave existente com contas diferentes: {mismatched_rows}",
+            f"Sem correspondência: {missing_rows}",
+            f"Ignoradas: {skipped_rows}",
+        ]
+    )
+    return json.dumps(result, ensure_ascii=False), log
+
+
 def _run_pfcg_create_excel_analysis(params: dict[str, Any]) -> tuple[str, str]:
     excel_path = str(params.get("excel_path") or "").strip()
     role_name = str(params.get("role_name") or "PFCG_CREATE").strip() or "PFCG_CREATE"
@@ -304,6 +799,70 @@ def _open_transaction(params: dict[str, Any]) -> tuple[str, str]:
     status = read_sbar_status(session)
     log = f"Transacao solicitada: {transaction}\nSTATUS: {status}"
     return status or f"Transacao {transaction} aberta; STATUS vazio em wnd[0]/sbar", log
+
+
+OBYC_ALLOWED_TABLES = ("T030", "T030K", "T030R", "T030B", "T030H")
+
+
+def _run_obyc_rfc_read_table(params: dict[str, Any]) -> tuple[str, str]:
+    """Consulta read-only da configuração OBYC via RFC_READ_TABLE."""
+
+    environment = str(params.get("environment") or "PRD").strip().upper() or "PRD"
+    table = str(params.get("table") or "T030").strip().upper() or "T030"
+    raw_filters = params.get("filters") or []
+
+    if table not in OBYC_ALLOWED_TABLES:
+        raise SapExecutionError(
+            f"Tabela OBYC não permitida: {table}. Tabelas permitidas: {', '.join(OBYC_ALLOWED_TABLES)}."
+        )
+    if not isinstance(raw_filters, list) or not raw_filters:
+        raise SapExecutionError("Informe pelo menos uma chave de pesquisa para a consulta OBYC.")
+
+    normalized_filters: list[dict[str, str]] = []
+    fields: list[str] = []
+    options: list[str] = []
+    for index, item in enumerate(raw_filters):
+        if not isinstance(item, dict):
+            continue
+        field = str(item.get("field") or "").strip().upper()
+        value = str(item.get("value") or "").strip()
+        if not field or not value:
+            continue
+        normalized_filters.append({"field": field, "value": value})
+        if field not in fields:
+            fields.append(field)
+        prefix = "AND " if options else ""
+        escaped_value = value.replace("'", "''")
+        options.append(f"{prefix}{field} = '{escaped_value}'")
+
+    if not normalized_filters:
+        raise SapExecutionError("Nenhuma chave OBYC válida foi informada.")
+    rows = _obyc_read_table_rfc(environment, table, normalized_filters, fields)
+
+    payload = {
+        "ok": True,
+        "system": environment,
+        "table": table,
+        "filters": normalized_filters,
+        "fields": fields,
+        "rows": rows,
+        "count": len(rows),
+        "message": (
+            f"Consulta read-only concluída na tabela {table} "
+            f"com {len(rows)} registo(s) em {environment}."
+        ),
+    }
+    log = "\n".join(
+        [
+            "Consulta read-only OBYC executada via RFC.",
+            f"Ambiente: {environment}",
+            f"Tabela: {table}",
+            f"Filtros: {normalized_filters}",
+            f"Campos: {fields}",
+            f"Registos: {len(rows)}",
+        ]
+    )
+    return json.dumps(payload, ensure_ascii=False), log
 
 
 def _run_sap_cockpit(params: dict[str, Any]) -> tuple[str, str]:
@@ -1670,6 +2229,21 @@ def _handle_ping_status(job: dict[str, Any], params: dict[str, Any]) -> tuple[st
     return status or "STATUS vazio em wnd[0]/sbar", "STATUS atual lido sem navegar no SAP."
 
 
+# OBYC: a pesquisa deve respeitar a ordem das colunas do Excel.
+# A linha é pesquisada na SAP pelos campos-chave da configuração.
+OBYC_VALIDATION_EXCEL_KEY_FIELDS = ("KTOPL", "KTOSL", "BWMOD", "KOMOK", "BKLAS")
+OBYC_VALIDATION_EXCEL_VALUE_FIELDS = OBYC_VALIDATION_EXCEL_KEY_FIELDS + ("KONTS", "KONTH")
+
+
+def _obyc_validation_query_fields(row: dict[str, Any]) -> list[str]:
+    fields: list[str] = []
+    for field in OBYC_VALIDATION_EXCEL_KEY_FIELDS:
+        value = _obyc_row_value(row, field)
+        if value:
+            fields.append(field)
+    return fields
+
+
 # Dispatch das tasks simples: task -> callable(job, params) -> (status, log).
 # `sap_cockpit` fica FORA (streaming/threads/documentacao proprios em run_sap_task).
 TASK_HANDLERS: dict[str, "Any"] = {
@@ -1695,6 +2269,9 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_role_bulk_delete_rfc": lambda job, params: _run_pfcg_role_bulk_delete_rfc(params),
     "pfcg_transport_search": lambda job, params: _run_pfcg_transport_search(params),
     "sap_search_requests": lambda job, params: _run_sap_search_requests(params),
+    "obyc_rfc_read_table": lambda job, params: _run_obyc_rfc_read_table(params),
+    "obyc_excel_preview": lambda job, params: _run_obyc_excel_preview(params),
+    "obyc_excel_validate": lambda job, params: _run_obyc_excel_validate(params),
     "select_excel_file": lambda job, params: select_excel_file_on_windows(params),
     "ping_status": _handle_ping_status,
     "open_transaction": lambda job, params: _open_transaction(params),
