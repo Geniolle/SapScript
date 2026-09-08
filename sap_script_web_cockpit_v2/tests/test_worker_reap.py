@@ -12,15 +12,18 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
+import shutil
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 _COCKPIT_DIR = Path(__file__).resolve().parents[1]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (str(_COCKPIT_DIR), str(_REPO_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+import tempfile
 
 _TMPDIR = tempfile.mkdtemp(prefix="worker_reap_")
 os.environ["DATA_DIR"] = _TMPDIR
@@ -96,6 +99,10 @@ class WorkerReapTest(unittest.TestCase):
         self.assertEqual(out["count"], 1)
         self.assertEqual(out["reaped"], [job_id])
         self.assertEqual(store.get_job(job_id)["state"], "failed")
+
+
+def tearDownModule() -> None:
+    shutil.rmtree(_TMPDIR, ignore_errors=True)
 
 
 if __name__ == "__main__":

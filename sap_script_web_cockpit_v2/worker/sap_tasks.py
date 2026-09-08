@@ -325,21 +325,28 @@ def _load_excel_rows_for_validation(excel_path: str, sheet_name: str | None = No
         rows_iter = sheet.iter_rows(values_only=True)
         header_row = next(rows_iter, ())
 
-        headers: list[str] = []
+        display_headers: list[str] = []
+        validation_headers: list[str] = []
         for index, value in enumerate(header_row, start=1):
-            text = _normalize_obyc_excel_header(_normalize_excel_preview_value(value))
-            headers.append(text if text else f"COL{index}")
-        if not headers:
-            headers = ["COL1"]
+            raw_header = _normalize_excel_preview_value(value)
+            display_headers.append(raw_header if raw_header else f"COL{index}")
+            normalized_header = _normalize_obyc_excel_header(raw_header)
+            validation_headers.append(normalized_header if normalized_header else f"COL{index}")
+        if not display_headers:
+            display_headers = ["COL1"]
+        if not validation_headers:
+            validation_headers = ["COL1"]
 
         rows: list[dict[str, Any]] = []
         total_rows = 0
         for row_number, raw_row in enumerate(rows_iter, start=2):
             normalized_row: dict[str, Any] = {"_row_number": row_number}
             has_value = False
-            for index, header in enumerate(headers):
+            for index, header in enumerate(display_headers):
                 value = _normalize_excel_preview_value(raw_row[index]) if index < len(raw_row) else ""
                 normalized_row[header] = value
+                validation_header = validation_headers[index] if index < len(validation_headers) else header
+                normalized_row[validation_header] = value
                 if value:
                     has_value = True
             if not has_value:
@@ -352,7 +359,8 @@ def _load_excel_rows_for_validation(excel_path: str, sheet_name: str | None = No
             "file_name": Path(excel_path).name,
             "excel_path": excel_path,
             "sheet_name": sheet.title,
-            "headers": headers,
+            "headers": display_headers,
+            "validation_headers": validation_headers,
             "rows": rows,
             "row_count": total_rows,
         }
@@ -2303,7 +2311,10 @@ def run_sap_task(job: dict[str, Any]) -> tuple[str, str]:
         if task == "sap_cockpit":
             os.environ["SAP_JOB_ID"] = str(job["id"])
             os.environ["SAP_API_BASE_URL"] = _resolve_api_base_url()
-            os.environ["SAP_WORKER_TOKEN"] = os.getenv("WORKER_TOKEN", "change-me")
+            worker_token = os.getenv("WORKER_TOKEN", "").strip()
+            if not worker_token or worker_token == "change-me":
+                raise SapExecutionError("WORKER_TOKEN não definido para o worker.")
+            os.environ["SAP_WORKER_TOKEN"] = worker_token
 
             main_thread_id = threading.get_ident()
 

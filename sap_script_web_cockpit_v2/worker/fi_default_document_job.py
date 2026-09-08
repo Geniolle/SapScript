@@ -43,7 +43,9 @@ def update_job_params_via_api(job_id: str, new_params: dict[str, Any]) -> dict[s
     if not api_base_url:
         raise FiDefaultDocumentJobError("API base URL não definido para atualizar o job.")
 
-    worker_token = os.getenv("WORKER_TOKEN", "change-me")
+    worker_token = os.getenv("WORKER_TOKEN", "").strip()
+    if not worker_token or worker_token == "change-me":
+        raise FiDefaultDocumentJobError("WORKER_TOKEN não definido para o worker.")
     response = requests.post(
         f"{api_base_url}/api/jobs/{job_id}/params",
         headers={"X-Worker-Token": worker_token},

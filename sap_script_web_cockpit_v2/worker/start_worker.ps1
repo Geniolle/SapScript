@@ -43,6 +43,8 @@ if (Test-Path $EnvFile) {
 }
 
 if (-not $env:API_BASE_URL) { $env:API_BASE_URL = "http://localhost:8010" }
-if (-not $env:WORKER_TOKEN) { $env:WORKER_TOKEN = "change-me" }
+if (-not $env:WORKER_TOKEN -or $env:WORKER_TOKEN -eq "change-me") {
+    throw "WORKER_TOKEN não definido no ambiente do worker."
+}
 
 & $PythonExe "worker.py"

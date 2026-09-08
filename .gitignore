@@ -31,3 +31,4 @@ output/
 sap_script_web_cockpit_v2/worker/worker_auto.log
 tests/*_tmp_*.sqlite3
 tests/_tmp_*
+_store_job_state_*

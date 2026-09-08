@@ -83,7 +83,7 @@ original.
 
 ```powershell
 $env:API_BASE_URL = "http://localhost:8000"
-$env:WORKER_TOKEN = "change-me"
+$env:WORKER_TOKEN = "<WORKER_TOKEN_REAL>"
 $env:SAP_SCRIPT_PROJECT_DIR = "C:\\Users\\teu_user\\Documents\\SAP_SCRIPT"
 $env:SAP_COCKPIT_MODULE = "sap_cockpit_web_ready"
 $env:JIRA_SYNC_PROJECTS = "IT - Salsa Jeans, SAP - Desenvolvimento"

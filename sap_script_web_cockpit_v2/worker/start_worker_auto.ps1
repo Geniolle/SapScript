@@ -19,13 +19,17 @@ if (-not $PythonExe) {
 Set-Location -LiteralPath $WorkerDir
 
 # Ler WORKER_TOKEN do .env uma vez antes do loop
-$TokenFromEnv = "change-me"
+$TokenFromEnv = ""
 if (Test-Path $EnvFile) {
     Get-Content $EnvFile | ForEach-Object {
         if ($_ -match '^\s*WORKER_TOKEN\s*=\s*(.+)$') {
             $TokenFromEnv = $matches[1].Trim('"').Trim("'")
         }
     }
+}
+
+if (-not $TokenFromEnv -or $TokenFromEnv -eq "change-me") {
+    throw "WORKER_TOKEN não definido no .env."
 }
 
 while ($true) {

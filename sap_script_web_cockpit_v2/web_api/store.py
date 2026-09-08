@@ -28,12 +28,24 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                self.commit()
+            else:
+                self.rollback()
+        finally:
+            self.close()
+        return False
+
+
 def get_connection() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     # timeout=30 + busy_timeout: em vez de falhar de imediato com "database is
     # locked" quando outra ligação (worker a fazer polling, sync do JIRA, etc.)
     # está a escrever, o SQLite espera até 30s antes de desistir.
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(DB_PATH, timeout=30, factory=_ClosingConnection)
     conn.execute("PRAGMA busy_timeout = 30000")
     # WAL permite leitores concorrentes enquanto há uma escrita em curso,
     # reduzindo bastante a contenção entre o worker (polling) e o web app.
@@ -317,6 +329,29 @@ def claim_next_job(worker_name: str) -> dict[str, Any] | None:
     return get_job(row["id"])
 
 
+def _merge_job_log(task: str, current_log: str, state: str, log: str) -> str:
+    current_log = (current_log or "").strip()
+    log = (log or "").strip()
+
+    if current_log:
+        if task == "sap_cockpit":
+            # Se for sap_cockpit e terminou com sucesso, o log do streaming já está completo.
+            # Só adicionamos se o novo log for um erro/traceback que não esteja no log atual.
+            if state == "failed" and log and log not in current_log:
+                return current_log + "\n\n" + log
+            return current_log
+
+        # Para outras tarefas, se o log enviado já começa ou contém o atual,
+        # usamos o novo log completo, senão fazemos append.
+        if log:
+            if log.startswith(current_log) or current_log in log:
+                return log
+            return current_log + "\n\n" + log
+        return current_log
+
+    return log
+
+
 def complete_job(job_id: str, state: str, status: str, log: str) -> dict[str, Any]:
     if state not in {"succeeded", "failed"}:
         raise ValueError("Estado final inválido.")
@@ -326,43 +361,35 @@ def complete_job(job_id: str, state: str, status: str, log: str) -> dict[str, An
 
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT log, task FROM jobs WHERE id = ?", (job_id,)
+            "SELECT state, log, task FROM jobs WHERE id = ?", (job_id,)
         ).fetchone()
-        if row:
-            current_log = (row["log"] or "").strip()
-            task = row["task"]
+        if not row:
+            raise RuntimeError("Job concluído mas não encontrado na base de dados.")
 
-            if current_log:
-                if task == "sap_cockpit":
-                    # Se for sap_cockpit e terminou com sucesso, o log do streaming já está completo.
-                    # Só adicionamos se o novo log for um erro/traceback que não esteja no log atual.
-                    if state == "failed" and log and log not in current_log:
-                        new_log = current_log + "\n\n" + log
-                    else:
-                        new_log = current_log
-                else:
-                    # Para outras tarefas, se o log enviado já começa ou contém o atual,
-                    # usamos o novo log completo, senão fazemos append.
-                    if log:
-                        if log.startswith(current_log) or current_log in log:
-                            new_log = log
-                        else:
-                            new_log = current_log + "\n\n" + log
-                    else:
-                        new_log = current_log
-            else:
-                new_log = log
-        else:
-            new_log = log
+        current_state = str(row["state"] or "").strip()
+        if current_state in {"succeeded", "failed"}:
+            if current_state == state:
+                job = get_job(job_id)
+                if job:
+                    return job
+                raise RuntimeError("Job concluído mas não encontrado na base de dados.")
+            raise ValueError("Job já foi concluído e não pode ser reescrito.")
 
-        conn.execute(
+        if current_state != "running":
+            raise ValueError(f"Job não está em execução: {current_state or 'estado desconhecido'}.")
+
+        new_log = _merge_job_log(str(row["task"] or ""), str(row["log"] or ""), state, log)
+
+        cursor = conn.execute(
             """
             UPDATE jobs
             SET state = ?, status = ?, log = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND state = 'running'
             """,
             (state, status, new_log, now, job_id),
         )
+        if cursor.rowcount == 0:
+            raise ValueError("Job não está mais em execução.")
         conn.commit()
 
     job = get_job(job_id)
@@ -377,7 +404,20 @@ def cancel_job(job_id: str) -> dict[str, Any]:
     now = utc_now()
 
     with get_connection() as conn:
-        conn.execute(
+        row = conn.execute(
+            "SELECT state FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        if not row:
+            raise RuntimeError("Job cancelado mas não encontrado na base de dados.")
+
+        current_state = str(row["state"] or "").strip()
+        if current_state in {"succeeded", "failed"}:
+            job = get_job(job_id)
+            if job:
+                return job
+            raise RuntimeError("Job cancelado mas não encontrado na base de dados.")
+
+        cursor = conn.execute(
             """
             UPDATE jobs
             SET state = 'failed', status = 'Cancelado pelo utilizador', log = 'O pedido foi cancelado manualmente via interface web.', updated_at = ?
@@ -385,6 +425,11 @@ def cancel_job(job_id: str) -> dict[str, Any]:
             """,
             (now, job_id),
         )
+        if cursor.rowcount == 0:
+            job = get_job(job_id)
+            if job:
+                return job
+            raise RuntimeError("Job cancelado mas não encontrado na base de dados.")
         conn.commit()
 
     job = get_job(job_id)
@@ -569,7 +614,7 @@ def save_jira_ticket_batch_only(tickets: list[dict[str, Any]]) -> None:
         conn.commit()
 
 
-def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
+def save_jira_tickets_to_db(tickets: list[dict[str, Any]], prune_missing: bool = False) -> None:
     now = utc_now()
     active_keys = [t["key"] for t in tickets]
 
@@ -620,8 +665,9 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                 ),
             )
 
-        # Remove any ticket that is not in the current active sync set.
-        if active_keys:
+        # Remove any ticket that is not in the current active sync set only when
+        # the caller explicitly asks for a destructive sync.
+        if prune_missing and active_keys:
             placeholders = ",".join("?" for _ in active_keys)
             conn.execute(
                 f"""
@@ -629,13 +675,6 @@ def save_jira_tickets_to_db(tickets: list[dict[str, Any]]) -> None:
                 WHERE key NOT IN ({placeholders})
                 """,
                 (*active_keys,),
-            )
-        else:
-            conn.execute(
-                """
-                DELETE FROM jira_tickets
-                WHERE 1 = 1
-                """
             )
         conn.commit()
 

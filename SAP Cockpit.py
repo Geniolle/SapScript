@@ -172,39 +172,120 @@ def _carregar_dotenv():
         warn("Ficheiro .env não encontrado nos caminhos esperados.")
 
 
-def _obter_credenciais_env(
-    sistema_desejado: str, cliente_esperado: str
-) -> tuple[str, str, str, str]:
+def _obter_credenciais_env(ambiente_cockpit: str) -> tuple[str, str, str, str]:
     """
-    Lê as credenciais do .env usando:
-      SAP_USER
-      SAP_LANGUAGE (opcional, default PT)
-      SAP_PASSWORD_{SISTEMA}CLNT{CLIENTE}
+    Lê as credenciais do .env usando o formato por ambiente já existente:
+      SAP_{AMBIENTE}_USER
+      SAP_{AMBIENTE}_PASSWD
+      SAP_{AMBIENTE}_LANG (opcional, default PT)
 
-    Exemplo:
-      SAP_PASSWORD_S4QCLNT100
+    Exemplo (ambiente DEV):
+      SAP_DEV_USER
+      SAP_DEV_PASSWD
+      SAP_DEV_LANG
     """
     _carregar_dotenv()
 
-    sistema = str(sistema_desejado or "").strip().upper()
-    cliente = str(cliente_esperado or "").strip()
-    usuario = os.getenv("SAP_USER", "").strip()
-    idioma = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
+    ambiente = str(ambiente_cockpit or "").strip().upper()
 
-    chave_password = f"SAP_PASSWORD_{sistema}CLNT{cliente}"
-    senha = os.getenv(chave_password, "").strip()
+    chave_usuario = f"SAP_{ambiente}_USER"
+    chave_senha = f"SAP_{ambiente}_PASSWD"
+    chave_idioma = f"SAP_{ambiente}_LANG"
+
+    usuario = os.getenv(chave_usuario, "").strip()
+    senha = os.getenv(chave_senha, "").strip()
+    idioma = os.getenv(chave_idioma, "PT").strip() or "PT"
 
     if not usuario:
         raise RuntimeError(
-            "Variável SAP_USER não encontrada ou vazia no ficheiro .env."
+            f"Variável '{chave_usuario}' não encontrada ou vazia no ficheiro .env."
         )
 
     if not senha:
         raise RuntimeError(
-            f"Variável '{chave_password}' não encontrada ou vazia no ficheiro .env."
+            f"Variável '{chave_senha}' não encontrada ou vazia no ficheiro .env."
         )
 
-    return usuario, senha, idioma, chave_password
+    return usuario, senha, idioma, chave_senha
+
+
+def _obter_conexao_env(ambiente_cockpit: str) -> tuple[str, str]:
+    """
+    Lê os dados de ligação direta ao servidor de aplicações a partir do .env
+    (mesmo formato usado pelos scripts de RFC):
+      SAP_{AMBIENTE}_ASHOST
+      SAP_{AMBIENTE}_SYSNR
+    """
+    _carregar_dotenv()
+
+    ambiente = str(ambiente_cockpit or "").strip().upper()
+
+    chave_ashost = f"SAP_{ambiente}_ASHOST"
+    chave_sysnr = f"SAP_{ambiente}_SYSNR"
+
+    ashost = os.getenv(chave_ashost, "").strip()
+    sysnr = os.getenv(chave_sysnr, "").strip()
+
+    if not ashost:
+        raise RuntimeError(
+            f"Variável '{chave_ashost}' não encontrada ou vazia no ficheiro .env."
+        )
+
+    if not sysnr:
+        raise RuntimeError(
+            f"Variável '{chave_sysnr}' não encontrada ou vazia no ficheiro .env."
+        )
+
+    return ashost, sysnr
+
+
+def _validar_ligacao_rfc(ambiente_cockpit: str, tentativas: int = 3) -> bool:
+    """
+    Método primário de ligação: valida via RFC (pyrfc) se o ambiente está
+    acessível e as credenciais do .env são válidas, antes de recorrer ao
+    SAP GUI Scripting. Faz até `tentativas` tentativas.
+
+    O SAP GUI continua a ser necessário para os Processos (dependem de
+    `session.findById(...)`), mas só é usado como método alternativo depois
+    de a validação RFC falhar em todas as tentativas — a validação RFC é
+    rápida e evita esperas longas do GUI quando as credenciais/rede já
+    estão erradas.
+    """
+    try:
+        from pyrfc import Connection
+    except Exception as e:
+        warn(f"RFC indisponível (pyrfc não carregado): {e}. A usar SAP GUI diretamente.")
+        return False
+
+    try:
+        from sap_rfc._rfc_common import build_connection_params_for_env, classify_rfc_error, format_exception
+    except Exception as e:
+        warn(f"RFC indisponível (módulo sap_rfc não carregado): {e}. A usar SAP GUI diretamente.")
+        return False
+
+    _carregar_dotenv()
+
+    try:
+        params = build_connection_params_for_env(ambiente_cockpit)
+    except Exception as e:
+        warn(f"RFC indisponível (parâmetros do .env): {e}. A usar SAP GUI diretamente.")
+        return False
+
+    for tentativa in range(1, tentativas + 1):
+        info(f"A validar ligação via RFC (tentativa {tentativa}/{tentativas})...")
+        try:
+            conn = Connection(**params)
+            conn.close()
+            ok("Ligação RFC validada.")
+            return True
+        except Exception as e:
+            codigo, descricao = classify_rfc_error(e)
+            warn(f"Falha RFC ({tentativa}/{tentativas}): {codigo} - {descricao} | {format_exception(e)}")
+            if tentativa < tentativas:
+                time.sleep(1)
+
+    warn(f"RFC falhou após {tentativas} tentativas. A avançar para SAP GUI como método alternativo.")
+    return False
 
 
 def selecionar_ambiente():
@@ -924,6 +1005,8 @@ mostrar_titulo(
     cliente=cliente_esperado,
 )
 
+_validar_ligacao_rfc(ambiente_cockpit, tentativas=3)
+
 info("A verificar se já existe uma sessão aberta no ambiente desejado...")
 
 try:
@@ -949,19 +1032,24 @@ if session is None:
     if not _tem_alguma_sessao_ativa(application):
         try:
             usuario, senha, idioma, chave_password = _obter_credenciais_env(
-                sistema_desejado=sistema_desejado, cliente_esperado=cliente_esperado
+                ambiente_cockpit=ambiente_cockpit
             )
             info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
+
+            ashost, sysnr = _obter_conexao_env(ambiente_cockpit=ambiente_cockpit)
         except Exception as e:
-            erro(f"Falha ao carregar credenciais do .env: {e}")
+            erro(f"Falha ao carregar credenciais/ligação do .env: {e}")
             sys.exit(1)
 
         try:
-            info(f"Abrindo conexão: {nome_logon}...")
-            connection = application.OpenConnection(nome_logon, True)
+            connection_string = f"/H/{ashost}/S/32{sysnr.zfill(2)}"
+            info(f"Abrindo conexão: {nome_logon} ({connection_string})...")
+            connection = application.OpenConnectionByConnectionString(
+                connection_string, True
+            )
 
             tentativas = 0
-            while connection.Children.Count == 0 and tentativas < 20:
+            while connection.Children.Count == 0 and tentativas < 40:
                 time.sleep(0.5)
                 tentativas += 1
 

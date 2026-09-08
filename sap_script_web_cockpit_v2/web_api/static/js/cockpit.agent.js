@@ -4247,18 +4247,29 @@
         const fileName = escapeHtml(String(result && result.file_name ? result.file_name : 'Excel').trim());
         const sheetName = escapeHtml(String(result && result.sheet_name ? result.sheet_name : '').trim());
         const headers = Array.isArray(result && result.headers) ? result.headers : [];
+        const validationHeaders = Array.isArray(result && result.validation_headers) ? result.validation_headers : [];
         const rows = Array.isArray(result && result.rows) ? result.rows : [];
         const rowCount = Number(result && result.row_count ? result.row_count : rows.length || 0);
         const previewCount = Number(result && result.preview_count ? result.preview_count : rows.length || 0);
-        const columns = headers.length > 0 ? headers : (rows[0] ? Object.keys(rows[0]) : []);
-        const safeColumns = columns.map((column) => String(column || '').trim()).filter(Boolean);
-        const headerHtml = safeColumns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
+        const dataColumns = validationHeaders.length > 0 ? validationHeaders : (headers.length > 0 ? headers : (rows[0] ? Object.keys(rows[0]) : []));
+        const displayColumns = headers.length === dataColumns.length && headers.length > 0 ? headers : dataColumns;
+        const columnPairs = dataColumns.map((column, index) => {
+            const key = String(column || '').trim();
+            const label = String(displayColumns[index] || column || '').trim();
+            return { key, label };
+        }).filter((column) => column.key || column.label);
+        const headerHtml = columnPairs.map((column) => `<th>${escapeHtml(column.label || column.key)}</th>`).join('');
         const bodyHtml = rows.length > 0
             ? rows.map((row) => {
-                const cells = safeColumns.map((column) => `<td>${escapeHtml(String((row && row[column]) || ''))}</td>`).join('');
+                const cells = columnPairs.map((column) => {
+                    const value = row && Object.prototype.hasOwnProperty.call(row, column.key)
+                        ? row[column.key]
+                        : (row && Object.prototype.hasOwnProperty.call(row, column.label) ? row[column.label] : '');
+                    return `<td>${escapeHtml(String(value || ''))}</td>`;
+                }).join('');
                 return `<tr>${cells}</tr>`;
             }).join('')
-            : `<tr><td colspan="${Math.max(safeColumns.length, 1)}" class="asi-pfcg-list-empty">Sem linhas lidas.</td></tr>`;
+            : `<tr><td colspan="${Math.max(columnPairs.length, 1)}" class="asi-pfcg-list-empty">Sem linhas lidas.</td></tr>`;
 
         return `
             <div class="asi-pfcg-result-card">

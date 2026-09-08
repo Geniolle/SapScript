@@ -103,7 +103,9 @@ from web_api.pfcg_common import (
 )
 import asyncio
 
-WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
+WORKER_TOKEN = os.getenv("WORKER_TOKEN", "").strip()
+if not WORKER_TOKEN or WORKER_TOKEN == "change-me":
+    raise RuntimeError("WORKER_TOKEN não configurado no ambiente da API.")
 SAP_SCRIPT_PROJECT_DIR = os.getenv("SAP_SCRIPT_PROJECT_DIR", "").strip()
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/uploads"))
 UPLOADS_WINDOWS_DIR = os.getenv("UPLOADS_WINDOWS_DIR", "").strip()
@@ -440,8 +442,8 @@ async def sync_jira_tickets_loop() -> None:
         try:
             # Executa a busca HTTP em thread pool para evitar travar o event loop do FastAPI
             tickets = await asyncio.to_thread(_fetch_all_sync_tickets)
-            # Guarda na BD local
-            await asyncio.to_thread(save_jira_tickets_to_db, tickets)
+            # Guarda na BD local sem destruir tickets ausentes por omissão.
+            await asyncio.to_thread(save_jira_tickets_to_db, tickets, False)
         except Exception as exc:
             print(f"[JIRA SYNC LOOP ERROR]: {exc}")
         await asyncio.sleep(POLL_SECONDS)
@@ -487,7 +489,7 @@ def api_list_jira_tickets(limit: int = 50, exclude_closed: bool = True) -> dict[
 async def api_force_jira_sync() -> dict[str, Any]:
     try:
         tickets = await asyncio.to_thread(_fetch_all_sync_tickets)
-        await asyncio.to_thread(save_jira_tickets_to_db, tickets)
+        await asyncio.to_thread(save_jira_tickets_to_db, tickets, False)
         # Dispara sincronização histórica se necessário
         asyncio.create_task(historical_jira_sync())
         return {"status": "success", "synced_count": len(tickets)}

@@ -84,7 +84,9 @@ def _resolve_api_base_url() -> str:
 
 
 API_BASE_URL = _resolve_api_base_url()
-WORKER_TOKEN = os.getenv("WORKER_TOKEN", "change-me")
+WORKER_TOKEN = os.getenv("WORKER_TOKEN", "").strip()
+if not WORKER_TOKEN or WORKER_TOKEN == "change-me":
+    raise RuntimeError("WORKER_TOKEN não configurado no worker.")
 WORKER_NAME = os.getenv("WORKER_NAME", socket.gethostname())
 WORKER_DIR = Path(__file__).resolve().parent
 WORKER_PID_PATH = WORKER_DIR / ".sap_script_web_worker.pid"

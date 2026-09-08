@@ -17,9 +17,10 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
+import shutil
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 _COCKPIT_DIR = Path(__file__).resolve().parents[1]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +28,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (str(_COCKPIT_DIR), str(_REPO_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+import tempfile
 
 # DATA_DIR tem de estar definido antes de importar web_api.store (le no import).
 _TMPDIR = tempfile.mkdtemp(prefix="salsa_agent_routes_")
@@ -48,6 +51,18 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         store.DATA_DIR = Path(_TMPDIR)
         store.DB_PATH = store.DATA_DIR / "sap_script_jobs.sqlite3"
         store.init_db()
+
+    def _mark_running(self, job_id: str, worker_name: str = "ROUTE_TEST") -> None:
+        with store.get_connection() as conn:
+            conn.execute(
+                "UPDATE jobs SET state = 'running', worker_name = ? WHERE id = ?",
+                (worker_name, job_id),
+            )
+            conn.commit()
+
+    def _complete_job(self, job_id: str, state: str, status: str, log: str) -> None:
+        self._mark_running(job_id)
+        store.complete_job(job_id, state, status, log)
 
     # ---- POST: criacao de job -------------------------------------------------
 
@@ -114,7 +129,7 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         got = _body(main.api_salsa_it_pfcg_transaction_roles_job(created["job_id"]))
         self.assertEqual(got["state"], "pending")
 
-        store.complete_job(
+        self._complete_job(
             created["job_id"],
             "succeeded",
             json.dumps(
@@ -163,7 +178,7 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         got = _body(main.api_salsa_it_pfcg_object_roles_job(created["job_id"]))
         self.assertEqual(got["state"], "pending")
 
-        store.complete_job(
+        self._complete_job(
             created["job_id"],
             "succeeded",
             json.dumps(
@@ -206,7 +221,7 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         got = _body(main.api_salsa_it_pfcg_user_roles_job(created["job_id"]))
         self.assertEqual(got["state"], "pending")
 
-        store.complete_job(
+        self._complete_job(
             created["job_id"],
             "succeeded",
             json.dumps(
@@ -257,7 +272,7 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         self.assertEqual(job["params"].get("kind"), "master")
         self.assertEqual(job["params"].get("system"), "QAD")
 
-        store.complete_job(
+        self._complete_job(
             created["job_id"],
             "succeeded",
             json.dumps(
@@ -292,7 +307,7 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         self.assertEqual(job["task"], "user_search")
         self.assertEqual(job["params"].get("query"), "Silva")
 
-        store.complete_job(
+        self._complete_job(
             created["job_id"],
             "succeeded",
             json.dumps({
@@ -329,7 +344,7 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         got = _body(main.api_salsa_it_pfcg_search_job(created["job_id"]))
         self.assertEqual(got["state"], "pending")
 
-        store.complete_job(
+        self._complete_job(
             created["job_id"],
             "succeeded",
             json.dumps({
@@ -445,7 +460,7 @@ class SalsaAgentRoutesTest(unittest.TestCase):
                 main.SalsaItPfcgAnalyzeRequest(role_name="Z_DONE")
             )
         )
-        store.complete_job(
+        self._complete_job(
             created["job_id"],
             "succeeded",
             json.dumps(
@@ -473,9 +488,13 @@ class SalsaAgentRoutesTest(unittest.TestCase):
                 main.SalsaItPfcgAnalyzeRequest(role_name="Z_FAIL")
             )
         )
-        store.complete_job(created["job_id"], "failed", "boom", "")
+        self._complete_job(created["job_id"], "failed", "boom", "")
         got = _body(main.api_salsa_it_pfcg_analyze_job(created["job_id"]))
         self.assertEqual(got["state"], "failed")
+
+
+def tearDownModule() -> None:
+    shutil.rmtree(_TMPDIR, ignore_errors=True)
 
 
 if __name__ == "__main__":
