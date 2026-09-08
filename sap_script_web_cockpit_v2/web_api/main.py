@@ -16,8 +16,9 @@ import time
 from dotenv import load_dotenv
 
 last_worker_ping: float = 0.0
-PROJECT_DIR = Path(os.getenv("SAP_SCRIPT_PROJECT_DIR", str(Path(__file__).resolve().parent.parent)))
-WORKER_HEARTBEAT_PATH = PROJECT_DIR / "sap_script_web_cockpit_v2" / "worker" / ".sap_script_web_worker_heartbeat.txt"
+_COCKPIT_DIR = Path(__file__).resolve().parent.parent
+PROJECT_DIR = Path(os.getenv("SAP_SCRIPT_PROJECT_DIR", str(_COCKPIT_DIR.parent)))
+WORKER_HEARTBEAT_PATH = _COCKPIT_DIR / "worker" / ".sap_script_web_worker_heartbeat.txt"
 _JIRA_ENV_SOURCE = "process environment"
 _JIRA_ENV_KEYS = (
     "JIRA_DADOS_COMP_HASH",
@@ -2727,14 +2728,22 @@ def api_environments() -> dict[str, Any]:
 @app.get("/api/worker/status")
 def api_worker_status() -> dict[str, Any]:
     global last_worker_ping
-    heartbeat_exists = False
-    try:
-        heartbeat_exists = WORKER_HEARTBEAT_PATH.exists()
-    except Exception:
-        heartbeat_exists = False
+    now = time.time()
 
-    is_online = heartbeat_exists
-    return {"status": "online" if is_online else "offline"}
+    # 1. Comunicação HTTP recente com a API (< 15s)
+    if (now - last_worker_ping) < 15.0:
+        return {"status": "online"}
+
+    # 2. Heartbeat em ficheiro atualizado recentemente (< 15s)
+    try:
+        if WORKER_HEARTBEAT_PATH.exists():
+            content = WORKER_HEARTBEAT_PATH.read_text(encoding="utf-8").strip()
+            if content and (now - float(content)) < 15.0:
+                return {"status": "online"}
+    except Exception:
+        pass
+
+    return {"status": "offline"}
 
 
 @app.get("/api/processes")

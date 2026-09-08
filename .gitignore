@@ -29,6 +29,7 @@ output/
 
 # Runtime/local artifacts
 sap_script_web_cockpit_v2/worker/worker_auto.log
+sap_script_web_cockpit_v2/worker/.sap_script_web_worker*
 tests/*_tmp_*.sqlite3
 tests/_tmp_*
 _store_job_state_*

@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ProtocolName = "sap-worker"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$WorkerScript = Join-Path $ProjectDir "worker\start_worker_auto.ps1"
+$WorkerScript = Join-Path $ProjectDir "worker\start_worker.ps1"
 $PowerShellExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 
 if (-not (Test-Path -LiteralPath $PowerShellExe)) {
@@ -14,8 +14,8 @@ if (-not (Test-Path -LiteralPath $WorkerScript)) {
     exit 1
 }
 
-# Abrir o worker com janela visível para o utilizador acompanhar a execução.
-$Command = "`"$PowerShellExe`" -NoProfile -ExecutionPolicy Bypass -File `"$WorkerScript`""
+# Abrir o worker minimizado na barra de tarefas; ao fechar a janela, o processo encerra.
+$Command = "`"$PowerShellExe`" -NoProfile -WindowStyle Minimized -ExecutionPolicy Bypass -File `"$WorkerScript`""
 
 $RegistryPath = "HKCU:\Software\Classes\$ProtocolName"
 $CommandPath = "$RegistryPath\shell\open\command"

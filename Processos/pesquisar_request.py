@@ -3,17 +3,23 @@
 pesquisar_request.py
 
 Objetivo:
-- Abrir SE16H em NOVO modo (/ose16h)
-- Minimizar a janela desse novo modo enquanto executa
-- Ler resultados da E070 e imprimir lista NUMERADA:
-    N | TRKORR | AS4TEXT
-- Regra atualizada: APENAS listar as linhas cujo valor da coluna STRKORR for diferente de vazio.
+- Listar as requests/tarefas abertas do utilizador (TRSTATUS='D', STRKORR<>'') e imprimir
+  lista NUMERADA: N | TRKORR | AS4TEXT
+- Método primário: RFC (RFC_READ_TABLE em E070 + E07T, sem tocar no SAP GUI). Validado
+  localmente: E070 não tem o campo AS4TEXT fisicamente — o texto vem de E07T (tabela de
+  textos, filtrada por LANGU).
+- Fallback (só se RFC falhar após 3 tentativas ou não estiver disponível): abrir SE16H em
+  NOVO modo (/ose16h) via SAP GUI Scripting, minimizar a janela enquanto executa, e ler os
+  resultados do ALV grid.
+- Regra em ambos os caminhos: APENAS listar as linhas cujo valor da coluna STRKORR for
+  diferente de vazio.
 - Guardar automaticamente a lista num ficheiro JSON para uso posterior (seleção por número da linha)
 
 Execução:
 & "C:/SAP Script/.venv/Scripts/python.exe" "C:/SAP Script/Processos/pesquisar_request.py" --system "S4Q" --max "5000"
 
 Opcional:
+--no-rfc              (ignora o caminho RFC e vai direto para o SAP GUI)
 --no-new-mode        (não usa /o; usa a sessão atual)
 --no-minimize        (não minimiza)
 --no-close           (não fecha a janela ao terminar)
@@ -99,6 +105,123 @@ def _erro_scripting_inativo(e=None):
         print(f"🔧 Detalhes técnicos: {e}")
         msg += f" Detalhes técnicos: {e}"
     raise RuntimeError(msg)
+
+
+# Mesma convenção usada em SAP Cockpit.py / sap_session.py.
+SISTEMA_PARA_AMBIENTE = {"S4D": "DEV", "S4Q": "QAD", "S4P": "PRD", "SPA": "CUA"}
+
+
+def _listar_requests_via_rfc(system_name, max_rows="5000", tentativas=3):
+    """
+    Tenta listar as requests/tarefas do utilizador via RFC (RFC_READ_TABLE), replicando
+    os filtros usados na versão GUI (SE16H):
+        E070: TRSTATUS = 'D' AND AS4USER = <user> AND STRKORR <> ''
+        E07T: AS4TEXT (texto), filtrado por TRKORR + LANGU  -- AS4TEXT não existe
+              fisicamente em E070, só em E07T (confirmado em teste local).
+
+    Devolve (resultados, ambiente, utilizador) em caso de sucesso — resultados é
+    list[tuple(trkorr, as4text)], podendo ser [] se não houver requests.
+    Devolve (None, None, None) se RFC não estiver disponível ou falhar após
+    `tentativas` tentativas, para permitir o fallback para o caminho GUI existente.
+    """
+    ambiente = SISTEMA_PARA_AMBIENTE.get(str(system_name or "").strip().upper())
+    if not ambiente:
+        print("ℹ️ RFC não tentado: sistema não mapeado para um ambiente conhecido. A usar SAP GUI.")
+        return None, None, None
+
+    try:
+        from pyrfc import Connection
+    except Exception as e:
+        print(f"ℹ️ RFC indisponível (pyrfc não carregado): {e}. A usar SAP GUI.")
+        return None, None, None
+
+    try:
+        base_dir = _base_dir()
+        if base_dir not in sys.path:
+            sys.path.insert(0, base_dir)
+        from sap_rfc._rfc_common import (
+            find_project_root,
+            load_project_env,
+            build_connection_params_for_env,
+            make_read_only_guard,
+            read_table,
+            classify_rfc_error,
+            format_exception,
+        )
+    except Exception as e:
+        print(f"ℹ️ RFC indisponível (módulo sap_rfc não carregado): {e}. A usar SAP GUI.")
+        return None, None, None
+
+    try:
+        load_project_env(find_project_root())
+        params = build_connection_params_for_env(ambiente)
+    except Exception as e:
+        print(f"ℹ️ RFC indisponível (parâmetros do .env para {ambiente}): {e}. A usar SAP GUI.")
+        return None, None, None
+
+    utilizador = str(params.get("user") or "").strip().upper()
+    idioma_e07t = (str(params.get("lang") or "PT").strip().upper() or "PT")[:1]
+    guard = make_read_only_guard(allowed_tables=("E070", "E07T"))
+    try:
+        rowcount = int(max_rows)
+    except (TypeError, ValueError):
+        rowcount = 0
+
+    for tentativa in range(1, tentativas + 1):
+        print(f"🔎 A pesquisar via RFC ({ambiente}, tentativa {tentativa}/{tentativas})...")
+        connection = None
+        try:
+            connection = Connection(**params)
+
+            linhas_e070 = read_table(
+                connection,
+                guard,
+                table_name="E070",
+                fields=["TRKORR", "STRKORR", "TRSTATUS", "AS4USER"],
+                options=[
+                    {"TEXT": "TRSTATUS = 'D' "},
+                    {"TEXT": f"AND AS4USER = '{utilizador}' "},
+                    {"TEXT": "AND STRKORR <> '' "},
+                ],
+                rowcount=rowcount,
+            )
+
+            if not linhas_e070:
+                return [], ambiente, utilizador
+
+            textos = {}
+            for trkorr, _strkorr, _trstatus, _as4user in linhas_e070:
+                linhas_e07t = read_table(
+                    connection,
+                    guard,
+                    table_name="E07T",
+                    fields=["TRKORR", "LANGU", "AS4TEXT"],
+                    options=[
+                        {"TEXT": f"TRKORR = '{trkorr}' "},
+                        {"TEXT": f"AND LANGU = '{idioma_e07t}' "},
+                    ],
+                    rowcount=1,
+                )
+                if linhas_e07t:
+                    textos[trkorr] = linhas_e07t[0][2]
+
+            resultados = [(trkorr, textos.get(trkorr, "")) for trkorr, *_ in linhas_e070]
+            return resultados, ambiente, utilizador
+
+        except Exception as e:
+            codigo, descricao = classify_rfc_error(e)
+            print(f"⚠️ Falha RFC ({tentativa}/{tentativas}): {codigo} - {descricao} | {format_exception(e)}")
+            if tentativa < tentativas:
+                time.sleep(1)
+        finally:
+            try:
+                if connection is not None:
+                    connection.close()
+            except Exception:
+                pass
+
+    print(f"⚠️ RFC falhou após {tentativas} tentativas. A avançar para SAP GUI (SE16H).")
+    return None, None, None
 
 
 def _get_application():
@@ -534,7 +657,26 @@ def listar_requests(
     use_new_mode=True,
     minimize=True,
     close_after=True,
+    prefer_rfc=True,
 ):
+    if prefer_rfc:
+        t_rfc_start = time.perf_counter()
+        resultados_rfc, ambiente_rfc, utilizador_rfc = _listar_requests_via_rfc(
+            system_name, max_rows=max_rows
+        )
+        if resultados_rfc is not None:
+            duracao = time.perf_counter() - t_rfc_start
+            print(
+                f"\n✅ Resultados via RFC: {len(resultados_rfc)} | Sistema={system_name} "
+                f"| Ambiente={ambiente_rfc} | User={utilizador_rfc} | {duracao:.2f}s"
+            )
+            print("N | TRKORR | AS4TEXT")
+            print("-" * 90)
+            for i, (trkorr, as4text) in enumerate(resultados_rfc, start=1):
+                print(f"{i} | {trkorr} | {as4text}")
+            _save_results(resultados_rfc, system_name=system_name, user=utilizador_rfc)
+            return resultados_rfc
+
     times = {}
     t_total_start = time.perf_counter()
 
@@ -703,6 +845,7 @@ def _parse_args(argv):
     use_new_mode = True
     minimize = True
     close_after = True
+    prefer_rfc = True
 
     i = 0
     while i < len(argv):
@@ -731,14 +874,18 @@ def _parse_args(argv):
             close_after = False
             i += 1
             continue
+        if a == "--no-rfc":
+            prefer_rfc = False
+            i += 1
+            continue
         i += 1
 
-    return system, max_rows, include_requests, use_new_mode, minimize, close_after
+    return system, max_rows, include_requests, use_new_mode, minimize, close_after, prefer_rfc
 
 
 if __name__ == "__main__":
     try:
-        system, max_rows, include_requests, use_new_mode, minimize, close_after = _parse_args(sys.argv[1:])
+        system, max_rows, include_requests, use_new_mode, minimize, close_after, prefer_rfc = _parse_args(sys.argv[1:])
         listar_requests(
             system_name=system,
             max_rows=max_rows,
@@ -746,6 +893,7 @@ if __name__ == "__main__":
             use_new_mode=use_new_mode,
             minimize=minimize,
             close_after=close_after,
+            prefer_rfc=prefer_rfc,
         )
     except Exception as e:
         import traceback

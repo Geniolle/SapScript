@@ -241,15 +241,18 @@ def _obter_conexao_env(ambiente_cockpit: str) -> tuple[str, str]:
 
 def _validar_ligacao_rfc(ambiente_cockpit: str, tentativas: int = 3) -> bool:
     """
-    Método primário de ligação: valida via RFC (pyrfc) se o ambiente está
-    acessível e as credenciais do .env são válidas, antes de recorrer ao
-    SAP GUI Scripting. Faz até `tentativas` tentativas.
+    Pré-validação via RFC (pyrfc): confirma, antes de abrir o SAP GUI, que o
+    ambiente está acessível e as credenciais do .env são válidas. Faz até
+    `tentativas` tentativas.
 
-    O SAP GUI continua a ser necessário para os Processos (dependem de
-    `session.findById(...)`), mas só é usado como método alternativo depois
-    de a validação RFC falhar em todas as tentativas — a validação RFC é
-    rápida e evita esperas longas do GUI quando as credenciais/rede já
-    estão erradas.
+    IMPORTANTE: isto NÃO substitui o login no SAP GUI. A sessão SAP GUI é
+    sempre aberta a seguir (com sucesso ou falha aqui), porque os Processos
+    deste cockpit automatizam o ecrã (`session.findById(...)`) e não têm
+    equivalente RFC — exceto `Processos/pesquisar_request.py`, que já usa RFC
+    como método primário e só recorre ao GUI se o RFC falhar. O valor desta
+    função é só "falhar cedo e rápido" (poucos segundos) quando as
+    credenciais/rede já estão erradas, em vez de esperar o timeout mais longo
+    do GUI para descobrir o mesmo problema.
     """
     try:
         from pyrfc import Connection
@@ -1005,7 +1008,16 @@ mostrar_titulo(
     cliente=cliente_esperado,
 )
 
-_validar_ligacao_rfc(ambiente_cockpit, tentativas=3)
+_rfc_validado = _validar_ligacao_rfc(ambiente_cockpit, tentativas=3)
+if _rfc_validado:
+    info(
+        "RFC confirmou rede/credenciais em DEV/QAD/PRD/CUA. A abrir a sessão SAP GUI "
+        "de qualquer forma: os Processos deste cockpit automatizam o ecrã "
+        "(session.findById) e por isso precisam sempre de uma sessão SAP GUI logada — "
+        "o RFC aqui é só uma validação rápida antes de abrir o GUI, não substitui o login GUI."
+    )
+else:
+    info("RFC indisponível/falhou. A abrir a sessão SAP GUI diretamente...")
 
 info("A verificar se já existe uma sessão aberta no ambiente desejado...")
 

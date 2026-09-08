@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 
 ###################################################################################
-# BLOCO: ELIMINAÇÃO EM MASSA DE FUNÇÕES VIA /NPFCGMASSDELETE
+# BLOCO: ELIMINAÇÃO EM MASSA DE FUNÇÕES
+# Por padrão (metodo="RFC") elimina via RFC (BPC_DELETE_SINGLE_ROLE, através de
+# pfcg.pfcg_delete_rfc_service.bulk_delete_pfcg_roles_rfc), função a função, sem
+# necessitar de sessão SAP GUI aberta. Só recorre ao SAP GUI (/NPFCGMASSDELETE)
+# se o RFC falhar por motivo de infraestrutura (rede, credenciais, pyrfc
+# indisponível) antes de sequer tentar eliminar alguma função, ou se
+# metodo="GUI" for pedido explicitamente.
 # Mantém a formatação do Excel intacta escrevendo célula a célula via openpyxl.
-# Com barra de progresso Rich.
+# Com barra de progresso Rich (modo GUI).
 ###################################################################################
 def executar(
     ambiente_cockpit,
@@ -12,6 +18,7 @@ def executar(
     request_transporte=None,
     modo_nao_interativo=False,
     pedir_confirmacao=True,
+    metodo="RFC",       # <-- "RFC" (padrão) ou "GUI" (força o fluxo legado via /NPFCGMASSDELETE)
     **kwargs
 ):
     import os, time, sys, re
@@ -34,6 +41,10 @@ def executar(
     tempo_inicio = time.time()
     mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
     sistema_desejado = mapa_sistema.get(ambiente_cockpit)
+
+    metodo_normalizado = str(metodo or "RFC").strip().upper()
+    if metodo_normalizado not in ("GUI", "RFC"):
+        raise ValueError(f"Parâmetro 'metodo' inválido: '{metodo}'. Use 'GUI' ou 'RFC'.")
 
     NOME_SHEET = pfcg_object if pfcg_object else "PFCG_DELETE"
     SEARCH_HEADER_IN_FIRST_ROWS = 20
@@ -232,9 +243,14 @@ def executar(
         session = None
 
     if not session:
-        log(f"❌ Sessão SAP não encontrada para '{ambiente_cockpit}' (esperado: {sistema_desejado}).")
-        wb.close()
-        return "voltar"
+        if metodo_normalizado == "GUI":
+            log(f"❌ Sessão SAP não encontrada para '{ambiente_cockpit}' (esperado: {sistema_desejado}).")
+            wb.close()
+            return "voltar"
+        log(
+            f"ℹ️ Sessão SAP GUI não encontrada para '{ambiente_cockpit}' — segue apenas por RFC "
+            f"(só será necessária se o RFC falhar)."
+        )
 
     ###################################################################################
     # LÓGICA DA REQUEST DE TRANSPORTE
@@ -298,6 +314,12 @@ def executar(
             print(f"❌ Falha ao criar request: {e}")
             return None
 
+    # Parâmetros de transporte para o caminho RFC (resolvidos abaixo a partir da
+    # mesma escolha de menu usada pelo caminho GUI).
+    rfc_transport_mode = "LOCAL"
+    rfc_request_number = ""
+    rfc_request_description = ""
+
     if not request_transporte and not modo_nao_interativo:
         print("\n============================================================")
         print("🚚 Opções de configuração de Transporte.\n")
@@ -319,7 +341,13 @@ def executar(
             request_transporte = input("🔢 Numero da Request (ex: S4QK900396): ").strip().upper()
 
         elif req_input == "2":
-            request_transporte = _criar_nova_request_no_sap_local()
+            if metodo_normalizado == "RFC":
+                desc_nova = input("📝 Descrição da nova Request a criar (máx 60): ").strip()
+                rfc_request_description = (desc_nova or "REQUEST CRIADA VIA SCRIPT (RFC)")[:60]
+                rfc_transport_mode = "CREATE_REQUEST"
+                print("ℹ️ A nova Request será criada automaticamente via RFC ao eliminar as funções.")
+            else:
+                request_transporte = _criar_nova_request_no_sap_local()
 
         elif req_input == "3":
             try:
@@ -350,6 +378,15 @@ def executar(
 
         print("============================================================")
 
+    # Resolve os parâmetros de transporte para o caminho RFC a partir da mesma
+    # escolha do menu acima (exceto quando já resolvido em "2 - criar nova" via RFC).
+    if rfc_transport_mode != "CREATE_REQUEST":
+        if request_transporte:
+            rfc_transport_mode = "EXISTING_REQUEST"
+            rfc_request_number = request_transporte
+        else:
+            rfc_transport_mode = "LOCAL"
+
     log(f"📂 Ficheiro: {caminho_ficheiro}")
     log(f"📋 Roles a eliminar ({len(funcoes)}):")
     for i, n in enumerate(funcoes, 1):
@@ -360,6 +397,108 @@ def executar(
             log("❌ Processo cancelado.")
             wb.close()
             return "voltar"
+
+    ###################################################################################
+    # EXECUÇÃO — RFC (padrão), com fallback para SAP GUI só em falha de infraestrutura
+    ###################################################################################
+    usar_gui = (metodo_normalizado == "GUI")
+    resultado_rfc = None
+
+    if not usar_gui:
+        print("\n[Etapa 3] Eliminação das Funções via RFC")
+        try:
+            from pfcg.pfcg_delete_rfc_service import bulk_delete_pfcg_roles_rfc
+        except Exception as e:
+            log(f"⚠️ RFC indisponível (import falhou): {e}. A avançar para SAP GUI.")
+            usar_gui = True
+        else:
+            try:
+                log(f"🔎 A eliminar {len(funcoes)} função(ões) via RFC em {ambiente_cockpit}...")
+                resultado_rfc = bulk_delete_pfcg_roles_rfc(
+                    ambiente_cockpit, funcoes, rfc_transport_mode, rfc_request_number, rfc_request_description
+                )
+            except Exception as e:
+                log(f"⚠️ Falha ao invocar RFC: {e}. A avançar para SAP GUI.")
+                resultado_rfc = None
+                usar_gui = True
+
+        if resultado_rfc is not None and not resultado_rfc.get("items"):
+            # Falhou antes de sequer tentar eliminar alguma função (infraestrutura) -> fallback GUI.
+            log(
+                f"⚠️ RFC falhou antes de processar qualquer função: "
+                f"{resultado_rfc.get('error_type') or resultado_rfc.get('status')} - "
+                f"{resultado_rfc.get('message')}. A avançar para SAP GUI."
+            )
+            resultado_rfc = None
+            usar_gui = True
+
+    if resultado_rfc is not None:
+        # RFC produziu resultado por função (mesmo que parcial) — usa-se este resultado,
+        # não se recorre ao GUI para as mesmas roles.
+        itens_por_role = {
+            str(item.get("role", "")).strip().upper(): item for item in resultado_rfc.get("items", [])
+        }
+        ts_final = agora_ts()
+        concluidos = 0
+        falhados = 0
+        for rec in records:
+            nome_role = rec[COL_AGR_NAME]
+            item = itens_por_role.get(nome_role.strip().upper())
+            if item is None:
+                status_role = "ERRO"
+                msg_role = "Função não retornada pelo RFC (verifique o nome exato)."
+            elif item.get("ok"):
+                status_role = "CONCLUÍDO"
+                msg_role = item.get("message") or f"Eliminada via RFC ({rfc_transport_mode})."
+                concluidos += 1
+            else:
+                status_role = "ERRO"
+                msg_role = item.get("message") or f"Falha RFC: {item.get('status')}"
+                falhados += 1
+            rec["_STATUS_RFC"] = status_role
+            rec["_MSG_RFC"] = msg_role
+            rec["_TS_RFC"] = ts_final
+            if status_role == "CONCLUÍDO":
+                print(f"[OK] Role concluída (RFC): {nome_role}", flush=True)
+            else:
+                print(f"Falha ao eliminar role (RFC): {nome_role} — {msg_role}", flush=True)
+
+        log(f"└─ RFC concluído: {concluidos} eliminada(s), {falhados} com falha, de {len(records)} função(ões).")
+
+        print("\n[Etapa 4] Atualização do Excel")
+        log("💾 A gravar resultados no Excel preservando formatações...")
+        try:
+            col_st = header_map.get(COL_STATUS)
+            col_ms = header_map.get(COL_MSG)
+            col_tm = header_map.get(COL_TIMESTAMP)
+            for rec in records:
+                if col_st:
+                    ws.cell(row=rec["_row"], column=col_st).value = rec["_STATUS_RFC"]
+                if col_ms:
+                    ws.cell(row=rec["_row"], column=col_ms).value = rec["_MSG_RFC"]
+                if col_tm:
+                    ws.cell(row=rec["_row"], column=col_tm).value = rec["_TS_RFC"]
+            wb.save(caminho_ficheiro)
+            print(f"✅ Ficheiro atualizado com os resultados na aba '{NOME_SHEET}'.")
+        except Exception as e:
+            print(f"❌ Erro ao salvar o ficheiro: {e}")
+            print("⚠️ Verifica se o ficheiro está aberto e bloqueado no Excel.")
+        finally:
+            wb.close()
+
+        mm, ss = divmod(int(time.time() - tempo_inicio), 60)
+        log(f"⏱️ Tempo total: {mm:02d}:{ss:02d}")
+        return "voltar"
+
+    # --- A PARTIR DAQUI: MODO GUI (usado quando metodo="GUI" explícito, ou como
+    # fallback se o RFC tiver falhado por infraestrutura antes de processar alguma função) ---
+    if not session:
+        log(
+            f"❌ Sessão SAP GUI não encontrada para '{ambiente_cockpit}' (esperado: {sistema_desejado}) — "
+            f"impossível continuar em modo GUI."
+        )
+        wb.close()
+        return "voltar"
 
     ###################################################################################
     # EXECUÇÃO NO SAP (Eliminação em Massa via PFCGMASSDELETE)

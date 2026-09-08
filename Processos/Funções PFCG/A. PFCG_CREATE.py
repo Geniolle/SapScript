@@ -21,7 +21,7 @@ def executar(
     request_transporte=None,
     modo_nao_interativo=False,
     pedir_confirmacao=True,
-    metodo="GUI",
+    metodo="RFC",
     role_name=None,
     description=None,
     tcodes=None,
@@ -42,15 +42,15 @@ def executar(
         sys.path.insert(0, dir_projeto)
     # ---------------------------------------
 
-    metodo_normalizado = str(metodo or "GUI").strip().upper()
+    metodo_normalizado = str(metodo or "RFC").strip().upper()
     if metodo_normalizado not in ("GUI", "RFC"):
         raise ValueError(f"Método inválido: '{metodo}'. Use GUI ou RFC.")
 
-    if metodo_normalizado == "RFC":
-        # Modo RFC: criação individual sem SAP GUI. Não importa tkinter/win32com/openpyxl
-        # aqui — toda a chamada SAP real vive isolada em sap_rfc.pfcg_role_create_service
-        # (executada num subprocesso .venv-rfc através de pfcg.pfcg_create_rfc_service),
-        # nunca duplicada neste ficheiro.
+    if metodo_normalizado == "RFC" and role_name:
+        # Modo RFC (criação individual, ex.: Web Cockpit): sem SAP GUI. Não importa
+        # tkinter/win32com/openpyxl aqui — toda a chamada SAP real vive isolada em
+        # sap_rfc.pfcg_role_create_service (executada num subprocesso .venv-rfc através
+        # de pfcg.pfcg_create_rfc_service), nunca duplicada neste ficheiro.
         from pfcg.pfcg_create_rfc_service import create_pfcg_role_rfc
 
         ambiente = str(ambiente_cockpit or "").strip().upper()
@@ -85,7 +85,13 @@ def executar(
 
         return resultado
 
-    # ==================== A PARTIR DAQUI: MODO GUI (LEGADO, INTACTO) ====================
+    # ============ A PARTIR DAQUI: MODO EM MASSA (VIA EXCEL) — usado pelo Cockpit ============
+    # Lê o Excel e agrupa as roles exatamente como antes (secção LEGADA, intacta).
+    # A EXECUÇÃO em si (mais abaixo, após a confirmação) é que decide: por padrão
+    # (metodo_normalizado == "RFC") cada role é criada via RFC, um pedido de cada vez,
+    # reutilizando create_pfcg_role_rfc(); só recorre à automação do SAP GUI
+    # (PFCGPage, legado, intacta) se o RFC falhar por infraestrutura, ou se
+    # metodo="GUI" tiver sido pedido explicitamente.
     import time
     import re
     import unicodedata
@@ -304,9 +310,14 @@ def executar(
         session = None
 
     if not session:
-        wb.close()
-        print(f"❌ Não encontrei sessão do ambiente '{ambiente_cockpit}'.")
-        return
+        if metodo_normalizado == "GUI":
+            wb.close()
+            print(f"❌ Não encontrei sessão do ambiente '{ambiente_cockpit}'.")
+            return
+        print(
+            f"ℹ️ Sessão SAP GUI não encontrada para '{ambiente_cockpit}' — segue apenas por RFC "
+            f"(só será necessária se o RFC falhar)."
+        )
 
     ###################################################################################
     # HELPERS SAP - PERFORMANCE + CACHE DE IDs
@@ -459,6 +470,12 @@ def executar(
         print(f"Request: {trkorr}")
         return trkorr
 
+    # Parâmetros de transporte para o caminho RFC em massa (resolvidos abaixo, a
+    # partir da mesma escolha de menu usada pelo caminho GUI).
+    rfc_transport_mode = "LOCAL"
+    rfc_request_number = ""
+    rfc_request_description = ""
+
     if not request_transporte and not modo_nao_interativo:
         print("\n============================================================")
         print("🚚 Opções de configuração de Transporte.\n")
@@ -480,7 +497,13 @@ def executar(
             request_transporte = input("🔢 Numero da Request (ex: S4QK900396): ").strip().upper()
 
         elif req_input == "2":
-            request_transporte = _criar_nova_request_no_sap_local(session)
+            if metodo_normalizado == "RFC":
+                desc_nova = input("📝 Descrição da nova Request a criar (máx 60): ").strip()
+                rfc_request_description = (desc_nova or "REQUEST CRIADA VIA SCRIPT (RFC)")[:60]
+                rfc_transport_mode = "CREATE_REQUEST"
+                print("ℹ️ A nova Request será criada automaticamente via RFC (na 1ª role) e reutilizada nas seguintes.")
+            else:
+                request_transporte = _criar_nova_request_no_sap_local(session)
 
         elif req_input == "3":
             try:
@@ -512,6 +535,15 @@ def executar(
             request_transporte = None
         print("============================================================")
 
+    # Resolve os parâmetros de transporte para o caminho RFC a partir da mesma
+    # escolha do menu acima (exceto quando já resolvido em "2 - criar nova" via RFC).
+    if rfc_transport_mode != "CREATE_REQUEST":
+        if request_transporte:
+            rfc_transport_mode = "EXISTING_REQUEST"
+            rfc_request_number = request_transporte
+        else:
+            rfc_transport_mode = "LOCAL"
+
     print(f"\n📋 Roles a processar (agrupadas): {len(roles_agrupadas)}")
     for rr in roles_agrupadas:
         print(f" - {rr['AGR_NAME']}: {rr['TEXT']} (TCODEs: {len(rr['TCODE_LIST'])})")
@@ -520,6 +552,129 @@ def executar(
         if input("\nDeseja lançar esses dados no SAP? [S/N]: ").strip().upper() != "S":
             wb.close()
             return
+
+    ###################################################################################
+    # EXECUÇÃO — RFC (padrão), com fallback para SAP GUI só em falha de infraestrutura
+    ###################################################################################
+    resultados = {}
+    usar_gui = (metodo_normalizado == "GUI")
+
+    if not usar_gui:
+        print("\n▶ Criação em massa via RFC (uma role de cada vez)...")
+        try:
+            from pfcg.pfcg_create_rfc_service import create_pfcg_role_rfc
+        except Exception as e:
+            print(f"⚠️ RFC indisponível (import falhou): {e}. A avançar para SAP GUI.")
+            usar_gui = True
+
+    if not usar_gui:
+        transporte_resolvido = ""
+        roles_restantes = []
+        falha_infraestrutura = False
+
+        for item in roles_agrupadas:
+            nome = item["AGR_NAME"]
+            desc = item["TEXT"]
+            tcodes_role = item["TCODE_LIST"]
+
+            if rfc_transport_mode == "CREATE_REQUEST" and transporte_resolvido:
+                modo_role, numero_role, desc_role_req = "EXISTING_REQUEST", transporte_resolvido, ""
+            else:
+                modo_role, numero_role, desc_role_req = rfc_transport_mode, rfc_request_number, rfc_request_description
+
+            try:
+                resultado = create_pfcg_role_rfc(
+                    ambiente_cockpit, nome, desc, tcodes_role, modo_role, numero_role, desc_role_req
+                )
+            except Exception as e:
+                print(f"⚠️ RFC falhou (infraestrutura) ao processar '{nome}': {e}. A avançar as restantes para SAP GUI.")
+                falha_infraestrutura = True
+                roles_restantes = [it for it in roles_agrupadas if it["AGR_NAME"] not in resultados]
+                break
+
+            if rfc_transport_mode == "CREATE_REQUEST" and not transporte_resolvido:
+                transporte_resolvido = str(resultado.get("transport_request") or "")
+
+            if resultado.get("ok"):
+                print(f"🟢 {nome}: {resultado.get('status')}")
+                resultados[nome] = {
+                    "STATUS": "CONCLUIDO",
+                    "MSG": resultado.get("message") or resultado.get("profile_status_message") or "Criada via RFC.",
+                    "TIMESTEMP": now_ts(),
+                }
+            else:
+                print(f"🔴 {nome}: {resultado.get('message') or resultado}")
+                resultados[nome] = {
+                    "STATUS": "ERRO",
+                    "MSG": str(resultado.get("message") or resultado),
+                    "TIMESTEMP": now_ts(),
+                }
+
+        if falha_infraestrutura:
+            usar_gui = True
+            roles_agrupadas = roles_restantes
+            # `records` (usado na gravação final do Excel) mantém-se completo — inclui
+            # tanto as roles já concluídas via RFC como as que ainda vão para o GUI.
+
+    if not usar_gui:
+        # Todas as roles foram processadas via RFC (com sucesso ou falha de negócio
+        # legítima) — não há necessidade de tocar no SAP GUI.
+        print("\n💾 A gravar resultados no Excel preservando formatações...")
+        try:
+            for rec in records:
+                resultado_role = resultados.get(rec["AGR_NAME"])
+                if not resultado_role:
+                    continue
+                if col_status:
+                    ws.cell(row=rec["_row"], column=col_status).value = resultado_role["STATUS"]
+                if col_msg:
+                    ws.cell(row=rec["_row"], column=col_msg).value = resultado_role["MSG"]
+                if col_ts:
+                    ws.cell(row=rec["_row"], column=col_ts).value = resultado_role["TIMESTEMP"]
+            wb.save(caminho_ficheiro)
+            print(f"✅ Ficheiro atualizado com os resultados na aba '{NOME_SHEET}'.")
+        except Exception as e:
+            print(f"❌ Erro ao salvar o ficheiro: {e}")
+            print("⚠️ Verifica se o ficheiro está aberto e bloqueado no Excel.")
+        finally:
+            wb.close()
+
+        tempo_total = time.time() - tempo_inicio_total
+        print(f"\n⏱️ Tempo total: {formatar_tempo(tempo_total)}")
+        return
+
+    def _gravar_excel_parcial(motivo):
+        try:
+            for rec in records:
+                resultado_role = resultados.get(rec["AGR_NAME"])
+                if not resultado_role:
+                    continue
+                if col_status:
+                    ws.cell(row=rec["_row"], column=col_status).value = resultado_role["STATUS"]
+                if col_msg:
+                    ws.cell(row=rec["_row"], column=col_msg).value = resultado_role["MSG"]
+                if col_ts:
+                    ws.cell(row=rec["_row"], column=col_ts).value = resultado_role["TIMESTEMP"]
+            wb.save(caminho_ficheiro)
+            print(f"💾 {motivo} — resultados parciais via RFC ({len(resultados)}) gravados no Excel.")
+        except Exception as e:
+            print(f"❌ Erro ao salvar o ficheiro: {e}")
+        finally:
+            wb.close()
+
+    # --- A PARTIR DAQUI: MODO GUI (usado quando metodo="GUI" explícito, ou como
+    # fallback para as roles que faltaram se o RFC tiver falhado por infraestrutura) ---
+    if not session:
+        print(
+            f"❌ Sessão SAP GUI não encontrada para '{ambiente_cockpit}' (esperado: {SISTEMA_ESPERADO}) — "
+            f"impossível continuar em modo GUI."
+        )
+        _gravar_excel_parcial("Sessão SAP GUI indisponível")
+        return
+    if not roles_agrupadas:
+        print("✅ Nada pendente para o SAP GUI (todas as roles já foram concluídas via RFC).")
+        _gravar_excel_parcial("Todas as roles concluídas via RFC")
+        return
 
     ###################################################################################
     # BLOCO 2: SAP GUI helpers
@@ -870,7 +1025,8 @@ def executar(
     # BLOCO 4: EXECUÇÃO ESTRUTURADA
     ###################################################################################
     pfcg = PFCGPage(session)
-    resultados = {}
+    # `resultados` já pode conter entradas de roles concluídas via RFC antes do
+    # fallback (ver bloco "EXECUÇÃO — RFC" acima) — não reiniciar aqui.
 
     total_roles = len(roles_agrupadas)
 
@@ -982,7 +1138,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--ambiente", choices=["DEV", "QAD", "PRD"])
-    parser.add_argument("--metodo", choices=["GUI", "RFC"], default="GUI")
+    parser.add_argument("--metodo", choices=["GUI", "RFC"], default="RFC")
     parser.add_argument("--xlsx")
     parser.add_argument("--request", help="Número da Request de Transporte (Opcional)")
     parser.add_argument("--auto", action="store_true")
@@ -1002,7 +1158,8 @@ if __name__ == "__main__":
 
     env_cli = args.ambiente or (input("Ambiente (DEV/QAD/PRD): ").strip().upper() or "DEV")
 
-    if args.metodo == "RFC":
+    if args.role_name:
+        # Modo RFC individual (ex.: paridade com o Web Cockpit) — sempre RFC.
         executar(
             ambiente_cockpit=env_cli,
             metodo="RFC",
@@ -1014,8 +1171,10 @@ if __name__ == "__main__":
             request_description=args.request_description,
         )
     else:
+        # Modo em massa via Excel — RFC por padrão, GUI só se --metodo GUI for pedido.
         executar(
             ambiente_cockpit=env_cli,
+            metodo=args.metodo,
             caminho_ficheiro=args.xlsx,
             request_transporte=args.request,
             modo_nao_interativo=bool(args.auto),

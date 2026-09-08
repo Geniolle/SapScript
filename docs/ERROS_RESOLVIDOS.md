@@ -7,6 +7,53 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-09-08 — pesquisar_request.py (opção 3 "Pesquisar suas request criadas"): `RFC_READ_TABLE` em E070 falha com `TABLE_WITHOUT_DATA` (AD 718) sempre que se pede o campo `AS4TEXT`
+
+### Sintoma
+- Ao tentar ler a tabela `E070` via `RFC_READ_TABLE` com os campos `TRKORR, AS4TEXT,
+  STRKORR, TRSTATUS, AS4USER` (os mesmos mostrados na coluna do SE16H via GUI), a chamada
+  falha sempre com `pyrfc._exception.ABAPApplicationError: 5 (rc=5): key=TABLE_WITHOUT_DATA,
+  message=ID:AD Type:E Number:718 E070` — mesmo sem nenhum filtro (`OPTIONS=[]`).
+- `RFC_READ_TABLE` funciona normalmente para outras tabelas (`T000`, `USR02`) com o mesmo
+  utilizador/ligação, o que descartou um problema de autorização RFC genérico.
+
+### Causa raiz
+`AS4TEXT` **não é um campo físico da tabela `E070`** — é um campo da tabela de textos
+`E07T` (texto da request/task, dependente de idioma via `LANGU`). O SE16H via GUI consegue
+mostrar `AS4TEXT` numa única grelha porque usa uma view/join interno; o `RFC_READ_TABLE`
+lê a tabela física diretamente e rejeita qualquer campo pedido que não exista fisicamente
+nela — daí o erro 718 ("campo não definido para a tabela"). Confirmado isolando campo a
+campo: `TRKORR+STRKORR`, `TRKORR+TRSTATUS`, `TRKORR+AS4USER` funcionam isoladamente;
+qualquer combinação que inclua `AS4TEXT` falha.
+
+### Correção
+`Processos/pesquisar_request.py` passou a tentar primeiro uma leitura via RFC
+(`_listar_requests_via_rfc`, até 3 tentativas): lê `E070` só com os campos físicos reais
+(`TRKORR, STRKORR, TRSTATUS, AS4USER`, filtro `TRSTATUS='D' AND AS4USER=<user> AND
+STRKORR<>''`) e, para cada `TRKORR` devolvido, lê `E07T` (`TRKORR, LANGU, AS4TEXT`,
+filtro `LANGU=<1º carácter do idioma do .env>`) para obter o texto. Só se o RFC falhar
+após as 3 tentativas (ou não estiver disponível) é que cai para o caminho GUI/SE16H já
+existente — mesmo padrão "RFC primeiro, GUI como reserva" do `SAP Cockpit.py`.
+Validado em DEV: resultado idêntico (mesmos 7 `TRKORR`/textos) ao caminho GUI, ~3s em vez
+de ~14s, sem abrir nenhuma janela do SAP GUI.
+
+### Como diagnosticar
+Isolar campo a campo no `RFC_READ_TABLE` (um de cada vez) para descobrir qual campo pedido
+não existe fisicamente na tabela — o erro `TABLE_WITHOUT_DATA`/AD 718 não indica *qual*
+campo é o problema, só que a lista de campos é inválida para a tabela física.
+
+### Como prevenir
+Antes de pedir um campo via `RFC_READ_TABLE`, confirmar que ele existe na tabela física
+alvo (não numa view/maintenance-view que o SAP GUI usa para mostrar dados juntos) — por
+exemplo via `DDIF_FIELDINFO_GET` ou consultando a SE11/SE16 diretamente.
+
+### Ficheiros
+- `Processos/pesquisar_request.py` (`_listar_requests_via_rfc`, `listar_requests`)
+- `sap_rfc/_rfc_common.py` (reutilizado: `read_table`, `make_read_only_guard`,
+  `build_connection_params_for_env`, `classify_rfc_error`)
+
+---
+
 ## 2026-09-04 — Criar Individualmente (PFCG): ecrã "Deseja utilizar ordem de transporte?" sem opção de voltar
 
 ### Sintoma

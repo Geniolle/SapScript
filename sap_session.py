@@ -19,7 +19,8 @@ WINDOW_MODE_SHOW = {"show", "mostrar", "visible", "visivel", "exibir"}
 class SapTarget:
     key: str
     system_name: str
-    connection_name: str
+    ashost: str
+    sysnr: str
     client: str
     user: str
     password: str
@@ -144,7 +145,16 @@ def _derive_system_from_key(key: str) -> str:
     return upper
 
 
+# Mapa inverso de MAPA_SISTEMA (app/config.py): sistema -> ambiente do .env.
+SISTEMA_PARA_AMBIENTE = {"S4D": "DEV", "S4Q": "QAD", "S4P": "PRD", "SPA": "CUA"}
+
+
 def resolve_sap_target_from_env(key: str | None = None) -> SapTarget:
+    """
+    Resolve os dados de ligação usando o formato por ambiente já existente no
+    .env do projeto (o mesmo usado pelos scripts de RFC e por SAP Cockpit.py):
+      SAP_{AMBIENTE}_USER / _PASSWD / _ASHOST / _SYSNR / _CLIENT / _LANG
+    """
     workflow_key = (key or os.getenv("WORKFLOW_SAP_KEY", "S4DCLNT100")).strip().upper()
     if not workflow_key:
         workflow_key = "S4DCLNT100"
@@ -153,22 +163,24 @@ def resolve_sap_target_from_env(key: str | None = None) -> SapTarget:
     if not system_name:
         system_name = _derive_system_from_key(workflow_key)
 
-    connection_name = os.getenv(f"SAP_CONNECTION_{workflow_key}", "").strip()
-    client = os.getenv("WORKFLOW_SAP_CLIENT", "").strip()
-    if not client:
-        client = os.getenv(f"SAP_CLIENT_{workflow_key}", "").strip()
-    if not client:
-        client = os.getenv("SAP_CLIENT", "").strip()
+    ambiente = SISTEMA_PARA_AMBIENTE.get(system_name, "")
 
-    user = os.getenv("SAP_USER", "").strip()
-    password = os.getenv(f"SAP_PASSWORD_{workflow_key}", "").strip()
-    language = os.getenv("SAP_LANGUAGE", "PT").strip() or "PT"
+    client = os.getenv("WORKFLOW_SAP_CLIENT", "").strip()
+    if not client and ambiente:
+        client = os.getenv(f"SAP_{ambiente}_CLIENT", "").strip()
+
+    user = os.getenv(f"SAP_{ambiente}_USER", "").strip() if ambiente else ""
+    password = os.getenv(f"SAP_{ambiente}_PASSWD", "").strip() if ambiente else ""
+    language = (os.getenv(f"SAP_{ambiente}_LANG", "PT").strip() if ambiente else "") or "PT"
+    ashost = os.getenv(f"SAP_{ambiente}_ASHOST", "").strip() if ambiente else ""
+    sysnr = os.getenv(f"SAP_{ambiente}_SYSNR", "").strip() if ambiente else ""
     saplogon_path = os.getenv("SAPLOGON_PATH", DEFAULT_SAPLOGON_PATH).strip() or DEFAULT_SAPLOGON_PATH
 
     return SapTarget(
         key=workflow_key,
         system_name=system_name,
-        connection_name=connection_name,
+        ashost=ashost,
+        sysnr=sysnr,
         client=client,
         user=user,
         password=password,
@@ -348,15 +360,21 @@ def _submit_login(session, target: SapTarget) -> None:
 
 
 def _validate_target(target: SapTarget) -> None:
+    ambiente = SISTEMA_PARA_AMBIENTE.get(target.system_name, "")
+    if not ambiente:
+        raise RuntimeError(f"Sistema SAP desconhecido: '{target.system_name}'.")
+
     missing = []
-    if not target.connection_name:
-        missing.append(f"SAP_CONNECTION_{target.key}")
+    if not target.ashost:
+        missing.append(f"SAP_{ambiente}_ASHOST")
+    if not target.sysnr:
+        missing.append(f"SAP_{ambiente}_SYSNR")
     if not target.client:
-        missing.append(f"SAP_CLIENT_{target.key} (ou SAP_CLIENT)")
+        missing.append(f"SAP_{ambiente}_CLIENT (ou WORKFLOW_SAP_CLIENT)")
     if not target.user:
-        missing.append("SAP_USER")
+        missing.append(f"SAP_{ambiente}_USER")
     if not target.password:
-        missing.append(f"SAP_PASSWORD_{target.key}")
+        missing.append(f"SAP_{ambiente}_PASSWD")
     if missing:
         raise RuntimeError("Variaveis de ambiente em falta: " + ", ".join(missing))
 
@@ -406,7 +424,8 @@ def ensure_sap_access(target: SapTarget, timeout_s: int = 40):
 
     login_session = _find_login_session(application)
     if not login_session:
-        connection = application.OpenConnection(target.connection_name, True)
+        connection_string = f"/H/{target.ashost}/S/32{target.sysnr.zfill(2)}"
+        connection = application.OpenConnectionByConnectionString(connection_string, True)
         _try_minimize_saplogon_windows()
         login_session = _wait_for_connection_session(connection, timeout_s=30)
         if not login_session:
