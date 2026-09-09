@@ -571,6 +571,7 @@ def validate_obyc_excel(params: dict[str, Any]) -> tuple[str, str]:
                     {
                         "row_number": row_number,
                         "reason": "comparacao_opcional",
+                        "filters": filters,
                         "message": "Campos opcionais do Excel diferem do registo SAP, mas as chaves principais coincidem.",
                         "differences": best_optional_differences[:12],
                     }

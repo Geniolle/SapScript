@@ -1592,6 +1592,170 @@
                 color: var(--text-secondary);
             }
 
+            .asi-obyc-header {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+
+            .asi-obyc-subtitle {
+                margin-top: 2px;
+                font-size: 0.78rem;
+                font-weight: 600;
+                color: var(--text-secondary);
+                overflow-wrap: anywhere;
+            }
+
+            .asi-obyc-header-meta {
+                font-size: 0.72rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                white-space: nowrap;
+            }
+
+            .asi-obyc-summary-block {
+                margin-top: 14px;
+                padding-top: 10px;
+                border-top: 1px solid rgba(148, 163, 184, 0.2);
+            }
+
+            .asi-obyc-summary-title {
+                margin-bottom: 10px;
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+            }
+
+            .asi-obyc-summary-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                column-gap: 16px;
+                row-gap: 12px;
+            }
+
+            .asi-obyc-summary-item {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                min-width: 0;
+            }
+
+            .asi-obyc-summary-label {
+                font-size: 11px;
+                line-height: 1.2;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                font-weight: 700;
+            }
+
+            .asi-obyc-summary-value {
+                min-width: 0;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+                font-size: 13px;
+                font-weight: 700;
+                color: var(--text-primary);
+            }
+
+            .asi-obyc-summary-note {
+                margin-top: 10px;
+                font-size: 0.82rem;
+                line-height: 1.35;
+                color: var(--text-secondary);
+                overflow-wrap: anywhere;
+            }
+
+            .asi-obyc-result-table-wrap {
+                margin-top: 14px;
+                border: 1px solid rgba(148, 163, 184, 0.18);
+                border-radius: 8px;
+                overflow-x: auto;
+            }
+
+            .asi-obyc-result-table {
+                display: flex;
+                flex-direction: column;
+                min-width: 480px;
+            }
+
+            .asi-obyc-result-table-head,
+            .asi-obyc-result-table-row {
+                display: grid;
+                grid-template-columns: 56px 130px minmax(0, 1fr) minmax(0, 1fr);
+                gap: 10px;
+                padding: 8px 10px;
+                align-items: start;
+            }
+
+            .asi-obyc-result-table-head {
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: var(--text-secondary);
+                background: var(--bg-secondary, #f8fafc);
+                border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            }
+
+            .asi-obyc-result-table-row {
+                font-size: 0.78rem;
+                color: var(--text-primary);
+                border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+            }
+
+            .asi-obyc-result-table-row:last-child {
+                border-bottom: none;
+            }
+
+            .asi-obyc-result-table-cell {
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+
+            .asi-obyc-result-table-cell--row {
+                font-weight: 700;
+                color: var(--text-secondary);
+            }
+
+            .asi-obyc-status-pill {
+                display: inline-flex;
+                align-items: center;
+                padding: 2px 8px;
+                line-height: 1;
+                border-radius: 999px;
+                font-size: 0.68rem;
+                font-weight: 800;
+                letter-spacing: 0.03em;
+                text-transform: uppercase;
+                white-space: nowrap;
+                background: rgba(148, 163, 184, 0.12);
+                color: var(--text-secondary);
+            }
+
+            .asi-obyc-status-pill--warning,
+            .asi-obyc-result-table-row.asi-obyc-status-pill--warning {
+                background: rgba(245, 158, 11, 0.12);
+                color: #b45309;
+            }
+
+            .asi-obyc-status-pill--danger,
+            .asi-obyc-result-table-row.asi-obyc-status-pill--danger {
+                background: rgba(220, 38, 38, 0.1);
+                color: #dc2626;
+            }
+
+            .asi-obyc-status-pill--neutral {
+                background: rgba(148, 163, 184, 0.12);
+                color: var(--text-secondary);
+            }
+
             @media (max-width: 900px) {
                 .asi-pfcg-excel-summary-grid {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1601,6 +1765,9 @@
                 }
                 .asi-pfcg-summary-grid {
                     grid-template-columns: 1fr;
+                }
+                .asi-obyc-summary-grid {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
             }
 
@@ -1616,6 +1783,12 @@
                 }
                 .asi-pfcg-summary-grid {
                     grid-template-columns: 1fr;
+                }
+                .asi-obyc-summary-grid {
+                    grid-template-columns: 1fr;
+                }
+                .asi-obyc-header {
+                    flex-direction: column;
                 }
             }
         `;
@@ -4264,6 +4437,7 @@
             : `<tr><td colspan="${Math.max(columnPairs.length, 1)}" class="asi-pfcg-list-empty">Sem linhas lidas.</td></tr>`;
 
         asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
         const summaryFields = [
             asiBuildPfcgResultField('Ficheiro', fileName, 'asi-pfcg-result-value--nowrap'),
             asiBuildPfcgResultField('Folha', sheetName || 'Folha principal'),
@@ -6409,6 +6583,8 @@
     }
 
     function asiBuildObycValidationHtml(result) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
         const fileName = escapeHtml(String(result && result.file_name ? result.file_name : 'Excel da OBYC').trim());
         const sheetName = escapeHtml(String(result && result.sheet_name ? result.sheet_name : '').trim());
         const table = escapeHtml(String(result && result.table ? result.table : 'T030').trim());

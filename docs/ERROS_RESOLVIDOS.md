@@ -7,6 +7,74 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-09-09 — OBYC > Analisar > Ficheiro Excel > Validar: linha marcada "Sem chaves" mesmo com chave existente no SAP, e KPI "Comparações opcionais" a mostrar `0` com a mensagem a dizer `15`
+
+### Sintoma
+- No card de resultado da validação, uma linha com diferenças reais de campo
+  (`KONTS: 61110210 → 61110200 · STATUS: CRIAR → vazio`) aparecia na coluna
+  "Chaves" como `Sem chaves`, dando a entender que a chave não existia no SAP —
+  apesar de o estado da linha ser "⚠ Aviso" (comparação opcional), que só
+  acontece quando a chave *bateu* certo no SAP.
+- Ao mesmo tempo, o KPI "Comparações opcionais" no grid mostrava `0`, mas o
+  texto da mensagem por baixo dizia `"Comparações opcionais com diferenças: 15"`
+  — dois valores contraditórios para o mesmo número, na mesma resposta.
+
+### Causa raiz
+Dois bugs distintos e independentes no mesmo fluxo:
+1. **"Sem chaves"**: em `sap_rfc/obyc_service.py` (`validate_obyc_excel`), o
+   `issue` construído para `reason == "comparacao_opcional"` nunca incluía a
+   chave `"filters"` (ao contrário dos issues `nao_encontrado` e
+   `chave_existente_conta_diferente`, que incluem). O frontend
+   (`asiBuildObycValidationHtml`) lê `issue.filters` e mostra `"Sem chaves"`
+   sempre que a lista vem vazia — não porque a chave não existisse no SAP, mas
+   porque o backend nunca a enviava para este tipo de issue.
+2. **`0` vs `15`**: o endpoint `GET
+   /api/salsa-it-agent/configuracoes/obyc/excel/validate/{job_id}` em
+   `web_api/main.py` filtra o resultado do worker por uma whitelist
+   (`safe_result`) antes de o devolver ao browser. Essa whitelist tinha
+   `matched_rows`, `missing_rows`, `mismatched_rows`, `skipped_rows`, mas
+   **não `optional_rows`** — o campo era descartado no caminho
+   worker → endpoint → frontend, apesar de existir corretamente no JSON
+   devolvido pelo serviço. O `message` (texto livre) passava intacto por ser
+   outro campo da mesma whitelist, daí a mensagem mostrar `15` enquanto o KPI
+   estruturado (que lê `result.optional_rows`) ficava a `0` por omissão no JS
+   (`Number(result.optional_rows ? result.optional_rows : 0)`).
+
+### Correção
+1. `sap_rfc/obyc_service.py`: adicionado `"filters": filters,` ao dict do
+   issue `comparacao_opcional` (linha ~573), igual aos outros tipos de issue.
+2. `web_api/main.py` (`api_salsa_it_configuracoes_obyc_excel_validate_job`):
+   adicionado `"optional_rows": result.get("optional_rows"),` ao `safe_result`.
+3. `tests/test_obyc_service.py`: reforçado
+   `test_validate_obyc_excel_treats_non_key_fields_as_optional` para exigir
+   `optional_issue["filters"]` não vazio.
+
+### Como diagnosticar
+Quando um card mostra um valor "vazio"/"em falta" que contradiz outro dado no
+mesmo response (ex.: texto da mensagem vs. campo estruturado), não assumir
+cache do browser por omissão — confirmar primeiro se o campo está mesmo
+presente em cada camada da cadeia: serviço → job/worker → endpoint HTTP
+(procurar whitelists tipo `safe_result` que filtram campos por nome) →
+JavaScript que lê `result.<campo>`. Um `grep` pelo nome do campo em todos os
+ficheiros da cadeia mostra rapidamente em que camada ele desaparece.
+
+### Como prevenir
+Ao adicionar um novo campo a um resultado de job (`validate_obyc_excel`,
+etc.), procurar todos os locais onde esse job é "resumido"/filtrado antes de
+chegar ao frontend (endpoints com `safe_result`/whitelists explícitas) e
+confirmar que o campo novo está incluído em todos eles — não só no dict
+devolvido pelo serviço.
+
+### Ficheiros
+- `sap_rfc/obyc_service.py` (`validate_obyc_excel`)
+- `sap_script_web_cockpit_v2/web_api/main.py`
+  (`api_salsa_it_configuracoes_obyc_excel_validate_job`)
+- `sap_script_web_cockpit_v2/web_api/static/js/cockpit.agent.js`
+  (`asiBuildObycValidationHtml`)
+- `tests/test_obyc_service.py`
+
+---
+
 ## 2026-09-08 — pesquisar_request.py (opção 3 "Pesquisar suas request criadas"): `RFC_READ_TABLE` em E070 falha com `TABLE_WITHOUT_DATA` (AD 718) sempre que se pede o campo `AS4TEXT`
 
 ### Sintoma

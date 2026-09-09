@@ -1612,6 +1612,7 @@ def api_salsa_it_configuracoes_obyc_excel_validate_job(job_id: str) -> JSONRespo
         "total_rows": result.get("total_rows"),
         "validated_rows": result.get("validated_rows"),
         "matched_rows": result.get("matched_rows"),
+        "optional_rows": result.get("optional_rows"),
         "missing_rows": result.get("missing_rows"),
         "mismatched_rows": result.get("mismatched_rows"),
         "skipped_rows": result.get("skipped_rows"),

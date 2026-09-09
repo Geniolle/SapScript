@@ -118,7 +118,8 @@ def test_validate_obyc_excel_treats_non_key_fields_as_optional(monkeypatch) -> N
     assert result["optional_rows"] == 1
     assert result["missing_rows"] == 0
     assert result["mismatched_rows"] == 0
-    assert any(issue["reason"] == "comparacao_opcional" for issue in result["issues"])
+    optional_issue = next(issue for issue in result["issues"] if issue["reason"] == "comparacao_opcional")
+    assert optional_issue["filters"], "issue de comparacao_opcional deve incluir as chaves que bateram, não 'Sem chaves'"
     assert "Comparações opcionais" in log or "Comparações opcionais" in result["message"]
 
 
