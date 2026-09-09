@@ -1495,14 +1495,6 @@
                 overflow-wrap: anywhere;
             }
 
-            .pfcg-create-grid {
-                display: grid;
-                grid-template-columns: 1fr;
-                gap: 12px;
-                width: 100%;
-                align-items: stretch;
-            }
-
             .asi-pfcg-result-heading-row {
                 display: flex;
                 align-items: center;
@@ -4244,8 +4236,8 @@
     }
 
     function asiBuildObycExcelPreviewHtml(result) {
-        const fileName = escapeHtml(String(result && result.file_name ? result.file_name : 'Excel').trim());
-        const sheetName = escapeHtml(String(result && result.sheet_name ? result.sheet_name : '').trim());
+        const fileName = String(result && result.file_name ? result.file_name : 'Excel').trim();
+        const sheetName = String(result && result.sheet_name ? result.sheet_name : '').trim();
         const headers = Array.isArray(result && result.headers) ? result.headers : [];
         const validationHeaders = Array.isArray(result && result.validation_headers) ? result.validation_headers : [];
         const rows = Array.isArray(result && result.rows) ? result.rows : [];
@@ -4271,27 +4263,22 @@
             }).join('')
             : `<tr><td colspan="${Math.max(columnPairs.length, 1)}" class="asi-pfcg-list-empty">Sem linhas lidas.</td></tr>`;
 
+        asiEnsurePfcgResultStyles();
+        const summaryFields = [
+            asiBuildPfcgResultField('Ficheiro', fileName, 'asi-pfcg-result-value--nowrap'),
+            asiBuildPfcgResultField('Folha', sheetName || 'Folha principal'),
+            asiBuildPfcgResultField('Linhas lidas', rowCount),
+            asiBuildPfcgResultField('Pré-visualização', `${previewCount} linhas`)
+        ].join('');
+
         return `
             <div class="asi-pfcg-result-card">
                 <div class="asi-pfcg-result-heading-row">
                     <div class="asi-pfcg-result-heading" style="color:#0f766e;">✓ Excel lido em modo leitura</div>
                 </div>
                 <div class="asi-pfcg-result-shell">
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Ficheiro</span>
-                        <span class="asi-pfcg-result-value">${fileName}</span>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Folha</span>
-                        <span class="asi-pfcg-result-value">${sheetName || 'Folha principal'}</span>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Linhas lidas</span>
-                        <span class="asi-pfcg-result-value">${rowCount}</span>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Pré-visualização</span>
-                        <span class="asi-pfcg-result-value">${previewCount} linhas</span>
+                    <div class="asi-pfcg-result-grid">
+                        ${summaryFields}
                     </div>
                     <div class="asi-pfcg-result-shell" style="overflow:auto;">
                         <table class="asi-pfcg-list-table">
@@ -6431,75 +6418,106 @@
         const matchedRows = Number(result && result.matched_rows ? result.matched_rows : 0);
         const missingRows = Number(result && result.missing_rows ? result.missing_rows : 0);
         const mismatchedRows = Number(result && result.mismatched_rows ? result.mismatched_rows : 0);
+        const optionalRows = Number(result && result.optional_rows ? result.optional_rows : 0);
         const skippedRows = Number(result && result.skipped_rows ? result.skipped_rows : 0);
         const issues = Array.isArray(result && result.issues) ? result.issues : [];
         const hasProblems = missingRows > 0 || mismatchedRows > 0;
+        const noDataOnly = validatedRows > 0 && matchedRows === 0 && mismatchedRows === 0 && missingRows > 0;
+        const formatObycValue = (value) => {
+            const text = String(value == null ? '' : value).trim();
+            return text ? escapeHtml(text) : 'vazio';
+        };
+        const formatObycReason = (rawReason) => {
+            if (rawReason === 'comparacao_opcional') return '⚠ Aviso';
+            if (rawReason === 'nao_encontrado') return 'Sem correspondência';
+            if (rawReason === 'divergente') return 'Divergente';
+            return escapeHtml(rawReason || 'Sem estado');
+        };
+        const formatObycStatusClass = (rawReason) => {
+            if (rawReason === 'comparacao_opcional') return 'asi-obyc-status-pill--warning';
+            if (rawReason === 'nao_encontrado' || rawReason === 'divergente') return 'asi-obyc-status-pill--danger';
+            return 'asi-obyc-status-pill--neutral';
+        };
+        const statusBannerHtml = noDataOnly
+            ? `
+                <div class="asi-pfcg-excel-summary-note" style="margin-bottom:12px;border-left:4px solid #f59e0b;padding:10px 12px;background:rgba(245,158,11,0.08);">
+                    <strong>Validação concluída sem correspondência na OBYC.</strong>
+                    <div style="margin-top:4px;">A execução terminou corretamente, mas nenhuma linha do Excel encontrou registo na tabela ${table} do sistema ${system}.</div>
+                    <div style="margin-top:6px;">Verifique as chaves do Excel e confirme se a configuração existe no SAP antes de repetir a validação.</div>
+                </div>
+            `
+            : '';
         const issuesHtml = issues.length > 0
-            ? issues.map((issue) => {
-                const rowNumber = escapeHtml(String(issue && issue.row_number ? issue.row_number : '?'));
-                const reason = escapeHtml(String(issue && issue.reason ? issue.reason : ''));
-                const message = escapeHtml(String(issue && issue.message ? issue.message : ''));
-                const filters = Array.isArray(issue && issue.filters) ? issue.filters : [];
-                const differences = Array.isArray(issue && issue.differences) ? issue.differences : [];
-                const filtersHtml = filters.length > 0
-                    ? filters.map((filter) => `<span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(String(filter.field || ''))}=${escapeHtml(String(filter.value || ''))}</span>`).join(' ')
-                    : '<span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">Sem chaves</span>';
-                const differencesHtml = differences.length > 0
-                    ? differences.map((diff) => `<div class="asi-pfcg-excel-summary-note">${escapeHtml(String(diff.field || ''))}: Excel <strong>${escapeHtml(String(diff.excel || ''))}</strong> vs SAP <strong>${escapeHtml(String(diff.sap || ''))}</strong></div>`).join('')
-                    : '';
-                return `
-                    <div class="asi-pfcg-result-shell" style="margin-bottom:10px;">
-                        <div class="asi-pfcg-result-field" style="margin-bottom:6px;">
-                            <span class="asi-pfcg-result-label">Linha</span>
-                            <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${rowNumber}</span>
+            ? `
+                <div class="asi-obyc-result-table-wrap">
+                    <div class="asi-obyc-result-table">
+                        <div class="asi-obyc-result-table-head">
+                            <div>Linha</div>
+                            <div>Estado</div>
+                            <div>Chaves</div>
+                            <div>Diferenças</div>
                         </div>
-                        <div class="asi-pfcg-result-field" style="margin-bottom:6px;">
-                            <span class="asi-pfcg-result-label">Estado</span>
-                            <span class="asi-pfcg-result-value">${reason}</span>
-                        </div>
-                        <div class="asi-pfcg-result-field" style="margin-bottom:6px;">
-                            <span class="asi-pfcg-result-label">Chaves</span>
-                            <div style="display:flex;flex-wrap:wrap;gap:6px;">${filtersHtml}</div>
-                        </div>
-                        ${message ? `<div class="asi-pfcg-excel-summary-note">${message}</div>` : ''}
-                        ${differencesHtml}
+                        ${issues.map((issue) => {
+                            const rowNumber = escapeHtml(String(issue && issue.row_number ? issue.row_number : '?'));
+                            const rawReason = String(issue && issue.reason ? issue.reason : '');
+                            const filters = Array.isArray(issue && issue.filters) ? issue.filters : [];
+                            const differences = Array.isArray(issue && issue.differences) ? issue.differences : [];
+                            const keysText = filters.length > 0
+                                ? filters.map((filter) => `${escapeHtml(String(filter.field || ''))}=${escapeHtml(String(filter.value || ''))}`).join(' · ')
+                                : 'Sem chaves';
+                            const differencesText = differences.length > 0
+                                ? differences.map((diff) => `${escapeHtml(String(diff.field || ''))}: ${formatObycValue(diff.excel)} → ${formatObycValue(diff.sap)}`).join(' · ')
+                                : (rawReason === 'nao_encontrado' ? 'Nenhum registo encontrado na tabela SAP.' : 'Sem diferenças registadas.');
+                            return `
+                                <div class="asi-obyc-result-table-row ${formatObycStatusClass(rawReason)}">
+                                    <div class="asi-obyc-result-table-cell asi-obyc-result-table-cell--row">${rowNumber}</div>
+                                    <div class="asi-obyc-result-table-cell">
+                                        <span class="asi-obyc-status-pill ${formatObycStatusClass(rawReason)}">${formatObycReason(rawReason)}</span>
+                                    </div>
+                                    <div class="asi-obyc-result-table-cell asi-obyc-result-table-cell--keys">${keysText}</div>
+                                    <div class="asi-obyc-result-table-cell asi-obyc-result-table-cell--diff">${differencesText}</div>
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
-                `;
-            }).join('')
+                </div>
+            `
             : '<div class="asi-pfcg-list-empty">Sem divergências encontradas.</div>';
 
         return `
             <div class="asi-pfcg-result-card">
-                <div class="asi-pfcg-result-heading-row">
-                    <div class="asi-pfcg-result-heading" style="color:${hasProblems ? '#b45309' : '#16a34a'};">✓ Validação da OBYC concluída</div>
+                <div class="asi-obyc-header">
+                    <div>
+                        <div class="asi-pfcg-result-heading" style="color:${hasProblems ? '#b45309' : '#16a34a'};">✓ Validação da OBYC concluída</div>
+                        <div class="asi-obyc-subtitle">${fileName}</div>
+                    </div>
+                    <div class="asi-obyc-header-meta">${system} · ${table}</div>
                 </div>
                 <div class="asi-pfcg-result-shell">
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Ficheiro</span>
-                        <span class="asi-pfcg-result-value">${fileName}</span>
+                    ${statusBannerHtml}
+                    <div class="asi-obyc-summary-block">
+                        <div class="asi-obyc-summary-title">Contexto</div>
+                        <div class="asi-obyc-summary-grid asi-obyc-summary-grid--context">
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Ficheiro</div><div class="asi-obyc-summary-value">${fileName}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Folha</div><div class="asi-obyc-summary-value">${sheetName || 'Folha principal'}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Sistema</div><div class="asi-obyc-summary-value">${system}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Tabela</div><div class="asi-obyc-summary-value">${table}</div></div>
+                        </div>
                     </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Folha</span>
-                        <span class="asi-pfcg-result-value">${sheetName || 'Folha principal'}</span>
+                    <div class="asi-obyc-summary-block">
+                        <div class="asi-obyc-summary-title">KPIs</div>
+                        <div class="asi-obyc-summary-grid asi-obyc-summary-grid--kpi">
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Linhas no ficheiro</div><div class="asi-obyc-summary-value">${totalRows}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Verificadas</div><div class="asi-obyc-summary-value">${validatedRows}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Coincidentes</div><div class="asi-obyc-summary-value">${matchedRows}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Comparações opcionais</div><div class="asi-obyc-summary-value">${optionalRows}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Sem correspondência</div><div class="asi-obyc-summary-value">${missingRows}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Divergentes</div><div class="asi-obyc-summary-value">${mismatchedRows}</div></div>
+                            <div class="asi-obyc-summary-item"><div class="asi-obyc-summary-label">Ignoradas</div><div class="asi-obyc-summary-value">${skippedRows}</div></div>
+                        </div>
                     </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Sistema</span>
-                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${system}</span>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Tabela</span>
-                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${table}</span>
-                    </div>
-                    <div class="asi-pfcg-result-grid">
-                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Linhas no ficheiro</div><div class="asi-pfcg-excel-summary-value">${totalRows}</div></div>
-                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Verificadas</div><div class="asi-pfcg-excel-summary-value">${validatedRows}</div></div>
-                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Coincidentes</div><div class="asi-pfcg-excel-summary-value">${matchedRows}</div></div>
-                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Sem correspondência</div><div class="asi-pfcg-excel-summary-value">${missingRows}</div></div>
-                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Divergentes</div><div class="asi-pfcg-excel-summary-value">${mismatchedRows}</div></div>
-                        <div class="asi-pfcg-excel-summary-item"><div class="asi-pfcg-excel-summary-label">Ignoradas</div><div class="asi-pfcg-excel-summary-value">${skippedRows}</div></div>
-                    </div>
-                    <div class="asi-pfcg-excel-summary-note" style="margin-top:12px;">${escapeHtml(String(result && result.message ? result.message : ''))}</div>
-                    <div style="margin-top:14px;">${issuesHtml}</div>
+                    ${result && result.message ? `<div class="asi-obyc-summary-note">${escapeHtml(String(result.message))}</div>` : ''}
+                    ${issuesHtml}
                 </div>
             </div>
         `;

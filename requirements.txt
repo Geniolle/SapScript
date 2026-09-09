@@ -10,3 +10,4 @@ extract-msg
 PyPDF2
 openpyxl
 pywin32
+pyperclip

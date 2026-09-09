@@ -25,9 +25,13 @@ def executar(
     import unicodedata
     from datetime import datetime
     import win32com.client
-    import pyperclip
     from openpyxl import load_workbook
     from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+
+    try:
+        import pyperclip  # só é usado no fallback GUI (colar roles no popup do PFCGMASSDELETE)
+    except ImportError:
+        pyperclip = None
 
     # --- CORREÇÃO DA ESTRUTURA DE PASTAS PARA IMPORTAR O PESQUISAR_REQUEST ---
     dir_atual = os.path.dirname(os.path.abspath(__file__))
@@ -225,7 +229,11 @@ def executar(
 
     # Extrair lista de roles e copiar para o Clipboard
     funcoes = [rec[COL_AGR_NAME] for rec in records]
-    pyperclip.copy("\r\n".join(funcoes))
+    if pyperclip is not None:
+        try:
+            pyperclip.copy("\r\n".join(funcoes))
+        except Exception:
+            pass
 
     ###################################################################################
     # CAPTURA SESSÃO SAP
@@ -392,12 +400,6 @@ def executar(
     for i, n in enumerate(funcoes, 1):
         print(f" {i:02d}. {n}", flush=True)
 
-    if not modo_nao_interativo and pedir_confirmacao:
-        if input("\nDeseja eliminar essas funções no SAP? [S/N]: ").strip().upper() != "S":
-            log("❌ Processo cancelado.")
-            wb.close()
-            return "voltar"
-
     ###################################################################################
     # EXECUÇÃO — RFC (padrão), com fallback para SAP GUI só em falha de infraestrutura
     ###################################################################################
@@ -492,6 +494,11 @@ def executar(
 
     # --- A PARTIR DAQUI: MODO GUI (usado quando metodo="GUI" explícito, ou como
     # fallback se o RFC tiver falhado por infraestrutura antes de processar alguma função) ---
+    if pyperclip is None:
+        log(
+            "⚠️ Módulo 'pyperclip' indisponível neste Python — a colagem automática da "
+            "lista de roles no popup do PFCGMASSDELETE pode falhar ou ficar vazia."
+        )
     if not session:
         log(
             f"❌ Sessão SAP GUI não encontrada para '{ambiente_cockpit}' (esperado: {sistema_desejado}) — "

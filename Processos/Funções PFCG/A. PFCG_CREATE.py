@@ -548,11 +548,6 @@ def executar(
     for rr in roles_agrupadas:
         print(f" - {rr['AGR_NAME']}: {rr['TEXT']} (TCODEs: {len(rr['TCODE_LIST'])})")
 
-    if pedir_confirmacao and not modo_nao_interativo:
-        if input("\nDeseja lançar esses dados no SAP? [S/N]: ").strip().upper() != "S":
-            wb.close()
-            return
-
     ###################################################################################
     # EXECUÇÃO — RFC (padrão), com fallback para SAP GUI só em falha de infraestrutura
     ###################################################################################
