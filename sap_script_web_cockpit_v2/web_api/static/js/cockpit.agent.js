@@ -6784,6 +6784,7 @@
                     isProcessing: false,
                     wide: true,
                     actions: [
+                        { id: 'obyc-excel-configurar', label: 'Configurar', icon: 'settings', level: 0, parentActionId: 'obyc-analisar-excel', selectionGroupKey: 'obyc-excel-validation' },
                         { id: 'obyc-excel-voltar', label: 'Voltar ao menu', icon: 'analysis', level: 0, parentActionId: 'obyc-analisar-excel', selectionGroupKey: 'obyc-excel-validation' },
                     ],
                     actionLevel: 0,
@@ -8764,6 +8765,14 @@
                 asiAppendMessage(asiCreateMessage('user', 'Verificar'));
                 await asiStartObycExcelValidation();
                 asiUpdateComposerState();
+                return;
+            }
+
+            if (actionId === 'obyc-excel-configurar') {
+                asiAppendMessage(asiCreateMessage('user', 'Configurar'));
+                asiConfigContext = 'perfil';
+                asiObycMode = 'configurar';
+                await asiStartObycOpenTransaction('configurar');
                 return;
             }
 
