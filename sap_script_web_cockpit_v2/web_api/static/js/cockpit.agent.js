@@ -51,6 +51,8 @@
     let asiObycMode = 'configurar';
     let asiObycAnalysisMode = '';
     let asiObycAnalysisTable = 'T030';
+    // Modo de entrada escolhido no submenu "Configurar" ('' | 'criar' | 'alterar').
+    let asiObycConfigureEntryMode = '';
     // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador' | 'obyc-configurar' | 'obyc-analisar').
     let asiConfigContext = 'perfil';
     const ASI_PFCG_SYSTEM_ACTIONS = [
@@ -4254,12 +4256,27 @@
         asiObycPollingInFlight = false;
     }
 
-    function asiBuildObycResultHtml(system, statusText = '') {
+    function asiBuildObycResultHtml(system, statusText = '', entryMode = '') {
+        asiEnsurePfcgResultStyles();
         const safeSystem = escapeHtml(String(system || '').trim().toUpperCase() || 'SAP');
         const cleanedStatus = String(statusText || '').trim();
         const safeStatus = cleanedStatus
             ? escapeHtml(cleanedStatus).replace(/\n/g, '<br>')
             : '<span style="color:var(--text-secondary);">Sem mensagem adicional devolvida pelo SAP.</span>';
+        const entryModeLabel = entryMode === 'criar' ? 'Criar Entradas' : entryMode === 'alterar' ? 'Alterar Entradas' : '';
+        // Campo "Estado" montado à mão (em vez de asiBuildPfcgResultField) porque
+        // safeStatus já vem escapado com <br> a marcar quebras de linha — passar por
+        // outro escapeHtml transformava-os de volta em "&lt;br&gt;" literal.
+        const summaryFields = [
+            asiBuildPfcgResultField('Transação', 'OBYC', 'asi-pfcg-result-value--nowrap'),
+            entryModeLabel ? asiBuildPfcgResultField('Modo', entryModeLabel) : '',
+            `
+            <div class="asi-pfcg-result-field asi-pfcg-result-field--span2">
+                <span class="asi-pfcg-result-label">Estado</span>
+                <span class="asi-pfcg-result-value">${safeStatus}</span>
+            </div>
+            `
+        ].join('');
 
         return `
             <div class="asi-pfcg-result-card">
@@ -4267,13 +4284,8 @@
                     <div class="asi-pfcg-result-heading" style="color:#16a34a;">✓ OBYC aberta em ${safeSystem}</div>
                 </div>
                 <div class="asi-pfcg-result-shell">
-                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
-                        <span class="asi-pfcg-result-label">Transação</span>
-                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">OBYC</span>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:8px;">
-                        <span class="asi-pfcg-result-label">Estado</span>
-                        <span class="asi-pfcg-result-value">${safeStatus}</span>
+                    <div class="asi-pfcg-result-grid">
+                        ${summaryFields}
                     </div>
                 </div>
             </div>
@@ -4491,7 +4503,7 @@
         }));
     }
 
-    async function asiPollObycJob(jobId, system, messageId) {
+    async function asiPollObycJob(jobId, system, messageId, entryMode = '') {
         const startedAt = Date.now();
         asiStopObycPolling();
         asiObycPollingTimer = setInterval(async () => {
@@ -4545,7 +4557,7 @@
 
                 asiUpdateMessage(messageId, {
                     text: `OBYC aberta em ${system}.`,
-                    html: asiBuildObycResultHtml(system, String(job.status || '').trim()),
+                    html: asiBuildObycResultHtml(system, String(job.status || '').trim(), entryMode),
                     isProcessing: false,
                     wide: true,
                     actions: [ASI_MAIN_MENU_ACTION],
@@ -4573,7 +4585,7 @@
         }, ASI_PFCG_POLL_INTERVAL_MS);
     }
 
-    async function asiStartObycOpenTransaction(mode = 'configurar') {
+    async function asiStartObycOpenTransaction(mode = 'configurar', entryMode = '') {
         if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const system = String(asiPfcgSystem || 'PRD').trim().toUpperCase() || 'PRD';
 
@@ -4584,7 +4596,11 @@
 
         const processingText = mode === 'analisar'
             ? `A analisar OBYC em SAP ${system}...`
-            : `A configurar OBYC em SAP ${system}...`;
+            : entryMode === 'criar'
+                ? `A abrir criação de entradas na OBYC em SAP ${system}...`
+                : entryMode === 'alterar'
+                    ? `A abrir alteração de entradas na OBYC em SAP ${system}...`
+                    : `A configurar OBYC em SAP ${system}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
             html: asiBuildPfcgGenericProcessingHtml(processingText),
             isProcessing: true
@@ -4612,7 +4628,7 @@
                 throw new Error('Resposta do backend sem job_id.');
             }
 
-            await asiPollObycJob(jobId, system, processingMessage.id);
+            await asiPollObycJob(jobId, system, processingMessage.id, entryMode);
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
                 text: `Não foi possível abrir a OBYC em ${system}.`,
@@ -8770,9 +8786,25 @@
 
             if (actionId === 'obyc-excel-configurar') {
                 asiAppendMessage(asiCreateMessage('user', 'Configurar'));
+                asiAppendMessage(asiCreateMessage('assistant', 'O que deseja fazer na OBYC?', {
+                    breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar-excel', [asiPfcgSystem, 'Ficheiro Excel', 'Validar', 'Configurar']),
+                    actions: [
+                        { id: 'obyc-excel-configurar-criar', label: 'Criar Entradas', icon: 'settings', level: 0, parentActionId: 'obyc-analisar-excel', selectionGroupKey: 'obyc-excel-configurar' },
+                        { id: 'obyc-excel-configurar-alterar', label: 'Alterar Entradas', icon: 'settings', level: 0, parentActionId: 'obyc-analisar-excel', selectionGroupKey: 'obyc-excel-configurar' },
+                    ],
+                    selectionGroupKey: 'obyc-excel-configurar',
+                }));
+                asiUpdateComposerState();
+                return;
+            }
+
+            if (actionId === 'obyc-excel-configurar-criar' || actionId === 'obyc-excel-configurar-alterar') {
+                const entryMode = actionId === 'obyc-excel-configurar-criar' ? 'criar' : 'alterar';
+                asiAppendMessage(asiCreateMessage('user', entryMode === 'criar' ? 'Criar Entradas' : 'Alterar Entradas'));
                 asiConfigContext = 'perfil';
                 asiObycMode = 'configurar';
-                await asiStartObycOpenTransaction('configurar');
+                asiObycConfigureEntryMode = entryMode;
+                await asiStartObycOpenTransaction('configurar', entryMode);
                 return;
             }
 
