@@ -619,6 +619,11 @@ def _run_obyc_rfc_read_table(params: dict[str, Any]) -> tuple[str, str]:
         value = str(item.get("value") or "").strip()
         if not field or not value:
             continue
+        # KONTS/KONTH (conta contabilística) são gravadas na SAP com 10
+        # dígitos zero-padded (tipo SAKNR) — sem isto, um valor digitado
+        # sem os zeros à esquerda (ex.: "61110210") nunca bate com o
+        # registo real ("0061110210") e a consulta devolve 0 registos.
+        value = _obyc_validation_filter_value(field, value)
         normalized_filters.append({"field": field, "value": value})
         if field not in fields:
             fields.append(field)
@@ -651,6 +656,111 @@ def _run_obyc_rfc_read_table(params: dict[str, Any]) -> tuple[str, str]:
             f"Filtros: {normalized_filters}",
             f"Campos: {fields}",
             f"Registos: {len(rows)}",
+        ]
+    )
+    return json.dumps(payload, ensure_ascii=False), log
+
+
+def _run_sap_fm_exists_check(params: dict[str, Any]) -> tuple[str, str]:
+    """Diagnóstico read-only pontual: confirma via TFDIR (RFC_READ_TABLE) se os
+    function modules indicados existem de facto no sistema SAP. Não escreve
+    nada em SAP — usado apenas para validar candidatos a rotina standard de
+    escrita da OBYC/T030 (ex.: VIEWPROC_V_030_T)."""
+
+    environment = str(params.get("environment") or "DEV").strip().upper() or "DEV"
+    raw_names = params.get("function_names") or []
+    names = [str(name).strip().upper() for name in raw_names if str(name).strip()]
+    if not names:
+        raise SapExecutionError("Informe pelo menos um nome de function module para verificar.")
+
+    try:
+        from sap_rfc.obyc_service import check_function_modules_exist
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de diagnóstico: {exc}") from exc
+
+    try:
+        rows = check_function_modules_exist(environment, names)
+    except Exception as exc:
+        raise SapExecutionError(f"Falha na consulta TFDIR via RFC: {exc}") from exc
+
+    found_names = sorted({str(row.get("FUNCNAME") or "").strip().upper() for row in rows if row.get("FUNCNAME")})
+    missing_names = [name for name in names if name not in found_names]
+
+    payload = {
+        "ok": True,
+        "system": environment,
+        "checked": names,
+        "found": rows,
+        "missing": missing_names,
+        "message": f"{len(found_names)} de {len(names)} function module(s) encontrados em {environment}.",
+    }
+    log = "\n".join(
+        [
+            "Diagnóstico read-only: existência de function modules (TFDIR).",
+            f"Ambiente: {environment}",
+            f"Verificados: {names}",
+            f"Encontrados: {found_names}",
+            f"Não encontrados: {missing_names}",
+        ]
+    )
+    return json.dumps(payload, ensure_ascii=False), log
+
+
+def _run_sap_object_inspect(params: dict[str, Any]) -> tuple[str, str]:
+    """Diagnóstico read-only pontual: pesquisa um objeto de desenvolvimento
+    (grupo de funções ou function module) via TADIR/TFDIR e lista os
+    function modules que pertencem ao mesmo grupo de funções. Não escreve
+    nada em SAP."""
+
+    environment = str(params.get("environment") or "PRD").strip().upper() or "PRD"
+    object_name = str(params.get("object_name") or "").strip().upper()
+    if not object_name:
+        raise SapExecutionError("Informe o nome do objeto/função a pesquisar.")
+
+    try:
+        from sap_rfc.obyc_service import inspect_sap_object
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de diagnóstico: {exc}") from exc
+
+    try:
+        data = inspect_sap_object(environment, object_name)
+    except Exception as exc:
+        raise SapExecutionError(f"Falha na consulta TADIR/TFDIR via RFC: {exc}") from exc
+
+    tadir_rows = data.get("tadir") or []
+    function_group = data.get("function_group")
+    members = data.get("members") or []
+    as_function_module = data.get("as_function_module")
+
+    if tadir_rows:
+        object_type = str(tadir_rows[0].get("OBJECT") or "").strip()
+        message = f"Objeto {object_name} encontrado em TADIR (tipo {object_type})."
+    elif as_function_module:
+        message = f"{object_name} é um function module do grupo {function_group or '?'}."
+    else:
+        message = f"Objeto {object_name} não encontrado em TADIR/TFDIR em {environment}."
+
+    if function_group:
+        message += f" {len(members)} function module(s) no grupo {function_group}."
+
+    payload = {
+        "ok": True,
+        "system": environment,
+        "object_name": object_name,
+        "tadir": tadir_rows,
+        "function_group": function_group,
+        "as_function_module": as_function_module,
+        "members": members,
+        "message": message,
+    }
+    log = "\n".join(
+        [
+            "Diagnóstico read-only: inspeção de objeto SAP (TADIR/TFDIR).",
+            f"Ambiente: {environment}",
+            f"Objeto: {object_name}",
+            f"TADIR: {tadir_rows}",
+            f"Grupo de funções: {function_group}",
+            f"Membros: {[m.get('FUNCNAME') for m in members]}",
         ]
     )
     return json.dumps(payload, ensure_ascii=False), log
@@ -1094,6 +1204,91 @@ def _run_pfcg_role_users_analysis(params: dict[str, Any]) -> tuple[str, str]:
         cli_module="sap_rfc.pfcg_role_users_cli",
         label="utilizadores",
     )
+
+
+def _run_pfcg_role_auth_objects_analysis(params: dict[str, Any]) -> tuple[str, str]:
+    return _run_pfcg_role_sub_analysis(
+        params,
+        cli_module="sap_rfc.pfcg_role_auth_objects_cli",
+        label="objetos de autorização",
+    )
+
+
+def _run_pfcg_roles_field_check(params: dict[str, Any]) -> tuple[str, str]:
+    """Read-only via bridge RFC isolada: de uma lista de funções PFCG, quais
+    têm um campo de autorização (ex.: ACTVT) atribuído em algum objeto, em
+    SAP PRD. Aceita EXCLUSIVAMENTE `role_names` (lista) e `field` de params."""
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+    raw_roles = params.get("role_names") or []
+    role_names = [str(name).strip().upper() for name in raw_roles if str(name).strip()]
+    field = str(params.get("field") or "").strip().upper()
+
+    if not role_names or not field:
+        payload = {
+            "ok": False, "status": "ERRO", "roles": role_names, "field": field,
+            "error_type": "INVALID_INPUT",
+            "message": "Indique pelo menos uma função PFCG e o campo de autorização (ex.: ACTVT).",
+            "system": "PRD", "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
+        }
+        return json.dumps(payload, ensure_ascii=False), (
+            f"Verificação de campo PFCG rejeitada antes da bridge RFC.\nFunções: {role_names}\nCampo: {field}"
+        )
+
+    rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
+    if not rfc_python.exists():
+        raise SapExecutionError(f"Python RFC não encontrado: {rfc_python}")
+
+    env = _build_rfc_bridge_env(project_dir)
+    env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
+    command = [
+        str(rfc_python), "-m", "sap_rfc.pfcg_roles_field_cli",
+        "--role-names", ",".join(role_names),
+        "--field", field,
+    ]
+
+    try:
+        run = subprocess.run(
+            command, cwd=str(project_dir), env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=90, check=False, shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SapExecutionError(f"Timeout ao verificar campo '{field}' nas funções PFCG informadas.") from exc
+
+    stdout = str(run.stdout or "").strip()
+    stderr = str(run.stderr or "").strip()
+
+    if run.returncode not in RFC_ALLOWED_EXIT_CODES:
+        raise SapExecutionError(f"Bridge RFC (verificação de campo PFCG) falhou com exit code {run.returncode}.")
+    if not stdout:
+        raise SapExecutionError("Bridge RFC (verificação de campo PFCG) não devolveu JSON em stdout.")
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise SapExecutionError("Bridge RFC (verificação de campo PFCG) devolveu JSON inválido.") from exc
+    if not isinstance(payload, dict):
+        raise SapExecutionError("Bridge RFC (verificação de campo PFCG) devolveu payload inválido.")
+
+    log_lines = [
+        "Verificação de campo PFCG (AGR_1251) via subprocesso RFC controlado.",
+        f"Funções: {role_names}",
+        f"Campo: {field}",
+        f"Python RFC: {rfc_python}",
+        f"Exit code: {run.returncode}",
+        f"Status: {payload.get('status', '-')}",
+        f"Com o campo: {payload.get('with_field', '-')}",
+        f"Sem o campo: {payload.get('without_field', '-')}",
+        f"Não encontradas: {payload.get('not_found', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+    if payload.get("warning"):
+        log_lines.append(f"Aviso: {payload['warning']}")
+    if stderr:
+        log_lines.append(f"stderr: {stderr}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
 def _run_pfcg_transaction_roles(params: dict[str, Any]) -> tuple[str, str]:
@@ -2044,6 +2239,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_role_search": lambda job, params: _run_pfcg_role_search(params),
     "pfcg_role_transactions_analysis": lambda job, params: _run_pfcg_role_transactions_analysis(params),
     "pfcg_role_users_analysis": lambda job, params: _run_pfcg_role_users_analysis(params),
+    "pfcg_role_auth_objects_analysis": lambda job, params: _run_pfcg_role_auth_objects_analysis(params),
     "pfcg_transaction_roles": lambda job, params: _run_pfcg_transaction_roles(params),
     "pfcg_object_roles": lambda job, params: _run_pfcg_object_roles(params),
     "pfcg_user_roles": lambda job, params: _run_pfcg_user_roles(params),
@@ -2061,6 +2257,8 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_transport_search": lambda job, params: _run_pfcg_transport_search(params),
     "sap_search_requests": lambda job, params: _run_sap_search_requests(params),
     "obyc_rfc_read_table": lambda job, params: _run_obyc_rfc_read_table(params),
+    "sap_fm_exists_check": lambda job, params: _run_sap_fm_exists_check(params),
+    "sap_object_inspect": lambda job, params: _run_sap_object_inspect(params),
     "obyc_excel_preview": lambda job, params: _run_obyc_excel_preview(params),
     "obyc_excel_validate": lambda job, params: _run_obyc_excel_validate(params),
     "select_excel_file": lambda job, params: select_excel_file_on_windows(params),

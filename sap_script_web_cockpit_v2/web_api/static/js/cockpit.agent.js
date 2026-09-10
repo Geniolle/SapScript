@@ -53,6 +53,12 @@
     let asiObycAnalysisTable = 'T030';
     // Modo de entrada escolhido no submenu "Configurar" ('' | 'criar' | 'alterar').
     let asiObycConfigureEntryMode = '';
+    // Estados de "awaitingInput" do fluxo OBYC > Analisar > Individual (pedir
+    // tabela/chaves via chat, em vez de window.prompt).
+    const ASI_OBYC_ANALYSIS_TABLE_INPUT = 'obyc_analysis_table';
+    const ASI_OBYC_ANALYSIS_TABLE_PLACEHOLDER = 'Ex.: T030';
+    const ASI_OBYC_ANALYSIS_FILTERS_INPUT = 'obyc_analysis_filters';
+    const ASI_OBYC_ANALYSIS_FILTERS_PLACEHOLDER = 'Ex.: KTOPL=YCOA; KTOSL=BSX';
     // Qual o menu de Configuracoes em curso ('perfil' | 'utilizador' | 'obyc-configurar' | 'obyc-analisar').
     let asiConfigContext = 'perfil';
     const ASI_PFCG_SYSTEM_ACTIONS = [
@@ -1361,6 +1367,12 @@
         }
         if (asiConversationState.awaitingInput === ASI_PFCG_DELETE_TRANSPORT_CREATE_DESCRIPTION_INPUT) {
             return `Ex.: Eliminação de função PFCG em ${asiPfcgSystem}`;
+        }
+        if (asiConversationState.awaitingInput === ASI_OBYC_ANALYSIS_TABLE_INPUT) {
+            return ASI_OBYC_ANALYSIS_TABLE_PLACEHOLDER;
+        }
+        if (asiConversationState.awaitingInput === ASI_OBYC_ANALYSIS_FILTERS_INPUT) {
+            return ASI_OBYC_ANALYSIS_FILTERS_PLACEHOLDER;
         }
         return ASI_DEFAULT_PLACEHOLDER;
     }
@@ -4292,9 +4304,27 @@
         `;
     }
 
-    function asiParseObycFilters(rawText) {
+    // Ordem de campos T030 tal como usada na validação Excel (ver
+    // OBYC_VALIDATION_REQUEST_FIELDS em sap_rfc/obyc_service.py). Permite
+    // interpretar colas posicionais (ex.: copiadas de Excel/SAP, separadas
+    // por tabs) sem exigir o formato CAMPO=VALOR.
+    const ASI_OBYC_T030_POSITIONAL_FIELDS = ['KTOPL', 'KTOSL', 'BWMOD', 'KOMOK', 'BKLAS', 'KONTS', 'KONTH'];
+
+    function asiParseObycFilters(rawText, table) {
         const text = String(rawText || '').trim();
         if (!text) return [];
+
+        // Cola posicional: só para T030, só quando não há nenhum "=" no texto
+        // (senão seria ambíguo com o formato CAMPO=VALOR) e só quando o
+        // número de valores bate certo com um prefixo conhecido dos campos
+        // T030 (5 ou 7 valores).
+        const safeTable = String(table || '').trim().toUpperCase();
+        if (safeTable === 'T030' && !text.includes('=')) {
+            const tokens = text.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+            if (tokens.length === 5 || tokens.length === 7) {
+                return tokens.map((value, i) => ({ field: ASI_OBYC_T030_POSITIONAL_FIELDS[i], value }));
+            }
+        }
 
         return text
             .split(/[;\n,]+/)
@@ -4309,6 +4339,21 @@
                 return { field, value };
             })
             .filter(Boolean);
+    }
+
+    function asiPresentObycFiltersPrompt(table) {
+        const safeTable = String(table || 'T030').trim().toUpperCase() || 'T030';
+        const positionalHint = safeTable === 'T030'
+            ? ` Também pode colar os ${ASI_OBYC_T030_POSITIONAL_FIELDS.length} valores por ordem (${ASI_OBYC_T030_POSITIONAL_FIELDS.join('/')}), separados por espaço/tab, como copiado do Excel/SAP.`
+            : '';
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            `Que chave(s) deseja analisar em ${safeTable}? Indique no formato CAMPO=VALOR; CAMPO2=VALOR2 (ex.: KTOPL=YCOA; KTOSL=BSX).${positionalHint}`
+        ));
+        asiConversationState = { ...asiConversationState, awaitingInput: ASI_OBYC_ANALYSIS_FILTERS_INPUT, isBusy: false };
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
     }
 
     function asiFindQuickActionTrail(actionId, actions = salsaAgentActions, trail = []) {
@@ -4361,22 +4406,19 @@
     }
 
     function asiBuildObycAnalysisHtml(payload, system) {
+        asiEnsurePfcgResultStyles();
+        asiEnsurePfcgListStyles();
         const safeSystem = escapeHtml(String(system || payload.system || 'SAP').trim().toUpperCase() || 'SAP');
-        const safeTable = escapeHtml(String(payload.table || 'T030').trim().toUpperCase() || 'T030');
+        const safeTable = String(payload.table || 'T030').trim().toUpperCase() || 'T030';
         const filters = Array.isArray(payload.filters) ? payload.filters : [];
         const rows = Array.isArray(payload.rows) ? payload.rows : [];
         const columns = Array.isArray(payload.fields) && payload.fields.length > 0
             ? payload.fields
             : (rows[0] ? Object.keys(rows[0]) : []);
-        const message = escapeHtml(String(payload.message || `Consulta read-only concluída na tabela ${safeTable}.`));
-        const filtersHtml = filters.length > 0
-            ? filters.map((f) => `
-                <span class="asi-pfcg-result-field" style="display:inline-flex;gap:8px;align-items:center;margin:0 8px 8px 0;">
-                    <span class="asi-pfcg-result-label">${escapeHtml(String(f.field || ''))}</span>
-                    <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${escapeHtml(String(f.value || ''))}</span>
-                </span>
-            `).join('')
-            : '<span class="asi-pfcg-result-value">Sem filtros informados.</span>';
+        const message = String(payload.message || `Consulta read-only concluída na tabela ${safeTable}.`);
+        const filtersLabel = filters.length > 0
+            ? filters.map((f) => `${f.field}=${f.value}`).join('; ')
+            : 'Sem chaves';
         const headerCells = columns.map((col) => `<th>${escapeHtml(String(col || ''))}</th>`).join('');
         const bodyRows = rows.length > 0
             ? rows.map((row) => {
@@ -4385,29 +4427,21 @@
             }).join('')
             : `<tr><td colspan="${Math.max(columns.length, 1)}" class="asi-pfcg-list-empty">Sem registos encontrados.</td></tr>`;
 
+        const summaryFields = [
+            asiBuildPfcgResultField('Tabela', safeTable, 'asi-pfcg-result-value--nowrap'),
+            asiBuildPfcgResultField('Registos', rows.length, 'asi-pfcg-result-value--nowrap'),
+            asiBuildPfcgResultField('Chaves', filtersLabel, '', true),
+            asiBuildPfcgResultField('Mensagem', message, '', true),
+        ].join('');
+
         return `
             <div class="asi-pfcg-result-card">
                 <div class="asi-pfcg-result-heading-row">
                     <div class="asi-pfcg-result-heading" style="color:#16a34a;">✓ OBYC consultada em ${safeSystem}</div>
                 </div>
                 <div class="asi-pfcg-result-shell">
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Tabela</span>
-                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${safeTable}</span>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Chaves</span>
-                        <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                            ${filtersHtml}
-                        </div>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Mensagem</span>
-                        <span class="asi-pfcg-result-value">${message}</span>
-                    </div>
-                    <div class="asi-pfcg-result-field" style="margin-bottom:10px;">
-                        <span class="asi-pfcg-result-label">Registos</span>
-                        <span class="asi-pfcg-result-value asi-pfcg-result-value--nowrap">${rows.length}</span>
+                    <div class="asi-pfcg-result-grid">
+                        ${summaryFields}
                     </div>
                     <div class="asi-pfcg-result-shell" style="overflow:auto;">
                         <table class="asi-pfcg-list-table">
@@ -8023,6 +8057,41 @@
             return;
         }
 
+        if (asiConversationState.awaitingInput === ASI_OBYC_ANALYSIS_TABLE_INPUT) {
+            const table = rawMessage.trim().toUpperCase();
+            if (!table) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Indique um nome de tabela válido, por exemplo T030.'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_OBYC_ANALYSIS_TABLE_INPUT, isBusy: false };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+            asiObycAnalysisTable = table;
+            asiConfigContext = 'perfil';
+            asiObycMode = 'configurar';
+            asiPresentObycFiltersPrompt(table);
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_OBYC_ANALYSIS_FILTERS_INPUT) {
+            const table = asiObycAnalysisTable || 'T030';
+            const filters = asiParseObycFilters(rawMessage, table);
+            if (filters.length === 0) {
+                const positionalHint = table === 'T030'
+                    ? ` Ou cole os ${ASI_OBYC_T030_POSITIONAL_FIELDS.length} valores por ordem (${ASI_OBYC_T030_POSITIONAL_FIELDS.join('/')}), separados por espaço/tab, como copiado do Excel/SAP.`
+                    : '';
+                asiAppendMessage(asiCreateMessage('assistant', `Não foram indicadas chaves válidas. Use o formato CAMPO=VALOR; CAMPO2=VALOR2 para consultar ${table}.${positionalHint}`));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_OBYC_ANALYSIS_FILTERS_INPUT, isBusy: false };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+            asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+            asiUpdateComposerState();
+            await asiStartObycAnalysis(table, filters);
+            return;
+        }
+
         if (options.skipAssistantReply) return;
 
         if (asiChatMockTimer) {
@@ -8829,41 +8898,22 @@
             }
 
             if (actionId === 'obyc-table-t030' || actionId === 'obyc-table-t030k' || actionId === 'obyc-table-t030r' || actionId === 'obyc-table-other') {
-                let table = 'T030';
-                if (actionId === 'obyc-table-t030k') {
-                    table = 'T030K';
-                } else if (actionId === 'obyc-table-t030r') {
-                    table = 'T030R';
-                } else if (actionId === 'obyc-table-other') {
-                    const typedTable = window.prompt('Indique a tabela OBYC a consultar, por exemplo T030:', asiObycAnalysisTable || 'T030');
-                    table = String(typedTable || '').trim().toUpperCase();
-                }
-
-                if (!table) return;
-
-                asiObycAnalysisTable = table;
-                asiAppendMessage(asiCreateMessage('user', actionId === 'obyc-table-other' ? `Outra tabela: ${table}` : table));
-
-                const defaultFilters = table === 'T030'
-                    ? 'KTOPL=; KTOSL=; BWMOD='
-                    : '';
-                const rawFilters = window.prompt(
-                    `Introduza as chaves para consultar ${table}.\nFormato: CAMPO=VALOR; CAMPO2=VALOR2`,
-                    defaultFilters
-                );
-                if (rawFilters === null) return;
-
-                const filters = asiParseObycFilters(rawFilters);
-                if (filters.length === 0) {
-                    asiAppendMessage(asiCreateMessage('assistant', 'Não foi possível iniciar a consulta porque não foram indicadas chaves válidas.', {
-                        breadcrumb: asiBuildQuickActionBreadcrumb('obyc-analisar', [asiPfcgSystem, table]),
-                    }));
+                if (actionId === 'obyc-table-other') {
+                    asiAppendMessage(asiCreateMessage('user', 'Outra tabela'));
+                    asiAppendMessage(asiCreateMessage('assistant', 'Indique a tabela OBYC a consultar (ex.: T030K):'));
+                    asiConversationState = { ...asiConversationState, awaitingInput: ASI_OBYC_ANALYSIS_TABLE_INPUT, isBusy: false };
+                    asiUpdateComposerState();
+                    const { input } = asiGetElements();
+                    if (input) input.focus();
                     return;
                 }
 
+                const table = actionId === 'obyc-table-t030k' ? 'T030K' : actionId === 'obyc-table-t030r' ? 'T030R' : 'T030';
+                asiObycAnalysisTable = table;
+                asiAppendMessage(asiCreateMessage('user', table));
                 asiConfigContext = 'perfil';
                 asiObycMode = 'configurar';
-                await asiStartObycAnalysis(table, filters);
+                asiPresentObycFiltersPrompt(table);
                 return;
             }
         }

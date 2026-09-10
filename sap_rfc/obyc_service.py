@@ -400,6 +400,335 @@ def read_obyc_table(environment: str, table: str, filters: list[dict[str, str]],
         raise RuntimeError(str(exc)) from exc
 
 
+# Whitelist própria e isolada para este diagnóstico pontual — não reutiliza
+# OBYC_ALLOWED_TABLES (fica reservada à família T030) para não alargar sem
+# necessidade o alcance dessa guarda existente.
+FM_EXISTENCE_ALLOWED_TABLES = ("TFDIR",)
+
+
+def _check_function_modules_exist_core(environment: str, function_names: list[str]) -> list[dict[str, Any]]:
+    _prepare_project_imports()
+
+    try:
+        from pyrfc import Connection as _Connection  # type: ignore
+        from sap_agent.safety import SafetyGuard
+    except Exception as exc:
+        raise RuntimeError(f"Não foi possível importar o cliente RFC read-only: {exc}") from exc
+
+    names = [str(name).strip().upper() for name in function_names if str(name).strip()]
+    if not names:
+        return []
+
+    conn = None
+    try:
+        safety_guard = SafetyGuard.build(
+            allow_write_operations=False,
+            allowed_functions=("RFC_PING", "RFC_READ_TABLE"),
+            allowed_tables=FM_EXISTENCE_ALLOWED_TABLES,
+        )
+        safety_guard.assert_function_allowed("RFC_READ_TABLE")
+        safety_guard.assert_table_allowed("TFDIR")
+        conn = _Connection(**_obyc_connection_params(environment))
+        # Campos reais da TFDIR (confirmados via RFC_READ_TABLE com FIELDS=[] em
+        # DEV — a tabela não tem coluna "AREA"; PNAME é o programa gerado do
+        # grupo de funções, ex. "SAPLSRFC" -> grupo de funções "SRFC").
+        fields_payload = [{"FIELDNAME": field} for field in ("FUNCNAME", "PNAME", "INCLUDE", "FMODE")]
+        options_payload = []
+        for index, name in enumerate(names):
+            escaped_name = name.replace("'", "''")
+            prefix = "" if index == 0 else "OR "
+            options_payload.append(f"{prefix}FUNCNAME = '{escaped_name}'")
+        result = conn.call(
+            "RFC_READ_TABLE",
+            QUERY_TABLE="TFDIR",
+            DELIMITER="|",
+            FIELDS=fields_payload,
+            OPTIONS=[{"TEXT": option} for option in options_payload],
+            ROWCOUNT=max(len(names) * 2, 10),
+        )
+        sap_fields = [
+            str(entry.get("FIELDNAME") or "").strip()
+            for entry in result.get("FIELDS", [])
+            if str(entry.get("FIELDNAME") or "").strip()
+        ]
+        rows: list[dict[str, Any]] = []
+        for row in result.get("DATA", []):
+            values = str(row.get("WA", "")).split("|")
+            rows.append(
+                {
+                    field: (values[index].strip() if index < len(values) else "")
+                    for index, field in enumerate(sap_fields)
+                }
+            )
+        return rows
+    except Exception as exc:
+        if _is_obyc_no_data_error(exc):
+            return []
+        raise RuntimeError(f"Falha na consulta read-only TFDIR via RFC: {exc}") from exc
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+
+
+def _check_function_modules_exist_via_bridge(environment: str, function_names: list[str]) -> list[dict[str, Any]]:
+    python_exe = _bridge_python_executable()
+    if not python_exe:
+        runtime = "Windows" if _is_windows_runtime() else "WSL/Linux"
+        raise RuntimeError(
+            f"Diagnóstico TFDIR via bridge indisponível neste runtime ({runtime}). "
+            "Configure SAP_FI_BRIDGE_PYTHON com um Python que tenha PyRFC instalado."
+        )
+
+    payload = {"environment": environment, "function_names": function_names}
+    bridge_code = (
+        "import json, os, sys, traceback\n"
+        "from pathlib import Path\n"
+        "project_dir = os.environ.get('SAP_SCRIPT_PROJECT_DIR', '').strip()\n"
+        "if project_dir:\n"
+        "    project_path = Path(project_dir)\n"
+        "    if str(project_path) not in sys.path:\n"
+        "        sys.path.insert(0, str(project_path))\n"
+        "payload = json.loads(sys.stdin.read() or '{}')\n"
+        "from sap_rfc.obyc_service import _check_function_modules_exist_core\n"
+        "try:\n"
+        "    rows = _check_function_modules_exist_core(payload['environment'], payload['function_names'])\n"
+        "    print(json.dumps({'ok': True, 'rows': rows}, ensure_ascii=False))\n"
+        "except Exception as exc:\n"
+        "    print(json.dumps({'ok': False, 'message': str(exc), 'traceback': traceback.format_exc()}, ensure_ascii=False))\n"
+        "    raise SystemExit(1)\n"
+    )
+    proc = subprocess.run(
+        [python_exe, "-c", bridge_code],
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        cwd=str(Path(__file__).resolve().parent.parent),
+    )
+
+    stdout = (proc.stdout or "").strip()
+    if not stdout:
+        raise RuntimeError(f"Bridge do diagnóstico TFDIR devolveu saída vazia.\nSTDERR: {proc.stderr}")
+
+    try:
+        data = json.loads(stdout.splitlines()[-1])
+    except Exception as exc:
+        raise RuntimeError(f"Bridge do diagnóstico TFDIR devolveu JSON inválido.\nSTDOUT: {proc.stdout}\nSTDERR: {proc.stderr}") from exc
+
+    if not data.get("ok"):
+        raise RuntimeError(str(data.get("message") or "Falha no bridge do diagnóstico TFDIR."))
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        raise RuntimeError("Bridge do diagnóstico TFDIR devolveu linhas inválidas.")
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def check_function_modules_exist(environment: str, function_names: list[str]) -> list[dict[str, Any]]:
+    """Diagnóstico read-only: confirma via RFC_READ_TABLE/TFDIR se os function
+    modules indicados existem de facto no sistema SAP indicado (não escreve
+    nada em SAP; usado apenas para validar candidatos a rotina standard de
+    escrita da OBYC/T030)."""
+    try:
+        return _check_function_modules_exist_core(environment, function_names)
+    except Exception as exc:
+        if Connection is None:
+            return _check_function_modules_exist_via_bridge(environment, function_names)
+        raise RuntimeError(str(exc)) from exc
+
+
+# Whitelist própria e isolada para este diagnóstico pontual — inspeção
+# genérica de um objeto de desenvolvimento (TADIR) e, se aplicável, dos
+# function modules que pertencem ao mesmo grupo de funções (TFDIR). Não
+# reutiliza OBYC_ALLOWED_TABLES nem FM_EXISTENCE_ALLOWED_TABLES.
+Z_OBJECT_INSPECT_ALLOWED_TABLES = ("TADIR", "TFDIR")
+
+
+def _rfc_read_table_rows(conn: Any, table: str, fields: list[str], options: list[str], rowcount: int = 200) -> list[dict[str, Any]]:
+    try:
+        result = conn.call(
+            "RFC_READ_TABLE",
+            QUERY_TABLE=table,
+            DELIMITER="|",
+            FIELDS=[{"FIELDNAME": field} for field in fields],
+            OPTIONS=[{"TEXT": option} for option in options],
+            ROWCOUNT=rowcount,
+        )
+    except Exception as exc:
+        if _is_obyc_no_data_error(exc):
+            return []
+        raise
+    sap_fields = [
+        str(entry.get("FIELDNAME") or "").strip()
+        for entry in result.get("FIELDS", [])
+        if str(entry.get("FIELDNAME") or "").strip()
+    ]
+    rows: list[dict[str, Any]] = []
+    for row in result.get("DATA", []):
+        values = str(row.get("WA", "")).split("|")
+        rows.append(
+            {
+                field: (values[index].strip() if index < len(values) else "")
+                for index, field in enumerate(sap_fields)
+            }
+        )
+    return rows
+
+
+def _inspect_sap_object_core(environment: str, object_name: str) -> dict[str, Any]:
+    _prepare_project_imports()
+
+    try:
+        from pyrfc import Connection as _Connection  # type: ignore
+        from sap_agent.safety import SafetyGuard
+    except Exception as exc:
+        raise RuntimeError(f"Não foi possível importar o cliente RFC read-only: {exc}") from exc
+
+    name = str(object_name or "").strip().upper()
+    if not name:
+        raise RuntimeError("Indique o nome do objeto/função a pesquisar.")
+    escaped_name = name.replace("'", "''")
+
+    conn = None
+    try:
+        safety_guard = SafetyGuard.build(
+            allow_write_operations=False,
+            allowed_functions=("RFC_PING", "RFC_READ_TABLE"),
+            allowed_tables=Z_OBJECT_INSPECT_ALLOWED_TABLES,
+        )
+        safety_guard.assert_function_allowed("RFC_READ_TABLE")
+        safety_guard.assert_table_allowed("TADIR")
+        safety_guard.assert_table_allowed("TFDIR")
+        conn = _Connection(**_obyc_connection_params(environment))
+
+        tadir_rows = _rfc_read_table_rows(
+            conn,
+            "TADIR",
+            ["PGMID", "OBJECT", "OBJ_NAME", "DEVCLASS", "AUTHOR", "CREATED_ON", "SRCSYSTEM"],
+            [f"OBJ_NAME = '{escaped_name}'"],
+        )
+
+        function_group = None
+        as_function_module = None
+        fugr_entry = next((row for row in tadir_rows if row.get("OBJECT") == "FUGR"), None)
+        if fugr_entry:
+            # O próprio nome pesquisado é um grupo de funções.
+            function_group = name
+        else:
+            # Tentar como function module individual — TFDIR revela o
+            # programa gerado do grupo (PNAME, ex. "SAPLZBASE" -> grupo
+            # "ZBASE"); os FM individuais não têm entrada própria em TADIR.
+            fm_rows = _rfc_read_table_rows(
+                conn,
+                "TFDIR",
+                ["FUNCNAME", "PNAME", "INCLUDE", "FMODE"],
+                [f"FUNCNAME = '{escaped_name}'"],
+            )
+            if fm_rows:
+                as_function_module = fm_rows[0]
+                pname = str(fm_rows[0].get("PNAME") or "").strip()
+                if pname.startswith("SAPL"):
+                    function_group = pname[4:]
+
+        members: list[dict[str, Any]] = []
+        if function_group:
+            pname = f"SAPL{function_group}"
+            members = _rfc_read_table_rows(
+                conn,
+                "TFDIR",
+                ["FUNCNAME", "PNAME", "INCLUDE", "FMODE"],
+                [f"PNAME = '{pname}'"],
+            )
+
+        return {
+            "object_name": name,
+            "tadir": tadir_rows,
+            "function_group": function_group,
+            "as_function_module": as_function_module,
+            "members": members,
+        }
+    except Exception as exc:
+        raise RuntimeError(f"Falha na consulta read-only de objeto SAP via RFC: {exc}") from exc
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+
+
+def _inspect_sap_object_via_bridge(environment: str, object_name: str) -> dict[str, Any]:
+    python_exe = _bridge_python_executable()
+    if not python_exe:
+        runtime = "Windows" if _is_windows_runtime() else "WSL/Linux"
+        raise RuntimeError(
+            f"Inspeção de objeto SAP via bridge indisponível neste runtime ({runtime}). "
+            "Configure SAP_FI_BRIDGE_PYTHON com um Python que tenha PyRFC instalado."
+        )
+
+    payload = {"environment": environment, "object_name": object_name}
+    bridge_code = (
+        "import json, os, sys, traceback\n"
+        "from pathlib import Path\n"
+        "project_dir = os.environ.get('SAP_SCRIPT_PROJECT_DIR', '').strip()\n"
+        "if project_dir:\n"
+        "    project_path = Path(project_dir)\n"
+        "    if str(project_path) not in sys.path:\n"
+        "        sys.path.insert(0, str(project_path))\n"
+        "payload = json.loads(sys.stdin.read() or '{}')\n"
+        "from sap_rfc.obyc_service import _inspect_sap_object_core\n"
+        "try:\n"
+        "    data = _inspect_sap_object_core(payload['environment'], payload['object_name'])\n"
+        "    print(json.dumps({'ok': True, 'data': data}, ensure_ascii=False))\n"
+        "except Exception as exc:\n"
+        "    print(json.dumps({'ok': False, 'message': str(exc), 'traceback': traceback.format_exc()}, ensure_ascii=False))\n"
+        "    raise SystemExit(1)\n"
+    )
+    proc = subprocess.run(
+        [python_exe, "-c", bridge_code],
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        cwd=str(Path(__file__).resolve().parent.parent),
+    )
+
+    stdout = (proc.stdout or "").strip()
+    if not stdout:
+        raise RuntimeError(f"Bridge de inspeção de objeto SAP devolveu saída vazia.\nSTDERR: {proc.stderr}")
+
+    try:
+        result = json.loads(stdout.splitlines()[-1])
+    except Exception as exc:
+        raise RuntimeError(f"Bridge de inspeção de objeto SAP devolveu JSON inválido.\nSTDOUT: {proc.stdout}\nSTDERR: {proc.stderr}") from exc
+
+    if not result.get("ok"):
+        raise RuntimeError(str(result.get("message") or "Falha no bridge de inspeção de objeto SAP."))
+    data = result.get("data")
+    if not isinstance(data, dict):
+        raise RuntimeError("Bridge de inspeção de objeto SAP devolveu dados inválidos.")
+    return data
+
+
+def inspect_sap_object(environment: str, object_name: str) -> dict[str, Any]:
+    """Diagnóstico read-only: pesquisa um objeto de desenvolvimento (ex. grupo
+    de funções ou function module) via TADIR/TFDIR e devolve, se aplicável, a
+    lista de function modules pertencentes ao mesmo grupo de funções. Não
+    escreve nada em SAP."""
+    try:
+        return _inspect_sap_object_core(environment, object_name)
+    except Exception as exc:
+        if Connection is None:
+            return _inspect_sap_object_via_bridge(environment, object_name)
+        raise RuntimeError(str(exc)) from exc
+
+
 def _build_workbook_from_preview_data(preview_data: dict[str, Any]) -> dict[str, Any]:
     return {
         "file_name": str(preview_data.get("file_name") or "Excel da OBYC").strip() or "Excel da OBYC",
