@@ -27,7 +27,7 @@ import glob
 import re
 import unicodedata
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set, Iterable
 
 # Garantir codificação UTF-8 no Windows
 if sys.platform.startswith("win"):
@@ -205,6 +205,37 @@ class ProjetoPerfilData:
         # Sheet CONTROLO: lista de departamentos e seus status
         self.controlo: List[Dict[str, Any]] = []
 
+        # Sheet PFCG_AUTHORITY: funções avulsas associadas a compostas {nome_composta: set(roles_filhas)}
+        self.roles_authority: Dict[str, Set[str]] = {}
+
+        # Sheet EXCLUÇÃO: padrões globais a desconsiderar (ex.: ZMM_APROVA_PEDC_COD_*, Z_MY_HOME)
+        self.padroes_exclusao: List[str] = []
+
+    def is_excluida(self, role: str) -> bool:
+        """Verifica se uma role corresponde a algum padrão da sheet EXCLUÇÃO."""
+        import fnmatch
+        r = str(role).strip().upper()
+        return any(fnmatch.fnmatchcase(r, p.upper()) for p in self.padroes_exclusao)
+
+    def expandir_funcoes(self, roles: Iterable[str]) -> Set[str]:
+        """
+        Expande recursivamente um conjunto de roles respeitando:
+        - Filhas em PFCG_COMPOSTA
+        - Avulsas em PFCG_AUTHORITY
+        - Desconsiderando as que coincidem com EXCLUÇÃO
+        """
+        expandidas: Set[str] = set()
+        pendentes = [str(r).strip().upper() for r in roles if str(r).strip()]
+        while pendentes:
+            role = pendentes.pop()
+            if not role or role in expandidas or self.is_excluida(role):
+                continue
+            expandidas.add(role)
+            membros = set(self.roles_compostas.get(role, {}).get("roles_filhas", []))
+            membros.update(self.roles_authority.get(role, set()))
+            pendentes.extend(membros - expandidas)
+        return expandidas
+
     def obter_estatisticas(self) -> Dict[str, Any]:
         """Gera um resumo estatístico das funções lidas."""
         total_tcodes = len(self.tcode_para_roles)
@@ -220,6 +251,8 @@ class ProjetoPerfilData:
             "departamentos_pendentes": pendentes_controlo,
             "total_roles_simples": len(self.roles_simples),
             "total_roles_compostas": len(self.roles_compostas),
+            "total_authority_compostas": len(self.roles_authority),
+            "padroes_exclusao": self.padroes_exclusao,
             "total_tcodes_unicos": total_tcodes,
             "total_cua_adicionar": len(self.cua_adicionar),
             "cua_adicionar_pendentes": pendentes_add,
@@ -461,6 +494,34 @@ def carregar_projeto_perfil(caminho_excel: Optional[str] = None) -> ProjetoPerfi
                 if user not in dados.utilizadores_cua:
                     dados.utilizadores_cua[user] = {"adicionar": [], "remover": []}
                 dados.utilizadores_cua[user]["remover"].append(item)
+
+    # -------------------------------------------------------------
+    # 5. Leitura de PFCG_AUTHORITY (Funções de Autorização ligadas a Compostas)
+    # -------------------------------------------------------------
+    sheet_auth = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) == "PFCGAUTHORITY"), None)
+    if sheet_auth:
+        df_auth = pd.read_excel(excel_file, sheet_name=sheet_auth)
+        cols_map = {normalizar_nome_coluna(c): c for c in df_auth.columns}
+        col_comp = cols_map.get("AGRNAMECOMPOSTA") or cols_map.get("COMPOSITEROLE")
+        col_role = cols_map.get("AGRNAME") or cols_map.get("SINGLEROLE")
+        if col_comp and col_role:
+            for _, row in df_auth.iterrows():
+                comp = normalizar_texto(row.get(col_comp))
+                role = normalizar_texto(row.get(col_role))
+                if comp and role:
+                    dados.roles_authority.setdefault(comp, set()).add(role)
+
+    # -------------------------------------------------------------
+    # 6. Leitura de EXCLUÇÃO / EXCLUSAO (Padrões Desconsiderados)
+    # -------------------------------------------------------------
+    sheet_exc = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) in ("EXCLUCAO", "EXCLUSAO")), None)
+    if sheet_exc:
+        df_exc = pd.read_excel(excel_file, sheet_name=sheet_exc)
+        if len(df_exc.columns):
+            dados.padroes_exclusao = [
+                normalizar_texto(v) for v in df_exc.iloc[:, 0].dropna().tolist()
+                if normalizar_texto(v)
+            ]
 
     return dados
 
@@ -779,6 +840,500 @@ def imprimir_resultado_verificacao_prd(resultado: Dict[str, Any], titulo_context
 
 
 # =====================================================================
+# CRUZAMENTO RELACIONAL DE FONTES E VALIDAÇÃO DE UTILIZADORES
+# =====================================================================
+
+def cruzar_fontes_departamento(dados: ProjetoPerfilData, departamento: str = "Purchase & Services") -> Dict[str, Any]:
+    """
+    Cruza relacionalmente as quatro fontes essenciais:
+      1. PFCG_CREATE: Funções individuais criadas;
+      2. PFCG_COMPOSTA: Membros de cada função composta;
+      3. PFCG_AUTHORITY: Funções avulsas ligadas à respetiva composta;
+      4. EXCLUÇÃO: Padrões globais fora do escopo de remoção/falta.
+    """
+    analise = analisar_departamento_proposta(dados, departamento)
+    if not analise.get("encontrado"):
+        return {"encontrado": False, "departamento": departamento, "mensagem": analise.get("mensagem")}
+
+    usuarios_detalhe = []
+    for u in analise.get("usuarios", []):
+        usr = u["usuario"]
+        comp = u.get("composta")
+        singles_prop = [r for r in u.get("singles", []) if r]
+
+        # Base inicial: Composta (se houver) + Singles da Proposta Ativa
+        base_set = set()
+        if comp:
+            base_set.add(comp)
+        base_set.update(singles_prop)
+
+        # Membros PFCG_COMPOSTA
+        membros_comp = set(dados.roles_compostas.get(comp, {}).get("roles_filhas", [])) if comp else set()
+        # Funções PFCG_AUTHORITY da composta
+        authority_comp = set(dados.roles_authority.get(comp, set())) if comp else set()
+
+        # Expansão relacional completa recursiva
+        esperado_expandido = dados.expandir_funcoes(base_set)
+
+        # Identificar exclusões presentes na proposta original
+        excluidas_na_proposta = [r for r in base_set if dados.is_excluida(r)]
+
+        usuarios_detalhe.append({
+            "usuario": usr,
+            "nome": u["nome"],
+            "cargo": u["cargo"],
+            "composta": comp,
+            "singles_proposta_total": len(singles_prop),
+            "membros_composta_total": len(membros_comp),
+            "authority_composta_total": len(authority_comp),
+            "membros_composta": sorted(membros_comp),
+            "authority_composta": sorted(authority_comp),
+            "esperado_total": len(esperado_expandido),
+            "esperado_roles": sorted(esperado_expandido),
+            "excluidas_proposta": excluidas_na_proposta,
+        })
+
+    return {
+        "encontrado": True,
+        "departamento": departamento,
+        "total_usuarios": len(usuarios_detalhe),
+        "padroes_exclusao": dados.padroes_exclusao,
+        "usuarios": usuarios_detalhe,
+    }
+
+
+def imprimir_cruzamento_fontes(resultado: Dict[str, Any]):
+    """Exibe no terminal o relatório de cruzamento relacional de fontes."""
+    print("\n" + "=" * 75)
+    print("  🔗 CRUZAMENTO DE FONTES (PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY, EXCLUÇÃO)")
+    print(f"  🏢 Departamento: {resultado.get('departamento', '')}")
+    print("=" * 75)
+
+    if not resultado.get("encontrado"):
+        print(f"  ⚠️ {resultado.get('mensagem', 'Departamento não encontrado.')}")
+        return
+
+    print(f"  Regras EXCLUÇÃO aplicadas: {resultado.get('padroes_exclusao', [])}")
+    print(f"  Utilizadores analisados:   {resultado.get('total_usuarios', 0)}")
+    print("-" * 75)
+
+    for u in resultado.get("usuarios", []):
+        comp_str = f"Composta: {u['composta']}" if u.get("composta") else "Sem Composta"
+        print(f"\n  👤 {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']}")
+        print(f"     └─ {comp_str} | {u['singles_proposta_total']} Singles na Proposta")
+        print(f"        ├─ Membros em PFCG_COMPOSTA:   {u['membros_composta_total']}")
+        print(f"        ├─ PFCG_AUTHORITY da Composta: {u['authority_composta_total']}")
+        print(f"        └─ 🎯 Esperado Expandido Final: {u['esperado_total']} Funções")
+        if u.get("excluidas_proposta"):
+            print(f"           🛡️ Desconsideradas por EXCLUÇÃO: {', '.join(u['excluidas_proposta'])}")
+
+
+def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purchase & Services") -> Dict[str, Any]:
+    """
+    Verifica no SAP PRD (AGR_USERS via RFC) as atribuições reais de cada utilizador
+    do departamento, cruzando com a expansão (PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY)
+    e desconsiderando os padrões da sheet EXCLUÇÃO.
+    """
+    from datetime import date
+
+    def assignment_status_rfc(from_dat: str, to_dat: str) -> str:
+        hoje = int(date.today().strftime("%Y%m%d"))
+        inicio = int(from_dat) if str(from_dat).strip().isdigit() else 0
+        fim = int(to_dat) if str(to_dat).strip().isdigit() else 99991231
+        if hoje < inicio:
+            return "FUTURO"
+        if hoje > fim:
+            return "EXPIRADO"
+        return "ATIVO"
+
+    cruzamento = cruzar_fontes_departamento(dados, departamento)
+    if not cruzamento.get("encontrado"):
+        return {"ok": False, "erro": cruzamento.get("mensagem")}
+
+    esperado_por_user = {
+        u["usuario"]: set(u["esperado_roles"])
+        for u in cruzamento["usuarios"]
+    }
+    detalhes_user = {
+        u["usuario"]: u
+        for u in cruzamento["usuarios"]
+    }
+
+    os.environ["SAP_TARGET_ENV"] = "PRD"
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_read_only_guard, read_table, make_option_in
+        )
+        from pyrfc import Connection
+
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for("PRD")
+        conn = Connection(**params)
+        guard = make_read_only_guard(["AGR_USERS", "USR02"])
+
+        ativas_prd: Dict[str, Set[str]] = {u: set() for u in esperado_por_user}
+        inativas_prd: Dict[str, Dict[str, Any]] = {u: {} for u in esperado_por_user}
+        mestre_usr02: Dict[str, Dict[str, Any]] = {}
+
+        users_list = sorted(esperado_por_user.keys())
+
+        # Consulta mestre USR02 para verificar estado e validade da conta
+        try:
+            opts_usr = make_option_in("BNAME", users_list)
+            rows_usr = read_table(conn, guard, table_name="USR02", fields=["BNAME", "GLTGV", "GLTGB", "UFLAG", "TRDAT"], options=opts_usr, rowcount=0)
+            for r in rows_usr:
+                if len(r) >= 3:
+                    bn = str(r[0]).strip().upper()
+                    g_fim = str(r[2]).strip()
+                    hoje_int = int(date.today().strftime("%Y%m%d"))
+                    fim_int = int(g_fim) if g_fim.isdigit() and int(g_fim) > 0 else 99991231
+                    expirado = hoje_int > fim_int
+                    mestre_usr02[bn] = {
+                        "expirado": expirado,
+                        "validade_fim": g_fim if expirado else "",
+                        "uflag": str(r[3]).strip() if len(r) > 3 else "0",
+                        "ultimo_logon": str(r[4]).strip() if len(r) > 4 else "",
+                    }
+        except Exception:
+            pass
+
+        for i in range(0, len(users_list), 20):
+            chunk = users_list[i:i + 20]
+            opts = make_option_in("UNAME", chunk)
+            rows = read_table(conn, guard, table_name="AGR_USERS", fields=["AGR_NAME", "UNAME", "FROM_DAT", "TO_DAT"], options=opts, rowcount=0)
+            for r in rows:
+                if len(r) >= 4:
+                    role = str(r[0]).strip().upper()
+                    uname = str(r[1]).strip().upper()
+                    from_d = str(r[2]).strip()
+                    to_d = str(r[3]).strip()
+                    if uname in ativas_prd and role:
+                        st = assignment_status_rfc(from_d, to_d)
+                        if st == "ATIVO":
+                            ativas_prd[uname].add(role)
+                        else:
+                            inativas_prd[uname][role] = {"status": st, "inicio": from_d, "fim": to_d}
+
+        conn.close()
+
+        relatorio_users = []
+        total_adicionais = 0
+        total_desconsideradas = 0
+
+        for uname in sorted(esperado_por_user.keys()):
+            esp = esperado_por_user[uname]
+            atv = ativas_prd[uname]
+            faltam = sorted(esp - atv)
+            adicionais_brutas = sorted(atv - esp)
+            desconsideradas = sorted([r for r in adicionais_brutas if dados.is_excluida(r)])
+            adicionais_reais = sorted(set(adicionais_brutas) - set(desconsideradas))
+
+            total_adicionais += len(adicionais_reais)
+            total_desconsideradas += len(desconsideradas)
+
+            u_meta = detalhes_user[uname]
+            usr_info = mestre_usr02.get(uname, {})
+            u_expirado = usr_info.get("expirado", False)
+
+            relatorio_users.append({
+                "usuario": uname,
+                "nome": u_meta["nome"],
+                "cargo": u_meta["cargo"],
+                "composta": u_meta["composta"],
+                "inativo_usr02": u_expirado,
+                "validade_fim": usr_info.get("validade_fim", ""),
+                "esperadas_total": len(esp),
+                "ativas_total": len(atv),
+                "esperadas_ativas": len(esp & atv),
+                "faltam": faltam,
+                "adicionais": adicionais_reais,
+                "desconsideradas_exclusao": desconsideradas,
+                "conforme": (len(faltam) == 0) or u_expirado,
+            })
+
+        return {
+            "ok": True,
+            "departamento": departamento,
+            "sistema": "PRD",
+            "mandante": params.get("client", "100"),
+            "total_utilizadores": len(relatorio_users),
+            "padroes_exclusao": dados.padroes_exclusao,
+            "total_adicionais_ativas": total_adicionais,
+            "total_desconsideradas_exclusao": total_desconsideradas,
+            "utilizadores": relatorio_users,
+        }
+    except Exception as err:
+        return {
+            "ok": False,
+            "departamento": departamento,
+            "erro": str(err),
+        }
+
+
+def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
+    """Exibe no terminal a validação dos utilizadores no PRD com cruzamento relacional."""
+    print("\n" + "=" * 75)
+    print("  🔍 VALIDAÇÃO DE UTILIZADORES NO SAP PRD (via RFC AGR_USERS & USR02)")
+    print(f"  🏢 Departamento: {res.get('departamento', '')} | Sistema: {res.get('sistema', 'PRD')}")
+    print("=" * 75)
+
+    if not res.get("ok"):
+        print(f"  ❌ Erro ao validar utilizadores no PRD: {res.get('erro')}")
+        return
+
+    print(f"  Regras EXCLUÇÃO aplicadas: {res.get('padroes_exclusao', [])}")
+    print(f"  Total de Funções Adicionais Ativas:         {res.get('total_adicionais_ativas', 0)}")
+    print(f"  Ocorrências Desconsideradas por EXCLUÇÃO:  {res.get('total_desconsideradas_exclusao', 0)}")
+    print("-" * 75)
+
+    for u in res.get("utilizadores", []):
+        if u.get("inativo_usr02"):
+            status_ico = "⏸️"
+            obs = f" [CONTA EXPIRADA EM USR02 - Validade terminou a {u.get('validade_fim')}]"
+        else:
+            status_ico = "✅" if u["conforme"] else "⚠️"
+            obs = ""
+
+        add_str = f" | {len(u['adicionais'])} Adicionais" if u["adicionais"] else " | 0 Adicionais"
+        print(f"\n  {status_ico} 👤 {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']}{obs}")
+        print(f"     └─ Atribuições Esperadas Ativas: {u['esperadas_ativas']}/{u['esperadas_total']}{add_str}")
+        
+        if u["faltam"] and not u.get("inativo_usr02"):
+            print(f"        ❌ EM FALTA ({len(u['faltam'])}): {', '.join(u['faltam'])}")
+        elif u["faltam"] and u.get("inativo_usr02"):
+            print(f"        ℹ️ Sem atribuições ativas por desativação/offboarding no sistema SAP.")
+        if u["adicionais"]:
+            print(f"        📌 ADICIONAIS A VALIDAR ({len(u['adicionais'])}): {', '.join(u['adicionais'])}")
+        if u["desconsideradas_exclusao"]:
+            print(f"        🛡️ Protegidas por EXCLUÇÃO ({len(u['desconsideradas_exclusao'])}): {', '.join(u['desconsideradas_exclusao'])}")
+
+
+def auditar_utilizador(dados: ProjetoPerfilData, utilizador: str) -> Dict[str, Any]:
+    """
+    Realiza uma auditoria completa e aprofundada a um utilizador:
+      1. Localização na sheet 'Proposta Ativa' (departamento, cargo, roles atribuídas).
+      2. Mapeamento no CUA (CUA_ADICIONAR e CUA_REMOVE).
+      3. Expansão relacional das funções esperadas (PFCG_COMPOSTA + PFCG_AUTHORITY - EXCLUÇÃO).
+      4. Consulta em tempo real ao SAP PRD via RFC (USR02 e AGR_USERS).
+    """
+    user_norm = normalizar_texto(utilizador)
+    if not user_norm:
+        return {"ok": False, "erro": "Identificador de utilizador vazio."}
+
+    # 1. Pesquisa na Proposta Ativa
+    meta_proposta = None
+    sheet_proposta = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) == "PROPOSTAATIVA"), None)
+    if sheet_proposta:
+        try:
+            import pandas as pd
+            fonte = abrir_excel_seguro(dados.caminho)
+            df_raw = pd.read_excel(fonte, sheet_name=sheet_proposta, header=None)
+            for idx in range(1, len(df_raw)):
+                u_id = str(df_raw.iloc[idx, 0]).strip() if pd.notna(df_raw.iloc[idx, 0]) else ""
+                if normalizar_texto(u_id) == user_norm:
+                    singles = [
+                        str(x).strip() for x in df_raw.iloc[idx, 9:].dropna().tolist()
+                        if str(x).strip() and str(x).strip().upper() not in ("NAN", "NONE", "")
+                    ]
+                    comp = str(df_raw.iloc[idx, 8]).strip() if pd.notna(df_raw.iloc[idx, 8]) else ""
+                    comp = comp if comp.upper() not in ("NAN", "NONE", "") else None
+                    meta_proposta = {
+                        "usuario": u_id,
+                        "nome": str(df_raw.iloc[idx, 2]).strip() if pd.notna(df_raw.iloc[idx, 2]) else "",
+                        "departamento": str(df_raw.iloc[idx, 7]).strip() if pd.notna(df_raw.iloc[idx, 7]) else "",
+                        "cargo": str(df_raw.iloc[idx, 6]).strip() if pd.notna(df_raw.iloc[idx, 6]) else "",
+                        "composta": comp,
+                        "singles": singles,
+                        "total_singles_proposta": len(singles),
+                    }
+                    break
+        except Exception:
+            pass
+
+    # 2. Atribuições CUA
+    cua_info = dados.utilizadores_cua.get(user_norm, {"adicionar": [], "remover": []})
+
+    # 3. Expansão Relacional
+    esperadas = set()
+    if meta_proposta:
+        base_set = set()
+        if meta_proposta.get("composta"):
+            base_set.add(meta_proposta["composta"])
+        base_set.update(meta_proposta.get("singles", []))
+        esperadas = dados.expandir_funcoes(base_set)
+
+    # 4. Consulta ao SAP PRD via RFC
+    os.environ["SAP_TARGET_ENV"] = "PRD"
+    usr02_info = {}
+    desc_map = {}
+    prd_ok = False
+    prd_erro = ""
+    agr_rows_raw = []
+
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_read_only_guard, read_table, make_option_in
+        )
+        from pyrfc import Connection
+        from datetime import date
+
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for("PRD")
+        conn = Connection(**params)
+        guard = make_read_only_guard(["USR02", "AGR_USERS", "AGR_TEXTS"])
+
+        # Mestre USR02
+        u_rows = read_table(conn, guard, table_name="USR02", fields=["BNAME", "GLTGV", "GLTGB", "USTYP", "UFLAG", "TRDAT", "LTIME"], options=make_option_in("BNAME", [user_norm]), rowcount=0)
+        if u_rows:
+            r_u = u_rows[0]
+            g_fim = str(r_u[2]).strip()
+            hoje_int = int(date.today().strftime("%Y%m%d"))
+            fim_int = int(g_fim) if g_fim.isdigit() and int(g_fim) > 0 else 99991231
+            usr02_info = {
+                "tipo": str(r_u[3]).strip(),
+                "bloqueado": str(r_u[4]).strip() != "0",
+                "uflag": str(r_u[4]).strip(),
+                "expirado": hoje_int > fim_int,
+                "validade_fim": g_fim,
+                "ultimo_logon": f"{r_u[5].strip()} {r_u[6].strip()}".strip(),
+            }
+
+        # AGR_USERS
+        agr_rows_raw = read_table(conn, guard, table_name="AGR_USERS", fields=["AGR_NAME", "FROM_DAT", "TO_DAT"], options=make_option_in("UNAME", [user_norm]), rowcount=0)
+        roles_list = [r[0].strip() for r in agr_rows_raw if r]
+        
+        # AGR_TEXTS
+        if roles_list:
+            text_rows = read_table(conn, guard, table_name="AGR_TEXTS", fields=["AGR_NAME", "SPRAS", "TEXT"], options=make_option_in("AGR_NAME", roles_list[:60]), rowcount=0)
+            for tr in text_rows:
+                r_name = tr[0].strip()
+                spras = tr[1].strip().upper()
+                txt = tr[2].strip()
+                if spras in ("P", "PT") or r_name not in desc_map:
+                    desc_map[r_name] = txt
+
+        conn.close()
+        prd_ok = True
+
+        # Processar atribuições
+        hoje_int = int(date.today().strftime("%Y%m%d"))
+        ativas_prd = set()
+        expiradas_prd = []
+        for r in agr_rows_raw:
+            role = str(r[0]).strip().upper()
+            from_d = str(r[1]).strip()
+            to_d = str(r[2]).strip()
+            fim = int(to_d) if to_d.isdigit() and int(to_d) > 0 else 99991231
+            ini = int(from_d) if from_d.isdigit() and int(from_d) > 0 else 0
+            desc = desc_map.get(role, "")
+            if ini <= hoje_int <= fim:
+                ativas_prd.add(role)
+            elif hoje_int > fim:
+                expiradas_prd.append({"role": role, "inicio": from_d, "fim": to_d, "desc": desc})
+
+    except Exception as err:
+        prd_erro = str(err)
+        ativas_prd = set()
+        expiradas_prd = []
+
+    faltam = sorted(esperadas - ativas_prd) if esperadas else []
+    adicionais_brutas = sorted(ativas_prd - esperadas) if esperadas else sorted(ativas_prd)
+    desconsideradas = sorted([r for r in adicionais_brutas if dados.is_excluida(r)])
+    adicionais_reais = sorted(set(adicionais_brutas) - set(desconsideradas))
+
+    return {
+        "ok": True,
+        "utilizador": user_norm,
+        "proposta": meta_proposta,
+        "cua": cua_info,
+        "esperadas_total": len(esperadas),
+        "esperadas_roles": sorted(esperadas),
+        "prd_conectado": prd_ok,
+        "prd_erro": prd_erro,
+        "mestre_usr02": usr02_info,
+        "ativas_total": len(ativas_prd),
+        "expiradas_total": len(expiradas_prd),
+        "expiradas": expiradas_prd,
+        "esperadas_ativas": len(esperadas & ativas_prd),
+        "faltam": faltam,
+        "protegidas_exclusao": desconsideradas,
+        "adicionais_reais": adicionais_reais,
+        "conforme": (len(faltam) == 0 and len(esperadas) > 0),
+        "padroes_exclusao": dados.padroes_exclusao,
+    }
+
+
+def imprimir_auditoria_utilizador(res: Dict[str, Any]):
+    """Exibe no terminal a auditoria detalhada de um utilizador."""
+    u = res.get("utilizador", "")
+    p = res.get("proposta") or {}
+    print("\n" + "=" * 75)
+    print(f"  👤 AUDITORIA COMPLETA DE UTILIZADOR: {u}")
+    if p.get("nome"):
+        print(f"  Nome: {p.get('nome')} | Cargo: {p.get('cargo')} | Departamento: {p.get('departamento')}")
+    print("=" * 75)
+
+    # 1. Proposta Ativa
+    if p:
+        print("\n  📋 1. DADOS NA 'PROPOSTA ATIVA':")
+        print(f"     ├─ Função Composta: {p.get('composta') or 'Nenhuma'}")
+        print(f"     ├─ Funções Simples Declaradas: {p.get('total_singles_proposta')}")
+        print(f"     └─ 🎯 Total Esperado após Expansão Relacional: {res.get('esperadas_total')} Funções")
+    else:
+        print("\n  📋 1. 'PROPOSTA ATIVA': Utilizador não localizado na folha Proposta Ativa.")
+
+    # 2. CUA
+    cua = res.get("cua", {})
+    adds = cua.get("adicionar", [])
+    rms = cua.get("remover", [])
+    if adds or rms:
+        print(f"\n  🔄 2. ATRIBUIÇÕES NO CUA: {len(adds)} para Adicionar, {len(rms)} para Remover")
+    else:
+        print("\n  🔄 2. ATRIBUIÇÕES NO CUA: Nenhuma instrução pendente em CUA_ADICIONAR/CUA_REMOVE.")
+
+    # 3. SAP PRD
+    if not res.get("prd_conectado"):
+        print(f"\n  ❌ 3. SAP PRD: Erro de ligação RFC ({res.get('prd_erro')})")
+        return
+
+    m = res.get("mestre_usr02", {})
+    print("\n  🌐 3. ESTADO NO SAP PRD (Mestre USR02 & AGR_USERS):")
+    if m:
+        st_lock = "🔒 BLOQUEADO" if m.get("bloqueado") else "🔓 Desbloqueado"
+        st_exp = f"⏸️ EXPIRADO a {m.get('validade_fim')}" if m.get("expirado") else "✅ Conta Ativa"
+        print(f"     ├─ Tipo: {m.get('tipo', 'A')} | Estado: {st_lock} | Validade: {st_exp}")
+        print(f"     ├─ Último Logon: {m.get('ultimo_logon') or 'Nunca'}")
+    print(f"     ├─ Funções Ativas no PRD:       {res.get('ativas_total')}")
+    print(f"     ├─ Funções Expiradas/Histórico: {res.get('expiradas_total')}")
+    print(f"     └─ Conformidade com a Proposta: {res.get('esperadas_ativas')}/{res.get('esperadas_total')} ativas")
+
+    if res.get("faltam"):
+        print(f"\n  ❌ FUNÇÕES EM FALTA ({len(res['faltam'])}):")
+        for f in res["faltam"]:
+            print(f"     ├─ {f}")
+    else:
+        print("\n  ✅ TODAS AS FUNÇÕES PREVISTAS ESTÃO 100% ATIVAS NO PRD (0 em falta)!")
+
+    prot = res.get("protegidas_exclusao", [])
+    if prot:
+        print(f"\n  🛡️ Ocorrências Protegidas por EXCLUÇÃO ({len(prot)}):")
+        for pr in prot:
+            print(f"     ├─ {pr}")
+
+    adicionais = res.get("adicionais_reais", [])
+    if adicionais:
+        print(f"\n  📌 FUNÇÕES ADICIONAIS A VALIDAR ({len(adicionais)}):")
+        for a in adicionais:
+            print(f"     ├─ {a}")
+    else:
+        print("\n  🎉 NENHUMA FUNÇÃO ADICIONAL PENDENTE DE VALIDAÇÃO (0 adicionais)!")
+
+
+# =====================================================================
 # FORMATAÇÃO VISUAL E INTERFACE DE LINHA DE COMANDOS
 # =====================================================================
 
@@ -944,14 +1499,16 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
         print("  MENU PRINCIPAL - PROJETO PERFIL:")
         print("  [1] 📋 Validar Sheet CONTROLO (Departamentos com STATUS vazio)")
         print("  [2] 🏢 Analisar Funções por Departamento (Proposta Ativa)")
-        print("  [3] 🌐 Verificar Existência de Funções no SAP PRD (via RFC)")
-        print("  [4] 📊 Ver Resumo Geral das Funções")
-        print("  [5] 🔍 Pesquisar por Nome de Função (Role / Perfil)")
-        print("  [6] 📌 Pesquisar por Transação (TCODE -> Funções)")
-        print("  [7] 👤 Pesquisar por Utilizador (CUA: Adições / Remoções)")
-        print("  [8] 📋 Listar todas as Roles Simples")
-        print("  [9] 📋 Listar todas as Roles Compostas")
-        print("  [10] 📂 Abrir outro ficheiro Excel")
+        print("  [3] 🔗 Cruzar Fontes (PFCG_CREATE, COMPOSTA, AUTHORITY, EXCLUÇÃO)")
+        print("  [4] 👤 Validar Utilizadores no SAP PRD (AGR_USERS com Cruzamento)")
+        print("  [5] 🌐 Verificar Existência de Funções no SAP PRD (AGR_DEFINE)")
+        print("  [6] 📊 Ver Resumo Geral das Funções")
+        print("  [7] 🔍 Pesquisar por Nome de Função (Role / Perfil)")
+        print("  [8] 📌 Pesquisar por Transação (TCODE -> Funções)")
+        print("  [9] 👤 Pesquisar por Utilizador (CUA: Adições / Remoções)")
+        print("  [10] 📋 Listar todas as Roles Simples")
+        print("  [11] 📋 Listar todas as Roles Compostas")
+        print("  [12] 📂 Abrir outro ficheiro Excel")
         print("  [0] 🚪 Sair")
         print("-" * 75)
 
@@ -968,6 +1525,21 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
             imprimir_analise_departamento(res_dep)
 
         elif opcao == "3":
+            dep_padrao = "Purchase & Services"
+            dep_in = input(f"🔎 Nome do departamento para Cruzamento (Enter para '{dep_padrao}'): ").strip()
+            alvo = dep_in if dep_in else dep_padrao
+            res_cruz = cruzar_fontes_departamento(dados, alvo)
+            imprimir_cruzamento_fontes(res_cruz)
+
+        elif opcao == "4":
+            dep_padrao = "Purchase & Services"
+            dep_in = input(f"🔎 Nome do departamento para Validar no PRD (Enter para '{dep_padrao}'): ").strip()
+            alvo = dep_in if dep_in else dep_padrao
+            print(f"⏳ A consultar atribuições no SAP PRD (AGR_USERS) para '{alvo}' ...")
+            res_prd_users = validar_utilizadores_prd(dados, alvo)
+            imprimir_validacao_utilizadores_prd(res_prd_users)
+
+        elif opcao == "5":
             print("\n  O que deseja verificar no SAP PRD?")
             print("  [1] Funções do departamento 'Purchase & Services'")
             print("  [2] Todas as funções do ficheiro Excel (PFCG_CREATE + PFCG_COMPOSTA)")
@@ -985,42 +1557,42 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
                 else:
                     print("⚠️ Não foi possível obter as funções do departamento.")
 
-        elif opcao == "4":
+        elif opcao == "6":
             imprimir_resumo(dados)
 
-        elif opcao == "5":
+        elif opcao == "7":
             termo = input("🔎 Digite o nome da função ou texto (ex.: Z_BR, MANAGER, ZORG): ").strip()
             if termo:
                 res = pesquisar_funcao(dados, termo)
                 imprimir_resultado_funcao(res)
 
-        elif opcao == "6":
+        elif opcao == "8":
             tcode = input("🔎 Digite a transação SAP (ex.: FB01, CO01, SU01, SE16): ").strip()
             if tcode:
                 res = pesquisar_por_tcode(dados, tcode)
                 imprimir_resultado_tcode(res)
 
-        elif opcao == "7":
-            user = input("🔎 Digite o ID do Utilizador SAP (ex.: S6005, S5354): ").strip()
+        elif opcao == "9":
+            user = input("🔎 Digite o ID do Utilizador SAP (ex.: S419, S170, S270, S6005): ").strip()
             if user:
-                res = pesquisar_por_utilizador(dados, user)
-                imprimir_resultado_user(res)
+                res_audit = auditar_utilizador(dados, user)
+                imprimir_auditoria_utilizador(res_audit)
 
-        elif opcao == "8":
+        elif opcao == "10":
             print(f"\n📋 Total de {len(dados.roles_simples)} Roles Simples:")
             for r, info in sorted(dados.roles_simples.items()):
                 t_count = len(info["tcodes"])
                 desc = f" - {info['descricao']}" if info.get("descricao") else ""
                 print(f"  ├─ {r} ({t_count} TCODEs){desc}")
 
-        elif opcao == "9":
+        elif opcao == "11":
             print(f"\n📋 Total de {len(dados.roles_compostas)} Roles Compostas:")
             for c, info in sorted(dados.roles_compostas.items()):
                 filhas_count = len(info["roles_filhas"])
                 desc = f" - {info['descricao']}" if info.get("descricao") else ""
                 print(f"  ├─ {c} ({filhas_count} roles filhas){desc}")
 
-        elif opcao == "10":
+        elif opcao == "12":
             novo_caminho = selecionar_ficheiro_dialogo()
             if novo_caminho and os.path.exists(novo_caminho):
                 try:
@@ -1053,17 +1625,19 @@ if __name__ == "__main__":
     parser.add_argument("--xlsx", "--ficheiro", "-f", dest="ficheiro", help="Caminho do ficheiro Excel de perfis")
     parser.add_argument("--controlo", "--validar-controlo", dest="controlo", action="store_true", help="Validar sheet CONTROLO e listar departamentos pendentes")
     parser.add_argument("--departamento", "-d", dest="departamento", nargs="?", const="Purchase & Services", help="Analisar funções de um departamento na sheet Proposta Ativa")
-    parser.add_argument("--verificar-prd", dest="verificar_prd", action="store_true", help="Verificar se as funções existem no sistema SAP PRD via RFC")
+    parser.add_argument("--cruzar-fontes", dest="cruzar_fontes", action="store_true", help="Cruzar PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY e EXCLUÇÃO para o departamento")
+    parser.add_argument("--validar-users-prd", dest="validar_users_prd", action="store_true", help="Validar atribuições dos utilizadores no SAP PRD (AGR_USERS) com cruzamento relacional")
+    parser.add_argument("--verificar-prd", dest="verificar_prd", action="store_true", help="Verificar se as funções existem no sistema SAP PRD via RFC (AGR_DEFINE)")
     parser.add_argument("--pesquisar-role", "-r", dest="role", help="Pesquisar diretamente por nome de função")
     parser.add_argument("--pesquisar-tcode", "-t", dest="tcode", help="Pesquisar diretamente por transação SAP")
-    parser.add_argument("--pesquisar-user", "-u", dest="user", help="Pesquisar diretamente por utilizador CUA")
+    parser.add_argument("--pesquisar-user", "-u", dest="user", help="Auditar e pesquisar diretamente por utilizador (Proposta, CUA e SAP PRD)")
 
     args = parser.parse_args()
 
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.departamento or args.verificar_prd or args.role or args.tcode or args.user:
+    if args.controlo or args.departamento or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.role or args.tcode or args.user:
         if not caminho_alvo:
             print("❌ Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
@@ -1073,9 +1647,17 @@ if __name__ == "__main__":
 
         if args.controlo:
             imprimir_validacao_controlo(dados)
-        if args.departamento and not args.verificar_prd:
+        if args.departamento and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd):
             res_dep = analisar_departamento_proposta(dados, args.departamento)
             imprimir_analise_departamento(res_dep)
+        if args.cruzar_fontes:
+            alvo_dep = args.departamento if args.departamento else "Purchase & Services"
+            res_cruz = cruzar_fontes_departamento(dados, alvo_dep)
+            imprimir_cruzamento_fontes(res_cruz)
+        if args.validar_users_prd:
+            alvo_dep = args.departamento if args.departamento else "Purchase & Services"
+            res_prd_users = validar_utilizadores_prd(dados, alvo_dep)
+            imprimir_validacao_utilizadores_prd(res_prd_users)
         if args.verificar_prd:
             if args.departamento:
                 dep_info = analisar_departamento_proposta(dados, args.departamento)
@@ -1091,7 +1673,8 @@ if __name__ == "__main__":
         if args.tcode:
             imprimir_resultado_tcode(pesquisar_por_tcode(dados, args.tcode))
         if args.user:
-            imprimir_resultado_user(pesquisar_por_utilizador(dados, args.user))
+            res_audit = auditar_utilizador(dados, args.user)
+            imprimir_auditoria_utilizador(res_audit)
     else:
         # Modo interativo padrão
         menu_interativo(caminho_alvo)

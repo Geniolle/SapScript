@@ -1,130 +1,61 @@
 # Funções diferentes por utilizador — Purchase & Services
 
-Comparação realizada em 11/09/2026 entre a folha `Proposta Ativa` do ficheiro
-`S4H_Perfis de autorização.xlsx` e as atribuições ativas em `AGR_USERS`, no PRD,
-mandante 100.
+Comparação realizada em 11/09/2026 entre as atribuições ativas em `AGR_USERS`,
+no PRD (mandante 100), e o modelo completo do ficheiro
+`S4H_Perfis de autorização.xlsx`.
 
-## Resumo
+## Critério correto de cruzamento
 
-- 6 utilizadores ativos analisados.
-- Todas as 210 funções previstas estão atribuídas.
-- Foram encontradas 103 diferenças brutas (contagem por utilizador).
-- 16 ocorrências foram desconsideradas pelas regras da folha `EXCLUÇÃO`.
-- Restaram 87 atribuições adicionais reais.
-- `S80001870` não integra a comparação porque a validade do utilizador terminou em 29/07/2026.
+Para cada utilizador, o conjunto esperado é construído a partir da `Proposta Ativa`
+e expandido recursivamente usando:
 
-Regras aplicadas da folha `EXCLUÇÃO`: `ZMM_APROVA_PEDC_COD_*`,
-`ZFIN_PS_BASIC`, `ZFIN_PS_SPEC` e `Z_MY_HOME`.
+- `PFCG_CREATE`: catálogo das funções individuais criadas;
+- `PFCG_COMPOSTA`: membros de cada função composta atribuída;
+- `PFCG_AUTHORITY`: funções avulsas associadas às respetivas compostas;
+- `EXCLUÇÃO`: padrões que ficam fora da análise e nunca são candidatos a remoção.
 
-## S170 — Monica Rodrigues (18 adicionais)
+As regras da folha `EXCLUÇÃO` são `ZMM_APROVA_PEDC_COD_*`, `ZFIN_PS_BASIC`,
+`ZFIN_PS_SPEC`, `Z_MY_HOME` e `SAP_*` (incluindo todas as funções técnicas/standard SAP).
 
-- `ZORG_BP_Z004_PUBLICENTITIES`
-- `ZORG_BP_Z005_BANKS`
-- `ZORG_BP_Z006_OCCASIONALPARTNER`
-- `ZORG_BP_Z007_COMPANYPARTNERS`
-- `ZORG_BP_Z008_DCS_GENERALSITE`
-- `ZORG_BP_Z009_STORES_GROUPS`
-- `Z_ARTICLE_REPORT`
-- `Z_COSTCENTER_CREATE_VIEW`
-- `Z_CREDIT_OVERVIEW_APPROVE`
-- `Z_DELIVERY_CREATE`
-- `Z_DELIVERY_REPORT`
-- `Z_INVENTORY_DC_STORE`
-- `Z_INVOICE_CREATE`
-- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
-- `Z_INVOICE_REPORT`
-- `Z_PRODUCTION_ORDER_CREATE`
-- `Z_PRODUCTION_ORDER_REPORT`
-- `Z_SALES_ORDER_REPORT`
+## Resultado
 
-## S270 — Cidália Oliveira (13 adicionais)
+| Utilizador | Funções esperadas | Em falta | Adicionais candidatas | Protegidas por EXCLUÇÃO |
+|---|---:|---:|---:|:---|
+| `S170` | 48 | 0 | 0 | `Z_MY_HOME` (1) |
+| `S270` | 48 | 0 | 1 | `Z_MY_HOME` (1) |
+| `S419` | 48 | 0 | 2 | `SAP_*` (2), `Z_MY_HOME` (1) |
+| `S75` | 50 | 0 | 0 | `ZFIN_PS_SPEC`, `ZMM_APROVA_*`, `Z_MY_HOME` (7) |
+| `S80000148` | 48 | 0 | 0 | `ZMM_APROVA_*`, `Z_MY_HOME` (5) |
+| `S965` | 48 | 0 | 0 | `SAP_*` (2), `Z_MY_HOME` (1) |
+| **Total** | **290** | **0** | **3** | **20 ocorrências protegidas** |
 
-- `ZORG_BP_Z004_PUBLICENTITIES`
-- `ZORG_BP_Z005_BANKS`
-- `ZORG_BP_Z006_OCCASIONALPARTNER`
-- `ZORG_BP_Z007_COMPANYPARTNERS`
-- `ZORG_BP_Z008_DCS_GENERALSITE`
-- `ZORG_BP_Z009_STORES_GROUPS`
-- `Z_COSTCENTER_CREATE`
-- `Z_COSTCENTER_CREATE_VIEW`
-- `Z_INCOMING_INVOICE`
-- `Z_INVOICE_DISPLAY`
-- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
-- `Z_PURCHASE_ORDER_APPROVE`
-- `Z_SALESORDER_DISPLAY`
+`S80001870` não integra o resultado dos utilizadores ativos porque a sua validade no mestre `USR02`
+terminou em 29/07/2026 (conta inativa por desativação/offboarding).
 
-## S419 — Conceição Cunha (18 adicionais)
+## Candidatas por utilizador
 
-- `SAP_BR_TRD_CLS_SPECIALIST`
-- `SAP_FND_BCR_MANAGER_T`
-- `ZORG_BP_Z004_PUBLICENTITIES`
-- `ZORG_BP_Z005_BANKS`
-- `ZORG_BP_Z006_OCCASIONALPARTNER`
-- `ZORG_BP_Z007_COMPANYPARTNERS`
-- `ZORG_BP_Z008_DCS_GENERALSITE`
-- `ZORG_BP_Z009_STORES_GROUPS`
-- `ZORG_CENTROS_2XXX`
-- `ZORG_CENTROS_SALSA`
-- `Z_COSTCENTER_CREATE_VIEW`
-- `Z_CREDIT_OVERVIEW_APPROVE`
-- `Z_DELIVERY_REPORT`
-- `Z_INVENTORY_DC_STORE`
-- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
-- `Z_INVOICE_REPORT`
-- `Z_PRODUCTION_ORDER_CREATE`
-- `Z_PRODUCTION_ORDER_REPORT`
+### S170 — Monica Rodrigues
+Nenhuma função candidata a remoção (100% conforme).
 
-## S75 — Carla Costa (8 adicionais)
+### S270 — Cidália Oliveira (1 adicional)
+- `Z_COSTCENTER_CREATE` (Transações: `KS01`, `KS02`, `KS03`, `KS04` — Criação de Centros de Custo)
 
-- `ZORG_BP_Z004_PUBLICENTITIES`
-- `ZORG_BP_Z005_BANKS`
-- `ZORG_BP_Z006_OCCASIONALPARTNER`
-- `ZORG_BP_Z007_COMPANYPARTNERS`
-- `ZORG_BP_Z008_DCS_GENERALSITE`
-- `ZORG_BP_Z009_STORES_GROUPS`
-- `Z_COSTCENTER_CREATE_VIEW`
-- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
+### S419 — Conceição Cunha (2 adicionais)
+- `ZORG_CENTROS_2XXX` (Nível Organizacional de Centros 2XXX)
+- `ZORG_CENTROS_SALSA` (Nível Organizacional de Centros Salsa)
+*(As funções `SAP_BR_TRD_CLS_SPECIALIST` e `SAP_FND_BCR_MANAGER_T` foram protegidas pela regra `SAP_*`)*
 
-## S80000148 — Catarina Faia (14 adicionais)
+### S75 — Carla Costa
+Nenhuma função candidata a remoção (100% conforme).
 
-- `ZORG_BP_Z004_PUBLICENTITIES`
-- `ZORG_BP_Z005_BANKS`
-- `ZORG_BP_Z006_OCCASIONALPARTNER`
-- `ZORG_BP_Z007_COMPANYPARTNERS`
-- `ZORG_BP_Z008_DCS_GENERALSITE`
-- `ZORG_BP_Z009_STORES_GROUPS`
-- `Z_COSTCENTER_CREATE_VIEW`
-- `Z_CREDIT_OVERVIEW_APPROVE`
-- `Z_INVOICE_CREATE`
-- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
-- `Z_INVOICE_REPORT`
-- `Z_PRODUCTION_ORDER_CREATE`
-- `Z_PRODUCTION_ORDER_REPORT`
-- `Z_SALES_ORDER_REPORT`
+### S80000148 — Catarina Faia
+Nenhuma função candidata a remoção (100% conforme).
 
-## S965 — Dulce Guimarães (16 adicionais)
+### S965 — Dulce Guimarães
+Nenhuma função candidata a remoção (100% conforme — `SAP_BR_TRD_CLS_SPECIALIST` e `SAP_FND_BCR_MANAGER_T` protegidas por `SAP_*`).
 
-- `SAP_BR_TRD_CLS_SPECIALIST`
-- `SAP_FND_BCR_MANAGER_T`
-- `ZORG_BP_Z004_PUBLICENTITIES`
-- `ZORG_BP_Z005_BANKS`
-- `ZORG_BP_Z006_OCCASIONALPARTNER`
-- `ZORG_BP_Z007_COMPANYPARTNERS`
-- `ZORG_BP_Z008_DCS_GENERALSITE`
-- `ZORG_BP_Z009_STORES_GROUPS`
-- `Z_COSTCENTER_CREATE_VIEW`
-- `Z_DIVERGENCE_INVOICE_COCKPIT`
-- `Z_INCOMING_INVOICE`
-- `Z_INCOMING_INVOICE_VIEW`
-- `Z_INVOICE_DISPLAY`
-- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
-- `Z_PROJECT_APPROVE`
-- `Z_SALESORDER_DISPLAY`
+## Segurança
 
-## Interpretação
-
-As funções acima estão ativas no PRD, mas não constam no conjunto previsto para o
-respetivo utilizador na folha `Proposta Ativa`. A presença na lista não significa,
-por si só, que a função deva ser removida: pode decorrer de outra responsabilidade,
-de uma atribuição legada ou de outra função composta. Antes de qualquer remoção, é
-necessária validação funcional e análise da origem da atribuição.
+Estas 3 atribuições restantes estão fora do conjunto derivado para o respetivo utilizador,
+mas exigem aprovação funcional antes de qualquer remoção no CUA. Nenhuma alteração
+foi efetuada no CUA durante esta análise.

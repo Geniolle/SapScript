@@ -89,36 +89,72 @@ auditoria dos valores do objeto de autorização `S_TCODE` em `AGR_1251`.
 - As 640 associações composta–individual previstas existem em `AGR_AGRS`.
 - As 24 funções compostas correspondem exatamente ao Excel, sem membros em falta ou adicionais.
 
-### Atribuições aos utilizadores ativos
+### Atribuições aos utilizadores ativos com Cruzamento Relacional
 
-O departamento em aberto na folha `CONTROLO` era `Purchase & Services`.
+O departamento em aberto na folha `CONTROLO` é `Purchase & Services`.
 
-- 7 utilizadores constavam da proposta.
-- 6 utilizadores ativos estavam conformes: `S170`, `S270`, `S419`, `S75`, `S80000148` e `S965`.
-- As 210 atribuições esperadas para esses utilizadores estavam ativas em `AGR_USERS`.
-- `S80001870` foi excluído da divergência porque a validade no mestre `USR02` terminou em **29/07/2026**; o último logon também ocorreu nessa data.
+O modelo relacional completo cruza quatro folhas:
+1. `PFCG_CREATE`: Catálogo oficial de funções individuais (77 roles, 577 TCODEs).
+2. `PFCG_COMPOSTA`: Membros de cada função composta (24 compostas, 640 relações).
+3. `PFCG_AUTHORITY`: Funções avulsas ligadas à respetiva composta (ex.: `Z_BR_TYPE_BP_GERAL`, `Z_BR_BUSINESS_PARTNER`).
+4. `EXCLUÇÃO`: Padrões globais fora do escopo (`ZMM_APROVA_PEDC_COD_*`, `ZFIN_PS_BASIC`, `ZFIN_PS_SPEC`, `Z_MY_HOME`, `SAP_*`).
 
-Conclusão: as funções e os utilizadores ativos do departamento foram validados para a etapa de atribuição.
+#### Resultado da Validação no SAP PRD (`AGR_USERS` & `USR02`):
 
-### Funções adicionais após aplicação da folha EXCLUÇÃO
+- **7 utilizadores analisados** (6 ativos e 1 inativo):
+  - `S80001870` (Pedro Matos): Inativo no SAP PRD desde **29/07/2026** (validade expirada no mestre `USR02`).
+  - **6 utilizadores ativos**: `S170`, `S270`, `S419`, `S75`, `S80000148` e `S965`.
+- **290 de 290 atribuições esperadas** estão ativas no PRD (**0 em falta**, 100% de conformidade).
+- **20 ocorrências desconsideradas** pelas regras da folha `EXCLUÇÃO` (incluindo as funções standard `SAP_*`).
+- **Apenas 3 funções adicionais ativas** restam para validação funcional prévia:
+  - `S170` (Monica Rodrigues): **0 adicionais** (100% conforme).
+  - `S75` (Carla Costa): **0 adicionais** (100% conforme).
+  - `S80000148` (Catarina Faia): **0 adicionais** (100% conforme).
+  - `S965` (Dulce Guimarães): **0 adicionais** (100% conforme — `SAP_*` protegidas).
+  - `S270` (Cidália Oliveira): **1 adicional** (`Z_COSTCENTER_CREATE`).
+  - `S419` (Conceição Cunha): **2 adicionais** (`ZORG_CENTROS_2XXX`, `ZORG_CENTROS_SALSA`).
 
-A comparação entre as funções ativas no PRD e a `Proposta Ativa` encontrou inicialmente
-103 diferenças, contadas por utilizador. Foram aplicadas as regras globais da folha
-`EXCLUÇÃO`: `ZMM_APROVA_PEDC_COD_*`, `ZFIN_PS_BASIC`, `ZFIN_PS_SPEC` e `Z_MY_HOME`.
+O relatório detalhado está documentado em `docs/FUNCOES_DIFERENTES_PURCHASE_SERVICES_PRD.md`.
 
-- 16 ocorrências foram desconsideradas pelas regras de exclusão.
-- Restaram 87 atribuições adicionais reais nos 6 utilizadores ativos.
-- Nenhuma das 210 atribuições previstas estava em falta.
-- A lista detalhada encontra-se em `docs/FUNCOES_DIFERENTES_PURCHASE_SERVICES_PRD.md`.
+### Novos Comandos CLI Integrados:
 
-As funções adicionais exigem validação funcional antes de qualquer remoção, pois podem
-resultar de outras responsabilidades, atribuições legadas ou outras funções compostas.
+```powershell
+# Cruzamento relacional das quatro fontes para o departamento
+python "Projeto Perfil.py" --cruzar-fontes -d "Purchase & Services"
 
-### Scripts de auditoria
+# Validação real no SAP PRD (AGR_USERS & USR02) com expansão relacional
+python "Projeto Perfil.py" --validar-users-prd -d "Purchase & Services"
+```
 
-- `scratch/validar_tcodes_perfil_prd.py`
-- `scratch/validar_membros_compostas_prd.py`
-- `scratch/validar_utilizadores_departamentos_abertos_prd.py`
-- `scratch/consultar_mestre_utilizador_prd.py`
+## 6. Remoção de Sistemas no SAP CUA (`K. CUA_REMOVE_SISTEMA.py`)
 
-Todos os scripts acima executam apenas consultas RFC de leitura.
+O processo automatizado [`Processos/Funções PFCG/K. CUA_REMOVE_SISTEMA.py`](file:///C:/workspace/SapScript/Processos/Fun%C3%A7%C3%B5es%20PFCG/K.%20CUA_REMOVE_SISTEMA.py) executa a eliminação de sistemas recetores (ex.: `S4DCLNT100`) utilizador a utilizador no sistema central SAP CUA (`SPA`, mandante 001) através da transação `SU01`.
+
+### Regra de Negócio:
+- Se o sistema alvo (`S4DCLNT100`) **não existir** atribuído ao utilizador, **não é considerado erro**; é registado como `NAO_EXISTIA` / `Já não atribuído` e avança de imediato para o próximo utilizador.
+
+### Execução no Departamento Purchase & Services (11/09/2026):
+| Utilizador | Nome Completo | Sistemas Anteriores | Status | Sistemas Restantes |
+|---|---|---|---|---|
+| `S170` | Monica Rodrigues | `S4PCLNT100, S4QCLNT100` | ℹ️ `NAO_EXISTIA` | `S4PCLNT100, S4QCLNT100` |
+| `S270` | Cidalia Oliveira | `S4DCLNT100, S4PCLNT100, S4QCLNT100` | ✅ `CONCLUIDO` | `S4PCLNT100, S4QCLNT100` |
+| `S419` | Conceição Cunha | `S4DCLNT100, S4PCLNT100, S4QCLNT100` | ✅ `CONCLUIDO` | `S4PCLNT100, S4QCLNT100` |
+| `S75` | Carla Costa | `S4DCLNT100, S4PCLNT100, S4QCLNT100` | ✅ `CONCLUIDO` | `S4PCLNT100, S4QCLNT100` |
+| `S80000148` | Catarina Faia | `S4PCLNT100, S4QCLNT100` | ℹ️ `NAO_EXISTIA` | `S4PCLNT100, S4QCLNT100` |
+| `S80001870` | Pedro Matos | `S4DCLNT100, S4PCLNT100, S4QCLNT100` | ✅ `CONCLUIDO` | `S4PCLNT100, S4QCLNT100` |
+| `S965` | Dulce Guimarães | `S4DCLNT100, S4PCLNT100, S4QCLNT100` | ✅ `CONCLUIDO` | `S4PCLNT100, S4QCLNT100` |
+
+**Resultado:** 5 utilizadores limpos com gravação no CUA (`CONCLUIDO`), 2 utilizadores onde já não existia (`NAO_EXISTIA`). 0 erros.
+
+### Comandos de Execução:
+```powershell
+# Executar para departamento específico
+python "Processos/Funções PFCG/K. CUA_REMOVE_SISTEMA.py" --departamento "Purchase & Services"
+
+# Simulação prévia (dry-run) para todos os utilizadores da Proposta Ativa
+python "Processos/Funções PFCG/K. CUA_REMOVE_SISTEMA.py" --todos --dry-run
+
+# Executar para utilizadores específicos
+python "Processos/Funções PFCG/K. CUA_REMOVE_SISTEMA.py" --users S170 S270 S419
+```
+

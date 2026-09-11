@@ -60,6 +60,40 @@ def main() -> None:
                 for v in df_exclusao.iloc[:, 0].dropna().tolist()
                 if str(v).strip()
             ]
+    sheet_authority = next(
+        (s for s in dados.sheets_disponiveis if modulo.normalizar_nome_coluna(s) == "PFCGAUTHORITY"),
+        None,
+    )
+    authority_por_composta: dict[str, set[str]] = {}
+    if sheet_authority:
+        df_authority = pd.read_excel(
+            modulo.abrir_excel_seguro(dados.caminho), sheet_name=sheet_authority
+        )
+        colunas = {modulo.normalizar_nome_coluna(c): c for c in df_authority.columns}
+        col_role = colunas.get("AGRNAME")
+        col_composta = colunas.get("AGRNAMECOMPOSTA")
+        if col_role and col_composta:
+            for _, row in df_authority.iterrows():
+                composta = str(row.get(col_composta, "")).strip().upper()
+                role = str(row.get(col_role, "")).strip().upper()
+                if composta and role and composta not in ("NAN", "NONE") and role not in ("NAN", "NONE"):
+                    authority_por_composta.setdefault(composta, set()).add(role)
+
+    def excluida(role: str) -> bool:
+        return any(fnmatch.fnmatchcase(role, padrao) for padrao in padroes_exclusao)
+
+    def expandir_funcoes(roles_iniciais: set[str]) -> set[str]:
+        expandidas: set[str] = set()
+        pendentes = list(roles_iniciais)
+        while pendentes:
+            role = pendentes.pop()
+            if not role or role in expandidas or excluida(role):
+                continue
+            expandidas.add(role)
+            membros = set(dados.roles_compostas.get(role, {}).get("roles_filhas", []))
+            membros.update(authority_por_composta.get(role, set()))
+            pendentes.extend(membros - expandidas)
+        return expandidas
     departamentos = [c["departamento"] for c in dados.controlo if c.get("pendente")]
     esperado_por_user: dict[str, set[str]] = {}
     detalhe_por_user: dict[str, dict] = {}
@@ -75,7 +109,7 @@ def main() -> None:
             roles = {str(r).strip().upper() for r in item.get("singles", []) if str(r).strip()}
             if item.get("composta"):
                 roles.add(str(item["composta"]).strip().upper())
-            esperado_por_user.setdefault(user, set()).update(roles)
+            esperado_por_user.setdefault(user, set()).update(expandir_funcoes(roles))
             detalhe_por_user[user] = {
                 "nome": item.get("nome"),
                 "cargo": item.get("cargo"),
@@ -124,7 +158,7 @@ def main() -> None:
         adicionais_brutos = sorted(ativas[user] - esperado_por_user[user])
         excluidas = sorted(
             role for role in adicionais_brutos
-            if any(fnmatch.fnmatchcase(role, padrao) for padrao in padroes_exclusao)
+            if excluida(role)
         )
         adicionais = sorted(set(adicionais_brutos) - set(excluidas))
         inativas_relevantes = {
@@ -159,6 +193,7 @@ def main() -> None:
         "atribuicoes_esperadas": sum(len(v) for v in esperado_por_user.values()),
         "atribuicoes_esperadas_ativas": sum(len(esperado_por_user[u] & ativas[u]) for u in esperado_por_user),
         "padroes_exclusao": padroes_exclusao,
+        "roles_pfcg_authority": sorted(set().union(*authority_por_composta.values()) if authority_por_composta else set()),
         "funcoes_adicionais_ativas": sum(len(u["funcoes_adicionais"]) for u in utilizadores),
         "funcoes_desconsideradas_por_exclusao": sum(
             len(u["funcoes_desconsideradas_por_exclusao"]) for u in utilizadores
