@@ -692,6 +692,92 @@ def imprimir_analise_departamento(dados_dep: Dict[str, Any]):
         print(f"     ├─ {s:<35} -> presente em {count}/{len(users)} utilizador(es)")
 
 
+def verificar_funcoes_prd(roles: List[str]) -> Dict[str, Any]:
+    """
+    Verifica se uma lista de funções (roles) existe no sistema SAP PRD através de RFC (tabela AGR_DEFINE).
+    """
+    if not roles:
+        return {"ok": True, "total": 0, "existentes": [], "nao_existentes": []}
+
+    roles_unicas = sorted(list({str(r).strip().upper() for r in roles if str(r).strip()}))
+
+    os.environ["SAP_TARGET_ENV"] = "PRD"
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_read_only_guard, read_table, make_option_in
+        )
+        from pyrfc import Connection
+
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for("PRD")
+        conn = Connection(**params)
+        guard = make_read_only_guard(["AGR_DEFINE", "AGR_TEXTS"])
+
+        encontradas = set()
+        chunk_size = 25
+        for i in range(0, len(roles_unicas), chunk_size):
+            chunk = roles_unicas[i:i + chunk_size]
+            opts = make_option_in("AGR_NAME", chunk)
+            rows = read_table(conn, guard, table_name="AGR_DEFINE", fields=["AGR_NAME"], options=opts, rowcount=len(chunk) + 10)
+            for r in rows:
+                if r and r[0].strip():
+                    encontradas.add(r[0].strip())
+
+        conn.close()
+
+        nao_encontradas = sorted(list(set(roles_unicas) - encontradas))
+        return {
+            "ok": True,
+            "sistema": "PRD",
+            "total": len(roles_unicas),
+            "total_existentes": len(encontradas),
+            "total_nao_existentes": len(nao_encontradas),
+            "existentes": sorted(list(encontradas)),
+            "nao_existentes": nao_encontradas,
+            "todas_existem": len(nao_encontradas) == 0
+        }
+    except Exception as err:
+        return {
+            "ok": False,
+            "sistema": "PRD",
+            "erro": str(err),
+            "total": len(roles_unicas),
+            "existentes": [],
+            "nao_existentes": roles_unicas
+        }
+
+
+def imprimir_resultado_verificacao_prd(resultado: Dict[str, Any], titulo_contexto: str = ""):
+    """Imprime no terminal o resultado da verificação de funções no PRD."""
+    print("\n" + "=" * 75)
+    header = f"  🔍 VERIFICAÇÃO DE FUNÇÕES NO SAP PRD (via RFC){' - ' + titulo_contexto if titulo_contexto else ''}"
+    print(header)
+    print("=" * 75)
+
+    if not resultado.get("ok"):
+        print(f"  ❌ Erro de ligação RFC ao PRD: {resultado.get('erro')}")
+        return
+
+    total = resultado["total"]
+    existentes = resultado["total_existentes"]
+    nao_ex = resultado["total_nao_existentes"]
+    pct = (existentes / total * 100) if total > 0 else 0
+
+    print(f"  Total de Funções Verificadas: {total}")
+    print(f"  ✅ Existentes no PRD:          {existentes} ({pct:.1f}%)")
+    print(f"  ❌ Inexistentes / Em Falta:    {nao_ex}")
+    print("-" * 75)
+
+    if resultado["todas_existem"]:
+        print("  🎉 Todas as funções pesquisadas EXISTEM no sistema PRD!")
+    else:
+        print("  ⚠️ As seguintes funções NÃO foram encontradas no SAP PRD (AGR_DEFINE):")
+        for r in resultado["nao_existentes"]:
+            print(f"     ❌ {r}")
+
+
 # =====================================================================
 # FORMATAÇÃO VISUAL E INTERFACE DE LINHA DE COMANDOS
 # =====================================================================
@@ -858,13 +944,14 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
         print("  MENU PRINCIPAL - PROJETO PERFIL:")
         print("  [1] 📋 Validar Sheet CONTROLO (Departamentos com STATUS vazio)")
         print("  [2] 🏢 Analisar Funções por Departamento (Proposta Ativa)")
-        print("  [3] 📊 Ver Resumo Geral das Funções")
-        print("  [4] 🔍 Pesquisar por Nome de Função (Role / Perfil)")
-        print("  [5] 📌 Pesquisar por Transação (TCODE -> Funções)")
-        print("  [6] 👤 Pesquisar por Utilizador (CUA: Adições / Remoções)")
-        print("  [7] 📋 Listar todas as Roles Simples")
-        print("  [8] 📋 Listar todas as Roles Compostas")
-        print("  [9] 📂 Abrir outro ficheiro Excel")
+        print("  [3] 🌐 Verificar Existência de Funções no SAP PRD (via RFC)")
+        print("  [4] 📊 Ver Resumo Geral das Funções")
+        print("  [5] 🔍 Pesquisar por Nome de Função (Role / Perfil)")
+        print("  [6] 📌 Pesquisar por Transação (TCODE -> Funções)")
+        print("  [7] 👤 Pesquisar por Utilizador (CUA: Adições / Remoções)")
+        print("  [8] 📋 Listar todas as Roles Simples")
+        print("  [9] 📋 Listar todas as Roles Compostas")
+        print("  [10] 📂 Abrir outro ficheiro Excel")
         print("  [0] 🚪 Sair")
         print("-" * 75)
 
@@ -881,41 +968,59 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
             imprimir_analise_departamento(res_dep)
 
         elif opcao == "3":
-            imprimir_resumo(dados)
+            print("\n  O que deseja verificar no SAP PRD?")
+            print("  [1] Funções do departamento 'Purchase & Services'")
+            print("  [2] Todas as funções do ficheiro Excel (PFCG_CREATE + PFCG_COMPOSTA)")
+            sub_op = input("👉 Escolha (1 ou 2, padrão 1): ").strip()
+            if sub_op == "2":
+                todas = list(dados.roles_simples.keys()) + list(dados.roles_compostas.keys())
+                res_prd = verificar_funcoes_prd(todas)
+                imprimir_resultado_verificacao_prd(res_prd, "Todas as Funções do Excel")
+            else:
+                dep_info = analisar_departamento_proposta(dados, "Purchase & Services")
+                if dep_info.get("encontrado"):
+                    roles_dep = list(dep_info["compostas"]) + list(dep_info["singles_frequencia"].keys())
+                    res_prd = verificar_funcoes_prd(roles_dep)
+                    imprimir_resultado_verificacao_prd(res_prd, "Departamento Purchase & Services")
+                else:
+                    print("⚠️ Não foi possível obter as funções do departamento.")
 
         elif opcao == "4":
+            imprimir_resumo(dados)
+
+        elif opcao == "5":
             termo = input("🔎 Digite o nome da função ou texto (ex.: Z_BR, MANAGER, ZORG): ").strip()
             if termo:
                 res = pesquisar_funcao(dados, termo)
                 imprimir_resultado_funcao(res)
 
-        elif opcao == "5":
+        elif opcao == "6":
             tcode = input("🔎 Digite a transação SAP (ex.: FB01, CO01, SU01, SE16): ").strip()
             if tcode:
                 res = pesquisar_por_tcode(dados, tcode)
                 imprimir_resultado_tcode(res)
 
-        elif opcao == "6":
+        elif opcao == "7":
             user = input("🔎 Digite o ID do Utilizador SAP (ex.: S6005, S5354): ").strip()
             if user:
                 res = pesquisar_por_utilizador(dados, user)
                 imprimir_resultado_user(res)
 
-        elif opcao == "7":
+        elif opcao == "8":
             print(f"\n📋 Total de {len(dados.roles_simples)} Roles Simples:")
             for r, info in sorted(dados.roles_simples.items()):
                 t_count = len(info["tcodes"])
                 desc = f" - {info['descricao']}" if info.get("descricao") else ""
                 print(f"  ├─ {r} ({t_count} TCODEs){desc}")
 
-        elif opcao == "8":
+        elif opcao == "9":
             print(f"\n📋 Total de {len(dados.roles_compostas)} Roles Compostas:")
             for c, info in sorted(dados.roles_compostas.items()):
                 filhas_count = len(info["roles_filhas"])
                 desc = f" - {info['descricao']}" if info.get("descricao") else ""
                 print(f"  ├─ {c} ({filhas_count} roles filhas){desc}")
 
-        elif opcao == "9":
+        elif opcao == "10":
             novo_caminho = selecionar_ficheiro_dialogo()
             if novo_caminho and os.path.exists(novo_caminho):
                 try:
@@ -948,6 +1053,7 @@ if __name__ == "__main__":
     parser.add_argument("--xlsx", "--ficheiro", "-f", dest="ficheiro", help="Caminho do ficheiro Excel de perfis")
     parser.add_argument("--controlo", "--validar-controlo", dest="controlo", action="store_true", help="Validar sheet CONTROLO e listar departamentos pendentes")
     parser.add_argument("--departamento", "-d", dest="departamento", nargs="?", const="Purchase & Services", help="Analisar funções de um departamento na sheet Proposta Ativa")
+    parser.add_argument("--verificar-prd", dest="verificar_prd", action="store_true", help="Verificar se as funções existem no sistema SAP PRD via RFC")
     parser.add_argument("--pesquisar-role", "-r", dest="role", help="Pesquisar diretamente por nome de função")
     parser.add_argument("--pesquisar-tcode", "-t", dest="tcode", help="Pesquisar diretamente por transação SAP")
     parser.add_argument("--pesquisar-user", "-u", dest="user", help="Pesquisar diretamente por utilizador CUA")
@@ -957,7 +1063,7 @@ if __name__ == "__main__":
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.departamento or args.role or args.tcode or args.user:
+    if args.controlo or args.departamento or args.verificar_prd or args.role or args.tcode or args.user:
         if not caminho_alvo:
             print("❌ Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
@@ -967,9 +1073,19 @@ if __name__ == "__main__":
 
         if args.controlo:
             imprimir_validacao_controlo(dados)
-        if args.departamento:
+        if args.departamento and not args.verificar_prd:
             res_dep = analisar_departamento_proposta(dados, args.departamento)
             imprimir_analise_departamento(res_dep)
+        if args.verificar_prd:
+            if args.departamento:
+                dep_info = analisar_departamento_proposta(dados, args.departamento)
+                roles_dep = list(dep_info["compostas"]) + list(dep_info["singles_frequencia"].keys())
+                res_prd = verificar_funcoes_prd(roles_dep)
+                imprimir_resultado_verificacao_prd(res_prd, f"Departamento '{args.departamento}'")
+            else:
+                todas = list(dados.roles_simples.keys()) + list(dados.roles_compostas.keys())
+                res_prd = verificar_funcoes_prd(todas)
+                imprimir_resultado_verificacao_prd(res_prd, "Todas as Funções do Excel (PFCG_CREATE + PFCG_COMPOSTA)")
         if args.role:
             imprimir_resultado_funcao(pesquisar_funcao(dados, args.role))
         if args.tcode:

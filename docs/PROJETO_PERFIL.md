@@ -51,3 +51,60 @@ Graças à função `abrir_excel_seguro`, o script abre o ficheiro utilizando a 
   ```powershell
   python "Projeto Perfil.py"
   ```
+
+## 5. Validação do departamento Purchase & Services em PRD
+
+Validação executada em **11/09/2026**, no sistema **PRD**, mandante **100**, usando o
+ficheiro mestre `S4H_Perfis de autorização.xlsx`.
+
+### Existência das funções
+
+- 77 de 77 funções individuais existem em `AGR_DEFINE`.
+- 24 de 24 funções compostas existem em `AGR_DEFINE`.
+
+### Transações das funções individuais
+
+- As 577 associações role–TCODE previstas no Excel existem em `AGR_TCODES`.
+- Nenhuma transação prevista está em falta.
+- 68 funções correspondem exatamente ao Excel.
+- 9 funções possuem, em conjunto, 18 transações adicionais no PRD:
+
+| Função | Transações adicionais no PRD |
+|---|---|
+| `Z_ARTICLE_DISPLAY` | `MM03` |
+| `Z_BASIS_BASE` | `XD02`, `XD03` |
+| `Z_CONTRACT_CREATE` | `RERAPP`, `RERAPPRV`, `RERAPPRV_SINGLE`, `RERAPP_SINGLE` |
+| `Z_DELIVERY_REPORT` | `VA15`, `VA25`, `VA35`, `VA45`, `VA55` |
+| `Z_GOODS_MOVEMENTS` | `MIR4`, `MM43` |
+| `Z_INCOMING_INVOICE` | `MIR5` |
+| `Z_PURCHASE_ORDER_APPROVE` | `ZMM_PO_AUTO_CONFIRM` |
+| `Z_PURCHASE_ORDER_CREATE` | `ME9F` |
+| `Z_SALES_ORDER_CREATE` | `VA71` |
+
+Esta comparação cobre as transações de menu em `AGR_TCODES`; não substitui uma
+auditoria dos valores do objeto de autorização `S_TCODE` em `AGR_1251`.
+
+### Composição das funções compostas
+
+- As 640 associações composta–individual previstas existem em `AGR_AGRS`.
+- As 24 funções compostas correspondem exatamente ao Excel, sem membros em falta ou adicionais.
+
+### Atribuições aos utilizadores ativos
+
+O departamento em aberto na folha `CONTROLO` era `Purchase & Services`.
+
+- 7 utilizadores constavam da proposta.
+- 6 utilizadores ativos estavam conformes: `S170`, `S270`, `S419`, `S75`, `S80000148` e `S965`.
+- As 210 atribuições esperadas para esses utilizadores estavam ativas em `AGR_USERS`.
+- `S80001870` foi excluído da divergência porque a validade no mestre `USR02` terminou em **29/07/2026**; o último logon também ocorreu nessa data.
+
+Conclusão: as funções e os utilizadores ativos do departamento foram validados para a etapa de atribuição.
+
+### Scripts de auditoria
+
+- `scratch/validar_tcodes_perfil_prd.py`
+- `scratch/validar_membros_compostas_prd.py`
+- `scratch/validar_utilizadores_departamentos_abertos_prd.py`
+- `scratch/consultar_mestre_utilizador_prd.py`
+
+Todos os scripts acima executam apenas consultas RFC de leitura.

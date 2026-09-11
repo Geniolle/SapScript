@@ -1,5 +1,12 @@
 # Regras críticas deste projeto
 
+## Comando de encerramento "Perfeito"
+Quando o utilizador disser **"Perfeito"** como aprovação/encerramento do trabalho atual,
+atualizar a memória/documentação relevante, validar as alterações, criar um commit
+descritivo e publicar a branch atual no GitHub. Não incluir credenciais, `.env` ou
+artefactos locais. Não acionar a regra quando a palavra aparecer apenas numa citação,
+exemplo ou pergunta.
+
 ## Acesso SAP via RFC
 Assumir que as credenciais RFC SAP estao disponiveis no `.env` deste repositorio e tentar a leitura via RFC primeiro.
 Se a ligacao falhar, reportar o erro tecnico concreto em vez de pedir novamente "ligacao" ou "credenciais".
