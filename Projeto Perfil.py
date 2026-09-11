@@ -1275,41 +1275,126 @@ def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purc
 
 
 def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
-    """Exibe no terminal a validação dos utilizadores no PRD com cruzamento relacional."""
-    print("\n" + "=" * 75)
-    print("  🔍 VALIDAÇÃO DE UTILIZADORES NO SAP PRD (via RFC AGR_USERS & USR02)")
-    print(f"  🏢 Departamento: {res.get('departamento', '')} | Sistema: {res.get('sistema', 'PRD')}")
-    print("=" * 75)
+    """Exibe no terminal a validação dos utilizadores no PRD com cruzamento relacional e resumo executivo."""
+    from collections import Counter
+
+    dep = res.get("departamento", "")
+    sis = res.get("sistema", "PRD")
+
+    print("\n" + "=" * 78)
+    print(f"  🔍 AUDITORIA DE AUTORIZAÇÕES: PLANO (EXCEL) vs SAP {sis} REAL")
+    print(f"  🏢 Departamento: {dep} | Ambiente: Produção (Mandante {res.get('mandante', '100')})")
+    print("=" * 78)
 
     if not res.get("ok"):
         print(f"  ❌ Erro ao validar utilizadores no PRD: {res.get('erro')}")
+        print("=" * 78)
         return
 
-    print(f"  Regras EXCLUÇÃO aplicadas: {res.get('padroes_exclusao', [])}")
-    print(f"  Total de Funções Adicionais Ativas:         {res.get('total_adicionais_ativas', 0)}")
-    print(f"  Ocorrências Desconsideradas por EXCLUÇÃO:  {res.get('total_desconsideradas_exclusao', 0)}")
-    print("-" * 75)
+    print("  💡 OBJETIVO DESTA ANÁLISE:")
+    print("     Confronta o que está desenhado no Excel ('Proposta Ativa') com o que")
+    print(f"     está efetivamente ativo no utilizador no SAP {sis} (via RFC AGR_USERS / USR02).")
+    print("\n  📖 GUIA DE LEITURA:")
+    print("     ✅ CONFORME            -> Utilizador tem 100% das funções do plano ativas no SAP.")
+    print("     ❌ EM FALTA            -> Funções do plano que NÃO estão ativas no SAP (falta dar acesso).")
+    print("     📌 ADICIONAIS A VALIDAR-> Funções ativas no SAP que NÃO constam no Excel (acesso a mais).")
+    print("     🛡️ REGRAS DE EXCEÇÃO   -> Funções técnicas/standard ignoradas propositadamente.")
+    print("     ⏸️ CONTA EXPIRADA       -> Conta desativada/expirada no cadastro mestre USR02 do SAP.")
+    print("-" * 78)
+    print(f"  🛡️ Exceções ativas no escopo: {', '.join(res.get('padroes_exclusao', []))}")
+    print("-" * 78)
 
-    for u in res.get("utilizadores", []):
-        if u.get("inativo_usr02"):
+    utilizadores = res.get("utilizadores", [])
+    if not utilizadores:
+        print("  ⚠️ Nenhum utilizador encontrado para este departamento.")
+        print("=" * 78)
+        return
+
+    # Contadores globais
+    total_users = len(utilizadores)
+    conformes = []
+    com_faltas = []
+    inativos = []
+    faltas_global = Counter()
+    adicionais_global = Counter()
+
+    for u in utilizadores:
+        uname = u["usuario"]
+        nome = u["nome"]
+        cargo = u["cargo"]
+        esp_total = u["esperadas_total"]
+        esp_ativas = u["esperadas_ativas"]
+        faltam = u["faltam"]
+        adicionais = u["adicionais"]
+        desconsideradas = u["desconsideradas_exclusao"]
+        is_inativo = u.get("inativo_usr02", False)
+
+        if is_inativo:
+            inativos.append(u)
             status_ico = "⏸️"
-            obs = f" [CONTA EXPIRADA EM USR02 - Validade terminou a {u.get('validade_fim')}]"
+            status_tag = f"[CONTA EXPIRADA EM USR02 a {u.get('validade_fim', '')}]"
+        elif u["conforme"]:
+            conformes.append(u)
+            status_ico = "✅"
+            status_tag = "[100% CONFORME]"
         else:
-            status_ico = "✅" if u["conforme"] else "⚠️"
-            obs = ""
+            com_faltas.append(u)
+            status_ico = "⚠️"
+            status_tag = f"[{len(faltam)} FUNÇÕES EM FALTA]"
 
-        add_str = f" | {len(u['adicionais'])} Adicionais" if u["adicionais"] else " | 0 Adicionais"
-        print(f"\n  {status_ico} 👤 {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']}{obs}")
-        print(f"     └─ Atribuições Esperadas Ativas: {u['esperadas_ativas']}/{u['esperadas_total']}{add_str}")
-        
-        if u["faltam"] and not u.get("inativo_usr02"):
-            print(f"        ❌ EM FALTA ({len(u['faltam'])}): {', '.join(u['faltam'])}")
-        elif u["faltam"] and u.get("inativo_usr02"):
+        pct = int((esp_ativas / esp_total * 100)) if esp_total > 0 else (100 if is_inativo else 0)
+        adicionais_str = f" | 📌 {len(adicionais)} a mais no SAP" if adicionais else ""
+
+        print(f"\n  {status_ico} 👤 {uname:<10} | {nome:<25} | {cargo} {status_tag}")
+        print(f"     └─ Funções Ativas do Plano: {esp_ativas}/{esp_total} ({pct}% concluído){adicionais_str}")
+
+        if faltam and not is_inativo:
+            for r in faltam:
+                faltas_global[r] += 1
+            print(f"        ❌ EM FALTA NO SAP ({len(faltam)}): {', '.join(faltam)}")
+        elif faltam and is_inativo:
             print(f"        ℹ️ Sem atribuições ativas por desativação/offboarding no sistema SAP.")
-        if u["adicionais"]:
-            print(f"        📌 ADICIONAIS A VALIDAR ({len(u['adicionais'])}): {', '.join(u['adicionais'])}")
-        if u["desconsideradas_exclusao"]:
-            print(f"        🛡️ Protegidas por EXCLUÇÃO ({len(u['desconsideradas_exclusao'])}): {', '.join(u['desconsideradas_exclusao'])}")
+
+        if adicionais:
+            for r in adicionais:
+                adicionais_global[r] += 1
+            print(f"        📌 ADICIONAIS NO SAP ({len(adicionais)}): {', '.join(adicionais)}")
+
+        if desconsideradas:
+            print(f"        🛡️ Protegidas por EXCLUÇÃO ({len(desconsideradas)}): {', '.join(desconsideradas)}")
+
+    # Resumo Executivo
+    print("\n" + "=" * 78)
+    print(f"  📊 RESUMO EXECUTIVO: {dep.upper()}")
+    print("=" * 78)
+    print(f"  👥 Total de Colaboradores: {total_users}")
+    print(f"     ├─ ✅ Conformes (acessos 100% alinhados): {len(conformes)}")
+    print(f"     ├─ ⚠️ Com funções em falta no SAP:       {len(com_faltas)}")
+    print(f"     └─ ⏸️ Contas expiradas no SAP (USR02):    {len(inativos)}")
+
+    if faltas_global:
+        print("\n  ❌ FUNÇÕES MAIS CRÍTICAS EM FALTA NO SAP (Precisam de atribuição):")
+        for role, count in faltas_global.most_common(8):
+            print(f"     • {role:<35} -> Falta a {count} colaborador(es)")
+
+    if adicionais_global:
+        print("\n  📌 FUNÇÕES ADICIONAIS DETETADAS NO SAP (Não estão no Excel):")
+        for role, count in adicionais_global.most_common(8):
+            nota = " (💡 Presente em quase toda a equipa - considerar incluir no Excel)" if count >= (len(conformes) + len(com_faltas)) * 0.7 else ""
+            print(f"     • {role:<35} -> Ativa em {count} colaborador(es){nota}")
+
+    print("\n  🎯 PRÓXIMOS PASSOS SUGERIDOS:")
+    if com_faltas:
+        print("     1. Para atribuir as funções em falta aos utilizadores:")
+        print("        👉 Use a Ação [3] Sincronizar CUA, ou registe na folha CUA_ADICIONAR.")
+    if adicionais_global:
+        print("     2. Para as funções adicionais (ex.: Z_INCOMING_INVOICE_VIEW):")
+        print("        👉 Se a equipa precisa dela: Adicione à folha 'Proposta Ativa' no Excel.")
+        print("        👉 Se a equipa não deve ter esse acesso: Registar na folha CUA_REMOVE para remoção.")
+    if inativos:
+        print("     3. Colaboradores expirados (USR02):")
+        print("        👉 Confirmar se saíram da empresa e atualizar status na folha CONTROLO/Proposta.")
+    print("=" * 78)
 
 
 def auditar_utilizador(dados: ProjetoPerfilData, utilizador: str) -> Dict[str, Any]:

@@ -1,0 +1,243 @@
+================================================================================
+RELATÓRIO DE AUDITORIA: PRD vs PROPOSTA ATIVA vs SHEET EXCLUÇÃO
+================================================================================
+Padrões da sheet EXCLUÇÃO: ['ZMM_APROVA_PEDC_COD_*', 'ZFIN_PS_BASIC', 'ZFIN_PS_SPEC']
+
+
+----------------------------------------------------------------------
+UTILIZADOR: S75 (Carla Costa) | Proposta: 42 roles | Total PRD: 66
+----------------------------------------------------------------------
+1. A ELIMINAR (Fora da Proposta, Não Excluída, Expirada) -> 4:
+   ❌ ZFIN_DADOS_MESTRE_BASIC             (Válida: 20241112 a 20260709)
+   ❌ ZFIN_MM_COORDINATOR                 (Válida: 20220621 a 20260709)
+   ❌ ZFI_REAL_ESTATE_SIMPLES             (Válida: 20220621 a 20260709)
+   ❌ ZMM_SUPPLY_CHAIN_BASIC              (Válida: 20220621 a 20260709)
+
+2. DESCONSIDERAR DA ELIMINAÇÃO (Sheet EXCLUÇÃO) -> 8:
+   🛡️ ZFIN_PS_BASIC                       (Válida: 20220621 a 20260709 | EXPIRADA)
+   🛡️ ZFIN_PS_SPEC                        (Válida: 20220621 a 20260709 | EXPIRADA)
+   🛡️ ZFIN_PS_SPEC                        (Válida: 20260715 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_HU10            (Válida: 20240617 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_JL10            (Válida: 20240617 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_KY10            (Válida: 20240617 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_LZ10            (Válida: 20240617 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_TODOS           (Válida: 20240626 a 99991231 | Ativa)
+
+3. MANTER (Consta na Sheet Proposta Ativa do Utilizador) -> 45:
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20250320 a 99991231 | ✅ Ativa)
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20260709 a 20260709 | ⚠️ EXPIRADA EM PRD (mas é Proposta Ativa!))
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20260709 a 99991231 | ✅ Ativa)
+
+4. OUTRAS ROLES ATIVAS FORA DA PROPOSTA ATIVA -> 9:
+   ⚠️ ZORG_BP_Z004_PUBLICENTITIES         (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z005_BANKS                  (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z006_OCCASIONALPARTNER      (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z007_COMPANYPARTNERS        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z008_DCS_GENERALSITE        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z009_STORES_GROUPS          (Válida: 20260709 a 99991231)
+   ⚠️ Z_COSTCENTER_CREATE_VIEW            (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_RECEIPT_COCKPIT_VIEW      (Válida: 20260709 a 99991231)
+   ⚠️ Z_MY_HOME                           (Válida: 20250315 a 99991231)
+
+----------------------------------------------------------------------
+UTILIZADOR: S170 (Monica Rodrigues) | Proposta: 30 roles | Total PRD: 49
+----------------------------------------------------------------------
+1. A ELIMINAR (Fora da Proposta, Não Excluída, Expirada) -> 0:
+   (Nenhuma)
+
+2. DESCONSIDERAR DA ELIMINAÇÃO (Sheet EXCLUÇÃO) -> 0:
+   (Nenhuma)
+
+3. MANTER (Consta na Sheet Proposta Ativa do Utilizador) -> 30:
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20260709 a 99991231 | ✅ Ativa)
+
+4. OUTRAS ROLES ATIVAS FORA DA PROPOSTA ATIVA -> 19:
+   ⚠️ ZORG_BP_Z004_PUBLICENTITIES         (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z005_BANKS                  (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z006_OCCASIONALPARTNER      (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z007_COMPANYPARTNERS        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z008_DCS_GENERALSITE        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z009_STORES_GROUPS          (Válida: 20260709 a 99991231)
+   ⚠️ Z_ARTICLE_REPORT                    (Válida: 20260709 a 99991231)
+   ⚠️ Z_COSTCENTER_CREATE_VIEW            (Válida: 20260709 a 99991231)
+   ⚠️ Z_CREDIT_OVERVIEW_APPROVE           (Válida: 20260709 a 99991231)
+   ⚠️ Z_DELIVERY_CREATE                   (Válida: 20260709 a 99991231)
+   ⚠️ Z_DELIVERY_REPORT                   (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVENTORY_DC_STORE                (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_CREATE                    (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_RECEIPT_COCKPIT_VIEW      (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_REPORT                    (Válida: 20260709 a 99991231)
+   ⚠️ Z_MY_HOME                           (Válida: 20250315 a 99991231)
+   ⚠️ Z_PRODUCTION_ORDER_CREATE           (Válida: 20260709 a 99991231)
+   ⚠️ Z_PRODUCTION_ORDER_REPORT           (Válida: 20260709 a 99991231)
+   ⚠️ Z_SALES_ORDER_REPORT                (Válida: 20260709 a 99991231)
+
+----------------------------------------------------------------------
+UTILIZADOR: S270 (Cidália Oliveira) | Proposta: 36 roles | Total PRD: 56
+----------------------------------------------------------------------
+1. A ELIMINAR (Fora da Proposta, Não Excluída, Expirada) -> 5:
+   ❌ ZFIN_DADOS_MESTRE_BASIC             (Válida: 20220704 a 20260708)
+   ❌ ZFIN_DADOS_MESTRE_BASIC_HR          (Válida: 20221130 a 20260708)
+   ❌ ZFI_REAL_ESTATE_SIMPLES             (Válida: 20210310 a 20260708)
+   ❌ ZMM_SUPPLY_CHAIN_BASIC              (Válida: 20220704 a 20260708)
+   ❌ ZORG_EMPRESA_DXXX                   (Válida: 20221109 a 20260708)
+
+2. DESCONSIDERAR DA ELIMINAÇÃO (Sheet EXCLUÇÃO) -> 1:
+   🛡️ ZFIN_PS_BASIC                       (Válida: 20220614 a 20260708 | EXPIRADA)
+
+3. MANTER (Consta na Sheet Proposta Ativa do Utilizador) -> 36:
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20260709 a 99991231 | ✅ Ativa)
+
+4. OUTRAS ROLES ATIVAS FORA DA PROPOSTA ATIVA -> 14:
+   ⚠️ ZORG_BP_Z004_PUBLICENTITIES         (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z005_BANKS                  (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z006_OCCASIONALPARTNER      (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z007_COMPANYPARTNERS        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z008_DCS_GENERALSITE        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z009_STORES_GROUPS          (Válida: 20260709 a 99991231)
+   ⚠️ Z_COSTCENTER_CREATE                 (Válida: 20260709 a 99991231)
+   ⚠️ Z_COSTCENTER_CREATE_VIEW            (Válida: 20260709 a 99991231)
+   ⚠️ Z_INCOMING_INVOICE                  (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_DISPLAY                   (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_RECEIPT_COCKPIT_VIEW      (Válida: 20260709 a 99991231)
+   ⚠️ Z_MY_HOME                           (Válida: 20250315 a 99991231)
+   ⚠️ Z_PURCHASE_ORDER_APPROVE            (Válida: 20260709 a 99991231)
+   ⚠️ Z_SALESORDER_DISPLAY                (Válida: 20260709 a 99991231)
+
+----------------------------------------------------------------------
+UTILIZADOR: S419 (Conceição Cunha) | Proposta: 34 roles | Total PRD: 69
+----------------------------------------------------------------------
+1. A ELIMINAR (Fora da Proposta, Não Excluída, Expirada) -> 14:
+   ❌ ZFIN_DADOS_MESTRE_BASIC             (Válida: 20220704 a 20260709)
+   ❌ ZFI_REAL_ESTATE_SIMPLES             (Válida: 20220711 a 20260709)
+   ❌ ZMM_SUPPLY_CHAIN_BASIC              (Válida: 20220704 a 20260709)
+   ❌ ZORG_EMPRESA_2010                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2020                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2070                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2080                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2100                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2110                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2120                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2130                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2140                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2150                   (Válida: 20220715 a 20260709)
+   ❌ ZORG_EMPRESA_2160                   (Válida: 20220715 a 20260709)
+
+2. DESCONSIDERAR DA ELIMINAÇÃO (Sheet EXCLUÇÃO) -> 1:
+   🛡️ ZFIN_PS_BASIC                       (Válida: 20220711 a 20260709 | EXPIRADA)
+
+3. MANTER (Consta na Sheet Proposta Ativa do Utilizador) -> 35:
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20260709 a 99991231 | ✅ Ativa)
+
+4. OUTRAS ROLES ATIVAS FORA DA PROPOSTA ATIVA -> 19:
+   ⚠️ SAP_BR_TRD_CLS_SPECIALIST           (Válida: 20260421 a 99991231)
+   ⚠️ SAP_FND_BCR_MANAGER_T               (Válida: 20260421 a 99991231)
+   ⚠️ ZORG_BP_Z004_PUBLICENTITIES         (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z005_BANKS                  (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z006_OCCASIONALPARTNER      (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z007_COMPANYPARTNERS        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z008_DCS_GENERALSITE        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z009_STORES_GROUPS          (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_CENTROS_2XXX                   (Válida: 20240321 a 99991231)
+   ⚠️ ZORG_CENTROS_SALSA                  (Válida: 20240321 a 99991231)
+   ⚠️ Z_COSTCENTER_CREATE_VIEW            (Válida: 20260709 a 99991231)
+   ⚠️ Z_CREDIT_OVERVIEW_APPROVE           (Válida: 20260709 a 99991231)
+   ⚠️ Z_DELIVERY_REPORT                   (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVENTORY_DC_STORE                (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_RECEIPT_COCKPIT_VIEW      (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_REPORT                    (Válida: 20260709 a 99991231)
+   ⚠️ Z_MY_HOME                           (Válida: 20250315 a 99991231)
+   ⚠️ Z_PRODUCTION_ORDER_CREATE           (Válida: 20260709 a 99991231)
+   ⚠️ Z_PRODUCTION_ORDER_REPORT           (Válida: 20260709 a 99991231)
+
+----------------------------------------------------------------------
+UTILIZADOR: S80000148 (Catarina Faia) | Proposta: 34 roles | Total PRD: 72
+----------------------------------------------------------------------
+1. A ELIMINAR (Fora da Proposta, Não Excluída, Expirada) -> 18:
+   ❌ ZFIN_DADOS_MESTRE_BASIC             (Válida: 20260709 a 20260709)
+   ❌ ZFI_REAL_ESTATE_SIMPLES             (Válida: 20241021 a 20260709)
+   ❌ ZHR_COLAB_BASIC                     (Válida: 20220620 a 20241020)
+   ❌ ZMM_CRIA_PEDC                       (Válida: 20220718 a 20260709)
+   ❌ ZMM_CRIA_REQC                       (Válida: 20220718 a 20260709)
+   ❌ ZMM_SUPPLY_CHAIN_BASIC              (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2010                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2020                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2070                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2080                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2100                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2110                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2120                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2130                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2140                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2150                   (Válida: 20220718 a 20260709)
+   ❌ ZORG_EMPRESA_2160                   (Válida: 20220718 a 20260709)
+   ❌ Z_LOGISTIC_TEMP_SLS                 (Válida: 20241021 a 20260709)
+
+2. DESCONSIDERAR DA ELIMINAÇÃO (Sheet EXCLUÇÃO) -> 5:
+   🛡️ ZFIN_PS_BASIC                       (Válida: 20241021 a 20260709 | EXPIRADA)
+   🛡️ ZMM_APROVA_PEDC_COD_HU10            (Válida: 20241021 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_JL10            (Válida: 20241021 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_KY10            (Válida: 20241021 a 99991231 | Ativa)
+   🛡️ ZMM_APROVA_PEDC_COD_LZ10            (Válida: 20241021 a 99991231 | Ativa)
+
+3. MANTER (Consta na Sheet Proposta Ativa do Utilizador) -> 34:
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20260709 a 99991231 | ✅ Ativa)
+
+4. OUTRAS ROLES ATIVAS FORA DA PROPOSTA ATIVA -> 15:
+   ⚠️ ZORG_BP_Z004_PUBLICENTITIES         (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z005_BANKS                  (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z006_OCCASIONALPARTNER      (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z007_COMPANYPARTNERS        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z008_DCS_GENERALSITE        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z009_STORES_GROUPS          (Válida: 20260709 a 99991231)
+   ⚠️ Z_COSTCENTER_CREATE_VIEW            (Válida: 20260709 a 99991231)
+   ⚠️ Z_CREDIT_OVERVIEW_APPROVE           (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_CREATE                    (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_RECEIPT_COCKPIT_VIEW      (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_REPORT                    (Válida: 20260709 a 99991231)
+   ⚠️ Z_MY_HOME                           (Válida: 20250315 a 99991231)
+   ⚠️ Z_PRODUCTION_ORDER_CREATE           (Válida: 20260709 a 99991231)
+   ⚠️ Z_PRODUCTION_ORDER_REPORT           (Válida: 20260709 a 99991231)
+   ⚠️ Z_SALES_ORDER_REPORT                (Válida: 20260709 a 99991231)
+
+----------------------------------------------------------------------
+UTILIZADOR: S80001870 (PEDRO MATOS) | Proposta: 38 roles | Total PRD: 0
+----------------------------------------------------------------------
+1. A ELIMINAR (Fora da Proposta, Não Excluída, Expirada) -> 0:
+   (Nenhuma)
+
+2. DESCONSIDERAR DA ELIMINAÇÃO (Sheet EXCLUÇÃO) -> 0:
+   (Nenhuma)
+
+3. MANTER (Consta na Sheet Proposta Ativa do Utilizador) -> 0:
+
+----------------------------------------------------------------------
+UTILIZADOR: S965 (Dulce Guimarães) | Proposta: 34 roles | Total PRD: 53
+----------------------------------------------------------------------
+1. A ELIMINAR (Fora da Proposta, Não Excluída, Expirada) -> 0:
+   (Nenhuma)
+
+2. DESCONSIDERAR DA ELIMINAÇÃO (Sheet EXCLUÇÃO) -> 0:
+   (Nenhuma)
+
+3. MANTER (Consta na Sheet Proposta Ativa do Utilizador) -> 36:
+   📌 ZORG_TODAS_EMPRESAS                 (Válida: 20260709 a 99991231 | ✅ Ativa)
+
+4. OUTRAS ROLES ATIVAS FORA DA PROPOSTA ATIVA -> 17:
+   ⚠️ SAP_BR_TRD_CLS_SPECIALIST           (Válida: 20250505 a 99991231)
+   ⚠️ SAP_FND_BCR_MANAGER_T               (Válida: 20250505 a 99991231)
+   ⚠️ ZORG_BP_Z004_PUBLICENTITIES         (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z005_BANKS                  (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z006_OCCASIONALPARTNER      (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z007_COMPANYPARTNERS        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z008_DCS_GENERALSITE        (Válida: 20260709 a 99991231)
+   ⚠️ ZORG_BP_Z009_STORES_GROUPS          (Válida: 20260709 a 99991231)
+   ⚠️ Z_COSTCENTER_CREATE_VIEW            (Válida: 20260709 a 99991231)
+   ⚠️ Z_DIVERGENCE_INVOICE_COCKPIT        (Válida: 20260709 a 99991231)
+   ⚠️ Z_INCOMING_INVOICE                  (Válida: 20260709 a 99991231)
+   ⚠️ Z_INCOMING_INVOICE_VIEW             (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_DISPLAY                   (Válida: 20260709 a 99991231)
+   ⚠️ Z_INVOICE_RECEIPT_COCKPIT_VIEW      (Válida: 20260709 a 99991231)
+   ⚠️ Z_MY_HOME                           (Válida: 20250315 a 99991231)
+   ⚠️ Z_PROJECT_APPROVE                   (Válida: 20260709 a 99991231)
+   ⚠️ Z_SALESORDER_DISPLAY                (Válida: 20260709 a 99991231)
