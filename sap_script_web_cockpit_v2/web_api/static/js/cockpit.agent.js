@@ -332,6 +332,37 @@
         label: 'Menu Inicial',
         icon: 'analysis'
     };
+    function asiBuildGlAccountEnvironmentAction(environment) {
+        const env = String(environment).toUpperCase();
+        return {
+            id: `gl-account-${env.toLowerCase()}`,
+            label: env,
+            icon: 'settings',
+            prompt: `Quero trabalhar com Conta Razão em ${env}.`,
+            followupText: 'Escolha a operação:',
+            followupActionsSource: 'children',
+            children: [{
+                id: `gl-account-${env.toLowerCase()}-create`,
+                label: 'Cria Conta',
+                icon: 'shield-plus',
+                prompt: `Quero criar uma Conta Razão em ${env}.`,
+                followupText: 'Escolha o método de entrada:',
+                followupActionsSource: 'children',
+                children: [
+                    { id: `gl-account-${env.toLowerCase()}-excel`, label: 'Ficheiro Excel', icon: 'upload', prompt: 'Criar por ficheiro Excel.', children: [] },
+                    {
+                        id: `gl-account-${env.toLowerCase()}-individual`, label: 'Individual', icon: 'shield-plus',
+                        prompt: 'Criar Conta Razão individualmente.', followupText: 'Escolha o tipo de criação:', followupActionsSource: 'children',
+                        children: [
+                            { id: `gl-account-${env.toLowerCase()}-by-model`, label: 'Por modelo', icon: 'shield-plus', environment: env, prompt: 'Criar Conta Razão por modelo.', children: [] },
+                            { id: `gl-account-${env.toLowerCase()}-new`, label: 'Nova Conta', icon: 'shield-plus', environment: env, prompt: 'Criar uma Conta Razão nova.', children: [] }
+                        ]
+                    },
+                    { ...ASI_MAIN_MENU_ACTION, prompt: 'Quero voltar ao menu principal.' }
+                ]
+            }]
+        };
+    }
     const salsaAgentActions = [
         {
             id: 'configuracoes',
@@ -444,6 +475,20 @@
                             followupText: 'Em que sistema quer trabalhar?',
                             children: []
                         }
+                    ]
+                },
+                {
+                    id: 'gl-account',
+                    label: 'Conta Razão',
+                    icon: 'settings',
+                    prompt: 'Quero trabalhar com Conta Razão.',
+                    followupText: 'Qual o ambiente a ser trabalhado?',
+                    followupActionsSource: 'children',
+                    children: [
+                        asiBuildGlAccountEnvironmentAction('DEV'),
+                        asiBuildGlAccountEnvironmentAction('QAD'),
+                        asiBuildGlAccountEnvironmentAction('PRD'),
+                        { ...ASI_MAIN_MENU_ACTION, prompt: 'Quero voltar ao menu principal.' }
                     ]
                 },
                 {
@@ -8815,6 +8860,57 @@
         }
     }
 
+    async function asiRunGlAccountByModel(action) {
+        const environment = String(action.environment || 'DEV').toUpperCase();
+        const account = window.prompt('Conta Razão a criar/estender (ex.: 61110210):', '');
+        if (account === null) return;
+        const targetCompany = window.prompt('Empresa de destino (ex.: 2110):', '');
+        if (targetCompany === null) return;
+        const modelCompany = window.prompt('Empresa-modelo (ex.: 2100):', '2100');
+        if (modelCompany === null) return;
+        const alternativeAccount = window.prompt('Conta alternativa (obrigatória fora de PT; deixe vazio para PT):', '');
+        if (alternativeAccount === null) return;
+        const summary = `Ambiente ${environment}\nConta ${account}\nEmpresa-modelo ${modelCompany}\nEmpresa de destino ${targetCompany}\nConta alternativa ${alternativeAccount || '(não aplicável)'}`;
+        if (!window.confirm(`Confirma a criação por modelo?\n\n${summary}`)) return;
+
+        const message = asiCreateMessage('assistant', `A criar a Conta Razão ${account} na empresa ${targetCompany} em ${environment}...`, { isProcessing: true });
+        asiAppendMessage(message);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+        try {
+            const response = await fetch('/api/jobs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task: 'gl_account_create_by_model', params: {
+                    environment, account, target_company: targetCompany,
+                    model_company: modelCompany, alternative_account: alternativeAccount,
+                    test_only: false
+                }})
+            });
+            const created = await response.json();
+            if (!response.ok || !created.id) throw new Error(created.detail || 'Não foi possível criar o job.');
+            let job = null;
+            for (let attempt = 0; attempt < 180; attempt += 1) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const poll = await fetch(`/api/jobs/${encodeURIComponent(created.id)}`);
+                job = await poll.json();
+                if (job.state === 'succeeded' || job.state === 'failed') break;
+            }
+            if (!job || job.state !== 'succeeded') throw new Error((job && (job.status || job.log)) || 'Timeout ao aguardar o worker.');
+            const result = JSON.parse(job.status || '{}');
+            if (!result.ok) throw new Error((result.messages || []).map(item => item.MESSAGE).filter(Boolean).join('\n') || result.status || 'Falha na criação.');
+            asiUpdateMessage(message.id, {
+                text: `Conta ${result.account} criada na empresa ${result.target_company}.`,
+                html: `<strong>Conta Razão criada com sucesso.</strong><br>Ambiente: ${escapeHtml(result.environment)}<br>Conta: ${escapeHtml(result.account)}<br>Empresa: ${escapeHtml(result.target_company)}<br>Modelo: ${escapeHtml(result.model_company)}<br>Conta de grupo: ${escapeHtml(result.group_account || '-')}<br>Conta alternativa: ${escapeHtml(result.alternative_account || '-')}`,
+                isProcessing: false
+            });
+        } catch (error) {
+            asiUpdateMessage(message.id, { text: 'Falha ao criar Conta Razão.', html: asiBuildPfcgErrorHtml('Falha ao criar Conta Razão.', error.message || ''), isProcessing: false });
+        } finally {
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
     async function asiHandleQuickActionSelection(actionId, level, parentActionId = '', selectionGroupKey = '__root__') {
         if (ASI_PFCG_DYNAMIC_ACTION_IDS.has(actionId)) {
             asiHandlePfcgRoleDynamicAction(actionId);
@@ -8823,6 +8919,17 @@
 
         if (actionId === ASI_MAIN_MENU_ACTION.id) {
             asiPresentMainMenu();
+            return;
+        }
+
+        if (typeof actionId === 'string' && actionId.endsWith('-by-model') && actionId.indexOf('gl-account-') === 0) {
+            const action = asiFindQuickAction(actionId, salsaAgentActions);
+            await asiRunGlAccountByModel(action || {});
+            return;
+        }
+
+        if (typeof actionId === 'string' && (actionId.endsWith('-excel') || actionId.endsWith('-new')) && actionId.indexOf('gl-account-') === 0) {
+            asiAppendMessage(asiCreateMessage('assistant', 'Esta opção está preparada no menu, mas será implementada numa fase posterior. Utilize Individual → Por modelo.'));
             return;
         }
 

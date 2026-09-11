@@ -2215,6 +2215,22 @@ def _handle_ping_status(job: dict[str, Any], params: dict[str, Any]) -> tuple[st
     return status or "STATUS vazio em wnd[0]/sbar", "STATUS atual lido sem navegar no SAP."
 
 
+def _run_gl_account_create_by_model(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    from sap_rfc.gl_account_service import create_company_account_by_model
+
+    result = create_company_account_by_model(
+        environment=str(params.get("environment") or "DEV"),
+        account=str(params.get("account") or ""),
+        target_company=str(params.get("target_company") or ""),
+        model_company=str(params.get("model_company") or ""),
+        alternative_account=str(params.get("alternative_account") or ""),
+        test_only=bool(params.get("test_only", False)),
+    )
+    status = json.dumps(result, ensure_ascii=False)
+    return status, str(result.get("status") or "Conta Razão processada.")
+
+
 # OBYC: a pesquisa deve respeitar a ordem das colunas do Excel.
 # A linha é pesquisada na SAP pelos campos-chave da configuração.
 OBYC_VALIDATION_EXCEL_KEY_FIELDS = ("KTOPL", "KTOSL", "BWMOD", "KOMOK", "BKLAS")
@@ -2268,6 +2284,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "fi_default_document": _run_fi_default_document,
     "f110_proposal": _run_f110_proposal,
     "f110_payment": _run_f110_payment,
+    "gl_account_create_by_model": lambda job, params: _run_gl_account_create_by_model(params),
 }
 
 

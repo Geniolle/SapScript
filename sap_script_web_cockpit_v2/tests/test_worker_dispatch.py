@@ -30,6 +30,7 @@ EXPECTED_TASKS = {
     "pfcg_role_search",
     "pfcg_role_transactions_analysis",
     "pfcg_role_users_analysis",
+    "pfcg_role_auth_objects_analysis",
     "pfcg_transaction_roles",
     "pfcg_object_roles",
     "pfcg_user_roles",
@@ -39,6 +40,8 @@ EXPECTED_TASKS = {
     "obyc_excel_preview",
     "obyc_excel_validate",
     "obyc_rfc_read_table",
+    "sap_fm_exists_check",
+    "sap_object_inspect",
     "pfcg_role_create_preview",
     "pfcg_role_create_rfc",
     "pfcg_composta_create_preview",
@@ -56,6 +59,7 @@ EXPECTED_TASKS = {
     "fi_default_document",
     "f110_proposal",
     "f110_payment",
+    "gl_account_create_by_model",
     "sap_cockpit",
 }
 # sap_cockpit fica como ramo explicito (streaming/threads/documentacao proprios).
