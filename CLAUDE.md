@@ -12,6 +12,9 @@ Assumir que as credenciais RFC SAP estao disponiveis no `.env` deste repositorio
 Se a ligacao falhar, reportar o erro tecnico concreto em vez de pedir novamente "ligacao" ou "credenciais".
 Nao expor valores sensiveis do `.env` nas respostas.
 
+Ao abrir ou mostrar uma sessão SAP GUI, posicionar a janela na metade esquerda do ecrã,
+salvo indicação diferente do utilizador.
+
 ## Nunca eliminar sem pedido explícito
 Nunca executar operações destrutivas em SAP (ex.: `PRGN_ACTIVITY_GROUP_DELETE`, apagar
 funções/roles, apagar registos, remover transportes) por iniciativa própria — mesmo que

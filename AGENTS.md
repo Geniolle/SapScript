@@ -16,3 +16,7 @@ Não interpretar a palavra dentro de uma citação, exemplo ou pergunta como ord
 
 As validações SAP devem ser feitas em modo somente leitura. Nunca alterar funções, atribuições, utilizadores ou outros dados SAP sem um pedido explícito e específico do utilizador.
 
+## Posição da janela SAP GUI
+
+Sempre que uma sessão SAP GUI for aberta ou trazida para primeiro plano, restaurar a
+janela e posicioná-la na metade esquerda do ecrã, salvo indicação diferente do utilizador.
