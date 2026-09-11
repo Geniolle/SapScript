@@ -1676,11 +1676,573 @@ def imprimir_resultado_user(res: Dict[str, Any]):
 
 
 # =====================================================================
-# MENU INTERATIVO
+# MENU INTERATIVO - FLUXO DIRECIONADO POR DEPARTAMENTO (CONTROLO)
 # =====================================================================
 
+def imprimir_cabecalho_compacto(ficheiro: str):
+    """Exibe cabeçalho limpo e direto ao iniciar."""
+    print("\n" + "=" * 75)
+    print("  🚀 PROJETO PERFIL - PROCESSAMENTO DE DEPARTAMENTOS (CUA / PFCG)")
+    print(f"  📂 Ficheiro: {os.path.basename(ficheiro)}")
+    print("=" * 75)
+
+
+def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:
+    """
+    Exibe a tabela clara dos departamentos na folha CONTROLO com as suas linhas no Excel
+    e retorna o próximo departamento pendente sugerido (se houver).
+    """
+    print("\n📋 DEPARTAMENTOS NA SHEET 'CONTROLO':")
+    print("-" * 75)
+    print(f"  {'Linha':<8} | {'Departamento':<30} | {'Estado na CONTROLO':<30}")
+    print("-" * 75)
+
+    if not dados.controlo:
+        print("  ⚠️ Nenhuma linha encontrada na folha CONTROLO.")
+        print("-" * 75)
+        return None
+
+    proximo_sugerido = None
+    for c in dados.controlo:
+        linha_str = f"[{c['linha']}]"
+        if c.get("pendente"):
+            status_desc = "⏳ DISPONÍVEL (Pendente)"
+            if not proximo_sugerido:
+                proximo_sugerido = c
+        else:
+            ts_curto = str(c.get("timestamp", ""))[:16]
+            ts = f" ({ts_curto})" if ts_curto else ""
+            status_desc = f"✅ {c.get('status', 'PROCESSADO')}{ts}"
+        print(f"  {linha_str:<8} | {c['departamento']:<30} | {status_desc}")
+    print("-" * 75)
+
+    if proximo_sugerido:
+        print(f"  🎯 Próximo departamento sugerido: Linha {proximo_sugerido['linha']} ('{proximo_sugerido['departamento']}')")
+    else:
+        print("  ✅ Todos os departamentos registados na sheet CONTROLO estão processados.")
+
+    return proximo_sugerido
+
+
+def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:
+    """
+    Apresenta a listagem da folha CONTROLO e solicita ao utilizador indicar a linha a processar.
+    """
+    sugerido = exibir_tabela_controlo(dados)
+    padrao_linha = str(sugerido["linha"]) if sugerido else ""
+    prompt_sugestao = f" [Enter para Linha {padrao_linha}]" if padrao_linha else ""
+
+    while True:
+        entrada = input(f"\n👉 Indique a LINHA do departamento que quer processar{prompt_sugestao} ('M' Menu Geral, '0' Sair): ").strip().upper()
+
+        if entrada in ("0", "SAIR", "Q", "QUIT", "EXIT"):
+            return None
+
+        if entrada in ("M", "MENU", "GERAL"):
+            return {"tipo": "MENU_GERAL"}
+
+        if not entrada and padrao_linha:
+            entrada = padrao_linha
+
+        # Busca por número de linha
+        item_match = next((c for c in dados.controlo if str(c.get("linha")) == entrada), None)
+        if item_match:
+            return item_match
+
+        # Busca alternativa por nome de departamento
+        item_por_nome = next((c for c in dados.controlo if entrada in c.get("departamento", "").upper()), None)
+        if item_por_nome:
+            return item_por_nome
+
+        print(f"⚠️ Linha ou departamento '{entrada}' não encontrado na folha CONTROLO. Escolha uma das linhas listadas.")
+
+
+def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Dict[str, Any]):
+    """
+    Executa o fluxo completo de sincronização no SAP CUA para o departamento selecionado:
+      1. Remoção de S4DCLNT100
+      2. Remoção de funções expiradas em S4PCLNT100
+      3. Remoção de funções obsoletas em S4QCLNT100
+      4. Replicação das funções ativas de S4PCLNT100 para S4QCLNT100
+      5. Auditoria em tempo real (P == Q)
+      6. Atualização de CUA_REMOVE, CUA_ADICIONAR e CONTROLO (SharePoint COM e local)
+    """
+    dep_nome = item_dep["departamento"]
+    linha_excel = item_dep.get("linha", 0)
+
+    analise = analisar_departamento_proposta(dados, dep_nome)
+    if not analise.get("encontrado"):
+        print(f"❌ Não foi possível carregar os utilizadores do departamento '{dep_nome}'.")
+        return
+
+    users = [u["usuario"] for u in analise.get("usuarios", []) if u.get("usuario")]
+    if not users:
+        print(f"❌ Nenhum utilizador encontrado para '{dep_nome}'.")
+        return
+
+    print(f"\n" + "=" * 75)
+    print(f"  🚀 INICIAR SINCRONIZAÇÃO CUA: {dep_nome.upper()} ({len(users)} Utilizadores)")
+    print("=" * 75)
+    print(f"  Utilizadores a processar: {', '.join(users)}")
+    print("  Etapas automáticas:")
+    print("    1. Remoção de sistema secundário S4DCLNT100 (se existir)")
+    print("    2. Remoção de roles expiradas em S4PCLNT100")
+    print("    3. Limpeza de roles obsoletas em S4QCLNT100")
+    print("    4. Atribuição de roles ativas de S4PCLNT100 em S4QCLNT100")
+    print("    5. Auditoria em tempo real de integridade P == Q")
+    print("    6. Gravação oficial em CUA_REMOVE, CUA_ADICIONAR e CONTROLO")
+    print("-" * 75)
+
+    confirma = input("👉 Confirma a execução imediata no SAP CUA? (S/N): ").strip().upper()
+    if confirma not in ("S", "SIM", "Y", "YES"):
+        print("⏸️ Operação cancelada pelo utilizador.")
+        return
+
+    import threading
+    erro_execucao = []
+
+    def worker_sync():
+        try:
+            import win32service, pythoncom, win32com.client, win32clipboard
+            import time
+            from datetime import datetime
+            from pathlib import Path
+
+            try:
+                hwinsta = win32service.OpenWindowStation("WinSta0", True, 0x037F)
+                hwinsta.SetProcessWindowStation()
+                hdesk = win32service.OpenDesktop("default", 0, True, 0x01FF)
+                hdesk.SetThreadDesktop()
+            except:
+                pass
+            pythoncom.CoInitialize()
+
+            rot = win32com.client.Dispatch("SapROTWr.SapROTWrapper")
+            sap = rot.GetROTEntry("SAPGUI")
+            session = sap.GetScriptingEngine.Children(0).Children(0)
+
+            roles_removidas = []
+            roles_adicionadas = []
+
+            for u in users:
+                print(f"\n  👤 A processar utilizador: {u} ...")
+
+                # A. Remover S4DCLNT100 na aba Sistemas se existir
+                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                session.findById("wnd[0]").sendVKey(0)
+                time.sleep(0.3)
+                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                time.sleep(0.4)
+
+                session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpSYSTEMS").select()
+                time.sleep(0.3)
+                grid_sys = session.findById(
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpSYSTEMS/ssubMAINAREA:SAPLSUID_MAINTENANCE:1210/cntlG_CUA_SYSTEMS_CONTAINER/shellcont/shell"
+                )
+                linha_s4d = None
+                for r in range(grid_sys.RowCount):
+                    if grid_sys.GetCellValue(r, "SUBSYSTEM") == "S4DCLNT100":
+                        linha_s4d = r
+                        break
+                if linha_s4d is not None:
+                    grid_sys.setCurrentCell(linha_s4d, "SUBSYSTEM")
+                    grid_sys.selectedRows = str(linha_s4d)
+                    grid_sys.pressToolbarButton("DEL_LINE")
+                    time.sleep(0.3)
+                    session.findById("wnd[0]").sendVKey(11) # Salvar
+                    time.sleep(0.6)
+                    print(f"     ✅ S4DCLNT100 removido de {u}.")
+
+                # B. Remover roles expiradas de S4PCLNT100
+                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                session.findById("wnd[0]").sendVKey(0)
+                time.sleep(0.3)
+                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                time.sleep(0.4)
+                session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
+                time.sleep(0.3)
+                grid_act = session.findById(
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
+                )
+                expired_p = []
+                for r in range(grid_act.RowCount):
+                    sis = grid_act.GetCellValue(r, "SUBSYSTEM")
+                    agr = grid_act.GetCellValue(r, "AGR_NAME")
+                    t_dat = grid_act.GetCellValue(r, "UPDATE_TO_DAT")
+                    if sis == "S4PCLNT100" and agr and "9999" not in str(t_dat):
+                        expired_p.append(agr)
+
+                if expired_p:
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardText("\r\n".join(expired_p))
+                    win32clipboard.CloseClipboard()
+
+                    grid_act.selectColumn("SUBSYSTEM")
+                    grid_act.selectColumn("AGR_NAME")
+                    grid_act.pressToolbarButton("&MB_FILTER")
+                    time.sleep(0.3)
+
+                    wnd1 = session.findById("wnd[1]")
+                    wnd1.findById("usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN001-LOW").text = "S4PCLNT100"
+                    wnd1.findById("usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/btn%_%%DYN002_%_APP_%-VALU_PUSH").press()
+                    time.sleep(0.3)
+                    wnd2 = session.findById("wnd[2]")
+                    wnd2.findById("tbar[0]/btn[24]").press()
+                    time.sleep(0.3)
+                    wnd2.findById("tbar[0]/btn[8]").press()
+                    time.sleep(0.3)
+                    wnd1.findById("tbar[0]/btn[0]").press()
+                    time.sleep(0.4)
+
+                    rc = grid_act.RowCount
+                    if rc > 0:
+                        grid_act.selectedRows = ",".join(str(i) for i in range(rc))
+                        grid_act.pressToolbarButton("DEL_LINE")
+                        time.sleep(0.3)
+                        try:
+                            session.findById("wnd[1]/tbar[0]/btn[0]").press()
+                            time.sleep(0.3)
+                        except:
+                            pass
+                    session.findById("wnd[0]").sendVKey(11) # Salvar
+                    time.sleep(0.8)
+                    for r_exp in expired_p:
+                        roles_removidas.append((u, "S4PCLNT100", r_exp, "CONCLUÍDO", f"User {u} has changed"))
+                    print(f"     ✅ {len(expired_p)} roles expiradas removidas de S4PCLNT100.")
+
+                # C. Remover roles obsoletas de S4QCLNT100
+                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                session.findById("wnd[0]").sendVKey(0)
+                time.sleep(0.3)
+                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                time.sleep(0.4)
+                session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
+                time.sleep(0.3)
+                grid_act = session.findById(
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
+                )
+                roles_q = [
+                    grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount)
+                    if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")
+                ]
+                if roles_q:
+                    grid_act.selectColumn("SUBSYSTEM")
+                    grid_act.pressToolbarButton("&MB_FILTER")
+                    time.sleep(0.3)
+                    wnd1 = session.findById("wnd[1]")
+                    wnd1.findById("usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN001-LOW").text = "S4QCLNT100"
+                    wnd1.findById("tbar[0]/btn[0]").press()
+                    time.sleep(0.4)
+                    rc_q = grid_act.RowCount
+                    if rc_q > 0:
+                        grid_act.selectedRows = ",".join(str(i) for i in range(rc_q))
+                        grid_act.pressToolbarButton("DEL_LINE")
+                        time.sleep(0.3)
+                        try:
+                            session.findById("wnd[1]/tbar[0]/btn[0]").press()
+                            time.sleep(0.3)
+                        except:
+                            pass
+                    session.findById("wnd[0]").sendVKey(11) # Salvar
+                    time.sleep(0.8)
+                    for r_q in roles_q:
+                        roles_removidas.append((u, "S4QCLNT100", r_q, "CONCLUÍDO", f"User {u} has changed"))
+                    print(f"     ✅ {len(roles_q)} roles obsoletas removidas de S4QCLNT100.")
+
+                # D. Adicionar roles ativas de S4PCLNT100 em S4QCLNT100
+                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                session.findById("wnd[0]").sendVKey(0)
+                time.sleep(0.3)
+                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                time.sleep(0.4)
+                session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
+                time.sleep(0.3)
+                grid_act = session.findById(
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
+                )
+                p_roles_dict = {}
+                for r in range(grid_act.RowCount):
+                    sis = grid_act.GetCellValue(r, "SUBSYSTEM")
+                    agr = grid_act.GetCellValue(r, "AGR_NAME")
+                    f_dat = grid_act.GetCellValue(r, "UPDATE_FROM_DAT")
+                    t_dat = grid_act.GetCellValue(r, "UPDATE_TO_DAT")
+                    if sis == "S4PCLNT100" and agr:
+                        if agr not in p_roles_dict or "9999" in str(t_dat):
+                            p_roles_dict[agr] = (f_dat, t_dat)
+
+                first_empty = -1
+                for r in range(grid_act.RowCount):
+                    if not grid_act.GetCellValue(r, "SUBSYSTEM") and not grid_act.GetCellValue(r, "AGR_NAME"):
+                        first_empty = r
+                        break
+                if first_empty == -1:
+                    first_empty = grid_act.RowCount
+
+                curr_row = first_empty
+                for agr, (f_dat, t_dat) in sorted(p_roles_dict.items()):
+                    grid_act.firstVisibleRow = max(0, curr_row - 2)
+                    grid_act.modifyCell(curr_row, "SUBSYSTEM", "S4QCLNT100")
+                    grid_act.modifyCell(curr_row, "AGR_NAME", agr)
+                    if f_dat:
+                        try: grid_act.modifyCell(curr_row, "UPDATE_FROM_DAT", f_dat)
+                        except: pass
+                    if t_dat:
+                        try: grid_act.modifyCell(curr_row, "UPDATE_TO_DAT", t_dat)
+                        except: pass
+                    roles_adicionadas.append((u, "S4QCLNT100", agr, "CONCLUÍDO", f"User {u} has changed"))
+                    curr_row += 1
+
+                grid_act.currentCellColumn = "AGR_NAME"
+                grid_act.pressEnter()
+                time.sleep(0.5)
+                session.findById("wnd[0]").sendVKey(11) # Salvar
+                time.sleep(0.8)
+                print(f"     ✅ {len(p_roles_dict)} roles ativas replicadas para S4QCLNT100.")
+
+                # E. Auditoria final
+                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                session.findById("wnd[0]").sendVKey(0)
+                time.sleep(0.3)
+                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                time.sleep(0.4)
+                session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
+                time.sleep(0.3)
+                grid_act = session.findById(
+                    "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
+                )
+                p_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4PCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")}
+                q_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")}
+                sess_ok = (p_finais == q_finais)
+                print(f"     🎯 Auditoria {u}: P={len(p_finais)} | Q={len(q_finais)} -> MATCH EXATO: {sess_ok}")
+
+            session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+            session.findById("wnd[0]").sendVKey(0)
+
+            # Gravação em Excel
+            print("\n  📊 A atualizar folhas de cálculo oficiais (CUA_REMOVE, CUA_ADICIONAR, CONTROLO)...")
+            xl = win32com.client.Dispatch("Excel.Application")
+            wb = None
+            for w in xl.Workbooks:
+                if "S4H_Perfis de autorização.xlsx" in w.Name or "perfis" in w.Name.lower():
+                    wb = w
+                    break
+
+            timestamp_now = datetime.now()
+            timestamp_str = timestamp_now.strftime("%d/%m/%Y %H:%M:%S")
+
+            if wb:
+                # CUA_REMOVE
+                ws_rem = wb.Worksheets("CUA_REMOVE")
+                lr_rem = ws_rem.UsedRange.Rows.Count
+                lid_rem = int(ws_rem.Cells(lr_rem, 1).Value or 0)
+                cur_r = lr_rem + 1
+                cur_id = lid_rem + 1
+                for usr, sis, rol, st, msg in roles_removidas:
+                    ws_rem.Cells(cur_r, 1).Value = cur_id
+                    ws_rem.Cells(cur_r, 2).Value = usr
+                    ws_rem.Cells(cur_r, 3).Value = sis
+                    ws_rem.Cells(cur_r, 4).Value = rol
+                    ws_rem.Cells(cur_r, 5).Value = st
+                    ws_rem.Cells(cur_r, 6).Value = msg
+                    ws_rem.Cells(cur_r, 7).Value = timestamp_str
+                    cur_r += 1
+                    cur_id += 1
+
+                # CUA_ADICIONAR
+                ws_add = wb.Worksheets("CUA_ADICIONAR")
+                lr_add = ws_add.UsedRange.Rows.Count
+                lid_add = int(ws_add.Cells(lr_add, 1).Value or 0)
+                cur_r = lr_add + 1
+                cur_id = lid_add + 1
+                for usr, sis, rol, st, msg in roles_adicionadas:
+                    ws_add.Cells(cur_r, 1).Value = cur_id
+                    ws_add.Cells(cur_r, 2).Value = usr
+                    ws_add.Cells(cur_r, 3).Value = sis
+                    ws_add.Cells(cur_r, 4).Value = rol
+                    ws_add.Cells(cur_r, 5).Value = st
+                    ws_add.Cells(cur_r, 6).Value = msg
+                    ws_add.Cells(cur_r, 7).Value = timestamp_str
+                    cur_r += 1
+                    cur_id += 1
+
+                # CONTROLO
+                ws_ctrl = wb.Worksheets("CONTROLO")
+                for r in range(2, ws_ctrl.UsedRange.Rows.Count + 1):
+                    if str(ws_ctrl.Cells(r, 1).Value or "").strip() == dep_nome:
+                        ws_ctrl.Cells(r, 2).Value = "PROCESSADO"
+                        ws_ctrl.Cells(r, 3).Value = timestamp_now
+                        break
+                wb.Save()
+                try:
+                    caminho_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                    wb.SaveCopyAs(str(caminho_local))
+                except:
+                    pass
+                print("  ✅ Excel guardado com sucesso!")
+
+            item_dep["status"] = "PROCESSADO"
+            item_dep["timestamp"] = timestamp_str
+            item_dep["pendente"] = False
+            print(f"\n🎉 Sincronização do departamento '{dep_nome}' concluída com sucesso!")
+
+        except Exception as exc:
+            erro_execucao.append(exc)
+            print(f"❌ Erro na execução da sincronização CUA: {exc}")
+
+    t = threading.Thread(target=worker_sync)
+    t.start()
+    t.join()
+
+
+def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any]) -> str:
+    """
+    Apresenta o resumo do departamento selecionado e as ações operacionais diretas.
+    Retorna 'VOLTAR' para escolher outro departamento, ou 'SAIR' para terminar.
+    """
+    dep_nome = item_dep["departamento"]
+    linha = item_dep.get("linha", "?")
+
+    analise = analisar_departamento_proposta(dados, dep_nome)
+
+    while True:
+        print("\n" + "=" * 75)
+        print(f"  🏢 DEPARTAMENTO SELECIONADO: {dep_nome.upper()} (Linha {linha} no Excel)")
+        print("=" * 75)
+
+        st_tag = "⏳ PENDENTE (Disponível para processamento)" if item_dep.get("pendente") else f"✅ {item_dep.get('status')} | {item_dep.get('timestamp')}"
+        print(f"  📌 Estado na CONTROLO: {st_tag}")
+
+        if analise.get("encontrado"):
+            users = analise.get("usuarios", [])
+            compostas = analise.get("compostas", [])
+            print(f"  👥 Utilizadores no Departamento ({len(users)}):")
+            for u in users:
+                comp = f"[Composta: {u['composta']}]" if u.get("composta") else "[Sem Composta]"
+                print(f"     • {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']} {comp} -> {u['total_singles']} Singles")
+            if compostas:
+                print(f"  📦 Funções Compostas ({len(compostas)}): {', '.join(compostas)}")
+            print(f"  🧩 Funções Individuais (Singles): {analise.get('total_singles_distintas', 0)} distintas")
+        else:
+            print(f"  ⚠️ Aviso: {analise.get('mensagem', 'Departamento não encontrado na folha Proposta Ativa.')}")
+
+        print("-" * 75)
+        print("  AÇÕES DISPONÍVEIS PARA ESTE DEPARTAMENTO:")
+        print("  [1] 👤 Validar Utilizadores no SAP PRD (AGR_USERS via RFC & Cruzamento)")
+        print("  [2] 🔗 Cruzar Fontes (PFCG_CREATE, COMPOSTA, AUTHORITY, EXCLUÇÃO)")
+        print("  [3] 🔄 Sincronizar CUA (Remover S4D / Limpar PRD / Alinhar QAS)")
+        print("  [4] 🌐 Verificar Existência de Funções no SAP PRD (AGR_DEFINE)")
+        print("  [5] 📋 Ver Análise Detalhada (Proposta Ativa)")
+        print("  [6] ↩️  Voltar / Escolher Outro Departamento da CONTROLO")
+        print("  [7] 🔍 Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)")
+        print("  [0] 🚪 Sair")
+        print("-" * 75)
+
+        acao = input("👉 Escolha uma ação: ").strip().upper()
+
+        if acao == "1":
+            print(f"\n⏳ A validar atribuições no SAP PRD para '{dep_nome}' ...")
+            res_prd = validar_utilizadores_prd(dados, dep_nome)
+            imprimir_validacao_utilizadores_prd(res_prd)
+
+        elif acao == "2":
+            res_cruz = cruzar_fontes_departamento(dados, dep_nome)
+            imprimir_cruzamento_fontes(res_cruz)
+
+        elif acao == "3":
+            sincronizar_departamento_cua_completo(dados, item_dep)
+
+        elif acao == "4":
+            if analise.get("encontrado"):
+                roles_dep = list(analise["compostas"]) + list(analise["singles_frequencia"].keys())
+                res_prd = verificar_funcoes_prd(roles_dep)
+                imprimir_resultado_verificacao_prd(res_prd, f"Departamento '{dep_nome}'")
+            else:
+                print("⚠️ Não foi possível obter as funções do departamento.")
+
+        elif acao == "5":
+            imprimir_analise_departamento(analise)
+
+        elif acao in ("6", "V", "VOLTAR"):
+            return "VOLTAR"
+
+        elif acao in ("7", "M", "GERAL"):
+            return "MENU_GERAL"
+
+        elif acao in ("0", "S", "SAIR", "Q"):
+            return "SAIR"
+
+        else:
+            print("⚠️ Opção inválida. Tente novamente.")
+
+
+def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
+    """Menu de pesquisas avançadas de funções, tcodes e utilizadores."""
+    while True:
+        print("\n" + "-" * 75)
+        print("  🔍 MENU GERAL DE PESQUISAS & ESTATÍSTICAS:")
+        print("  [1] 🔍 Pesquisar por Nome de Função (Role / Perfil)")
+        print("  [2] 📌 Pesquisar por Transação (TCODE -> Funções)")
+        print("  [3] 👤 Pesquisar por Utilizador (CUA: Adições / Remoções)")
+        print("  [4] 📋 Listar todas as Roles Simples")
+        print("  [5] 📋 Listar todas as Roles Compostas")
+        print("  [6] 📊 Ver Resumo Geral de Todas as Funções")
+        print("  [7] 📂 Abrir outro ficheiro Excel")
+        print("  [0] ↩️  Voltar ao Processamento de Departamentos")
+        print("-" * 75)
+
+        op = input("👉 Escolha uma opção: ").strip()
+
+        if op == "1":
+            termo = input("🔎 Digite o nome da função ou texto (ex.: Z_BR, MANAGER, ZORG): ").strip()
+            if termo:
+                imprimir_resultado_funcao(pesquisar_funcao(dados, termo))
+
+        elif op == "2":
+            tcode = input("🔎 Digite a transação SAP (ex.: FB03, ME21N, BP): ").strip()
+            if tcode:
+                imprimir_resultado_tcode(pesquisar_por_tcode(dados, tcode))
+
+        elif op == "3":
+            user = input("🔎 Digite o utilizador SAP (ex.: S6005, S170): ").strip()
+            if user:
+                imprimir_auditoria_utilizador(auditar_utilizador(dados, user))
+
+        elif op == "4":
+            print(f"\n📋 TODAS AS ROLES SIMPLES ({len(dados.roles_simples)}):")
+            for r, info in sorted(dados.roles_simples.items()):
+                print(f"  - {r:<35} | {len(info.get('tcodes', []))} TCODEs | {info.get('descricao', '')}")
+
+        elif op == "5":
+            print(f"\n📋 TODAS AS ROLES COMPOSTAS ({len(dados.roles_compostas)}):")
+            for r, info in sorted(dados.roles_compostas.items()):
+                print(f"  - {r:<35} | {len(info.get('roles_filhas', []))} Filhas | {info.get('descricao', '')}")
+
+        elif op == "6":
+            imprimir_resumo(dados)
+
+        elif op == "7":
+            novo = input("📂 Caminho do novo ficheiro Excel: ").strip()
+            if novo and os.path.exists(novo):
+                dados = carregar_projeto_perfil(novo)
+                print("✅ Novo ficheiro carregado com sucesso!")
+            else:
+                print("❌ Ficheiro não encontrado.")
+
+        elif op in ("0", "V", "VOLTAR"):
+            return "VOLTAR"
+
+        else:
+            print("⚠️ Opção inválida.")
+
+
 def menu_interativo(caminho_inicial: Optional[str] = None):
-    """Executa o menu interativo de consola."""
+    """Executa o novo menu interativo limpo direcionado por departamento."""
     caminho = caminho_inicial or encontrar_excel_padrao()
 
     if not caminho or not os.path.exists(caminho):
@@ -1697,122 +2259,28 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
         print(f"❌ Erro ao ler Excel: {e}")
         return
 
-    imprimir_cabecalho(caminho)
-    imprimir_validacao_controlo(dados)
-    imprimir_resumo(dados)
+    imprimir_cabecalho_compacto(caminho)
 
     while True:
-        print("\n" + "-" * 75)
-        print("  MENU PRINCIPAL - PROJETO PERFIL:")
-        print("  [1] 📋 Validar Sheet CONTROLO (Departamentos com STATUS vazio)")
-        print("  [2] 🏢 Analisar Funções por Departamento (Proposta Ativa)")
-        print("  [3] 🔗 Cruzar Fontes (PFCG_CREATE, COMPOSTA, AUTHORITY, EXCLUÇÃO)")
-        print("  [4] 👤 Validar Utilizadores no SAP PRD (AGR_USERS com Cruzamento)")
-        print("  [5] 🌐 Verificar Existência de Funções no SAP PRD (AGR_DEFINE)")
-        print("  [6] 📊 Ver Resumo Geral das Funções")
-        print("  [7] 🔍 Pesquisar por Nome de Função (Role / Perfil)")
-        print("  [8] 📌 Pesquisar por Transação (TCODE -> Funções)")
-        print("  [9] 👤 Pesquisar por Utilizador (CUA: Adições / Remoções)")
-        print("  [10] 📋 Listar todas as Roles Simples")
-        print("  [11] 📋 Listar todas as Roles Compostas")
-        print("  [12] 📂 Abrir outro ficheiro Excel")
-        print("  [0] 🚪 Sair")
-        print("-" * 75)
-
-        opcao = input("👉 Escolha uma opção: ").strip()
-
-        if opcao == "1":
-            imprimir_validacao_controlo(dados)
-
-        elif opcao == "2":
-            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
-            dep_in = input(f"🔎 Nome do departamento (Enter para '{dep_padrao}'): ").strip()
-            alvo = dep_in if dep_in else dep_padrao
-            res_dep = analisar_departamento_proposta(dados, alvo)
-            imprimir_analise_departamento(res_dep)
-
-        elif opcao == "3":
-            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
-            dep_in = input(f"🔎 Nome do departamento para Cruzamento (Enter para '{dep_padrao}'): ").strip()
-            alvo = dep_in if dep_in else dep_padrao
-            res_cruz = cruzar_fontes_departamento(dados, alvo)
-            imprimir_cruzamento_fontes(res_cruz)
-
-        elif opcao == "4":
-            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
-            dep_in = input(f"🔎 Nome do departamento para Validar no PRD (Enter para '{dep_padrao}'): ").strip()
-            alvo = dep_in if dep_in else dep_padrao
-            print(f"⏳ A consultar atribuições no SAP PRD (AGR_USERS) para '{alvo}' ...")
-            res_prd_users = validar_utilizadores_prd(dados, alvo)
-            imprimir_validacao_utilizadores_prd(res_prd_users)
-
-        elif opcao == "5":
-            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
-            print("\n  O que deseja verificar no SAP PRD?")
-            print(f"  [1] Funções do departamento '{dep_padrao}'")
-            print("  [2] Todas as funções do ficheiro Excel (PFCG_CREATE + PFCG_COMPOSTA)")
-            sub_op = input("👉 Escolha (1 ou 2, padrão 1): ").strip()
-            if sub_op == "2":
-                todas = list(dados.roles_simples.keys()) + list(dados.roles_compostas.keys())
-                res_prd = verificar_funcoes_prd(todas)
-                imprimir_resultado_verificacao_prd(res_prd, "Todas as Funções do Excel")
-            else:
-                dep_info = analisar_departamento_proposta(dados, dep_padrao)
-                if dep_info.get("encontrado"):
-                    roles_dep = list(dep_info["compostas"]) + list(dep_info["singles_frequencia"].keys())
-                    res_prd = verificar_funcoes_prd(roles_dep)
-                    imprimir_resultado_verificacao_prd(res_prd, f"Departamento {dep_padrao}")
-                else:
-                    print("⚠️ Não foi possível obter as funções do departamento.")
-
-        elif opcao == "6":
-            imprimir_resumo(dados)
-
-        elif opcao == "7":
-            termo = input("🔎 Digite o nome da função ou texto (ex.: Z_BR, MANAGER, ZORG): ").strip()
-            if termo:
-                res = pesquisar_funcao(dados, termo)
-                imprimir_resultado_funcao(res)
-
-        elif opcao == "8":
-            tcode = input("🔎 Digite a transação SAP (ex.: FB03, ME21N, BP): ").strip()
-            if tcode:
-                res = pesquisar_por_tcode(dados, tcode)
-                imprimir_resultado_tcode(res)
-
-        elif opcao == "9":
-            user = input("🔎 Digite o utilizador SAP (ex.: S6005, S170): ").strip()
-            if user:
-                res = auditar_utilizador(dados, user)
-                imprimir_auditoria_utilizador(res)
-
-        elif opcao == "10":
-            print(f"\n📋 TODAS AS ROLES SIMPLES ({len(dados.roles_simples)}):")
-            for r, info in sorted(dados.roles_simples.items()):
-                print(f"  - {r:<35} | {len(info.get('tcodes', []))} TCODEs | {info.get('descricao', '')}")
-
-        elif opcao == "11":
-            print(f"\n📋 TODAS AS ROLES COMPOSTAS ({len(dados.roles_compostas)}):")
-            for r, info in sorted(dados.roles_compostas.items()):
-                print(f"  - {r:<35} | {len(info.get('roles_filhas', []))} Filhas | {info.get('descricao', '')}")
-
-        elif opcao == "12":
-            novo = input("📂 Caminho do novo ficheiro Excel: ").strip()
-            if novo and os.path.exists(novo):
-                dados = carregar_projeto_perfil(novo)
-                caminho = novo
-                imprimir_cabecalho(caminho)
-                imprimir_validacao_controlo(dados)
-                imprimir_resumo(dados)
-            else:
-                print("❌ Ficheiro não encontrado.")
-
-        elif opcao == "0":
-            print("👋 Encerrando. Até logo!")
+        item_selecionado = selecionar_departamento_interativo(dados)
+        if not item_selecionado:
+            print("\n👋 Encerrando. Até logo!")
             break
 
-        else:
-            print("⚠️ Opção inválida. Tente novamente.")
+        if item_selecionado.get("tipo") == "MENU_GERAL":
+            acao = menu_geral_pesquisas(dados)
+            if acao == "SAIR":
+                break
+            continue
+
+        acao = executar_menu_departamento(dados, item_selecionado)
+        if acao == "SAIR":
+            print("\n👋 Encerrando. Até logo!")
+            break
+        elif acao == "MENU_GERAL":
+            acao_g = menu_geral_pesquisas(dados)
+            if acao_g == "SAIR":
+                break
 
 
 # =====================================================================

@@ -264,3 +264,26 @@ O departamento **Client Services** foi concluído com **100% de conformidade** e
 - **Folha `CONTROLO`**: Linha 3 do departamento **Client Services** formalmente atualizada com `STATUS = 'PROCESSADO'` e `TIMESTAMP = 11/09/2026 23:57:28`.
 - Sincronização direta via interface COM no Microsoft Excel (SharePoint) e cópia espelhada local `sap_script_uploads/S4H_Perfis de autorização.xlsx`.
 
+## 11. Novo Fluxo Interativo Guiado por Linha da Folha CONTROLO (`Projeto Perfil.py`)
+
+A experiência de execução manual do script [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil.py) foi integralmente reformulada para eliminar ruído visual e permitir ao operador trabalhar departamento a departamento de forma direta:
+
+### Melhorias Implementadas:
+1. **Eliminação do Ruído Inicial**:
+   - Foram removidos os cabeçalhos extensos, o despejo de todas as 29 sheets em formato raw e o menu genérico inicial de 12 opções que sobrecarregavam o terminal.
+2. **Apresentação Imediata da Tabela `CONTROLO`**:
+   - Ao iniciar, o script lista diretamente os departamentos presentes na folha `CONTROLO` com o respetivo número de linha no Excel (`[2]`, `[3]`, `[4]`, etc.), nome do departamento e estado atual (`⏳ DISPONÍVEL (Pendente)` ou `✅ PROCESSADO`).
+   - É destacado o **próximo departamento sugerido** (primeira linha com status pendente).
+3. **Seleção Direta por Linha**:
+   - O utilizador pode premir simplesmente `Enter` para selecionar a linha sugerida ou digitar o número de qualquer outra linha desejada (ou `'M'` para o menu geral de pesquisas, `'0'` para sair).
+4. **Painel Operacional Dedicado ao Departamento**:
+   - Uma vez escolhida a linha, surge um painel limpo com o nome do departamento, utilizadores, cargos, compostas e singles atribuídas.
+   - Menu com ações rápidas numeradas:
+     - `[1] 👤 Validar Utilizadores no SAP PRD (AGR_USERS via RFC & Cruzamento)`
+     - `[2] 🔗 Cruzar Fontes (PFCG_CREATE, COMPOSTA, AUTHORITY, EXCLUÇÃO)`
+     - `[3] 🔄 Sincronizar CUA (Remover S4D / Limpar PRD / Alinhar QAS)`
+     - `[4] 🌐 Verificar Existência de Funções no SAP PRD (AGR_DEFINE)`
+     - `[5] 📋 Ver Análise Detalhada (Proposta Ativa)`
+     - `[6] ↩️ Voltar / Escolher Outro Departamento da CONTROLO`
+     - `[7] 🔍 Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)`
+     - `[0] 🚪 Sair`
