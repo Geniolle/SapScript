@@ -315,7 +315,7 @@ def obter_utilizadores_excel(
 def main():
     parser = argparse.ArgumentParser(description="Remover sistema recetor no SAP CUA (SU01) utilizador a utilizador")
     parser.add_argument("--users", "-u", nargs="+", help="Lista de utilizadores específicos (ex: S170 S270 S419)")
-    parser.add_argument("--departamento", "-d", default="Purchase & Services", help="Nome do departamento no Excel (default: Purchase & Services)")
+    parser.add_argument("--departamento", "-d", default=None, help="Nome do departamento no Excel (se omitido, deteta automaticamente o próximo pendente da sheet CONTROLO com STATUS e TIMESTAMP vazios)")
     parser.add_argument("--todos", action="store_true", help="Processar todos os utilizadores da folha Proposta Ativa")
     parser.add_argument("--sistema", "-s", default="S4DCLNT100", help="Sistema a remover (default: S4DCLNT100)")
     parser.add_argument("--dry-run", action="store_true", help="Apenas simular sem gravar")
@@ -329,7 +329,19 @@ def main():
         elif args.todos:
             users_alvo = obter_utilizadores_excel(departamento=None)
         else:
-            users_alvo = obter_utilizadores_excel(departamento=args.departamento)
+            dep = args.departamento
+            if not dep:
+                import importlib.util
+                raiz = Path(__file__).resolve().parent.parent.parent
+                spec = importlib.util.spec_from_file_location("projeto_perfil", raiz / "Projeto Perfil.py")
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                dep = mod.obter_proximo_departamento_controlo()
+                if dep:
+                    print(f"🎯 Próximo departamento detetado automaticamente da sheet CONTROLO: '{dep}' (STATUS e TIMESTAMP vazios)")
+                else:
+                    dep = "Client Services"
+            users_alvo = obter_utilizadores_excel(departamento=dep)
 
         if not users_alvo:
             print(f"❌ Nenhum utilizador encontrado para os critérios indicados.")

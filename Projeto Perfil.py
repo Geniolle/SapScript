@@ -242,7 +242,7 @@ class ProjetoPerfilData:
         pendentes_add = sum(1 for item in self.cua_adicionar if not item.get("status"))
         pendentes_rm = sum(1 for item in self.cua_remover if not item.get("status"))
         pendentes_controlo = sum(1 for item in self.controlo if item.get("pendente"))
-        
+
         return {
             "ficheiro": self.nome_ficheiro,
             "caminho": self.caminho,
@@ -260,6 +260,17 @@ class ProjetoPerfilData:
             "cua_remover_pendentes": pendentes_rm,
             "total_utilizadores_distintos": len(self.utilizadores_cua),
         }
+
+    def obter_proximo_departamento(self) -> Optional[str]:
+        """
+        Devolve o próximo departamento a avançar com base na sheet CONTROLO.
+        Critério oficial: primeiro departamento onde as colunas STATUS e TIMESTAMP estão vazias.
+        """
+        for item in self.controlo:
+            if item.get("pendente"):
+                return item.get("departamento")
+        return None
+
 
 
 def abrir_excel_seguro(caminho_excel: str):
@@ -331,13 +342,21 @@ def carregar_projeto_perfil(caminho_excel: Optional[str] = None) -> ProjetoPerfi
                 if not dep:
                     continue
                 st = str(row.get(col_st, "")).strip() if col_st and pd.notna(row.get(col_st)) else ""
+                if st.lower() in ("nan", "none", "<na>"):
+                    st = ""
                 ts = str(row.get(col_ts, "")).strip() if col_ts and pd.notna(row.get(col_ts)) else ""
+                if ts.lower() in ("nan", "none", "<na>", "nat"):
+                    ts = ""
+
+                # Regra oficial: o departamento a avançar é aquele com STATUS e TIMESTAMP vazios
+                is_pendente = (not bool(st)) and (not bool(ts))
+
                 dados.controlo.append({
                     "linha": idx + 2,
                     "departamento": dep,
                     "status": st,
                     "timestamp": ts,
-                    "pendente": not bool(st)
+                    "pendente": is_pendente
                 })
 
     # -------------------------------------------------------------
@@ -524,6 +543,15 @@ def carregar_projeto_perfil(caminho_excel: Optional[str] = None) -> ProjetoPerfi
             ]
 
     return dados
+
+
+def obter_proximo_departamento_controlo(caminho_excel: Optional[str] = None) -> Optional[str]:
+    """
+    Lê a sheet CONTROLO do ficheiro Excel e devolve o próximo departamento a avançar
+    (aquele cujas colunas STATUS e TIMESTAMP estão vazias).
+    """
+    dados = carregar_projeto_perfil(caminho_excel)
+    return dados.obter_proximo_departamento()
 
 
 # =====================================================================
@@ -1533,22 +1561,27 @@ def imprimir_validacao_controlo(dados: ProjetoPerfilData):
 
     pendentes = [d for d in dados.controlo if d.get("pendente")]
     print(f"  Total de departamentos registados: {len(dados.controlo)}")
-    print(f"  Departamentos com STATUS vazio (Pendentes): {len(pendentes)}")
+    print(f"  Departamentos pendentes (STATUS e TIMESTAMP vazios): {len(pendentes)}")
     print("-" * 75)
     for c in dados.controlo:
-        status_tag = "⏳ PENDENTE (STATUS VAZIO)" if c["pendente"] else f"✅ {c['status']}"
+        status_tag = "⏳ PENDENTE (STATUS E TIMESTAMP VAZIOS)" if c["pendente"] else f"✅ {c['status']}"
         ts_info = f" | {c['timestamp']}" if c.get("timestamp") else ""
         print(f"  Linha {c['linha']}: {c['departamento']:<30} -> {status_tag}{ts_info}")
 
     print("-" * 75)
-    if pendentes:
-        print("  🎯 DEPARTAMENTO(S) A PROCESSAR:")
-        for p in pendentes:
-            tem_sheet = p["departamento"] in dados.sheets_disponiveis
-            sheet_info = f"[Sheet correspondente '{p['departamento']}' EXISTE no Excel]" if tem_sheet else "[Sheet correspondente não encontrada]"
-            print(f"   👉 '{p['departamento']}' (Linha {p['linha']}) -> STATUS ESTÁ VAZIO! {sheet_info}")
+    proximo = dados.obter_proximo_departamento()
+    if proximo:
+        print(f"  🎯 PRÓXIMO DEPARTAMENTO A AVANÇAR: '{proximo}'")
+        item_prox = next((p for p in pendentes if p["departamento"] == proximo), {})
+        tem_sheet = proximo in dados.sheets_disponiveis
+        sheet_info = f"[Sheet correspondente '{proximo}' EXISTE no Excel]" if tem_sheet else "[Sheet correspondente não encontrada]"
+        print(f"     👉 Linha {item_prox.get('linha')}: STATUS e TIMESTAMP estão vazios! {sheet_info}")
+        if len(pendentes) > 1:
+            print("\n  Demais departamentos pendentes:")
+            for p in pendentes[1:]:
+                print(f"     - '{p['departamento']}' (Linha {p['linha']})")
     else:
-        print("  ✅ Todos os departamentos na sheet CONTROLO já possuem STATUS preenchido.")
+        print("  ✅ Todos os departamentos na sheet CONTROLO já possuem STATUS e TIMESTAMP preenchidos.")
 
 
 def imprimir_resumo(dados: ProjetoPerfilData):
@@ -1692,21 +1725,21 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
             imprimir_validacao_controlo(dados)
 
         elif opcao == "2":
-            dep_padrao = "Purchase & Services"
+            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
             dep_in = input(f"🔎 Nome do departamento (Enter para '{dep_padrao}'): ").strip()
             alvo = dep_in if dep_in else dep_padrao
             res_dep = analisar_departamento_proposta(dados, alvo)
             imprimir_analise_departamento(res_dep)
 
         elif opcao == "3":
-            dep_padrao = "Purchase & Services"
+            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
             dep_in = input(f"🔎 Nome do departamento para Cruzamento (Enter para '{dep_padrao}'): ").strip()
             alvo = dep_in if dep_in else dep_padrao
             res_cruz = cruzar_fontes_departamento(dados, alvo)
             imprimir_cruzamento_fontes(res_cruz)
 
         elif opcao == "4":
-            dep_padrao = "Purchase & Services"
+            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
             dep_in = input(f"🔎 Nome do departamento para Validar no PRD (Enter para '{dep_padrao}'): ").strip()
             alvo = dep_in if dep_in else dep_padrao
             print(f"⏳ A consultar atribuições no SAP PRD (AGR_USERS) para '{alvo}' ...")
@@ -1714,8 +1747,9 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
             imprimir_validacao_utilizadores_prd(res_prd_users)
 
         elif opcao == "5":
+            dep_padrao = dados.obter_proximo_departamento() or "Purchase & Services"
             print("\n  O que deseja verificar no SAP PRD?")
-            print("  [1] Funções do departamento 'Purchase & Services'")
+            print(f"  [1] Funções do departamento '{dep_padrao}'")
             print("  [2] Todas as funções do ficheiro Excel (PFCG_CREATE + PFCG_COMPOSTA)")
             sub_op = input("👉 Escolha (1 ou 2, padrão 1): ").strip()
             if sub_op == "2":
@@ -1723,11 +1757,11 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
                 res_prd = verificar_funcoes_prd(todas)
                 imprimir_resultado_verificacao_prd(res_prd, "Todas as Funções do Excel")
             else:
-                dep_info = analisar_departamento_proposta(dados, "Purchase & Services")
+                dep_info = analisar_departamento_proposta(dados, dep_padrao)
                 if dep_info.get("encontrado"):
                     roles_dep = list(dep_info["compostas"]) + list(dep_info["singles_frequencia"].keys())
                     res_prd = verificar_funcoes_prd(roles_dep)
-                    imprimir_resultado_verificacao_prd(res_prd, "Departamento Purchase & Services")
+                    imprimir_resultado_verificacao_prd(res_prd, f"Departamento {dep_padrao}")
                 else:
                     print("⚠️ Não foi possível obter as funções do departamento.")
 
@@ -1741,49 +1775,42 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
                 imprimir_resultado_funcao(res)
 
         elif opcao == "8":
-            tcode = input("🔎 Digite a transação SAP (ex.: FB01, CO01, SU01, SE16): ").strip()
+            tcode = input("🔎 Digite a transação SAP (ex.: FB03, ME21N, BP): ").strip()
             if tcode:
                 res = pesquisar_por_tcode(dados, tcode)
                 imprimir_resultado_tcode(res)
 
         elif opcao == "9":
-            user = input("🔎 Digite o ID do Utilizador SAP (ex.: S419, S170, S270, S6005): ").strip()
+            user = input("🔎 Digite o utilizador SAP (ex.: S6005, S170): ").strip()
             if user:
-                res_audit = auditar_utilizador(dados, user)
-                imprimir_auditoria_utilizador(res_audit)
+                res = auditar_utilizador(dados, user)
+                imprimir_auditoria_utilizador(res)
 
         elif opcao == "10":
-            print(f"\n📋 Total de {len(dados.roles_simples)} Roles Simples:")
+            print(f"\n📋 TODAS AS ROLES SIMPLES ({len(dados.roles_simples)}):")
             for r, info in sorted(dados.roles_simples.items()):
-                t_count = len(info["tcodes"])
-                desc = f" - {info['descricao']}" if info.get("descricao") else ""
-                print(f"  ├─ {r} ({t_count} TCODEs){desc}")
+                print(f"  - {r:<35} | {len(info.get('tcodes', []))} TCODEs | {info.get('descricao', '')}")
 
         elif opcao == "11":
-            print(f"\n📋 Total de {len(dados.roles_compostas)} Roles Compostas:")
-            for c, info in sorted(dados.roles_compostas.items()):
-                filhas_count = len(info["roles_filhas"])
-                desc = f" - {info['descricao']}" if info.get("descricao") else ""
-                print(f"  ├─ {c} ({filhas_count} roles filhas){desc}")
+            print(f"\n📋 TODAS AS ROLES COMPOSTAS ({len(dados.roles_compostas)}):")
+            for r, info in sorted(dados.roles_compostas.items()):
+                print(f"  - {r:<35} | {len(info.get('roles_filhas', []))} Filhas | {info.get('descricao', '')}")
 
         elif opcao == "12":
-            novo_caminho = selecionar_ficheiro_dialogo()
-            if novo_caminho and os.path.exists(novo_caminho):
-                try:
-                    caminho = novo_caminho
-                    print(f"⏳ A carregar ficheiro: {os.path.basename(caminho)} ...")
-                    dados = carregar_projeto_perfil(caminho)
-                    imprimir_cabecalho(caminho)
-                    imprimir_validacao_controlo(dados)
-                    imprimir_resumo(dados)
-                except Exception as e:
-                    print(f"❌ Erro ao carregar novo ficheiro: {e}")
+            novo = input("📂 Caminho do novo ficheiro Excel: ").strip()
+            if novo and os.path.exists(novo):
+                dados = carregar_projeto_perfil(novo)
+                caminho = novo
+                imprimir_cabecalho(caminho)
+                imprimir_validacao_controlo(dados)
+                imprimir_resumo(dados)
             else:
-                print("⚠️ Nenhum ficheiro selecionado.")
+                print("❌ Ficheiro não encontrado.")
 
-        elif opcao in ("0", "sair", "exit", "q"):
-            print("\n👋 Sessão terminada. Até breve!")
+        elif opcao == "0":
+            print("👋 Encerrando. Até logo!")
             break
+
         else:
             print("⚠️ Opção inválida. Tente novamente.")
 
@@ -1798,7 +1825,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Projeto Perfil - Análise e Pesquisa de Funções SAP")
     parser.add_argument("--xlsx", "--ficheiro", "-f", dest="ficheiro", help="Caminho do ficheiro Excel de perfis")
     parser.add_argument("--controlo", "--validar-controlo", dest="controlo", action="store_true", help="Validar sheet CONTROLO e listar departamentos pendentes")
-    parser.add_argument("--departamento", "-d", dest="departamento", nargs="?", const="Purchase & Services", help="Analisar funções de um departamento na sheet Proposta Ativa")
+    parser.add_argument("--proximo", "--proximo-departamento", dest="proximo", action="store_true", help="Identificar e processar o próximo departamento a avançar da sheet CONTROLO (STATUS e TIMESTAMP vazios)")
+    parser.add_argument("--departamento", "-d", dest="departamento", nargs="?", const="", help="Analisar funções de um departamento na sheet Proposta Ativa (se omitido, usa o próximo de CONTROLO)")
     parser.add_argument("--cruzar-fontes", dest="cruzar_fontes", action="store_true", help="Cruzar PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY e EXCLUÇÃO para o departamento")
     parser.add_argument("--validar-users-prd", dest="validar_users_prd", action="store_true", help="Validar atribuições dos utilizadores no SAP PRD (AGR_USERS) com cruzamento relacional")
     parser.add_argument("--verificar-prd", dest="verificar_prd", action="store_true", help="Verificar se as funções existem no sistema SAP PRD via RFC (AGR_DEFINE)")
@@ -1812,33 +1840,49 @@ if __name__ == "__main__":
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.departamento or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user:
+    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user:
         if not caminho_alvo:
             print("❌ Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
         
         dados = carregar_projeto_perfil(caminho_alvo)
         imprimir_cabecalho(caminho_alvo)
+        proximo_dep = dados.obter_proximo_departamento()
 
         if args.controlo:
             imprimir_validacao_controlo(dados)
-        if args.departamento and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd):
-            res_dep = analisar_departamento_proposta(dados, args.departamento)
+        if args.proximo:
+            if proximo_dep:
+                print(f"\n🎯 PRÓXIMO DEPARTAMENTO A AVANÇAR: '{proximo_dep}' (STATUS e TIMESTAMP vazios em CONTROLO)")
+                res_dep = analisar_departamento_proposta(dados, proximo_dep)
+                imprimir_analise_departamento(res_dep)
+            else:
+                print("\n✅ Todos os departamentos na sheet CONTROLO já possuem STATUS preenchido.")
+        if args.departamento is not None and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd):
+            alvo = args.departamento.strip() if args.departamento.strip() else proximo_dep
+            if not alvo:
+                alvo = "Purchase & Services"
+            res_dep = analisar_departamento_proposta(dados, alvo)
             imprimir_analise_departamento(res_dep)
         if args.cruzar_fontes:
-            alvo_dep = args.departamento if args.departamento else "Purchase & Services"
+            alvo_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else proximo_dep
+            if not alvo_dep:
+                alvo_dep = "Purchase & Services"
             res_cruz = cruzar_fontes_departamento(dados, alvo_dep)
             imprimir_cruzamento_fontes(res_cruz)
         if args.validar_users_prd:
-            alvo_dep = args.departamento if args.departamento else "Purchase & Services"
+            alvo_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else proximo_dep
+            if not alvo_dep:
+                alvo_dep = "Purchase & Services"
             res_prd_users = validar_utilizadores_prd(dados, alvo_dep)
             imprimir_validacao_utilizadores_prd(res_prd_users)
         if args.verificar_prd:
-            if args.departamento:
-                dep_info = analisar_departamento_proposta(dados, args.departamento)
+            alvo_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else proximo_dep
+            if alvo_dep:
+                dep_info = analisar_departamento_proposta(dados, alvo_dep)
                 roles_dep = list(dep_info["compostas"]) + list(dep_info["singles_frequencia"].keys())
                 res_prd = verificar_funcoes_prd(roles_dep)
-                imprimir_resultado_verificacao_prd(res_prd, f"Departamento '{args.departamento}'")
+                imprimir_resultado_verificacao_prd(res_prd, f"Departamento '{alvo_dep}'")
             else:
                 todas = list(dados.roles_simples.keys()) + list(dados.roles_compostas.keys())
                 res_prd = verificar_funcoes_prd(todas)
@@ -1853,6 +1897,7 @@ if __name__ == "__main__":
         if args.user:
             res_audit = auditar_utilizador(dados, args.user)
             imprimir_auditoria_utilizador(res_audit)
+
     else:
         # Modo interativo padrão
         menu_interativo(caminho_alvo)
