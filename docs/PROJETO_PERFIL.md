@@ -91,7 +91,8 @@ auditoria dos valores do objeto de autorização `S_TCODE` em `AGR_1251`.
 
 ### Atribuições aos utilizadores ativos com Cruzamento Relacional
 
-O departamento em aberto na folha `CONTROLO` é `Purchase & Services`.
+O departamento `Purchase & Services` foi integralmente concluído em **11/09/2026** com 100% de conformidade, após a remoção do sistema secundário `S4DCLNT100` e a eliminação/registo em `CUA_REMOVE` das 49 funções expiradas legadas no CUA.
+
 
 O modelo relacional completo cruza quatro folhas:
 1. `PFCG_CREATE`: Catálogo oficial de funções individuais (77 roles, 577 TCODEs).
