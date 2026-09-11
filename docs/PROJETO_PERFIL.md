@@ -194,5 +194,36 @@ Todas as funções eliminadas foram registadas na folha `CUA_REMOVE` (IDs `506` 
 
 **Total de Funções Eliminadas no Departamento:** **49 funções**. Todas as regras da folha `EXCLUÇÃO` (`ZFIN_PS_BASIC`, `ZFIN_PS_SPEC`, `ZMM_APROVA_*`) e da `Proposta Ativa` (`ZORG_TODAS_EMPRESAS`) foram rigorosamente preservadas.
 
+## 9. Sincronização do Ambiente de Qualidade (`S4QCLNT100`) com o Produtivo (`S4PCLNT100`)
 
+Para garantir que o ambiente de qualidade espelha fielmente o ambiente produtivo para o departamento **Purchase & Services**, foi executada a sincronização integral de todos os utilizadores no SAP CUA (`SPA`, mandante `001`) através da transação `SU01`:
 
+### Procedimento Técnico de Duas Etapas:
+1. **Etapa 1 (Limpeza em Bloco de QAS)**:
+   - Filtro na coluna `SUBSYSTEM` por `S4QCLNT100`.
+   - Seleção múltipla de todas as linhas filtradas (`grid.selectedRows = "0,1,2,..."`).
+   - Eliminação em lote (`DEL_LINE`) e gravação imediata (`Ctrl+S`), garantindo a remoção limpa de todas as atribuições históricas/obsoletas no QAS.
+2. **Etapa 2 (Replicação das Funções Ativas do PRD)**:
+   - Reabertura do utilizador na `SU01` e recolha das funções ativas de referência em `S4PCLNT100` (deduplicando entradas expiradas e priorizando a validade `31.12.9999`).
+   - Inserção das funções como `S4QCLNT100` com rolagem programática da grelha (`grid.firstVisibleRow = empty_r`) para assegurar a visibilidade da linha antes de `modifyCell`.
+   - Validação via `pressEnter()` e gravação (`Ctrl+S`).
+3. **Etapa 3 (Auditoria Cruzada)**:
+   - Verificação em tempo real garantindo que o conjunto de funções em `S4QCLNT100` é identicamente igual ao de `S4PCLNT100` (`set(P) == set(Q)`).
+
+### Resultados da Sincronização por Utilizador (11/09/2026):
+| Utilizador | Nome Completo | Funções PRD (`S4PCLNT100`) | Funções Eliminadas em QAS | Funções Atribuídas em QAS | Match Final (`P == Q`) |
+|---|---|:---:|:---:|:---:|:---:|
+| `S170` | Monica Rodrigues | **9** | 44 | **9** | ✅ `MATCH: True` |
+| `S270` | Cidália Oliveira | **12** | 40 | **12** | ✅ `MATCH: True` |
+| `S419` | Conceição Cunha | **15** | 44 | **15** | ✅ `MATCH: True` |
+| `S75` | Carla Costa | **16** | 53 | **16** | ✅ `MATCH: True` |
+| `S80000148` | Catarina Faia | **14** | 29 | **14** | ✅ `MATCH: True` |
+| `S965` | Dulce Guimarães | **13** | 54 | **13** | ✅ `MATCH: True` |
+| `S80001870` | Pedro Matos | **0** *(Inativo)* | 29 | **0** | ✅ `MATCH: True` |
+| **TOTAL** | | **79** | **293** | **79** | **100% CONFORME** |
+
+### Registo Oficial nas Folhas de Cálculo:
+- **Folha `CUA_REMOVE`**: **+293 registos** inseridos (IDs `555` a `847`), com `SISTEMA = 'S4QCLNT100'` e status `CONCLUÍDO`.
+- **Folha `CUA_ADICIONAR`**: **+79 registos** inseridos (IDs `73` a `151`), com `SISTEMA = 'S4QCLNT100'` e status `CONCLUÍDO`.
+- **Folha `CONTROLO`**: Linha 2 do departamento **Purchase & Services** formalmente atualizada com `STATUS = 'PROCESSADO'` e `TIMESTAMP = 11/09/2026 23:36:12`.
+- As alterações foram gravadas diretamente via interface COM no ficheiro em edição no Microsoft Excel pelo utilizador (SharePoint) e replicadas na cópia local `sap_script_uploads/S4H_Perfis de autorização.xlsx`.
