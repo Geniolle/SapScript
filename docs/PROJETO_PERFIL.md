@@ -227,3 +227,40 @@ Para garantir que o ambiente de qualidade espelha fielmente o ambiente produtivo
 - **Folha `CUA_ADICIONAR`**: **+79 registos** inseridos (IDs `73` a `151`), com `SISTEMA = 'S4QCLNT100'` e status `CONCLUÍDO`.
 - **Folha `CONTROLO`**: Linha 2 do departamento **Purchase & Services** formalmente atualizada com `STATUS = 'PROCESSADO'` e `TIMESTAMP = 11/09/2026 23:36:12`.
 - As alterações foram gravadas diretamente via interface COM no ficheiro em edição no Microsoft Excel pelo utilizador (SharePoint) e replicadas na cópia local `sap_script_uploads/S4H_Perfis de autorização.xlsx`.
+
+## 10. Conclusão Integral do Departamento: `Client Services` (11/09/2026)
+
+O departamento **Client Services** foi concluído com **100% de conformidade** em todas as suas etapas operacionais no SAP CUA (`SPA`, mandante `001`) e documentado nas folhas de cálculo oficiais do projeto:
+
+### Etapas Executadas:
+1. **Remoção de Sistema Secundário (`S4DCLNT100`)**:
+   - Executada a remoção do sistema `S4DCLNT100` via script automatizado [`Processos/Funções PFCG/K. CUA_REMOVE_SISTEMA.py`](file:///C:/workspace/SapScript/Processos/Fun%C3%A7%C3%B5es%20PFCG/K.%20CUA_REMOVE_SISTEMA.py) para todos os 6 utilizadores do departamento.
+2. **Limpeza de Funções Expiradas em PRD (`S4PCLNT100`)**:
+   - Identificadas e eliminadas via filtro avançado ALV na transação `SU01` todas as **59 funções expiradas** em `S4PCLNT100` (validade `22.07.2026` nos utilizadores `S5092`, `S5877`, `S80000781`, `S80001601`).
+3. **Limpeza e Eliminação de Funções Obsoletas em QAS (`S4QCLNT100`)**:
+   - Eliminadas em bloco todas as **108 funções antigas/obsoletas** atribuídas no sistema de qualidade (`S4QCLNT100`).
+4. **Replicação das Funções Ativas do Produtivo (`S4PCLNT100` -> `S4QCLNT100`)**:
+   - Atribuídas programaticamente as funções ativas de PRD para QAS (**59 atribuições** no total: 10 funções para cada Especialista e 9 para Team Leader).
+5. **Auditoria de Integridade em Tempo Real**:
+   - Verificação direta no SAP CUA validando `set(S4PCLNT100) == set(S4QCLNT100)` com `MATCH: True` em 6/6 utilizadores.
+
+### Resumo dos Utilizadores e Conformidade:
+| Utilizador | Nome Completo | Cargo / Função | Funções Ativas PRD | Funções Exp. PRD Removidas | Funções QAS Removidas | Funções QAS Atribuídas | Match Final (`P == Q`) |
+|---|---|---|:---:|:---:|:---:|:---:|:---:|
+| `S5092` | Elsa Pereira | Client Services Specialist - ES/CR | **10** | 14 | 16 | **10** | ✅ `MATCH: True` |
+| `S5441` | Márcio Lemos | Client Services Specialist - ES/GAS | **10** | 0 | 16 | **10** | ✅ `MATCH: True` |
+| `S5877` | Carine Teixeira | Client Services Specialist - FR/BELUX | **10** | 15 | 16 | **10** | ✅ `MATCH: True` |
+| `S80000647` | Joana Catarina | Client Services Team Leader | **9** | 0 | 28 | **9** | ✅ `MATCH: True` |
+| `S80000781` | Andreia Azevedo | Client Services Specialist - FR/PT | **10** | 15 | 16 | **10** | ✅ `MATCH: True` |
+| `S80001601` | Sofia Tereso | Client Services Specialist | **10** | 15 | 16 | **10** | ✅ `MATCH: True` |
+| **TOTAL** | | | **59** | **59** | **108** | **59** | **100% CONFORME** |
+
+### Registo Oficial nas Folhas de Cálculo:
+- **Folha `CUA_REMOVE`**: **+167 registos** inseridos (IDs `848` a `1014`), contemplando:
+  - 59 funções expiradas removidas de `S4PCLNT100`.
+  - 108 funções obsoletas removidas de `S4QCLNT100`.
+  - Todas com `STATUS = 'CONCLUÍDO'`, mensagem `'User <USER> has changed'` e timestamp.
+- **Folha `CUA_ADICIONAR`**: **+59 registos** inseridos (IDs `152` a `210`), com `SISTEMA = 'S4QCLNT100'`, `STATUS = 'CONCLUÍDO'`, mensagem `'User <USER> has changed'` e timestamp.
+- **Folha `CONTROLO`**: Linha 3 do departamento **Client Services** formalmente atualizada com `STATUS = 'PROCESSADO'` e `TIMESTAMP = 11/09/2026 23:57:28`.
+- Sincronização direta via interface COM no Microsoft Excel (SharePoint) e cópia espelhada local `sap_script_uploads/S4H_Perfis de autorização.xlsx`.
+
