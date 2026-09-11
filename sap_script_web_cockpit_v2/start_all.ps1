@@ -29,7 +29,7 @@ if ($ExistingWorker) {
 Start-Process powershell.exe -ArgumentList @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
-    "-File", "`"$WorkerDir\start_worker_auto.ps1`""
+    "-File", "$WorkerDir\start_worker_auto.ps1"
 ) -WindowStyle Hidden
 
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Processo concluido." | Out-File $LogPath -Append -Encoding UTF8

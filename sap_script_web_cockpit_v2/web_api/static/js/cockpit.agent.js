@@ -513,12 +513,33 @@
                                     id: 'pfcg-role-analyze-funcao',
                                     label: 'Nome da Função',
                                     icon: 'analysis',
-                                    mode: 'analyze',
                                     processo: 'Funções PFCG',
                                     subprocesso: 'A. PFCG_CREATE.py',
                                     prompt: 'Quero analisar a função.',
-                                    followupText: 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?',
-                                    children: []
+                                    followupText: 'Como deseja indicar o nome da função?',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'pfcg-role-analyze-funcao-excel',
+                                            label: 'Ficheiro Excel',
+                                            icon: 'upload',
+                                            mode: 'select_excel',
+                                            processo: 'Funções PFCG',
+                                            subprocesso: 'A. PFCG_CREATE.py',
+                                            prompt: 'Selecionar Excel',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'pfcg-role-analyze-funcao-individual',
+                                            label: 'Individual',
+                                            icon: 'analysis',
+                                            mode: 'analyze',
+                                            processo: 'Funções PFCG',
+                                            subprocesso: 'A. PFCG_CREATE.py',
+                                            prompt: 'Quero indicar o nome da função individualmente.',
+                                            children: []
+                                        }
+                                    ]
                                 },
                                 {
                                     id: 'pfcg-role-analyze-pesquisar',
@@ -2917,7 +2938,7 @@
                     asiPfcgRoleState = null;
                     // Veio do menu "O que deseja analisar?" (Nome da Função) e não encontrou
                     // a função: volta a mostrar esse menu para o utilizador escolher outra opção.
-                    if (asiConversationState.actionId === 'pfcg-role-analyze-funcao') {
+                    if (asiConversationState.actionId === 'pfcg-role-analyze-funcao-individual') {
                         const parentNode = asiFindQuickAction('pfcg-role-analyze', salsaAgentActions);
                         const children = parentNode && Array.isArray(parentNode.children) ? parentNode.children : [];
                         asiAppendMessage(asiCreateMessage(
@@ -9430,14 +9451,18 @@
             return;
         }
 
-        if (action.id === 'pfcg-composta-analyze' || action.id === 'pfcg-role-analyze-funcao' || action.id === 'pfcg-delete-search-name') {
+        if (action.id === 'pfcg-composta-analyze'
+            || action.id === 'pfcg-role-analyze-funcao-individual'
+            || action.id === 'pfcg-delete-search-name') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;
             }
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
-            const assistantPrompt = action.followupText || (action.id === 'pfcg-composta-analyze' ? 'Qual é o nome da Função Composta que deseja analisar em PRD?' : 'Qual é o nome do Perfil de Autorização que deseja analisar em PRD?');
+            const assistantPrompt = action.followupText || (action.id === 'pfcg-composta-analyze'
+                ? `Qual é o nome da Função Composta que deseja analisar em ${asiPfcgSystem}?`
+                : `Qual é o nome do Perfil de Autorização que deseja analisar em ${asiPfcgSystem}?`);
             asiAppendMessage(asiCreateMessage('assistant', assistantPrompt));
             asiConversationState = {
                 ...asiConversationState,
@@ -9449,7 +9474,9 @@
             return;
         }
 
-        if (action.id === 'pfcg-create-select-excel' || action.id === 'pfcg-composta-select-excel') {
+        if (action.id === 'pfcg-create-select-excel'
+            || action.id === 'pfcg-composta-select-excel'
+            || action.id === 'pfcg-role-analyze-funcao-excel') {
             if (asiChatMockTimer) {
                 clearTimeout(asiChatMockTimer);
                 asiChatMockTimer = null;

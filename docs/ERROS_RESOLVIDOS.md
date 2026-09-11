@@ -7,6 +7,30 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-09-11 — Leitura de Excel sincronizado no OneDrive/SharePoint falha com `PermissionError: [Errno 13] Permission denied` quando aberto no Microsoft Excel
+
+### Sintoma
+- Ao tentar ler um ficheiro Excel (`.xlsx`) localizado numa pasta sincronizada do OneDrive / SharePoint (ex.: `S4H_Perfis de autorização.xlsx`), o Python dispara `PermissionError: [Errno 13] Permission denied` através do `open()` interno do `pandas` / `openpyxl`.
+
+### Causa raiz
+- O Microsoft Excel abre os ficheiros com partilha `FILE_SHARE_READ | FILE_SHARE_WRITE`, mas exige permissão de partilha cooperativa. O método `open(..., 'rb')` nativo da runtime C/Python no Windows não especifica `FILE_SHARE_WRITE`, resultando em bloqueio exclusivo de I/O quando o Excel ou o cliente de sincronização do OneDrive mantém o ficheiro aberto.
+
+### Correção
+- Criado helper `abrir_excel_seguro(caminho_excel)` em `Projeto Perfil.py`:
+  No Windows, utiliza `win32file.CreateFile` com as flags de partilha `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE` para aceder ao ficheiro e carregar os bytes para um buffer `io.BytesIO`.
+- O buffer em memória é então passado diretamente a `pd.ExcelFile(fonte)` ou `load_workbook(fonte)`, permitindo ler o ficheiro atualizado em tempo real mesmo com o utilizador a editá-lo no Excel.
+
+### Como diagnosticar
+- Se `os.path.exists(...)` devolve `True`, mas `open(..., 'rb')` gera `PermissionError: [Errno 13]`, verificar se o processo `EXCEL.EXE` ou o `OneDrive.exe` está com handles abertos no ficheiro. Se um `CreateFile` com `FILE_SHARE_READ | FILE_SHARE_WRITE` funcionar, o ficheiro não tem problema de ACL NTFS, mas sim de lock de partilha do processo ativo.
+
+### Como prevenir
+- Sempre que um script aceder a ficheiros de trabalho (especialmente em pastas do SharePoint / OneDrive ou pastas de rede onde utilizadores mantêm folhas de cálculo abertas), usar leitura partilhada via `win32file` e buffer `io.BytesIO`.
+
+### Ficheiros
+- `Projeto Perfil.py` (`abrir_excel_seguro`, `carregar_projeto_perfil`)
+
+---
+
 ## 2026-09-09 — OBYC > Analisar > Ficheiro Excel > Validar: linha marcada "Sem chaves" mesmo com chave existente no SAP, e KPI "Comparações opcionais" a mostrar `0` com a mensagem a dizer `15`
 
 ### Sintoma
