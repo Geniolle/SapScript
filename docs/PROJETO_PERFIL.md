@@ -180,7 +180,18 @@ Procedimento otimizado na transação `SU01` do SAP CUA (aba *Funções* / `tabp
 3. Grelha filtrada exibe unicamente as funções-alvo a eliminar.
 4. Eliminação em bloco (`DEL_LINE`) e gravação (`Ctrl+S`), replicando de imediato a limpeza para o PRD.
 
-### Casos Resolvidos:
-- **`S965` (Dulce Guimarães)**: 10 funções expiradas eliminadas com sucesso em 11/09/2026. Utilizador 100% conforme e com 0 funções expiradas.
+### Casos Resolvidos e Registados em `CUA_REMOVE` (11/09/2026):
+Todas as funções eliminadas foram registadas na folha `CUA_REMOVE` (IDs `506` a `554`) com status `CONCLUÍDO`, sincronizadas diretamente no Excel oficial do SharePoint e espelhadas na cópia local:
+
+- **`S965` (Dulce Guimarães)**: 10 funções eliminadas (IDs `506` a `515`). 100% conforme.
+- **`S75` (Carla Costa)**: 2 funções eliminadas (IDs `516` a `517`). 100% conforme.
+- **`S270` (Cidália Oliveira)**: 5 funções eliminadas (IDs `518` a `522`). 100% conforme.
+- **`S419` (Conceição Cunha)**: 14 funções eliminadas (IDs `523` a `536`). 100% conforme.
+- **`S80000148` (Catarina Faia)**: 18 funções eliminadas (IDs `537` a `554`). 100% conforme.
+- **`S170` (Mónica Rodrigues)**: 0 funções expiradas (100% conforme).
+- **`S80001870` (Pedro Matos)**: 0 funções (conta inativa em PRD).
+
+**Total de Funções Eliminadas no Departamento:** **49 funções**. Todas as regras da folha `EXCLUÇÃO` (`ZFIN_PS_BASIC`, `ZFIN_PS_SPEC`, `ZMM_APROVA_*`) e da `Proposta Ativa` (`ZORG_TODAS_EMPRESAS`) foram rigorosamente preservadas.
+
 
 

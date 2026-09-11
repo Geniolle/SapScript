@@ -54,8 +54,24 @@ Nenhuma função candidata a remoção (100% conforme).
 ### S965 — Dulce Guimarães
 Nenhuma função candidata a remoção (100% conforme — `SAP_BR_TRD_CLS_SPECIALIST` e `SAP_FND_BCR_MANAGER_T` protegidas por `SAP_*`).
 
-## Segurança
+## Limpeza de Atribuições Expiradas no CUA (Concluída em 11/09/2026)
 
-Estas 3 atribuições restantes estão fora do conjunto derivado para o respetivo utilizador,
-mas exigem aprovação funcional antes de qualquer remoção no CUA. Nenhuma alteração
-foi efetuada no CUA durante esta análise.
+Em 11/09/2026, foi realizada a limpeza integral das funções legadas e expiradas (fora do modelo e fora das regras da folha `EXCLUÇÃO`) no SAP CUA (`SPA` / `SU01`), abrangendo todos os utilizadores do departamento **Purchase & Services**:
+
+- **Total de funções eliminadas no CUA**: **49 funções**.
+- **Registo na folha `CUA_REMOVE`**: Todas as 49 funções foram adicionadas com status `CONCLUÍDO` (IDs `506` a `554`, linhas `507` a `555`) no ficheiro Excel oficial (`S4H_Perfis de autorização.xlsx`).
+
+### Resumo da Limpeza por Utilizador:
+- **`S965` (Dulce Guimarães)**: 10 funções eliminadas (IDs `506` a `515`)
+- **`S75` (Carla Costa)**: 2 funções eliminadas (IDs `516` a `517`)
+- **`S270` (Cidália Oliveira)**: 5 funções eliminadas (IDs `518` a `522`)
+- **`S419` (Conceição Cunha)**: 14 funções eliminadas (IDs `523` a `536`)
+- **`S80000148` (Catarina Faia)**: 18 funções eliminadas (IDs `537` a `554`)
+- **`S170` (Mónica Rodrigues)**: 0 funções expiradas (100% conforme)
+- **`S80001870` (Pedro Matos)**: 0 funções (conta inativa em PRD)
+
+### Proteção Rigorosa Aplicada:
+- **`EXCLUÇÃO`**: As funções `ZFIN_PS_BASIC`, `ZFIN_PS_SPEC` e `ZMM_APROVA_PEDC_COD_*` foram rigorosamente preservadas em todos os utilizadores.
+- **`Proposta Ativa`**: O nível organizacional `ZORG_TODAS_EMPRESAS` (válido até 99991231) foi integralmente preservado para todos os utilizadores da proposta.
+- **Atribuições Ativas Legadas**: As 3 atribuições ativas fora do modelo (`Z_COSTCENTER_CREATE` em `S270`, `ZORG_CENTROS_2XXX` e `ZORG_CENTROS_SALSA` em `S419`) foram mantidas e aguardam aprovação funcional.
+
