@@ -100,6 +100,20 @@ O departamento em aberto na folha `CONTROLO` era `Purchase & Services`.
 
 Conclusão: as funções e os utilizadores ativos do departamento foram validados para a etapa de atribuição.
 
+### Funções adicionais após aplicação da folha EXCLUÇÃO
+
+A comparação entre as funções ativas no PRD e a `Proposta Ativa` encontrou inicialmente
+103 diferenças, contadas por utilizador. Foram aplicadas as regras globais da folha
+`EXCLUÇÃO`: `ZMM_APROVA_PEDC_COD_*`, `ZFIN_PS_BASIC`, `ZFIN_PS_SPEC` e `Z_MY_HOME`.
+
+- 16 ocorrências foram desconsideradas pelas regras de exclusão.
+- Restaram 87 atribuições adicionais reais nos 6 utilizadores ativos.
+- Nenhuma das 210 atribuições previstas estava em falta.
+- A lista detalhada encontra-se em `docs/FUNCOES_DIFERENTES_PURCHASE_SERVICES_PRD.md`.
+
+As funções adicionais exigem validação funcional antes de qualquer remoção, pois podem
+resultar de outras responsabilidades, atribuições legadas ou outras funções compostas.
+
 ### Scripts de auditoria
 
 - `scratch/validar_tcodes_perfil_prd.py`

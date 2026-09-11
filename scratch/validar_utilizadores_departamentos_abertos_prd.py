@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import fnmatch
 import json
 import os
 import sys
@@ -42,6 +43,23 @@ def assignment_status(from_dat: str, to_dat: str) -> str:
 
 def main() -> None:
     dados = modulo.carregar_projeto_perfil()
+    import pandas as pd
+
+    sheet_exclusao = next(
+        (s for s in dados.sheets_disponiveis if modulo.normalizar_nome_coluna(s) == "EXCLUCAO"),
+        None,
+    )
+    padroes_exclusao: list[str] = []
+    if sheet_exclusao:
+        df_exclusao = pd.read_excel(
+            modulo.abrir_excel_seguro(dados.caminho), sheet_name=sheet_exclusao
+        )
+        if len(df_exclusao.columns):
+            padroes_exclusao = [
+                str(v).strip().upper()
+                for v in df_exclusao.iloc[:, 0].dropna().tolist()
+                if str(v).strip()
+            ]
     departamentos = [c["departamento"] for c in dados.controlo if c.get("pendente")]
     esperado_por_user: dict[str, set[str]] = {}
     detalhe_por_user: dict[str, dict] = {}
@@ -103,6 +121,12 @@ def main() -> None:
     utilizadores = []
     for user in sorted(esperado_por_user):
         faltam = sorted(esperado_por_user[user] - ativas[user])
+        adicionais_brutos = sorted(ativas[user] - esperado_por_user[user])
+        excluidas = sorted(
+            role for role in adicionais_brutos
+            if any(fnmatch.fnmatchcase(role, padrao) for padrao in padroes_exclusao)
+        )
+        adicionais = sorted(set(adicionais_brutos) - set(excluidas))
         inativas_relevantes = {
             role: nao_ativas[user][role]
             for role in faltam
@@ -116,6 +140,8 @@ def main() -> None:
                 "funcoes_esperadas_ativas": len(esperado_por_user[user] & ativas[user]),
                 "conforme": not faltam,
                 "funcoes_em_falta": faltam,
+                "funcoes_adicionais": adicionais,
+                "funcoes_desconsideradas_por_exclusao": excluidas,
                 "atribuicoes_nao_ativas": inativas_relevantes,
             }
         )
@@ -132,6 +158,11 @@ def main() -> None:
         "utilizadores_divergentes": len(divergentes),
         "atribuicoes_esperadas": sum(len(v) for v in esperado_por_user.values()),
         "atribuicoes_esperadas_ativas": sum(len(esperado_por_user[u] & ativas[u]) for u in esperado_por_user),
+        "padroes_exclusao": padroes_exclusao,
+        "funcoes_adicionais_ativas": sum(len(u["funcoes_adicionais"]) for u in utilizadores),
+        "funcoes_desconsideradas_por_exclusao": sum(
+            len(u["funcoes_desconsideradas_por_exclusao"]) for u in utilizadores
+        ),
         "utilizadores": utilizadores,
     }
     print(json.dumps(resultado, ensure_ascii=False, indent=2))

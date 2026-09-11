@@ -1,0 +1,130 @@
+# Funções diferentes por utilizador — Purchase & Services
+
+Comparação realizada em 11/09/2026 entre a folha `Proposta Ativa` do ficheiro
+`S4H_Perfis de autorização.xlsx` e as atribuições ativas em `AGR_USERS`, no PRD,
+mandante 100.
+
+## Resumo
+
+- 6 utilizadores ativos analisados.
+- Todas as 210 funções previstas estão atribuídas.
+- Foram encontradas 103 diferenças brutas (contagem por utilizador).
+- 16 ocorrências foram desconsideradas pelas regras da folha `EXCLUÇÃO`.
+- Restaram 87 atribuições adicionais reais.
+- `S80001870` não integra a comparação porque a validade do utilizador terminou em 29/07/2026.
+
+Regras aplicadas da folha `EXCLUÇÃO`: `ZMM_APROVA_PEDC_COD_*`,
+`ZFIN_PS_BASIC`, `ZFIN_PS_SPEC` e `Z_MY_HOME`.
+
+## S170 — Monica Rodrigues (18 adicionais)
+
+- `ZORG_BP_Z004_PUBLICENTITIES`
+- `ZORG_BP_Z005_BANKS`
+- `ZORG_BP_Z006_OCCASIONALPARTNER`
+- `ZORG_BP_Z007_COMPANYPARTNERS`
+- `ZORG_BP_Z008_DCS_GENERALSITE`
+- `ZORG_BP_Z009_STORES_GROUPS`
+- `Z_ARTICLE_REPORT`
+- `Z_COSTCENTER_CREATE_VIEW`
+- `Z_CREDIT_OVERVIEW_APPROVE`
+- `Z_DELIVERY_CREATE`
+- `Z_DELIVERY_REPORT`
+- `Z_INVENTORY_DC_STORE`
+- `Z_INVOICE_CREATE`
+- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
+- `Z_INVOICE_REPORT`
+- `Z_PRODUCTION_ORDER_CREATE`
+- `Z_PRODUCTION_ORDER_REPORT`
+- `Z_SALES_ORDER_REPORT`
+
+## S270 — Cidália Oliveira (13 adicionais)
+
+- `ZORG_BP_Z004_PUBLICENTITIES`
+- `ZORG_BP_Z005_BANKS`
+- `ZORG_BP_Z006_OCCASIONALPARTNER`
+- `ZORG_BP_Z007_COMPANYPARTNERS`
+- `ZORG_BP_Z008_DCS_GENERALSITE`
+- `ZORG_BP_Z009_STORES_GROUPS`
+- `Z_COSTCENTER_CREATE`
+- `Z_COSTCENTER_CREATE_VIEW`
+- `Z_INCOMING_INVOICE`
+- `Z_INVOICE_DISPLAY`
+- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
+- `Z_PURCHASE_ORDER_APPROVE`
+- `Z_SALESORDER_DISPLAY`
+
+## S419 — Conceição Cunha (18 adicionais)
+
+- `SAP_BR_TRD_CLS_SPECIALIST`
+- `SAP_FND_BCR_MANAGER_T`
+- `ZORG_BP_Z004_PUBLICENTITIES`
+- `ZORG_BP_Z005_BANKS`
+- `ZORG_BP_Z006_OCCASIONALPARTNER`
+- `ZORG_BP_Z007_COMPANYPARTNERS`
+- `ZORG_BP_Z008_DCS_GENERALSITE`
+- `ZORG_BP_Z009_STORES_GROUPS`
+- `ZORG_CENTROS_2XXX`
+- `ZORG_CENTROS_SALSA`
+- `Z_COSTCENTER_CREATE_VIEW`
+- `Z_CREDIT_OVERVIEW_APPROVE`
+- `Z_DELIVERY_REPORT`
+- `Z_INVENTORY_DC_STORE`
+- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
+- `Z_INVOICE_REPORT`
+- `Z_PRODUCTION_ORDER_CREATE`
+- `Z_PRODUCTION_ORDER_REPORT`
+
+## S75 — Carla Costa (8 adicionais)
+
+- `ZORG_BP_Z004_PUBLICENTITIES`
+- `ZORG_BP_Z005_BANKS`
+- `ZORG_BP_Z006_OCCASIONALPARTNER`
+- `ZORG_BP_Z007_COMPANYPARTNERS`
+- `ZORG_BP_Z008_DCS_GENERALSITE`
+- `ZORG_BP_Z009_STORES_GROUPS`
+- `Z_COSTCENTER_CREATE_VIEW`
+- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
+
+## S80000148 — Catarina Faia (14 adicionais)
+
+- `ZORG_BP_Z004_PUBLICENTITIES`
+- `ZORG_BP_Z005_BANKS`
+- `ZORG_BP_Z006_OCCASIONALPARTNER`
+- `ZORG_BP_Z007_COMPANYPARTNERS`
+- `ZORG_BP_Z008_DCS_GENERALSITE`
+- `ZORG_BP_Z009_STORES_GROUPS`
+- `Z_COSTCENTER_CREATE_VIEW`
+- `Z_CREDIT_OVERVIEW_APPROVE`
+- `Z_INVOICE_CREATE`
+- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
+- `Z_INVOICE_REPORT`
+- `Z_PRODUCTION_ORDER_CREATE`
+- `Z_PRODUCTION_ORDER_REPORT`
+- `Z_SALES_ORDER_REPORT`
+
+## S965 — Dulce Guimarães (16 adicionais)
+
+- `SAP_BR_TRD_CLS_SPECIALIST`
+- `SAP_FND_BCR_MANAGER_T`
+- `ZORG_BP_Z004_PUBLICENTITIES`
+- `ZORG_BP_Z005_BANKS`
+- `ZORG_BP_Z006_OCCASIONALPARTNER`
+- `ZORG_BP_Z007_COMPANYPARTNERS`
+- `ZORG_BP_Z008_DCS_GENERALSITE`
+- `ZORG_BP_Z009_STORES_GROUPS`
+- `Z_COSTCENTER_CREATE_VIEW`
+- `Z_DIVERGENCE_INVOICE_COCKPIT`
+- `Z_INCOMING_INVOICE`
+- `Z_INCOMING_INVOICE_VIEW`
+- `Z_INVOICE_DISPLAY`
+- `Z_INVOICE_RECEIPT_COCKPIT_VIEW`
+- `Z_PROJECT_APPROVE`
+- `Z_SALESORDER_DISPLAY`
+
+## Interpretação
+
+As funções acima estão ativas no PRD, mas não constam no conjunto previsto para o
+respetivo utilizador na folha `Proposta Ativa`. A presença na lista não significa,
+por si só, que a função deva ser removida: pode decorrer de outra responsabilidade,
+de uma atribuição legada ou de outra função composta. Antes de qualquer remoção, é
+necessária validação funcional e análise da origem da atribuição.
