@@ -158,3 +158,29 @@ python "Processos/Funções PFCG/K. CUA_REMOVE_SISTEMA.py" --todos --dry-run
 python "Processos/Funções PFCG/K. CUA_REMOVE_SISTEMA.py" --users S170 S270 S419
 ```
 
+## 7. Comparativo Global de Funções: SAP PRD vs Ficheiro Excel (`--comparar-prd`)
+
+O comando `--comparar-prd` realiza a extração completa do catálogo do SAP PRD (`AGR_DEFINE`) e das atribuições ativas de utilizadores (`AGR_USERS`), confrontando com todas as folhas do ficheiro Excel mestre:
+
+- **Catálogo Global no PRD (`AGR_DEFINE`)**: 9.424 funções (4.003 `Z*`, 5.202 `SAP_*`, 219 standard).
+- **Catálogo no Ficheiro Excel**: 771 funções do novo modelo S/4HANA.
+- **Funções Z* fora do Excel**: 3.639 funções simples legadas (0 compostas fora do Excel).
+- **Atribuições Ativas no PRD (`AGR_USERS`)**: 418 funções ativamente atribuídas no PRD, das quais apenas 77 fora do Excel (55 na `Proposta Ativa` e apenas 1 no departamento `Purchase & Services`).
+
+Comando de execução:
+```powershell
+python "Projeto Perfil.py" --comparar-prd
+```
+
+## 8. Eliminação de Funções Expiradas no CUA via Filtro Duplo
+
+Procedimento otimizado na transação `SU01` do SAP CUA (aba *Funções* / `tabpACTG`) para remoção em lote de funções expiradas / históricas:
+1. Seleção das colunas `Receiving system` (`SUBSYSTEM`) e `Role` (`AGR_NAME`).
+2. Aplicação do filtro com `Receiving system = S4PCLNT100` e *Upload from Clipboard* na seleção múltipla de `Role`.
+3. Grelha filtrada exibe unicamente as funções-alvo a eliminar.
+4. Eliminação em bloco (`DEL_LINE`) e gravação (`Ctrl+S`), replicando de imediato a limpeza para o PRD.
+
+### Casos Resolvidos:
+- **`S965` (Dulce Guimarães)**: 10 funções expiradas eliminadas com sucesso em 11/09/2026. Utilizador 100% conforme e com 0 funções expiradas.
+
+

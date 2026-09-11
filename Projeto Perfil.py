@@ -839,6 +839,180 @@ def imprimir_resultado_verificacao_prd(resultado: Dict[str, Any], titulo_context
             print(f"     ❌ {r}")
 
 
+def comparar_funcoes_catalogo_prd(dados: ProjetoPerfilData) -> Dict[str, Any]:
+    """
+    Pesquisa no sistema SAP PRD todas as funções criadas (AGR_DEFINE) e funções
+    ativamente atribuídas (AGR_USERS) e compara contra o universo de funções
+    catalogadas nas folhas do ficheiro Excel mestre.
+    """
+    import datetime
+    import pandas as pd
+    from pyrfc import Connection
+    from sap_rfc._rfc_common import (
+        build_connection_params_for, load_project_env, find_project_root
+    )
+
+    # 1. Coleta global de todas as funções referenciadas no ficheiro Excel
+    roles_excel = set()
+    fonte = abrir_excel_seguro(dados.caminho)
+    excel_file = pd.ExcelFile(fonte)
+    for sheet in excel_file.sheet_names:
+        try:
+            df = pd.read_excel(excel_file, sheet_name=sheet)
+            for col in df.columns:
+                for val in df[col].dropna():
+                    v = str(val).strip().upper()
+                    if (v.startswith("Z") or v.startswith("SAP_") or v.startswith("/SALSA/")) and re.match(r"^[A-Z0-9_/\-:]+$", v) and len(v) >= 3:
+                        if v not in ("NAN", "NONE"):
+                            roles_excel.add(v)
+        except Exception:
+            pass
+
+    roles_excel.update(dados.roles_simples.keys())
+    roles_excel.update(dados.roles_compostas.keys())
+    for flhas in dados.roles_authority.values():
+        roles_excel.update(flhas)
+
+    # 2. Conectar ao SAP PRD via RFC
+    os.environ["SAP_TARGET_ENV"] = "PRD"
+    project_root = find_project_root()
+    load_project_env(project_root)
+    params = build_connection_params_for("PRD")
+    conn = Connection(**params)
+
+    # Leitura de todas as funções do PRD (AGR_DEFINE)
+    res_def = conn.call(
+        "RFC_READ_TABLE",
+        QUERY_TABLE="AGR_DEFINE",
+        DELIMITER="|",
+        FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "PARENT_AGR"}],
+    )
+    data_def = res_def.get("DATA", [])
+    roles_prd_info = {}
+    for item in data_def:
+        wa = item.get("WA", "")
+        parts = wa.split("|")
+        role_name = parts[0].strip().upper() if len(parts) > 0 else ""
+        parent_agr = parts[1].strip().upper() if len(parts) > 1 else ""
+        if role_name:
+            roles_prd_info[role_name] = parent_agr
+
+    # Leitura de atribuições ativas de utilizadores no PRD (AGR_USERS)
+    hoje = datetime.date.today().strftime("%Y%m%d")
+    res_usr = conn.call(
+        "RFC_READ_TABLE",
+        QUERY_TABLE="AGR_USERS",
+        DELIMITER="|",
+        FIELDS=[{"FIELDNAME": "UNAME"}, {"FIELDNAME": "AGR_NAME"}],
+        OPTIONS=[{"TEXT": f"TO_DAT >= '{hoje}'"}],
+    )
+    data_usr = res_usr.get("DATA", [])
+    roles_atribuidas_prd = set()
+    for item in data_usr:
+        wa = item.get("WA", "")
+        parts = wa.split("|")
+        r_name = parts[1].strip().upper() if len(parts) > 1 else ""
+        if r_name:
+            roles_atribuidas_prd.add(r_name)
+
+    conn.close()
+
+    set_roles_prd = set(roles_prd_info.keys())
+
+    roles_z_prd = {r for r in set_roles_prd if r.startswith("Z")}
+    roles_sap_prd = {r for r in set_roles_prd if r.startswith("SAP_")}
+    roles_outras_prd = set_roles_prd - roles_z_prd - roles_sap_prd
+
+    dif_total_bruto = set_roles_prd - roles_excel
+    dif_z_bruto = roles_z_prd - roles_excel
+    dif_total_sem_exclusao = {r for r in dif_total_bruto if not dados.is_excluida(r)}
+    dif_z_sem_exclusao = {r for r in dif_z_bruto if not dados.is_excluida(r)}
+
+    dif_atrib_bruto = roles_atribuidas_prd - roles_excel
+    dif_atrib_sem_exclusao = {r for r in dif_atrib_bruto if not dados.is_excluida(r)}
+
+    z_org = sorted([r for r in dif_z_sem_exclusao if r.startswith("ZORG_")])
+    z_br = sorted([r for r in dif_z_sem_exclusao if r.startswith("Z_BR_")])
+    z_mm = sorted([r for r in dif_z_sem_exclusao if r.startswith("ZMM_")])
+    z_fi = sorted([r for r in dif_z_sem_exclusao if r.startswith("ZFI_")])
+    z_sd = sorted([r for r in dif_z_sem_exclusao if r.startswith("ZSD_")])
+    z_outras = sorted(list(dif_z_sem_exclusao - set(z_org) - set(z_br) - set(z_mm) - set(z_fi) - set(z_sd)))
+
+    return {
+        "ok": True,
+        "total_prd_catalogo": len(set_roles_prd),
+        "total_prd_z": len(roles_z_prd),
+        "total_prd_sap": len(roles_sap_prd),
+        "total_prd_outras": len(roles_outras_prd),
+        "total_excel": len(roles_excel),
+        "dif_catalogo_bruto": len(dif_total_bruto),
+        "dif_catalogo_sem_exclusao": len(dif_total_sem_exclusao),
+        "dif_z_sem_exclusao": len(dif_z_sem_exclusao),
+        "dif_z_compostas": len([r for r in dif_z_sem_exclusao if roles_prd_info.get(r)]),
+        "dif_z_simples": len([r for r in dif_z_sem_exclusao if not roles_prd_info.get(r)]),
+        "z_org": z_org,
+        "z_br": z_br,
+        "z_mm": z_mm,
+        "z_fi": z_fi,
+        "z_sd": z_sd,
+        "z_outras": z_outras,
+        "total_atribuidas_ativas_prd": len(roles_atribuidas_prd),
+        "dif_atrib_bruto": len(dif_atrib_bruto),
+        "dif_atrib_sem_exclusao": len(dif_atrib_sem_exclusao),
+        "roles_atribuidas_fora_excel": sorted(list(dif_atrib_sem_exclusao)),
+        "padroes_exclusao": dados.padroes_exclusao,
+    }
+
+
+def imprimir_comparacao_catalogo_prd(res: Dict[str, Any]):
+    """Imprime no terminal o relatório comparativo de funções existentes no PRD vs Excel."""
+    print("\n" + "=" * 80)
+    print("  🌐 COMPARATIVO DE FUNÇÕES: SAP PRD vs FICHEIRO EXCEL")
+    print("=" * 80)
+
+    if not res.get("ok"):
+        print(f"  ❌ Erro ao consultar SAP PRD: {res.get('erro')}")
+        return
+
+    print("  📌 1. CATÁLOGO GLOBAL DE FUNÇÕES NO SAP PRD (AGR_DEFINE):")
+    print(f"     • Total de funções no PRD:              {res['total_prd_catalogo']:>6d}")
+    print(f"       ├─ Funções Customizadas (Z*):          {res['total_prd_z']:>6d}")
+    print(f"       ├─ Funções Standard SAP (SAP_*):       {res['total_prd_sap']:>6d}")
+    print(f"       └─ Outras funções Standard:            {res['total_prd_outras']:>6d}")
+    print(f"     • Total de funções no Ficheiro Excel:   {res['total_excel']:>6d}")
+
+    print("\n  🔍 2. FUNÇÕES NO PRD QUE NÃO CONSTAM NO FICHEIRO EXCEL:")
+    print(f"     • Diferença Total Bruta:                {res['dif_catalogo_bruto']:>6d}")
+    print(f"       (Inclui {res['total_prd_sap']} standard SAP_* e outras legadas)")
+    print(f"     • Diferença Líquida (após EXCLUÇÃO):    {res['dif_catalogo_sem_exclusao']:>6d}")
+    print(f"     • Funções Customizadas Z* fora do Excel: {res['dif_z_sem_exclusao']:>6d}")
+    print(f"       ├─ Funções Simples (Single):           {res['dif_z_simples']:>6d}")
+    print(f"       └─ Funções Compostas (Composite):      {res['dif_z_compostas']:>6d}")
+
+    print("\n  🏷️ 3. SEGMENTAÇÃO DAS FUNÇÕES Z* FORA DO EXCEL:")
+    print(f"     • Organizacionais (ZORG_*):              {len(res['z_org']):>6d}")
+    print(f"     • Business Roles (Z_BR_*):               {len(res['z_br']):>6d}")
+    print(f"     • Módulo MM (ZMM_*):                     {len(res['z_mm']):>6d}")
+    print(f"     • Módulo FI (ZFI_*):                     {len(res['z_fi']):>6d}")
+    print(f"     • Módulo SD (ZSD_*):                     {len(res['z_sd']):>6d}")
+    print(f"     • Outros legados Z*:                     {len(res['z_outras']):>6d}")
+
+    print("\n  👥 4. FUNÇÕES ATIVAMENTE ATRIBUÍDAS A UTILIZADORES (AGR_USERS):")
+    print(f"     • Total de funções distintas atribuídas: {res['total_atribuidas_ativas_prd']:>6d}")
+    print(f"     • Funções atribuídas fora do Excel (Bruto): {res['dif_atrib_bruto']:>4d}")
+    print(f"     • Funções atribuídas fora do Excel (Líquido): {res['dif_atrib_sem_exclusao']:>2d}")
+    if res["roles_atribuidas_fora_excel"]:
+        print("       Funções ativas a utilizadores não catalogadas:")
+        for r in res["roles_atribuidas_fora_excel"][:25]:
+            print(f"         ├─ {r}")
+        if len(res["roles_atribuidas_fora_excel"]) > 25:
+            print(f"         └─ ... e mais {len(res['roles_atribuidas_fora_excel']) - 25} funções.")
+
+    print("\n  🛡️ Padrões desconsiderados da folha EXCLUÇÃO:")
+    print(f"     {', '.join(res['padroes_exclusao']) or 'Nenhum'}")
+    print("=" * 80)
+
+
 # =====================================================================
 # CRUZAMENTO RELACIONAL DE FONTES E VALIDAÇÃO DE UTILIZADORES
 # =====================================================================
@@ -1628,6 +1802,7 @@ if __name__ == "__main__":
     parser.add_argument("--cruzar-fontes", dest="cruzar_fontes", action="store_true", help="Cruzar PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY e EXCLUÇÃO para o departamento")
     parser.add_argument("--validar-users-prd", dest="validar_users_prd", action="store_true", help="Validar atribuições dos utilizadores no SAP PRD (AGR_USERS) com cruzamento relacional")
     parser.add_argument("--verificar-prd", dest="verificar_prd", action="store_true", help="Verificar se as funções existem no sistema SAP PRD via RFC (AGR_DEFINE)")
+    parser.add_argument("--comparar-prd", "--funcoes-diferentes-prd", dest="comparar_prd", action="store_true", help="Comparar catálogo de funções no PRD vs ficheiro Excel (AGR_DEFINE e AGR_USERS)")
     parser.add_argument("--pesquisar-role", "-r", dest="role", help="Pesquisar diretamente por nome de função")
     parser.add_argument("--pesquisar-tcode", "-t", dest="tcode", help="Pesquisar diretamente por transação SAP")
     parser.add_argument("--pesquisar-user", "-u", dest="user", help="Auditar e pesquisar diretamente por utilizador (Proposta, CUA e SAP PRD)")
@@ -1637,7 +1812,7 @@ if __name__ == "__main__":
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.departamento or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.role or args.tcode or args.user:
+    if args.controlo or args.departamento or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user:
         if not caminho_alvo:
             print("❌ Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
@@ -1668,6 +1843,9 @@ if __name__ == "__main__":
                 todas = list(dados.roles_simples.keys()) + list(dados.roles_compostas.keys())
                 res_prd = verificar_funcoes_prd(todas)
                 imprimir_resultado_verificacao_prd(res_prd, "Todas as Funções do Excel (PFCG_CREATE + PFCG_COMPOSTA)")
+        if args.comparar_prd:
+            res_comp = comparar_funcoes_catalogo_prd(dados)
+            imprimir_comparacao_catalogo_prd(res_comp)
         if args.role:
             imprimir_resultado_funcao(pesquisar_funcao(dados, args.role))
         if args.tcode:
