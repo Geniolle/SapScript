@@ -22,12 +22,12 @@ As regras da folha `EXCLUÇÃO` são `ZMM_APROVA_PEDC_COD_*`, `ZFIN_PS_BASIC`,
 | Utilizador | Funções esperadas | Em falta | Adicionais candidatas | Protegidas por EXCLUÇÃO |
 |---|---:|---:|---:|:---|
 | `S170` | 48 | 0 | 0 | `Z_MY_HOME` (1) |
-| `S270` | 48 | 0 | 1 | `Z_MY_HOME` (1) |
+| `S270` | 49 | 0 | 0 | `Z_MY_HOME` (1) *(Z_COSTCENTER_CREATE incorporada na Proposta Ativa)* |
 | `S419` | 48 | 0 | 2 | `SAP_*` (2), `Z_MY_HOME` (1) |
 | `S75` | 50 | 0 | 0 | `ZFIN_PS_SPEC`, `ZMM_APROVA_*`, `Z_MY_HOME` (7) |
 | `S80000148` | 48 | 0 | 0 | `ZMM_APROVA_*`, `Z_MY_HOME` (5) |
 | `S965` | 48 | 0 | 0 | `SAP_*` (2), `Z_MY_HOME` (1) |
-| **Total** | **290** | **0** | **3** | **20 ocorrências protegidas** |
+| **Total** | **291** | **0** | **2** | **20 ocorrências protegidas** |
 
 `S80001870` não integra o resultado dos utilizadores ativos porque a sua validade no mestre `USR02`
 terminou em 29/07/2026 (conta inativa por desativação/offboarding).
@@ -37,8 +37,8 @@ terminou em 29/07/2026 (conta inativa por desativação/offboarding).
 ### S170 — Monica Rodrigues
 Nenhuma função candidata a remoção (100% conforme).
 
-### S270 — Cidália Oliveira (1 adicional)
-- `Z_COSTCENTER_CREATE` (Transações: `KS01`, `KS02`, `KS03`, `KS04` — Criação de Centros de Custo)
+### S270 — Cidália Oliveira (100% Conforme — Regularizado)
+- `Z_COSTCENTER_CREATE` (Transações: `KS01`, `KS02`, `KS03`, `KS04` — Criação de Centros de Custo): Confirmada como função oficial criada em `PFCG_CREATE` e formalmente adicionada à linha 60 (célula `AS60`) da folha `Proposta Ativa` em 12/09/2026. Alinhamento perfeito ($49/49$).
 
 ### S419 — Conceição Cunha (2 adicionais)
 - `ZORG_CENTROS_2XXX` (Nível Organizacional de Centros 2XXX)

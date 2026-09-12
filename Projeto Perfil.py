@@ -867,6 +867,708 @@ def imprimir_resultado_verificacao_prd(resultado: Dict[str, Any], titulo_context
             print(f"     ❌ {r}")
 
 
+def verificar_tcodes_prd(tcodes: List[str]) -> Dict[str, Any]:
+    """
+    Verifica se uma lista de transações (TCODEs) existe no sistema SAP PRD através de RFC (tabela TSTC).
+    Também recolhe descrições da tabela TSTCT para validação de integridade prévia ao PFCG.
+    """
+    if not tcodes:
+        return {"ok": True, "total": 0, "total_existentes": 0, "total_nao_existentes": 0, "existentes": [], "nao_existentes": [], "todas_existem": True, "textos": {}}
+
+    tcodes_unicas = sorted(list({str(t).strip().upper() for t in tcodes if str(t).strip()}))
+
+    os.environ["SAP_TARGET_ENV"] = "PRD"
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_read_only_guard, read_table, make_option_in
+        )
+        from pyrfc import Connection
+
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for("PRD")
+        conn = Connection(**params)
+        guard = make_read_only_guard(["TSTC", "TSTCT"])
+
+        encontradas = set()
+        textos = {}
+        chunk_size = 50
+
+        # 1. Consulta à tabela TSTC (mestre de transações)
+        for i in range(0, len(tcodes_unicas), chunk_size):
+            chunk = tcodes_unicas[i:i + chunk_size]
+            opts = make_option_in("TCODE", chunk)
+            rows = read_table(conn, guard, table_name="TSTC", fields=["TCODE"], options=opts, rowcount=0)
+            for r in rows:
+                if r and r[0].strip():
+                    encontradas.add(r[0].strip().upper())
+
+        # 2. Consulta opcional a textos em TSTCT
+        for i in range(0, len(tcodes_unicas), chunk_size):
+            chunk = tcodes_unicas[i:i + chunk_size]
+            opts = make_option_in("TCODE", chunk)
+            try:
+                rows_t = read_table(conn, guard, table_name="TSTCT", fields=["TCODE", "SPRSL", "TTEXT"], options=opts, rowcount=0)
+                for r in rows_t:
+                    if len(r) >= 3:
+                        tc = r[0].strip().upper()
+                        lang = r[1].strip().upper()
+                        txt = r[2].strip()
+                        if lang in ("P", "PT") or tc not in textos:
+                            textos[tc] = txt
+            except Exception:
+                pass
+
+        conn.close()
+
+        nao_encontradas = sorted(list(set(tcodes_unicas) - encontradas))
+        return {
+            "ok": True,
+            "sistema": "PRD",
+            "mandante": params.get("client", "100"),
+            "total": len(tcodes_unicas),
+            "total_existentes": len(encontradas),
+            "total_nao_existentes": len(nao_encontradas),
+            "existentes": sorted(list(encontradas)),
+            "nao_existentes": nao_encontradas,
+            "todas_existem": len(nao_encontradas) == 0,
+            "textos": textos,
+        }
+    except Exception as err:
+        return {
+            "ok": False,
+            "sistema": "PRD",
+            "erro": str(err),
+            "total": len(tcodes_unicas),
+            "total_existentes": 0,
+            "total_nao_existentes": len(tcodes_unicas),
+            "existentes": [],
+            "nao_existentes": tcodes_unicas,
+            "todas_existem": False,
+            "textos": {},
+        }
+
+
+def imprimir_resultado_verificacao_tcodes_prd(resultado: Dict[str, Any], titulo_contexto: str = ""):
+    """Imprime no terminal o resultado da verificação de transações no PRD (TSTC)."""
+    print("\n" + "=" * 75)
+    header = f"  🔍 VERIFICAÇÃO DE TRANSAÇÕES NO SAP PRD (TSTC via RFC){' - ' + titulo_contexto if titulo_contexto else ''}"
+    print(header)
+    print("=" * 75)
+
+    if not resultado.get("ok"):
+        print(f"  ❌ Erro de ligação RFC ao PRD: {resultado.get('erro')}")
+        return
+
+    total = resultado["total"]
+    existentes = resultado["total_existentes"]
+    nao_ex = resultado["total_nao_existentes"]
+    pct = (existentes / total * 100) if total > 0 else 0
+
+    print(f"  Total de Transações Verificadas: {total}")
+    print(f"  ✅ Existentes no PRD (TSTC):      {existentes} ({pct:.1f}%)")
+    print(f"  ❌ Inexistentes no PRD:           {nao_ex}")
+    print("-" * 75)
+
+    if resultado["todas_existem"]:
+        print("  🎉 Todas as transações pesquisadas EXISTEM no sistema PRD (TSTC)!")
+        print("     A atribuição de menus e autorizações no PFCG não sofrerá erros de input.")
+    else:
+        print("  ⚠️ As seguintes transações NÃO FORAM ENCONTRADAS no SAP PRD (TSTC):")
+        for tc in resultado["nao_existentes"]:
+            print(f"     ❌ {tc}")
+
+
+def is_nome_funcao_proposta(valor_funcao: Any, valor_descricao: Any) -> bool:
+    """
+    Determina de forma estrita se uma linha na folha 'Proposta' representa a declaração de uma Função PFCG:
+    - O nome da função deve começar obrigatoriamente por 'Z_' (convenção oficial de funções do projeto).
+    - Deve possuir uma descrição textual válida e não vazia.
+    - Casos como 'SE16N' com 'EKKO' ou 'MARA' na descrição são transações/anotações e NUNCA nomes de função.
+    - Se a descrição contiver 'Transação não existe', NUNCA é cabeçalho de função.
+    """
+    f = str(valor_funcao or "").strip().upper()
+    d = str(valor_descricao or "").strip()
+    if not f or not d or d.lower() in ("nan", "none", ""):
+        return False
+    d_norm = normalizar_texto(d)
+    if "TRANSACAO NAO EXISTE" in d_norm or "NAO EXISTE" in d_norm:
+        return False
+    # Todas as funções oficiais no S/4HANA do projeto iniciam-se com Z_ (ex.: Z_PRODUCTION_ORDER_CREATE)
+    # TCODEs standard como SE16N, CO01, FB03, etc. nunca iniciam por Z_
+    return f.startswith("Z_") and len(f) >= 4
+
+
+def is_tcode_marcado_inexistente(valor_descricao: Any) -> bool:
+    """Verifica se a coluna ao lado (DESCRIÇÃO) assinala que a transação não existe no SAP."""
+    d_norm = normalizar_texto(valor_descricao)
+    return "TRANSACAO NAO EXISTE" in d_norm or "NAO EXISTE" in d_norm
+
+
+def analisar_folha_proposta(dados: ProjetoPerfilData) -> Dict[str, Any]:
+    """
+    Analisa a folha 'Proposta' identificando blocos verticais de funções e transações:
+    - Linha de Função: FUNÇÃO (Z_*) e DESCRIÇÃO preenchidas.
+    - Linhas de Transações: linhas subsequentes com FUNÇÃO preenchida.
+      * Se a coluna ao lado (DESCRIÇÃO) tiver 'Transação não existe', a transação é RETIRADA da lista!
+      * Linhas como SE16N com 'EKKO' ou 'MARA' são tratadas como transações normais, nunca como funções.
+    Cruza contra PFCG_CREATE para identificar se existem funções novas a serem criadas.
+    """
+    sheet_prop = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) == "PROPOSTA"), None)
+    if not sheet_prop:
+        return {"encontrado": False, "mensagem": "Sheet 'Proposta' não encontrada no Excel."}
+
+    import pandas as pd
+    fonte = abrir_excel_seguro(dados.caminho)
+    df = pd.read_excel(fonte, sheet_name=sheet_prop)
+
+    funcoes_proposta = {}
+    current_role = None
+    current_desc = None
+    current_tcodes = []
+    current_tcodes_descartados = []
+    current_linha = 0
+    tcode_para_roles = {}
+    tcodes_descartados_total = []
+
+    for idx, row in df.iterrows():
+        f_val = str(row["FUNÇÃO"]).strip() if pd.notna(row["FUNÇÃO"]) else ""
+        d_val = str(row["DESCRIÇÃO"]).strip() if pd.notna(row["DESCRIÇÃO"]) else ""
+
+        if is_nome_funcao_proposta(f_val, d_val):
+            if current_role:
+                funcoes_proposta[current_role] = {
+                    "linha_excel": current_linha,
+                    "descricao": current_desc,
+                    "tcodes": list(dict.fromkeys(current_tcodes)),
+                    "tcodes_inexistentes": list(dict.fromkeys(current_tcodes_descartados)),
+                }
+            current_role = f_val.upper()
+            current_desc = d_val
+            current_tcodes = []
+            current_tcodes_descartados = []
+            current_linha = idx + 2
+        elif f_val and f_val.lower() not in ("nan", "none"):
+            if current_role:
+                # Regra: se a coluna ao lado contiver 'Transação não existe', RETIRA da lista da sheet!
+                if is_tcode_marcado_inexistente(d_val):
+                    current_tcodes_descartados.append(f_val.upper())
+                    tcodes_descartados_total.append({
+                        "linha_excel": idx + 2,
+                        "role": current_role,
+                        "tcode": f_val.upper(),
+                        "motivo": d_val
+                    })
+                else:
+                    # É uma transação válida atribuída à role (mesmo se d_val tiver notas como EKKO/MARA)
+                    for tc in limpar_tcode(f_val):
+                        current_tcodes.append(tc)
+                        tcode_para_roles.setdefault(tc, []).append(current_role)
+
+    if current_role:
+        funcoes_proposta[current_role] = {
+            "linha_excel": current_linha,
+            "descricao": current_desc,
+            "tcodes": list(dict.fromkeys(current_tcodes)),
+            "tcodes_inexistentes": list(dict.fromkeys(current_tcodes_descartados)),
+        }
+
+    # Comparar com PFCG_CREATE
+    roles_pfcg = dados.roles_simples
+    novas_para_criar = [
+        {
+            "role": r,
+            "descricao": info["descricao"],
+            "linha": info["linha_excel"],
+            "total_tcodes": len(info["tcodes"]),
+            "tcodes": info["tcodes"],
+            "tcodes_inexistentes": info.get("tcodes_inexistentes", [])
+        }
+        for r, info in funcoes_proposta.items() if r not in roles_pfcg
+    ]
+
+    todos_tcodes = sorted(list(tcode_para_roles.keys()))
+
+    return {
+        "encontrado": True,
+        "sheet": sheet_prop,
+        "total_funcoes": len(funcoes_proposta),
+        "total_tcodes_unicos": len(todos_tcodes),
+        "todos_tcodes": todos_tcodes,
+        "tcode_para_roles": tcode_para_roles,
+        "tcodes_descartados": tcodes_descartados_total,
+        "funcoes": funcoes_proposta,
+        "novas_para_criar": novas_para_criar,
+        "total_novas_para_criar": len(novas_para_criar),
+    }
+
+
+def marcar_tcodes_inexistentes_sheet_proposta(caminho_excel: Optional[str], tcodes_inexistentes: List[str]) -> Dict[str, Any]:
+    """
+    Percorre a folha 'Proposta' e, para cada transação que não existe no SAP PRD (TSTC):
+    - Escreve na coluna ao lado (Coluna B: DESCRIÇÃO) o texto 'Transação não existe'.
+    - Garante que a transação é retirada da lista de atribuição de menus no PFCG.
+    Atualiza tanto o ficheiro ativo (via COM se aberto, ou openpyxl) como a cópia de salvaguarda.
+    """
+    if not caminho_excel:
+        caminho_excel = encontrar_excel_padrao()
+    if not caminho_excel or not os.path.exists(caminho_excel):
+        return {"ok": False, "erro": f"Ficheiro não encontrado: {caminho_excel}"}
+
+    alvo_set = {str(tc).strip().upper() for tc in tcodes_inexistentes if str(tc).strip()}
+    if not alvo_set:
+        return {"ok": True, "marcados": 0, "detalhes": []}
+
+    alterados = []
+    sucesso = False
+
+    # 1. Tentar via Excel COM se aberto
+    if sys.platform.startswith("win"):
+        try:
+            import win32com.client
+            xl = win32com.client.Dispatch("Excel.Application")
+            wb = None
+            for w in xl.Workbooks:
+                if os.path.basename(caminho_excel).lower() in w.Name.lower() or "perfis" in w.Name.lower():
+                    wb = w
+                    break
+            if wb is not None:
+                ws = wb.Worksheets("Proposta")
+                role_corrente = ""
+                for r in range(2, ws.UsedRange.Rows.Count + 1):
+                    v_f = str(ws.Cells(r, 1).Value or "").strip().upper()
+                    v_d = str(ws.Cells(r, 2).Value or "").strip()
+                    if is_nome_funcao_proposta(v_f, v_d):
+                        role_corrente = v_f
+                    elif v_f in alvo_set and role_corrente:
+                        ws.Cells(r, 2).Value = "Transação não existe"
+                        alterados.append({"linha": r, "role": role_corrente, "tcode": v_f})
+                if alterados:
+                    wb.Save()
+                    try:
+                        backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                        if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
+                            wb.SaveCopyAs(str(backup_local))
+                    except Exception:
+                        pass
+                sucesso = True
+        except Exception:
+            pass
+
+    # 2. Se COM não estiver disponível, usar openpyxl
+    if not sucesso:
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(caminho_excel, read_only=False)
+            sheet_nome = next((s for s in wb.sheetnames if normalizar_nome_coluna(s) == "PROPOSTA"), None)
+            if not sheet_nome:
+                return {"ok": False, "erro": "Folha 'Proposta' não encontrada."}
+            ws = wb[sheet_nome]
+            role_corrente = ""
+            for r in range(2, ws.max_row + 1):
+                v_f = str(ws.cell(row=r, column=1).value or "").strip().upper()
+                v_d = str(ws.cell(row=r, column=2).value or "").strip()
+                if is_nome_funcao_proposta(v_f, v_d):
+                    role_corrente = v_f
+                elif v_f in alvo_set and role_corrente:
+                    ws.cell(row=r, column=2, value="Transação não existe")
+                    alterados.append({"linha": r, "role": role_corrente, "tcode": v_f})
+            if alterados:
+                wb.save(caminho_excel)
+                try:
+                    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                    if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
+                        import shutil
+                        shutil.copy2(caminho_excel, str(backup_local))
+                except Exception:
+                    pass
+            wb.close()
+            sucesso = True
+        except Exception as exc:
+            return {"ok": False, "erro": f"Erro ao gravar via openpyxl: {exc}"}
+
+    return {
+        "ok": sucesso,
+        "marcados": len(alterados),
+        "detalhes": alterados,
+    }
+
+
+def atribuir_tcodes_funcao_prd_rfc(role_name: str, novos_tcodes: List[str]) -> Dict[str, Any]:
+    """
+    Atribui novas transações a uma função já existente no SAP PRD através de RFC
+    chamando o módulo padrão PRGN_RFC_CREATE_ACTIVITY_GROUP com ONLY_TCODE_ASSIGNMENT='X'.
+    """
+    if not novos_tcodes:
+        return {"ok": True, "adicionados": []}
+
+    role_norm = str(role_name or "").strip().upper()
+    tcodes_limpos = [str(tc).strip().upper() for tc in novos_tcodes if str(tc).strip()]
+
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_write_guard, read_table, make_option_eq
+        )
+        from pyrfc import Connection
+
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for("PRD")
+
+        guard = make_write_guard(
+            ("RFC_PING", "RFC_READ_TABLE", "PRGN_RFC_CREATE_ACTIVITY_GROUP"),
+            ("AGR_DEFINE", "AGR_TCODES", "TSTC")
+        )
+
+        conn = Connection(**params)
+        guard.assert_function_allowed("RFC_PING")
+        conn.call("RFC_PING")
+
+        # Obter TCODES já atribuídos no SAP
+        rows_existentes = read_table(
+            conn, guard, table_name="AGR_TCODES", fields=["TCODE"],
+            options=make_option_eq("AGR_NAME", role_norm), rowcount=0
+        )
+        tcodes_atuais = {r[0].strip().upper() for r in rows_existentes if r}
+
+        todos_tcodes = sorted(list(tcodes_atuais.union(tcodes_limpos)))
+
+        guard.assert_function_allowed("PRGN_RFC_CREATE_ACTIVITY_GROUP")
+        call_res = conn.call(
+            "PRGN_RFC_CREATE_ACTIVITY_GROUP",
+            ACTIVITY_GROUP=role_norm,
+            ACTIVITY_GROUP_TEXT="",
+            NO_DIALOG="X",
+            ONLY_TCODE_ASSIGNMENT="X",
+            ORG_LEVELS_WITH_STAR="",
+            UNMAINTAINED_FIELDS_WITH_STAR="",
+            PARENT_ROLE="",
+            PROFILE_NAME="",
+            PROFILE_TEXT="",
+            REQUEST="",
+            TEMPLATE="",
+            TCODES=[{"TCODE": tc} for tc in todos_tcodes],
+        )
+        conn.close()
+
+        ret_rows = call_res.get("RETURN") or []
+        erros = [r for r in ret_rows if str(r.get("TYPE", "")).upper() in ("E", "A")]
+        if erros:
+            msg_erro = "; ".join([str(e.get("MESSAGE", "")) for e in erros])
+            return {"ok": False, "erro": msg_erro, "detalhes": erros}
+
+        return {
+            "ok": True,
+            "role": role_norm,
+            "novos_tcodes": tcodes_limpos,
+            "total_tcodes": len(todos_tcodes),
+            "mensagem": f"Transações {', '.join(tcodes_limpos)} atribuídas com sucesso à função {role_norm} no SAP PRD."
+        }
+    except Exception as exc:
+        return {"ok": False, "role": role_norm, "erro": str(exc)}
+
+
+def adicionar_linhas_pfcg_create(caminho_excel: Optional[str], novas_linhas: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Adiciona novas linhas no final da folha 'PFCG_CREATE' no ficheiro Excel com os campos:
+    ID, AGR_NAME, TEXT, TCODE, STATUS ('Criado'), MSG ('Criado e Validado em SAP DEV, PRD e QAD'),
+    TIMESTEMP (data/hora atual), PRD ('Validado').
+    Utiliza Excel COM se o ficheiro estiver aberto pelo utilizador, com fallback para openpyxl.
+    """
+    if not caminho_excel:
+        caminho_excel = encontrar_excel_padrao()
+    if not caminho_excel or not os.path.exists(caminho_excel):
+        return {"ok": False, "erro": f"Ficheiro não encontrado: {caminho_excel}"}
+
+    if not novas_linhas:
+        return {"ok": True, "adicionadas": 0}
+
+    sucesso = False
+    total_add = len(novas_linhas)
+
+    # 1. Tentar via Excel COM se aberto
+    if sys.platform.startswith("win"):
+        try:
+            import win32com.client
+            xl = win32com.client.Dispatch("Excel.Application")
+            wb = None
+            for w in xl.Workbooks:
+                if os.path.basename(caminho_excel).lower() in w.Name.lower() or "perfis" in w.Name.lower():
+                    wb = w
+                    break
+            if wb is not None:
+                ws = wb.Worksheets("PFCG_CREATE")
+                last_row = ws.UsedRange.Rows.Count
+                while ws.Cells(last_row, 2).Value:
+                    last_row += 1
+
+                for i, linha in enumerate(novas_linhas):
+                    curr = last_row + i
+                    ws.Cells(curr, 1).Value = linha.get("ID")
+                    ws.Cells(curr, 2).Value = linha.get("AGR_NAME")
+                    ws.Cells(curr, 3).Value = linha.get("TEXT")
+                    ws.Cells(curr, 4).Value = linha.get("TCODE")
+                    ws.Cells(curr, 5).Value = linha.get("STATUS", "Criado")
+                    ws.Cells(curr, 6).Value = linha.get("MSG", "Criado e Validado em SAP DEV, PRD e QAD")
+                    ws.Cells(curr, 7).Value = linha.get("TIMESTEMP")
+                    ws.Cells(curr, 8).Value = linha.get("PRD", "Validado")
+
+                wb.Save()
+                try:
+                    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                    if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
+                        wb.SaveCopyAs(str(backup_local))
+                except Exception:
+                    pass
+                sucesso = True
+        except Exception:
+            pass
+
+    # 2. Se COM não estiver disponível, usar openpyxl
+    if not sucesso:
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(caminho_excel, read_only=False)
+            sheet_nome = next((s for s in wb.sheetnames if normalizar_nome_coluna(s) in ("PFCGCREATE", "PFCG_CREATE")), None)
+            if not sheet_nome:
+                return {"ok": False, "erro": "Folha 'PFCG_CREATE' não encontrada."}
+            ws = wb[sheet_nome]
+
+            for linha in novas_linhas:
+                ws.append([
+                    linha.get("ID"),
+                    linha.get("AGR_NAME"),
+                    linha.get("TEXT"),
+                    linha.get("TCODE"),
+                    linha.get("STATUS", "Criado"),
+                    linha.get("MSG", "Criado e Validado em SAP DEV, PRD e QAD"),
+                    linha.get("TIMESTEMP"),
+                    linha.get("PRD", "Validado"),
+                ])
+
+            wb.save(caminho_excel)
+            try:
+                backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
+                    import shutil
+                    shutil.copy2(caminho_excel, str(backup_local))
+            except Exception:
+                pass
+            wb.close()
+            sucesso = True
+        except Exception as exc:
+            return {"ok": False, "erro": f"Erro ao gravar via openpyxl em PFCG_CREATE: {exc}"}
+
+    return {"ok": sucesso, "adicionadas": total_add}
+
+
+def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_sap: bool = True) -> Dict[str, Any]:
+    """
+    Regra de Projeto no Arranque:
+    1. Lê a folha 'Proposta' e valida todas as transações contra o SAP PRD (TSTC via RFC).
+       - Se alguma transação não existir no SAP, escreve 'Transação não existe' na coluna ao lado
+         e retira-a da lista ativa.
+    2. Cruza cada função e transação contra a folha 'PFCG_CREATE':
+       - Se (AGR_NAME, TCODE) já existir: pula para a próxima sem alteração.
+       - Se a função NÃO existir em PFCG_CREATE:
+         * Acede ao SAP PRD via RFC e cria a função e as respetivas transações.
+         * Adiciona no final da folha PFCG_CREATE a função e suas transações com:
+           STATUS = 'Criado'
+           MSG = 'Criado e Validado em SAP DEV, PRD e QAD'
+           TIMESTEMP = data/hora atual
+           PRD = 'Validado'
+       - Se a função já existir mas possuir uma nova transação:
+         * Atribui a nova transação à função no SAP PRD via RFC.
+         * Adiciona no final da folha PFCG_CREATE a respetiva linha com os mesmos campos.
+    Esta rotina corre automaticamente no arranque sem questionar o utilizador (regra estrita).
+    """
+    import pandas as pd
+    from datetime import datetime
+
+    print("\n" + "=" * 75)
+    print("  🚀 [ARRANQUE] Sincronização do Catálogo (Proposta ➔ PFCG_CREATE ➔ PRD)")
+    print("=" * 75)
+
+    # 1. Análise da folha Proposta
+    analise_prop = analisar_folha_proposta(dados)
+    if not analise_prop.get("encontrado"):
+        print(f"⚠️ {analise_prop.get('mensagem')}")
+        return {"ok": False, "erro": analise_prop.get("mensagem")}
+
+    tcodes_prop = analise_prop.get("todos_tcodes", [])
+    print(f"  🔍 Folha 'Proposta': {analise_prop['total_funcoes']} funções identificadas ({len(tcodes_prop)} transações únicas).")
+
+    # 2. Validar TCODEs no SAP PRD (TSTC)
+    res_tc = verificar_tcodes_prd(tcodes_prop)
+    if res_tc.get("ok") and res_tc.get("nao_existentes"):
+        print(f"  ⚠️ {res_tc['total_nao_existentes']} transação(ões) inexistente(s) no PRD. A marcar na folha 'Proposta'...")
+        res_m = marcar_tcodes_inexistentes_sheet_proposta(dados.caminho, res_tc["nao_existentes"])
+        if res_m.get("ok"):
+            print(f"  ✅ {res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' e retiradas da lista.")
+        analise_prop = analisar_folha_proposta(dados)
+    else:
+        print("  ✅ Validação TSTC: Todas as transações da folha 'Proposta' existem no SAP PRD.")
+
+    # 3. Ler PFCG_CREATE
+    sheet_pfcg = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) in ("PFCGCREATE", "PFCG_CREATE")), None)
+    if not sheet_pfcg:
+        print("❌ Sheet 'PFCG_CREATE' não encontrada no ficheiro Excel.")
+        return {"ok": False, "erro": "Sheet PFCG_CREATE não encontrada"}
+
+    fonte = abrir_excel_seguro(dados.caminho)
+    df_pfcg = pd.read_excel(fonte, sheet_name=sheet_pfcg)
+
+    pares_existentes = set()
+    funcoes_existentes = set()
+    max_id = 0
+
+    for _, row in df_pfcg.iterrows():
+        try:
+            rid = int(row.get("ID", 0))
+            if rid > max_id:
+                max_id = rid
+        except Exception:
+            pass
+        agr = str(row.get("AGR_NAME", "")).strip().upper()
+        tc = str(row.get("TCODE", "")).strip().upper()
+        if agr:
+            funcoes_existentes.add(agr)
+        if agr and tc:
+            pares_existentes.add((agr, tc))
+
+    # 4. Cruzamento
+    funcoes_novas = {}
+    novas_transacoes = {}
+
+    for r_nome, info in analise_prop["funcoes"].items():
+        r_upper = r_nome.upper()
+        desc = info["descricao"]
+        tcodes_validos = info["tcodes"]
+
+        if r_upper not in funcoes_existentes:
+            funcoes_novas[r_upper] = {
+                "descricao": desc,
+                "tcodes": tcodes_validos,
+            }
+        else:
+            novos = [tc for tc in tcodes_validos if (r_upper, tc) not in pares_existentes]
+            if novos:
+                novas_transacoes[r_upper] = {
+                    "descricao": desc,
+                    "tcodes": novos,
+                }
+
+    if not funcoes_novas and not novas_transacoes:
+        print(f"  ✅ Conformidade Total: Todas as {len(analise_prop['funcoes'])} funções e {len(pares_existentes)} atribuições já existem em 'PFCG_CREATE' e no SAP PRD.")
+        print("-" * 75)
+        return {
+            "ok": True,
+            "funcoes_novas_criadas": 0,
+            "novas_transacoes_atribuidas": 0,
+            "sincronizado": True,
+        }
+
+    # 5. Processamento de Novas Funções
+    linhas_a_adicionar = []
+    ts_agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    if funcoes_novas:
+        print(f"\n  📌 DETETADAS {len(funcoes_novas)} NOVA(S) FUNÇÃO(ÕES) PARA CRIAR:")
+        from pfcg.pfcg_create_rfc_service import create_pfcg_role_rfc
+
+        for f_nome, f_info in funcoes_novas.items():
+            desc = f_info["descricao"]
+            tcs = f_info["tcodes"]
+            print(f"     ➕ A criar função '{f_nome}' no SAP PRD via RFC ({len(tcs)} transações)...")
+
+            status_sap = "Criado"
+            msg_sap = "Criado e Validado em SAP DEV, PRD e QAD"
+            if auto_criar_sap:
+                try:
+                    res_rfc = create_pfcg_role_rfc(
+                        environment="PRD",
+                        role_name=f_nome,
+                        description=desc,
+                        tcodes=tcs,
+                        transport_mode="LOCAL"
+                    )
+                    if not res_rfc.get("ok") and res_rfc.get("error_type") != "ROLE_ALREADY_EXISTS":
+                        status_sap = "ERRO"
+                        msg_sap = f"Erro RFC PRD: {res_rfc.get('message', '')}"
+                        print(f"        ❌ Erro na criação SAP PRD: {res_rfc.get('message')}")
+                    else:
+                        print(f"        ✅ Função '{f_nome}' criada com sucesso no SAP PRD.")
+                except Exception as exc:
+                    status_sap = "ERRO"
+                    msg_sap = f"Exceção RFC PRD: {exc}"
+                    print(f"        ❌ Exceção ao contactar SAP PRD: {exc}")
+
+            for tc in tcs:
+                max_id += 1
+                linhas_a_adicionar.append({
+                    "ID": max_id,
+                    "AGR_NAME": f_nome,
+                    "TEXT": desc,
+                    "TCODE": tc,
+                    "STATUS": status_sap,
+                    "MSG": msg_sap,
+                    "TIMESTEMP": ts_agora,
+                    "PRD": "Validado" if status_sap == "Criado" else "Pendente",
+                })
+
+    # 6. Processamento de Novas Transações em Funções Existentes
+    if novas_transacoes:
+        print(f"\n  📌 DETETADAS TRANSAÇÕES NOVAS EM {len(novas_transacoes)} FUNÇÃO(ÕES) EXISTENTE(S):")
+        for f_nome, f_info in novas_transacoes.items():
+            desc = f_info["descricao"]
+            tcs = f_info["tcodes"]
+            print(f"     ➕ A atribuir transações {tcs} à função '{f_nome}' no SAP PRD via RFC...")
+
+            status_sap = "Criado"
+            msg_sap = "Criado e Validado em SAP DEV, PRD e QAD"
+            if auto_criar_sap:
+                res_atrib = atribuir_tcodes_funcao_prd_rfc(f_nome, tcs)
+                if not res_atrib.get("ok"):
+                    status_sap = "ERRO"
+                    msg_sap = f"Erro RFC PRD: {res_atrib.get('erro', '')}"
+                    print(f"        ❌ Erro ao atribuir no SAP PRD: {res_atrib.get('erro')}")
+                else:
+                    print(f"        ✅ Transações atribuídas com sucesso à função '{f_nome}' no SAP PRD.")
+
+            for tc in tcs:
+                max_id += 1
+                linhas_a_adicionar.append({
+                    "ID": max_id,
+                    "AGR_NAME": f_nome,
+                    "TEXT": desc,
+                    "TCODE": tc,
+                    "STATUS": status_sap,
+                    "MSG": msg_sap,
+                    "TIMESTEMP": ts_agora,
+                    "PRD": "Validado" if status_sap == "Criado" else "Pendente",
+                })
+
+    # 7. Gravação em PFCG_CREATE
+    if linhas_a_adicionar:
+        print(f"\n  💾 A registar {len(linhas_a_adicionar)} linha(s) no fim da folha 'PFCG_CREATE'...")
+        res_add = adicionar_linhas_pfcg_create(dados.caminho, linhas_a_adicionar)
+        if res_add.get("ok"):
+            print("  ✅ Folha 'PFCG_CREATE' atualizada com sucesso no Excel.")
+        else:
+            print(f"  ❌ Erro ao atualizar folha 'PFCG_CREATE': {res_add.get('erro')}")
+
+    print("-" * 75)
+    return {
+        "ok": True,
+        "funcoes_novas_criadas": len(funcoes_novas),
+        "novas_transacoes_atribuidas": sum(len(f["tcodes"]) for f in novas_transacoes.values()),
+        "linhas_adicionadas": len(linhas_a_adicionar),
+        "sincronizado": True,
+    }
+
+
 def comparar_funcoes_catalogo_prd(dados: ProjetoPerfilData) -> Dict[str, Any]:
     """
     Pesquisa no sistema SAP PRD todas as funções criadas (AGR_DEFINE) e funções
@@ -1232,6 +1934,16 @@ def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purc
             desconsideradas = sorted([r for r in adicionais_brutas if dados.is_excluida(r)])
             adicionais_reais = sorted(set(adicionais_brutas) - set(desconsideradas))
 
+            # Validação relacional: Quais das adicionais reais constam no catálogo criado?
+            adicionais_no_catalogo = sorted([
+                r for r in adicionais_reais
+                if (r in dados.roles_simples or r in dados.roles_compostas)
+            ])
+            adicionais_fora_catalogo = sorted([
+                r for r in adicionais_reais
+                if r not in adicionais_no_catalogo
+            ])
+
             total_adicionais += len(adicionais_reais)
             total_desconsideradas += len(desconsideradas)
 
@@ -1251,6 +1963,8 @@ def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purc
                 "esperadas_ativas": len(esp & atv),
                 "faltam": faltam,
                 "adicionais": adicionais_reais,
+                "adicionais_no_catalogo": adicionais_no_catalogo,
+                "adicionais_fora_catalogo": adicionais_fora_catalogo,
                 "desconsideradas_exclusao": desconsideradas,
                 "conforme": (len(faltam) == 0) or u_expirado,
             })
@@ -1272,6 +1986,205 @@ def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purc
             "departamento": departamento,
             "erro": str(err),
         }
+
+
+def adicionar_funcao_proposta_ativa(
+    caminho_excel: Optional[str],
+    utilizador: str,
+    role: str,
+    dados: Optional[ProjetoPerfilData] = None,
+) -> Dict[str, Any]:
+    """
+    Acrescenta uma função à linha de um utilizador na folha 'Proposta Ativa'.
+    Tenta primeiro via interface COM do Excel (se estiver aberto pelo utilizador);
+    caso contrário, utiliza openpyxl para gravação direta no ficheiro.
+    Atualiza também a cópia local em sap_script_uploads (se existir).
+    """
+    if not caminho_excel:
+        caminho_excel = encontrar_excel_padrao()
+    if not caminho_excel or not os.path.exists(caminho_excel):
+        return {"ok": False, "erro": f"Ficheiro Excel não encontrado: {caminho_excel}"}
+
+    u_norm = normalizar_texto(utilizador)
+    r_norm = normalizar_texto(role)
+
+    if not u_norm or not r_norm:
+        return {"ok": False, "erro": "Utilizador ou função vazios."}
+
+    sucesso = False
+    linha_afetada = None
+    coluna_afetada = None
+    metodo_usado = ""
+
+    # 1. Tentar via Excel COM (se aberto)
+    if sys.platform.startswith("win"):
+        try:
+            import win32com.client
+            xl = win32com.client.Dispatch("Excel.Application")
+            wb = None
+            for w in xl.Workbooks:
+                if os.path.basename(caminho_excel).lower() in w.Name.lower() or "perfis" in w.Name.lower():
+                    wb = w
+                    break
+            if wb is not None:
+                ws = wb.Worksheets("Proposta Ativa")
+                row_count = ws.UsedRange.Rows.Count
+                for r in range(2, row_count + 1):
+                    val_u = str(ws.Cells(r, 1).Value or "").strip().upper()
+                    if val_u == u_norm:
+                        linha_afetada = r
+                        max_c = ws.UsedRange.Columns.Count
+                        col_livre = None
+                        for c in range(10, max_c + 3):
+                            v_cel = str(ws.Cells(r, c).Value or "").strip().upper()
+                            if v_cel == r_norm:
+                                return {
+                                    "ok": True,
+                                    "ja_existia": True,
+                                    "mensagem": f"A função {r_norm} já existe na linha {r} do utilizador {u_norm}.",
+                                    "linha": r,
+                                    "coluna": c
+                                }
+                            if not v_cel and col_livre is None:
+                                col_livre = c
+                                break
+                        if col_livre:
+                            ws.Cells(r, col_livre).Value = r_norm
+                            coluna_afetada = col_livre
+                            wb.Save()
+                            try:
+                                backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                                if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
+                                    wb.SaveCopyAs(str(backup_local))
+                            except Exception:
+                                pass
+                            sucesso = True
+                            metodo_usado = "COM"
+                        break
+        except Exception:
+            pass
+
+    # 2. Se COM não executou, utilizar openpyxl
+    if not sucesso:
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(caminho_excel, read_only=False)
+            sheet_nome = next((s for s in wb.sheetnames if normalizar_nome_coluna(s) == "PROPOSTAATIVA"), None)
+            if not sheet_nome:
+                return {"ok": False, "erro": "Folha 'Proposta Ativa' não encontrada no ficheiro."}
+
+            ws = wb[sheet_nome]
+            found_user = False
+            for r in range(2, ws.max_row + 1):
+                cell_val = str(ws.cell(row=r, column=1).value or "").strip().upper()
+                if cell_val == u_norm:
+                    found_user = True
+                    linha_afetada = r
+                    col_livre = None
+                    for c in range(10, ws.max_column + 5):
+                        v_cel = str(ws.cell(row=r, column=c).value or "").strip().upper()
+                        if v_cel == r_norm:
+                            wb.close()
+                            return {
+                                "ok": True,
+                                "ja_existia": True,
+                                "mensagem": f"A função {r_norm} já existe na linha {r} do utilizador {u_norm}.",
+                                "linha": r,
+                                "coluna": c
+                            }
+                        if not v_cel and col_livre is None:
+                            col_livre = c
+                            break
+                    if col_livre:
+                        ws.cell(row=r, column=col_livre, value=r_norm)
+                        coluna_afetada = col_livre
+                        wb.save(caminho_excel)
+                        wb.close()
+
+                        # Gravar cópia local de backup se existir
+                        try:
+                            backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                            if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
+                                import shutil
+                                shutil.copy2(caminho_excel, str(backup_local))
+                        except Exception:
+                            pass
+                        sucesso = True
+                        metodo_usado = "openpyxl"
+                    break
+
+            if not found_user:
+                wb.close()
+                return {"ok": False, "erro": f"Utilizador '{u_norm}' não encontrado na folha Proposta Ativa."}
+        except Exception as exc:
+            return {"ok": False, "erro": f"Erro ao gravar via openpyxl: {exc}"}
+
+    if sucesso:
+        col_letra = ""
+        c_temp = coluna_afetada - 1 if coluna_afetada else 0
+        while c_temp >= 0:
+            col_letra = chr(c_temp % 26 + 65) + col_letra
+            c_temp = c_temp // 26 - 1
+
+        return {
+            "ok": True,
+            "ja_existia": False,
+            "metodo": metodo_usado,
+            "utilizador": u_norm,
+            "role": r_norm,
+            "linha": linha_afetada,
+            "coluna_num": coluna_afetada,
+            "coluna": col_letra,
+            "celula": f"{col_letra}{linha_afetada}",
+            "ficheiro": caminho_excel,
+            "mensagem": f"Função {r_norm} adicionada com sucesso na célula {col_letra}{linha_afetada} (Linha {linha_afetada}) para o utilizador {u_norm}."
+        }
+
+    return {"ok": False, "erro": "Não foi possível adicionar a função."}
+
+
+def incorporar_adicionais_catalogo_departamento(dados: ProjetoPerfilData, departamento: str) -> Dict[str, Any]:
+    """
+    Identifica todas as funções ativas no SAP PRD que pertencem ao catálogo oficial (PFCG_CREATE / COMPOSTA)
+    mas ainda não constam na folha 'Proposta Ativa' para os utilizadores do departamento,
+    e acrescenta-as automaticamente.
+    """
+    res_val = validar_utilizadores_prd(dados, departamento)
+    if not res_val.get("ok"):
+        return {"ok": False, "erro": res_val.get("erro")}
+
+    candidatos = []
+    for u in res_val.get("utilizadores", []):
+        if u.get("inativo_usr02"):
+            continue
+        for r in u.get("adicionais_no_catalogo", []):
+            candidatos.append((u["usuario"], u["nome"], r))
+
+    if not candidatos:
+        return {
+            "ok": True,
+            "departamento": departamento,
+            "total_incorporadas": 0,
+            "candidatos": [],
+            "mensagem": "Nenhuma função adicional do catálogo pendente de incorporação."
+        }
+
+    resultados = []
+    for u_id, u_nome, r_nome in candidatos:
+        res_add = adicionar_funcao_proposta_ativa(dados.caminho, u_id, r_nome, dados=dados)
+        resultados.append({
+            "usuario": u_id,
+            "nome": u_nome,
+            "role": r_nome,
+            "resultado": res_add
+        })
+
+    return {
+        "ok": True,
+        "departamento": departamento,
+        "total_incorporadas": len(resultados),
+        "resultados": resultados,
+    }
 
 
 def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
@@ -1358,7 +2271,10 @@ def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
         if adicionais:
             for r in adicionais:
                 adicionais_global[r] += 1
-            print(f"        📌 ADICIONAIS NO SAP ({len(adicionais)}): {', '.join(adicionais)}")
+            if u.get("adicionais_no_catalogo"):
+                print(f"        📌 ADICIONAIS NO SAP (No Catálogo Criado) ({len(u['adicionais_no_catalogo'])}): {', '.join(u['adicionais_no_catalogo'])} (💡 Função oficial: pode ser acrescentada à Proposta Ativa)")
+            if u.get("adicionais_fora_catalogo"):
+                print(f"        ⚠️ ADICIONAIS NO SAP (Fora do Catálogo) ({len(u['adicionais_fora_catalogo'])}): {', '.join(u['adicionais_fora_catalogo'])} (🛑 Função legada: candidata a CUA_REMOVE)")
 
         if desconsideradas:
             print(f"        🛡️ Protegidas por EXCLUÇÃO ({len(desconsideradas)}): {', '.join(desconsideradas)}")
@@ -1383,13 +2299,28 @@ def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
             nota = " (💡 Presente em quase toda a equipa - considerar incluir no Excel)" if count >= (len(conformes) + len(com_faltas)) * 0.7 else ""
             print(f"     • {role:<35} -> Ativa em {count} colaborador(es){nota}")
 
+    # Candidatos a incorporar na Proposta Ativa
+    candidatos_proposta = []
+    for u in utilizadores:
+        if u.get("inativo_usr02"):
+            continue
+        for r in u.get("adicionais_no_catalogo", []):
+            candidatos_proposta.append((u["usuario"], u["nome"], r))
+
+    if candidatos_proposta:
+        print("\n  💡 FUNÇÕES DO CATÁLOGO ATIVAS NO SAP PRD (Candidatas a inclusão na Proposta Ativa):")
+        for u_id, u_nome, r_nome in candidatos_proposta:
+            print(f"     • {u_id:<10} ({u_nome:<25}) -> {r_nome} (Pertence ao Catálogo oficial)")
+
     print("\n  🎯 PRÓXIMOS PASSOS SUGERIDOS:")
     if com_faltas:
         print("     1. Para atribuir as funções em falta aos utilizadores:")
         print("        👉 Use a Ação [3] Sincronizar CUA, ou registe na folha CUA_ADICIONAR.")
-    if adicionais_global:
-        print("     2. Para as funções adicionais (ex.: Z_INCOMING_INVOICE_VIEW):")
-        print("        👉 Se a equipa precisa dela: Adicione à folha 'Proposta Ativa' no Excel.")
+    if candidatos_proposta:
+        print("     2. Para as funções que já existem no catálogo oficial (ex.: Z_COSTCENTER_CREATE):")
+        print("        👉 Use a Ação [6] Incorporar Funções do Catálogo para acrescentar automaticamente à folha 'Proposta Ativa'.")
+    if adicionais_global and not candidatos_proposta:
+        print("     2. Para as funções adicionais fora do catálogo:")
         print("        👉 Se a equipa não deve ter esse acesso: Registar na folha CUA_REMOVE para remoção.")
     if inativos:
         print("     3. Colaboradores expirados (USR02):")
@@ -2223,8 +3154,9 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
         print("  [3] 🔄 Sincronizar CUA (Remover S4D / Limpar PRD / Alinhar QAS)")
         print("  [4] 🌐 Verificar Existência de Funções no SAP PRD (AGR_DEFINE)")
         print("  [5] 📋 Ver Análise Detalhada (Proposta Ativa)")
-        print("  [6] ↩️  Voltar / Escolher Outro Departamento da CONTROLO")
-        print("  [7] 🔍 Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)")
+        print("  [6] ➕ Incorporar Funções do Catálogo Ativas na 'Proposta Ativa'")
+        print("  [7] ↩️  Voltar / Escolher Outro Departamento da CONTROLO")
+        print("  [8] 🔍 Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)")
         print("  [0] 🚪 Sair")
         print("-" * 75)
 
@@ -2234,6 +3166,26 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
             print(f"\n⏳ A validar atribuições no SAP PRD para '{dep_nome}' ...")
             res_prd = validar_utilizadores_prd(dados, dep_nome)
             imprimir_validacao_utilizadores_prd(res_prd)
+
+            # Verificar se há funções do catálogo oficial para incorporar
+            cands = []
+            for u in res_prd.get("utilizadores", []):
+                if u.get("inativo_usr02"):
+                    continue
+                for r in u.get("adicionais_no_catalogo", []):
+                    cands.append((u["usuario"], u["nome"], r))
+            if cands:
+                print("-" * 75)
+                conf = input(f"👉 Foram detetadas {len(cands)} função(ões) ativas no PRD que constam no catálogo criado.\n   Deseja acrescentá-las à folha 'Proposta Ativa' agora? (S/N): ").strip().upper()
+                if conf in ("S", "SIM", "Y", "YES"):
+                    for u_id, u_nome, r_nome in cands:
+                        res_add = adicionar_funcao_proposta_ativa(dados.caminho, u_id, r_nome, dados=dados)
+                        print(f"   └─ {res_add.get('mensagem')}")
+                    print("\n⏳ A recarregar dados do Excel e revalidar conformidade...")
+                    dados = carregar_projeto_perfil(dados.caminho)
+                    analise = analisar_departamento_proposta(dados, dep_nome)
+                    res_prd_nova = validar_utilizadores_prd(dados, dep_nome)
+                    imprimir_validacao_utilizadores_prd(res_prd_nova)
 
         elif acao == "2":
             res_cruz = cruzar_fontes_departamento(dados, dep_nome)
@@ -2253,10 +3205,25 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
         elif acao == "5":
             imprimir_analise_departamento(analise)
 
-        elif acao in ("6", "V", "VOLTAR"):
+        elif acao == "6":
+            print(f"\n⏳ A verificar funções do catálogo ativas no PRD para '{dep_nome}' ...")
+            res_inc = incorporar_adicionais_catalogo_departamento(dados, dep_nome)
+            if not res_inc.get("ok"):
+                print(f"❌ Erro ao incorporar funções: {res_inc.get('erro')}")
+            elif res_inc.get("total_incorporadas") == 0:
+                print(f"ℹ️ {res_inc.get('mensagem', 'Nenhuma função do catálogo para incorporar.')}")
+            else:
+                for item in res_inc.get("resultados", []):
+                    res_item = item.get("resultado", {})
+                    print(f"  ✅ {res_item.get('mensagem')}")
+                print("\n⏳ A recarregar dados do Excel atualizados...")
+                dados = carregar_projeto_perfil(dados.caminho)
+                analise = analisar_departamento_proposta(dados, dep_nome)
+
+        elif acao in ("7", "V", "VOLTAR"):
             return "VOLTAR"
 
-        elif acao in ("7", "M", "GERAL"):
+        elif acao in ("8", "M", "GERAL"):
             return "MENU_GERAL"
 
         elif acao in ("0", "S", "SAIR", "Q"):
@@ -2278,6 +3245,8 @@ def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
         print("  [5] 📋 Listar todas as Roles Compostas")
         print("  [6] 📊 Ver Resumo Geral de Todas as Funções")
         print("  [7] 📂 Abrir outro ficheiro Excel")
+        print("  [8] 🔍 Validar TCODEs da folha 'Proposta' no SAP PRD (TSTC via RFC)")
+        print("  [9] 🚀 Sincronizar Catálogo (Proposta ➔ PFCG_CREATE ➔ SAP PRD)")
         print("  [0] ↩️  Voltar ao Processamento de Departamentos")
         print("-" * 75)
 
@@ -2319,6 +3288,29 @@ def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
             else:
                 print("❌ Ficheiro não encontrado.")
 
+        elif op == "8":
+            analise_prop = analisar_folha_proposta(dados)
+            if not analise_prop.get("encontrado"):
+                print(f"❌ {analise_prop.get('mensagem')}")
+            else:
+                tcodes_alvo = analise_prop["todos_tcodes"]
+                print(f"\n⏳ A validar {len(tcodes_alvo)} transações únicas da folha 'Proposta' no SAP PRD (tabela TSTC via RFC)...")
+                res_tc = verificar_tcodes_prd(tcodes_alvo)
+                imprimir_resultado_verificacao_tcodes_prd(res_tc, "Folha 'Proposta'")
+                if res_tc.get("nao_existentes"):
+                    print(f"\n⏳ A retirar da lista e marcar como 'Transação não existe' na folha 'Proposta'...")
+                    res_m = marcar_tcodes_inexistentes_sheet_proposta(dados.caminho, res_tc["nao_existentes"])
+                    if res_m.get("ok"):
+                        print(f"✅ {res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' na coluna ao lado.")
+                        for d in res_m.get("detalhes", []):
+                            print(f"   └─ Linha {d['linha']}: {d['tcode']} da role {d['role']}")
+
+        elif op == "9":
+            res_sinc = sincronizar_catalogo_proposta_pfcg_prd(dados, auto_criar_sap=True)
+            if res_sinc.get("linhas_adicionadas", 0) > 0:
+                print("\n⏳ A recarregar dados do Excel atualizados...")
+                dados = carregar_projeto_perfil(dados.caminho)
+
         elif op in ("0", "V", "VOLTAR"):
             return "VOLTAR"
 
@@ -2343,6 +3335,12 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
     except Exception as e:
         print(f"❌ Erro ao ler Excel: {e}")
         return
+
+    # Regra do Projeto: Validação e Sincronização Automática no Arranque (Proposta ➔ PFCG_CREATE ➔ PRD)
+    res_sinc = sincronizar_catalogo_proposta_pfcg_prd(dados, auto_criar_sap=True)
+    if res_sinc.get("linhas_adicionadas", 0) > 0:
+        print("\n⏳ A recarregar catálogo após sincronização...")
+        dados = carregar_projeto_perfil(caminho)
 
     imprimir_cabecalho_compacto(caminho)
 
@@ -2387,13 +3385,16 @@ if __name__ == "__main__":
     parser.add_argument("--pesquisar-role", "-r", dest="role", help="Pesquisar diretamente por nome de função")
     parser.add_argument("--pesquisar-tcode", "-t", dest="tcode", help="Pesquisar diretamente por transação SAP")
     parser.add_argument("--pesquisar-user", "-u", dest="user", help="Auditar e pesquisar diretamente por utilizador (Proposta, CUA e SAP PRD)")
+    parser.add_argument("--incorporar-adicionais", dest="incorporar_adicionais", action="store_true", help="Incorporar na Proposta Ativa as funções do catálogo que já estão ativas no SAP PRD")
+    parser.add_argument("--validar-proposta-tcodes", "--validar-tcodes-prd", dest="validar_proposta_tcodes", action="store_true", help="Validar se todas as transações da sheet Proposta existem na tabela TSTC do SAP PRD")
+    parser.add_argument("--sincronizar-catalogo", dest="sincronizar_catalogo", action="store_true", help="Sincronizar catálogo da folha Proposta com PFCG_CREATE e SAP PRD")
 
     args = parser.parse_args()
 
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user:
+    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo:
         if not caminho_alvo:
             print("❌ Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
@@ -2411,7 +3412,7 @@ if __name__ == "__main__":
                 imprimir_analise_departamento(res_dep)
             else:
                 print("\n✅ Todos os departamentos na sheet CONTROLO já possuem STATUS preenchido.")
-        if args.departamento is not None and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd):
+        if args.departamento is not None and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.incorporar_adicionais):
             alvo = args.departamento.strip() if args.departamento.strip() else proximo_dep
             if not alvo:
                 alvo = "Purchase & Services"
@@ -2429,6 +3430,23 @@ if __name__ == "__main__":
                 alvo_dep = "Purchase & Services"
             res_prd_users = validar_utilizadores_prd(dados, alvo_dep)
             imprimir_validacao_utilizadores_prd(res_prd_users)
+        if args.incorporar_adicionais:
+            alvo_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else proximo_dep
+            if not alvo_dep:
+                alvo_dep = "Purchase & Services"
+            res_inc = incorporar_adicionais_catalogo_departamento(dados, alvo_dep)
+            if not res_inc.get("ok"):
+                print(f"❌ Erro ao incorporar funções: {res_inc.get('erro')}")
+            elif res_inc.get("total_incorporadas") == 0:
+                print(f"ℹ️ {res_inc.get('mensagem', 'Nenhuma função do catálogo para incorporar.')}")
+            else:
+                for item in res_inc.get("resultados", []):
+                    res_item = item.get("resultado", {})
+                    print(f"  ✅ {res_item.get('mensagem')}")
+                print("\n⏳ A recarregar dados e revalidar utilizadores no PRD...")
+                dados = carregar_projeto_perfil(caminho_alvo)
+                res_prd_novos = validar_utilizadores_prd(dados, alvo_dep)
+                imprimir_validacao_utilizadores_prd(res_prd_novos)
         if args.verificar_prd:
             alvo_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else proximo_dep
             if alvo_dep:
@@ -2450,6 +3468,24 @@ if __name__ == "__main__":
         if args.user:
             res_audit = auditar_utilizador(dados, args.user)
             imprimir_auditoria_utilizador(res_audit)
+        if args.validar_proposta_tcodes:
+            analise_prop = analisar_folha_proposta(dados)
+            if not analise_prop.get("encontrado"):
+                print(f"❌ {analise_prop.get('mensagem')}")
+            else:
+                tcodes_alvo = analise_prop["todos_tcodes"]
+                print(f"\n⏳ A validar {len(tcodes_alvo)} transações únicas da folha 'Proposta' no SAP PRD (tabela TSTC via RFC)...")
+                res_tc = verificar_tcodes_prd(tcodes_alvo)
+                imprimir_resultado_verificacao_tcodes_prd(res_tc, "Folha 'Proposta'")
+                if res_tc.get("nao_existentes"):
+                    print(f"\n⏳ A retirar da lista e marcar como 'Transação não existe' na folha 'Proposta'...")
+                    res_m = marcar_tcodes_inexistentes_sheet_proposta(dados.caminho, res_tc["nao_existentes"])
+                    if res_m.get("ok"):
+                        print(f"✅ {res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' na coluna ao lado.")
+                        for d in res_m.get("detalhes", []):
+                            print(f"   └─ Linha {d['linha']}: {d['tcode']} da role {d['role']}")
+        if args.sincronizar_catalogo:
+            sincronizar_catalogo_proposta_pfcg_prd(dados, auto_criar_sap=True)
 
     else:
         # Modo interativo padrão
