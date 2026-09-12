@@ -168,7 +168,7 @@ def selecionar_ficheiro_dialogo(titulo: str = "Selecione o ficheiro Excel de Per
         root.destroy()
         return caminho if caminho else None
     except Exception as err:
-        print(f"⚠️ Não foi possível abrir o diálogo gráfico: {err}")
+        print(f"[AVISO] Não foi possível abrir o diálogo gráfico: {err}")
         return None
 
 
@@ -750,33 +750,33 @@ def imprimir_analise_departamento(dados_dep: Dict[str, Any]):
     """Exibe no terminal o relatório detalhado de funções por departamento."""
     dep = dados_dep.get("departamento", "")
     print("\n" + "=" * 75)
-    print(f"  🏢 PROPOSTA ATIVA - ANÁLISE DO DEPARTAMENTO: {dep.upper()}")
+    print(f"  PROPOSTA ATIVA - ANÁLISE DO DEPARTAMENTO: {dep.upper()}")
     print("=" * 75)
 
     if not dados_dep.get("encontrado"):
-        print(f"  ⚠️ {dados_dep.get('mensagem', 'Nenhum registo encontrado para este departamento.')}")
+        print(f"  [AVISO] {dados_dep.get('mensagem', 'Nenhum registo encontrado para este departamento.')}")
         return
 
     users = dados_dep["usuarios"]
     compostas = dados_dep["compostas"]
     singles_count = dados_dep["singles_frequencia"]
 
-    print(f"  👥 Utilizadores no Departamento:            {len(users)}")
-    print(f"  📦 Funções Compostas Distintas:             {len(compostas)}")
-    print(f"  🧩 Funções Individuais (Singles) Distintas: {len(singles_count)}")
+    print(f"  Utilizadores no Departamento:            {len(users)}")
+    print(f"  Funções Compostas Distintas:             {len(compostas)}")
+    print(f"  Funções Individuais (Singles) Distintas: {len(singles_count)}")
     print("-" * 75)
 
-    print("\n  📦 1. FUNÇÕES COMPOSTAS DO DEPARTAMENTO:")
+    print("\n  1. FUNÇÕES COMPOSTAS DO DEPARTAMENTO:")
     for c in compostas:
         users_com_comp = [u["usuario"] for u in users if u.get("composta") == c]
         print(f"     ├─ [Composta] {c:<35} -> Utilizadores: {', '.join(users_com_comp)}")
 
-    print("\n  👥 2. UTILIZADORES E RESPETIVAS FUNÇÕES:")
+    print("\n  2. UTILIZADORES E RESPETIVAS FUNÇÕES:")
     for u in users:
         comp_str = f"Composta: {u['composta']}" if u.get("composta") else "Sem Composta"
-        print(f"     👤 {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']} [{comp_str}] -> {u['total_singles']} Singles")
+        print(f"     {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']} [{comp_str}] -> {u['total_singles']} Singles")
 
-    print(f"\n  🧩 3. FUNÇÕES INDIVIDUAIS (SINGLE ROLES) ({len(singles_count)} distintas):")
+    print(f"\n  3. FUNÇÕES INDIVIDUAIS (SINGLE ROLES) ({len(singles_count)} distintas):")
     # Ordenar por frequência decrescente e alfabético
     for s, count in sorted(singles_count.items(), key=lambda x: (-x[1], x[0])):
         print(f"     ├─ {s:<35} -> presente em {count}/{len(users)} utilizador(es)")
@@ -842,12 +842,12 @@ def verificar_funcoes_prd(roles: List[str]) -> Dict[str, Any]:
 def imprimir_resultado_verificacao_prd(resultado: Dict[str, Any], titulo_contexto: str = ""):
     """Imprime no terminal o resultado da verificação de funções no PRD."""
     print("\n" + "=" * 75)
-    header = f"  🔍 VERIFICAÇÃO DE FUNÇÕES NO SAP PRD (via RFC){' - ' + titulo_contexto if titulo_contexto else ''}"
+    header = f"  VERIFICAÇÃO DE FUNÇÕES NO SAP PRD (via RFC){' - ' + titulo_contexto if titulo_contexto else ''}"
     print(header)
     print("=" * 75)
 
     if not resultado.get("ok"):
-        print(f"  ❌ Erro de ligação RFC ao PRD: {resultado.get('erro')}")
+        print(f"  [ERRO] Erro de ligação RFC ao PRD: {resultado.get('erro')}")
         return
 
     total = resultado["total"]
@@ -856,16 +856,16 @@ def imprimir_resultado_verificacao_prd(resultado: Dict[str, Any], titulo_context
     pct = (existentes / total * 100) if total > 0 else 0
 
     print(f"  Total de Funções Verificadas: {total}")
-    print(f"  ✅ Existentes no PRD:          {existentes} ({pct:.1f}%)")
-    print(f"  ❌ Inexistentes / Em Falta:    {nao_ex}")
+    print(f"  Existentes no PRD:          {existentes} ({pct:.1f}%)")
+    print(f"  [ERRO] Inexistentes / Em Falta:    {nao_ex}")
     print("-" * 75)
 
     if resultado["todas_existem"]:
-        print("  🎉 Todas as funções pesquisadas EXISTEM no sistema PRD!")
+        print("  Todas as funções pesquisadas EXISTEM no sistema PRD!")
     else:
-        print("  ⚠️ As seguintes funções NÃO foram encontradas no SAP PRD (AGR_DEFINE):")
+        print("  [AVISO] As seguintes funções NÃO foram encontradas no SAP PRD (AGR_DEFINE):")
         for r in resultado["nao_existentes"]:
-            print(f"     ❌ {r}")
+            print(f"     [ERRO] {r}")
 
 
 def verificar_tcodes_prd(tcodes: List[str]) -> Dict[str, Any]:
@@ -954,12 +954,12 @@ def verificar_tcodes_prd(tcodes: List[str]) -> Dict[str, Any]:
 def imprimir_resultado_verificacao_tcodes_prd(resultado: Dict[str, Any], titulo_contexto: str = ""):
     """Imprime no terminal o resultado da verificação de transações no PRD (TSTC)."""
     print("\n" + "=" * 75)
-    header = f"  🔍 VERIFICAÇÃO DE TRANSAÇÕES NO SAP PRD (TSTC via RFC){' - ' + titulo_contexto if titulo_contexto else ''}"
+    header = f"  VERIFICAÇÃO DE TRANSAÇÕES NO SAP PRD (TSTC via RFC){' - ' + titulo_contexto if titulo_contexto else ''}"
     print(header)
     print("=" * 75)
 
     if not resultado.get("ok"):
-        print(f"  ❌ Erro de ligação RFC ao PRD: {resultado.get('erro')}")
+        print(f"  [ERRO] Erro de ligação RFC ao PRD: {resultado.get('erro')}")
         return
 
     total = resultado["total"]
@@ -968,17 +968,17 @@ def imprimir_resultado_verificacao_tcodes_prd(resultado: Dict[str, Any], titulo_
     pct = (existentes / total * 100) if total > 0 else 0
 
     print(f"  Total de Transações Verificadas: {total}")
-    print(f"  ✅ Existentes no PRD (TSTC):      {existentes} ({pct:.1f}%)")
-    print(f"  ❌ Inexistentes no PRD:           {nao_ex}")
+    print(f"  Existentes no PRD (TSTC):      {existentes} ({pct:.1f}%)")
+    print(f"  [ERRO] Inexistentes no PRD:           {nao_ex}")
     print("-" * 75)
 
     if resultado["todas_existem"]:
-        print("  🎉 Todas as transações pesquisadas EXISTEM no sistema PRD (TSTC)!")
+        print("  Todas as transações pesquisadas EXISTEM no sistema PRD (TSTC)!")
         print("     A atribuição de menus e autorizações no PFCG não sofrerá erros de input.")
     else:
-        print("  ⚠️ As seguintes transações NÃO FORAM ENCONTRADAS no SAP PRD (TSTC):")
+        print("  [AVISO] As seguintes transações NÃO FORAM ENCONTRADAS no SAP PRD (TSTC):")
         for tc in resultado["nao_existentes"]:
-            print(f"     ❌ {tc}")
+            print(f"     [ERRO] {tc}")
 
 
 def is_nome_funcao_proposta(valor_funcao: Any, valor_descricao: Any) -> bool:
@@ -1464,34 +1464,24 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
     import pandas as pd
     from datetime import datetime
 
-    print("\n" + "=" * 75)
-    print("  🚀 [ARRANQUE 1/4] Sincronização do Catálogo (Proposta ➔ PFCG_CREATE ➔ PRD)")
-    print("=" * 75)
-
     # 1. Análise da folha Proposta
     analise_prop = analisar_folha_proposta(dados)
     if not analise_prop.get("encontrado"):
-        print(f"⚠️ {analise_prop.get('mensagem')}")
+        print(f"  [1/4] Catalogo Base: Erro - {analise_prop.get('mensagem')}")
         return {"ok": False, "erro": analise_prop.get("mensagem")}
 
     tcodes_prop = analise_prop.get("todos_tcodes", [])
-    print(f"  🔍 Folha 'Proposta': {analise_prop['total_funcoes']} funções identificadas ({len(tcodes_prop)} transações únicas).")
 
     # 2. Validar TCODEs no SAP PRD (TSTC)
     res_tc = verificar_tcodes_prd(tcodes_prop)
     if res_tc.get("ok") and res_tc.get("nao_existentes"):
-        print(f"  ⚠️ {res_tc['total_nao_existentes']} transação(ões) inexistente(s) no PRD. A marcar na folha 'Proposta'...")
         res_m = marcar_tcodes_inexistentes_sheet_proposta(dados.caminho, res_tc["nao_existentes"])
-        if res_m.get("ok"):
-            print(f"  ✅ {res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' e retiradas da lista.")
         analise_prop = analisar_folha_proposta(dados)
-    else:
-        print("  ✅ Validação TSTC: Todas as transações da folha 'Proposta' existem no SAP PRD.")
 
     # 3. Ler PFCG_CREATE
     sheet_pfcg = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) in ("PFCGCREATE", "PFCG_CREATE")), None)
     if not sheet_pfcg:
-        print("❌ Sheet 'PFCG_CREATE' não encontrada no ficheiro Excel.")
+        print("[ERRO] Sheet 'PFCG_CREATE' não encontrada no ficheiro Excel.")
         return {"ok": False, "erro": "Sheet PFCG_CREATE não encontrada"}
 
     fonte = abrir_excel_seguro(dados.caminho)
@@ -1538,8 +1528,7 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
                 }
 
     if not funcoes_novas and not novas_transacoes:
-        print(f"  ✅ Conformidade Total: Todas as {len(analise_prop['funcoes'])} funções e {len(pares_existentes)} atribuições já existem em 'PFCG_CREATE' e no SAP PRD.")
-        print("-" * 75)
+        print(f"  [1/4] Catalogo Base: {len(analise_prop['funcoes'])} funcoes ({len(tcodes_prop)} TCODEs) conformes em PFCG_CREATE e PRD.")
         return {
             "ok": True,
             "funcoes_novas_criadas": 0,
@@ -1552,7 +1541,7 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
     ts_agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if funcoes_novas:
-        print(f"\n  📌 DETETADAS {len(funcoes_novas)} NOVA(S) FUNÇÃO(ÕES) PARA CRIAR:")
+        print(f"\n  DETETADAS {len(funcoes_novas)} NOVA(S) FUNÇÃO(ÕES) PARA CRIAR:")
         from pfcg.pfcg_create_rfc_service import create_pfcg_role_rfc
 
         for f_nome, f_info in funcoes_novas.items():
@@ -1574,13 +1563,13 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
                     if not res_rfc.get("ok") and res_rfc.get("error_type") != "ROLE_ALREADY_EXISTS":
                         status_sap = "ERRO"
                         msg_sap = f"Erro RFC PRD: {res_rfc.get('message', '')}"
-                        print(f"        ❌ Erro na criação SAP PRD: {res_rfc.get('message')}")
+                        print(f"        [ERRO] Erro na criação SAP PRD: {res_rfc.get('message')}")
                     else:
-                        print(f"        ✅ Função '{f_nome}' criada com sucesso no SAP PRD.")
+                        print(f"        Função '{f_nome}' criada com sucesso no SAP PRD.")
                 except Exception as exc:
                     status_sap = "ERRO"
                     msg_sap = f"Exceção RFC PRD: {exc}"
-                    print(f"        ❌ Exceção ao contactar SAP PRD: {exc}")
+                    print(f"        [ERRO] Exceção ao contactar SAP PRD: {exc}")
 
             for tc in tcs:
                 max_id += 1
@@ -1597,7 +1586,7 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
 
     # 6. Processamento de Novas Transações em Funções Existentes
     if novas_transacoes:
-        print(f"\n  📌 DETETADAS TRANSAÇÕES NOVAS EM {len(novas_transacoes)} FUNÇÃO(ÕES) EXISTENTE(S):")
+        print(f"\n  DETETADAS TRANSAÇÕES NOVAS EM {len(novas_transacoes)} FUNÇÃO(ÕES) EXISTENTE(S):")
         for f_nome, f_info in novas_transacoes.items():
             desc = f_info["descricao"]
             tcs = f_info["tcodes"]
@@ -1610,9 +1599,9 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
                 if not res_atrib.get("ok"):
                     status_sap = "ERRO"
                     msg_sap = f"Erro RFC PRD: {res_atrib.get('erro', '')}"
-                    print(f"        ❌ Erro ao atribuir no SAP PRD: {res_atrib.get('erro')}")
+                    print(f"        [ERRO] Erro ao atribuir no SAP PRD: {res_atrib.get('erro')}")
                 else:
-                    print(f"        ✅ Transações atribuídas com sucesso à função '{f_nome}' no SAP PRD.")
+                    print(f"        Transações atribuídas com sucesso à função '{f_nome}' no SAP PRD.")
 
             for tc in tcs:
                 max_id += 1
@@ -1629,12 +1618,12 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
 
     # 7. Gravação em PFCG_CREATE
     if linhas_a_adicionar:
-        print(f"\n  💾 A registar {len(linhas_a_adicionar)} linha(s) no fim da folha 'PFCG_CREATE'...")
+        print(f"\n  A registar {len(linhas_a_adicionar)} linha(s) no fim da folha 'PFCG_CREATE'...")
         res_add = adicionar_linhas_pfcg_create(dados.caminho, linhas_a_adicionar)
         if res_add.get("ok"):
-            print("  ✅ Folha 'PFCG_CREATE' atualizada com sucesso no Excel.")
+            print("  Folha 'PFCG_CREATE' atualizada com sucesso no Excel.")
         else:
-            print(f"  ❌ Erro ao atualizar folha 'PFCG_CREATE': {res_add.get('erro')}")
+            print(f"  [ERRO] Erro ao atualizar folha 'PFCG_CREATE': {res_add.get('erro')}")
 
     print("-" * 75)
     return {
@@ -1657,9 +1646,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
     from collections import defaultdict
     import shutil
 
-    print("\n" + "=" * 75)
-    print("  🚀 [ARRANQUE 2/4] Matrizes Departamentais & DEFINIÇÕES ➔ Proposta Ativa")
-    print("=" * 75)
+
 
     fonte = abrir_excel_seguro(caminho_excel)
     excel_file = pd.ExcelFile(fonte)
@@ -1786,11 +1773,10 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
     alteracoes = 0
 
     if not users_em_falta:
-        print(f"  ✅ Validação Departamental: {total_users_avaliados}/{total_users_avaliados} utilizadores com funções 100% conformes na 'Proposta Ativa'.")
-        print("-" * 75)
+        print(f"  [2/4] Proposta Ativa: {total_users_avaliados}/{total_users_avaliados} utilizadores conformes com matrizes e DEFINICOES.")
         return {"ok": True, "total_users": total_users_avaliados, "users_em_falta": 0, "funcoes_adicionadas": 0}
 
-    print(f"  📌 DETETADAS FUNÇÕES EM FALTA EM {len(users_em_falta)} UTILIZADOR(ES) NA 'PROPOSTA ATIVA'...")
+    print(f"  DETETADAS FUNÇÕES EM FALTA EM {len(users_em_falta)} UTILIZADOR(ES) NA 'PROPOSTA ATIVA'...")
     import openpyxl
     sucesso_com = False
     if sys.platform.startswith("win"):
@@ -1822,7 +1808,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                 except Exception:
                     pass
                 sucesso_com = True
-                print(f"  ✅ {alteracoes} nova(s) função(ões) atribuída(s) via Excel COM.")
+                print(f"  {alteracoes} nova(s) função(ões) atribuída(s) via Excel COM.")
         except Exception:
             pass
 
@@ -1848,9 +1834,9 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                     shutil.copy2(caminho_excel, str(backup_local))
             except Exception:
                 pass
-            print(f"  ✅ {alteracoes} nova(s) função(ões) atribuída(s) via openpyxl.")
+            print(f"  {alteracoes} nova(s) função(ões) atribuída(s) via openpyxl.")
         except Exception as exc:
-            print(f"  ❌ Erro ao gravar Proposta Ativa: {exc}")
+            print(f"  [ERRO] Erro ao gravar Proposta Ativa: {exc}")
 
     print("-" * 75)
     return {
@@ -1872,9 +1858,7 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
     from datetime import datetime
     import shutil
 
-    print("\n" + "=" * 75)
-    print("  🚀 [ARRANQUE 3/4] Proposta Ativa ➔ PFCG_COMPOSTA (Excel)")
-    print("=" * 75)
+
 
     fonte = abrir_excel_seguro(caminho_excel)
     excel_file = pd.ExcelFile(fonte)
@@ -1935,11 +1919,10 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
     backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
 
     if not novas_linhas:
-        print(f"  ✅ Validação Compostas (Excel): {len(composta_roles)}/{len(composta_roles)} Composite Roles 100% alinhadas na 'PFCG_COMPOSTA' ({len(df_comp)} registos).")
-        print("-" * 75)
+        print(f"  [3/4] PFCG_COMPOSTA: {len(composta_roles)}/{len(composta_roles)} Composite Roles alinhadas no Excel ({len(df_comp)} registos).")
         return {"ok": True, "total_compostas": len(composta_roles), "linhas_adicionadas": 0, "total_registos": len(df_comp)}
 
-    print(f"  📌 DETETADAS {len(novas_linhas)} NOVA(S) ATRIBUIÇÃO(ÕES) EM FALTA NA 'PFCG_COMPOSTA'...")
+    print(f"  DETETADAS {len(novas_linhas)} NOVA(S) ATRIBUIÇÃO(ÕES) EM FALTA NA 'PFCG_COMPOSTA'...")
     import openpyxl
     sucesso_com = False
     if sys.platform.startswith("win"):
@@ -1973,7 +1956,7 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
                 except Exception:
                     pass
                 sucesso_com = True
-                print(f"  ✅ {len(novas_linhas)} linha(s) adicionada(s) via Excel COM.")
+                print(f"  {len(novas_linhas)} linha(s) adicionada(s) via Excel COM.")
         except Exception:
             pass
 
@@ -1994,9 +1977,9 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
                     shutil.copy2(caminho_excel, str(backup_local))
             except Exception:
                 pass
-            print(f"  ✅ {len(novas_linhas)} linha(s) adicionada(s) via openpyxl.")
+            print(f"  {len(novas_linhas)} linha(s) adicionada(s) via openpyxl.")
         except Exception as exc:
-            print(f"  ❌ Erro ao gravar PFCG_COMPOSTA: {exc}")
+            print(f"  [ERRO] Erro ao gravar PFCG_COMPOSTA: {exc}")
 
     print("-" * 75)
     return {
@@ -2021,9 +2004,7 @@ def sincronizar_pfcg_composta_prd_rfc(dados: ProjetoPerfilData, caminho_excel: s
         make_read_only_guard, read_table, make_option_in
     )
 
-    print("\n" + "=" * 75)
-    print("  🚀 [ARRANQUE 4/4] PFCG_COMPOSTA ➔ SAP PRD (AGR_AGRS via RFC)")
-    print("=" * 75)
+
 
     fonte = abrir_excel_seguro(caminho_excel)
     df_comp = pd.read_excel(fonte, sheet_name="PFCG_COMPOSTA")
@@ -2080,19 +2061,18 @@ def sincronizar_pfcg_composta_prd_rfc(dados: ProjetoPerfilData, caminho_excel: s
 
     total_adicionadas = 0
     if not plano_execucao:
-        print(f"  ✅ Validação SAP PRD: Todas as {len(excel_compostas)} Composite Roles conformes na tabela AGR_AGRS (0 funções simples em falta).")
-        print("-" * 75)
+        print(f"  [4/4] SAP PRD: {len(excel_compostas)}/{len(excel_compostas)} Composite Roles conformes em AGR_AGRS (0 funcoes simples em falta).")
         return {"ok": True, "total_compostas": len(excel_compostas), "compostas_com_faltas": 0, "funcoes_adicionadas_prd": 0}
 
-    print(f"  📌 DETETADAS {sum(len(v) for v in plano_execucao.values())} FUNÇÃO(ÕES) SIMPLES EM FALTA NO SAP PRD EM {len(plano_execucao)} COMPOSTA(S)...")
+    print(f"  DETETADAS {sum(len(v) for v in plano_execucao.values())} FUNÇÃO(ÕES) SIMPLES EM FALTA NO SAP PRD EM {len(plano_execucao)} COMPOSTA(S)...")
     for comp, filhas in plano_execucao.items():
         res_add = atribuir_funcoes_composta_prd_rfc(comp, filhas)
         if res_add.get("ok"):
             adics = res_add.get("adicionadas", [])
             total_adicionadas += len(adics)
-            print(f"     ✅ {comp}: {len(adics)} função(ões) atribuída(s) via RFC no PRD.")
+            print(f"     {comp}: {len(adics)} função(ões) atribuída(s) via RFC no PRD.")
         else:
-            print(f"     ❌ {comp}: Erro RFC PRD - {res_add.get('erro')}")
+            print(f"     [ERRO] {comp}: Erro RFC PRD - {res_add.get('erro')}")
 
     print("-" * 75)
     return {
@@ -2106,12 +2086,15 @@ def sincronizar_pfcg_composta_prd_rfc(dados: ProjetoPerfilData, caminho_excel: s
 def executar_sincronizacao_arranque_completa(dados: ProjetoPerfilData, caminho_excel: str) -> ProjetoPerfilData:
     """
     Executa o pipeline completo de 4 fases de validação e sincronização automática no arranque:
-      1. Catálogo Base (Proposta ➔ PFCG_CREATE ➔ PRD)
-      2. Matrizes Departamentais & DEFINIÇÕES ➔ Proposta Ativa
-      3. Proposta Ativa ➔ PFCG_COMPOSTA (Excel)
-      4. PFCG_COMPOSTA ➔ SAP PRD (AGR_AGRS via RFC)
+      1. Catálogo Base (Proposta -> PFCG_CREATE -> PRD)
+      2. Matrizes Departamentais & DEFINIÇÕES -> Proposta Ativa
+      3. Proposta Ativa -> PFCG_COMPOSTA (Excel)
+      4. PFCG_COMPOSTA -> SAP PRD (AGR_AGRS via RFC)
     Recarrega e devolve os dados atualizados caso ocorram modificações no Excel.
     """
+    print("\n" + "=" * 75)
+    print("  SINCRONIZACAO E VALIDACAO NO ARRANQUE")
+    print("=" * 75)
     recarr_necessario = False
 
     # Fase 1
@@ -2136,9 +2119,10 @@ def executar_sincronizacao_arranque_completa(dados: ProjetoPerfilData, caminho_e
     sincronizar_pfcg_composta_prd_rfc(dados, caminho_excel)
 
     if recarr_necessario:
-        print("\n⏳ A recarregar dados do Excel após sincronizações automáticas...")
+        print("\nA recarregar dados do Excel apos sincronizacoes automaticas...")
         dados = carregar_projeto_perfil(caminho_excel)
 
+    print("-" * 75)
     return dados
 
 
@@ -2270,21 +2254,21 @@ def comparar_funcoes_catalogo_prd(dados: ProjetoPerfilData) -> Dict[str, Any]:
 def imprimir_comparacao_catalogo_prd(res: Dict[str, Any]):
     """Imprime no terminal o relatório comparativo de funções existentes no PRD vs Excel."""
     print("\n" + "=" * 80)
-    print("  🌐 COMPARATIVO DE FUNÇÕES: SAP PRD vs FICHEIRO EXCEL")
+    print("  COMPARATIVO DE FUNÇÕES: SAP PRD vs FICHEIRO EXCEL")
     print("=" * 80)
 
     if not res.get("ok"):
-        print(f"  ❌ Erro ao consultar SAP PRD: {res.get('erro')}")
+        print(f"  [ERRO] Erro ao consultar SAP PRD: {res.get('erro')}")
         return
 
-    print("  📌 1. CATÁLOGO GLOBAL DE FUNÇÕES NO SAP PRD (AGR_DEFINE):")
+    print("  1. CATÁLOGO GLOBAL DE FUNÇÕES NO SAP PRD (AGR_DEFINE):")
     print(f"     • Total de funções no PRD:              {res['total_prd_catalogo']:>6d}")
     print(f"       ├─ Funções Customizadas (Z*):          {res['total_prd_z']:>6d}")
     print(f"       ├─ Funções Standard SAP (SAP_*):       {res['total_prd_sap']:>6d}")
     print(f"       └─ Outras funções Standard:            {res['total_prd_outras']:>6d}")
     print(f"     • Total de funções no Ficheiro Excel:   {res['total_excel']:>6d}")
 
-    print("\n  🔍 2. FUNÇÕES NO PRD QUE NÃO CONSTAM NO FICHEIRO EXCEL:")
+    print("\n  2. FUNÇÕES NO PRD QUE NÃO CONSTAM NO FICHEIRO EXCEL:")
     print(f"     • Diferença Total Bruta:                {res['dif_catalogo_bruto']:>6d}")
     print(f"       (Inclui {res['total_prd_sap']} standard SAP_* e outras legadas)")
     print(f"     • Diferença Líquida (após EXCLUÇÃO):    {res['dif_catalogo_sem_exclusao']:>6d}")
@@ -2292,7 +2276,7 @@ def imprimir_comparacao_catalogo_prd(res: Dict[str, Any]):
     print(f"       ├─ Funções Simples (Single):           {res['dif_z_simples']:>6d}")
     print(f"       └─ Funções Compostas (Composite):      {res['dif_z_compostas']:>6d}")
 
-    print("\n  🏷️ 3. SEGMENTAÇÃO DAS FUNÇÕES Z* FORA DO EXCEL:")
+    print("\n  3. SEGMENTAÇÃO DAS FUNÇÕES Z* FORA DO EXCEL:")
     print(f"     • Organizacionais (ZORG_*):              {len(res['z_org']):>6d}")
     print(f"     • Business Roles (Z_BR_*):               {len(res['z_br']):>6d}")
     print(f"     • Módulo MM (ZMM_*):                     {len(res['z_mm']):>6d}")
@@ -2300,7 +2284,7 @@ def imprimir_comparacao_catalogo_prd(res: Dict[str, Any]):
     print(f"     • Módulo SD (ZSD_*):                     {len(res['z_sd']):>6d}")
     print(f"     • Outros legados Z*:                     {len(res['z_outras']):>6d}")
 
-    print("\n  👥 4. FUNÇÕES ATIVAMENTE ATRIBUÍDAS A UTILIZADORES (AGR_USERS):")
+    print("\n  4. FUNÇÕES ATIVAMENTE ATRIBUÍDAS A UTILIZADORES (AGR_USERS):")
     print(f"     • Total de funções distintas atribuídas: {res['total_atribuidas_ativas_prd']:>6d}")
     print(f"     • Funções atribuídas fora do Excel (Bruto): {res['dif_atrib_bruto']:>4d}")
     print(f"     • Funções atribuídas fora do Excel (Líquido): {res['dif_atrib_sem_exclusao']:>2d}")
@@ -2311,7 +2295,7 @@ def imprimir_comparacao_catalogo_prd(res: Dict[str, Any]):
         if len(res["roles_atribuidas_fora_excel"]) > 25:
             print(f"         └─ ... e mais {len(res['roles_atribuidas_fora_excel']) - 25} funções.")
 
-    print("\n  🛡️ Padrões desconsiderados da folha EXCLUÇÃO:")
+    print("\n  Padrões desconsiderados da folha EXCLUÇÃO:")
     print(f"     {', '.join(res['padroes_exclusao']) or 'Nenhum'}")
     print("=" * 80)
 
@@ -2382,12 +2366,12 @@ def cruzar_fontes_departamento(dados: ProjetoPerfilData, departamento: str = "Pu
 def imprimir_cruzamento_fontes(resultado: Dict[str, Any]):
     """Exibe no terminal o relatório de cruzamento relacional de fontes."""
     print("\n" + "=" * 75)
-    print("  🔗 CRUZAMENTO DE FONTES (PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY, EXCLUÇÃO)")
-    print(f"  🏢 Departamento: {resultado.get('departamento', '')}")
+    print("  CRUZAMENTO DE FONTES (PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY, EXCLUÇÃO)")
+    print(f"  Departamento: {resultado.get('departamento', '')}")
     print("=" * 75)
 
     if not resultado.get("encontrado"):
-        print(f"  ⚠️ {resultado.get('mensagem', 'Departamento não encontrado.')}")
+        print(f"  [AVISO] {resultado.get('mensagem', 'Departamento não encontrado.')}")
         return
 
     print(f"  Regras EXCLUÇÃO aplicadas: {resultado.get('padroes_exclusao', [])}")
@@ -2396,13 +2380,13 @@ def imprimir_cruzamento_fontes(resultado: Dict[str, Any]):
 
     for u in resultado.get("usuarios", []):
         comp_str = f"Composta: {u['composta']}" if u.get("composta") else "Sem Composta"
-        print(f"\n  👤 {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']}")
+        print(f"\n  {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']}")
         print(f"     └─ {comp_str} | {u['singles_proposta_total']} Singles na Proposta")
         print(f"        ├─ Membros em PFCG_COMPOSTA:   {u['membros_composta_total']}")
         print(f"        ├─ PFCG_AUTHORITY da Composta: {u['authority_composta_total']}")
-        print(f"        └─ 🎯 Esperado Expandido Final: {u['esperado_total']} Funções")
+        print(f"        └─ Esperado Expandido Final: {u['esperado_total']} Funções")
         if u.get("excluidas_proposta"):
-            print(f"           🛡️ Desconsideradas por EXCLUÇÃO: {', '.join(u['excluidas_proposta'])}")
+            print(f"           Desconsideradas por EXCLUÇÃO: {', '.join(u['excluidas_proposta'])}")
 
 
 def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purchase & Services") -> Dict[str, Any]:
@@ -2768,31 +2752,31 @@ def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
     sis = res.get("sistema", "PRD")
 
     print("\n" + "=" * 78)
-    print(f"  🔍 AUDITORIA DE AUTORIZAÇÕES: PLANO (EXCEL) vs SAP {sis} REAL")
-    print(f"  🏢 Departamento: {dep} | Ambiente: Produção (Mandante {res.get('mandante', '100')})")
+    print(f"  AUDITORIA DE AUTORIZAÇÕES: PLANO (EXCEL) vs SAP {sis} REAL")
+    print(f"  Departamento: {dep} | Ambiente: Produção (Mandante {res.get('mandante', '100')})")
     print("=" * 78)
 
     if not res.get("ok"):
-        print(f"  ❌ Erro ao validar utilizadores no PRD: {res.get('erro')}")
+        print(f"  [ERRO] Erro ao validar utilizadores no PRD: {res.get('erro')}")
         print("=" * 78)
         return
 
-    print("  💡 OBJETIVO DESTA ANÁLISE:")
+    print("  OBJETIVO DESTA ANÁLISE:")
     print("     Confronta o que está desenhado no Excel ('Proposta Ativa') com o que")
     print(f"     está efetivamente ativo no utilizador no SAP {sis} (via RFC AGR_USERS / USR02).")
-    print("\n  📖 GUIA DE LEITURA:")
-    print("     ✅ CONFORME            -> Utilizador tem 100% das funções do plano ativas no SAP.")
-    print("     ❌ EM FALTA            -> Funções do plano que NÃO estão ativas no SAP (falta dar acesso).")
-    print("     📌 ADICIONAIS A VALIDAR-> Funções ativas no SAP que NÃO constam no Excel (acesso a mais).")
-    print("     🛡️ REGRAS DE EXCEÇÃO   -> Funções técnicas/standard ignoradas propositadamente.")
-    print("     ⏸️ CONTA EXPIRADA       -> Conta desativada/expirada no cadastro mestre USR02 do SAP.")
+    print("\n  GUIA DE LEITURA:")
+    print("     CONFORME            -> Utilizador tem 100% das funções do plano ativas no SAP.")
+    print("     [ERRO] EM FALTA            -> Funções do plano que NÃO estão ativas no SAP (falta dar acesso).")
+    print("     ADICIONAIS A VALIDAR-> Funções ativas no SAP que NÃO constam no Excel (acesso a mais).")
+    print("     REGRAS DE EXCEÇÃO   -> Funções técnicas/standard ignoradas propositadamente.")
+    print("     [EXPIRADO] CONTA EXPIRADA       -> Conta desativada/expirada no cadastro mestre USR02 do SAP.")
     print("-" * 78)
-    print(f"  🛡️ Exceções ativas no escopo: {', '.join(res.get('padroes_exclusao', []))}")
+    print(f"  Exceções ativas no escopo: {', '.join(res.get('padroes_exclusao', []))}")
     print("-" * 78)
 
     utilizadores = res.get("utilizadores", [])
     if not utilizadores:
-        print("  ⚠️ Nenhum utilizador encontrado para este departamento.")
+        print("  [AVISO] Nenhum utilizador encontrado para este departamento.")
         print("=" * 78)
         return
 
@@ -2817,59 +2801,59 @@ def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
 
         if is_inativo:
             inativos.append(u)
-            status_ico = "⏸️"
+            status_ico = "[EXPIRADO]"
             status_tag = f"[CONTA EXPIRADA EM USR02 a {u.get('validade_fim', '')}]"
         elif u["conforme"]:
             conformes.append(u)
-            status_ico = "✅"
+            status_ico = "[OK]"
             status_tag = "[100% CONFORME]"
         else:
             com_faltas.append(u)
-            status_ico = "⚠️"
+            status_ico = "[AVISO]"
             status_tag = f"[{len(faltam)} FUNÇÕES EM FALTA]"
 
         pct = int((esp_ativas / esp_total * 100)) if esp_total > 0 else (100 if is_inativo else 0)
-        adicionais_str = f" | 📌 {len(adicionais)} a mais no SAP" if adicionais else ""
+        adicionais_str = f" | {len(adicionais)} a mais no SAP" if adicionais else ""
 
-        print(f"\n  {status_ico} 👤 {uname:<10} | {nome:<25} | {cargo} {status_tag}")
+        print(f"\n  {status_ico} {uname:<10} | {nome:<25} | {cargo} {status_tag}")
         print(f"     └─ Funções Ativas do Plano: {esp_ativas}/{esp_total} ({pct}% concluído){adicionais_str}")
 
         if faltam and not is_inativo:
             for r in faltam:
                 faltas_global[r] += 1
-            print(f"        ❌ EM FALTA NO SAP ({len(faltam)}): {', '.join(faltam)}")
+            print(f"        [ERRO] EM FALTA NO SAP ({len(faltam)}): {', '.join(faltam)}")
         elif faltam and is_inativo:
-            print(f"        ℹ️ Sem atribuições ativas por desativação/offboarding no sistema SAP.")
+            print(f"        ℹ Sem atribuições ativas por desativação/offboarding no sistema SAP.")
 
         if adicionais:
             for r in adicionais:
                 adicionais_global[r] += 1
             if u.get("adicionais_no_catalogo"):
-                print(f"        📌 ADICIONAIS NO SAP (No Catálogo Criado) ({len(u['adicionais_no_catalogo'])}): {', '.join(u['adicionais_no_catalogo'])} (💡 Função oficial: pode ser acrescentada à Proposta Ativa)")
+                print(f"        ADICIONAIS NO SAP (No Catálogo Criado) ({len(u['adicionais_no_catalogo'])}): {', '.join(u['adicionais_no_catalogo'])} (Função oficial: pode ser acrescentada à Proposta Ativa)")
             if u.get("adicionais_fora_catalogo"):
-                print(f"        ⚠️ ADICIONAIS NO SAP (Fora do Catálogo) ({len(u['adicionais_fora_catalogo'])}): {', '.join(u['adicionais_fora_catalogo'])} (🛑 Função legada: candidata a CUA_REMOVE)")
+                print(f"        [AVISO] ADICIONAIS NO SAP (Fora do Catálogo) ({len(u['adicionais_fora_catalogo'])}): {', '.join(u['adicionais_fora_catalogo'])} ([ALERTA] Função legada: candidata a CUA_REMOVE)")
 
         if desconsideradas:
-            print(f"        🛡️ Protegidas por EXCLUÇÃO ({len(desconsideradas)}): {', '.join(desconsideradas)}")
+            print(f"        Protegidas por EXCLUÇÃO ({len(desconsideradas)}): {', '.join(desconsideradas)}")
 
     # Resumo Executivo
     print("\n" + "=" * 78)
-    print(f"  📊 RESUMO EXECUTIVO: {dep.upper()}")
+    print(f"  RESUMO EXECUTIVO: {dep.upper()}")
     print("=" * 78)
-    print(f"  👥 Total de Colaboradores: {total_users}")
-    print(f"     ├─ ✅ Conformes (acessos 100% alinhados): {len(conformes)}")
-    print(f"     ├─ ⚠️ Com funções em falta no SAP:       {len(com_faltas)}")
-    print(f"     └─ ⏸️ Contas expiradas no SAP (USR02):    {len(inativos)}")
+    print(f"  Total de Colaboradores: {total_users}")
+    print(f"     ├─ Conformes (acessos 100% alinhados): {len(conformes)}")
+    print(f"     ├─ [AVISO] Com funções em falta no SAP:       {len(com_faltas)}")
+    print(f"     └─ [EXPIRADO] Contas expiradas no SAP (USR02):    {len(inativos)}")
 
     if faltas_global:
-        print("\n  ❌ FUNÇÕES MAIS CRÍTICAS EM FALTA NO SAP (Precisam de atribuição):")
+        print("\n  [ERRO] FUNÇÕES MAIS CRÍTICAS EM FALTA NO SAP (Precisam de atribuição):")
         for role, count in faltas_global.most_common(8):
             print(f"     • {role:<35} -> Falta a {count} colaborador(es)")
 
     if adicionais_global:
-        print("\n  📌 FUNÇÕES ADICIONAIS DETETADAS NO SAP (Não estão no Excel):")
+        print("\n  FUNÇÕES ADICIONAIS DETETADAS NO SAP (Não estão no Excel):")
         for role, count in adicionais_global.most_common(8):
-            nota = " (💡 Presente em quase toda a equipa - considerar incluir no Excel)" if count >= (len(conformes) + len(com_faltas)) * 0.7 else ""
+            nota = " (Presente em quase toda a equipa - considerar incluir no Excel)" if count >= (len(conformes) + len(com_faltas)) * 0.7 else ""
             print(f"     • {role:<35} -> Ativa em {count} colaborador(es){nota}")
 
     # Candidatos a incorporar na Proposta Ativa
@@ -2881,23 +2865,23 @@ def imprimir_validacao_utilizadores_prd(res: Dict[str, Any]):
             candidatos_proposta.append((u["usuario"], u["nome"], r))
 
     if candidatos_proposta:
-        print("\n  💡 FUNÇÕES DO CATÁLOGO ATIVAS NO SAP PRD (Candidatas a inclusão na Proposta Ativa):")
+        print("\n  FUNÇÕES DO CATÁLOGO ATIVAS NO SAP PRD (Candidatas a inclusão na Proposta Ativa):")
         for u_id, u_nome, r_nome in candidatos_proposta:
             print(f"     • {u_id:<10} ({u_nome:<25}) -> {r_nome} (Pertence ao Catálogo oficial)")
 
-    print("\n  🎯 PRÓXIMOS PASSOS SUGERIDOS:")
+    print("\n  PRÓXIMOS PASSOS SUGERIDOS:")
     if com_faltas:
         print("     1. Para atribuir as funções em falta aos utilizadores:")
-        print("        👉 Use a Ação [3] Sincronizar CUA, ou registe na folha CUA_ADICIONAR.")
+        print("        Use a Ação [3] Sincronizar CUA, ou registe na folha CUA_ADICIONAR.")
     if candidatos_proposta:
         print("     2. Para as funções que já existem no catálogo oficial (ex.: Z_COSTCENTER_CREATE):")
-        print("        👉 Use a Ação [6] Incorporar Funções do Catálogo para acrescentar automaticamente à folha 'Proposta Ativa'.")
+        print("        Use a Ação [6] Incorporar Funções do Catálogo para acrescentar automaticamente à folha 'Proposta Ativa'.")
     if adicionais_global and not candidatos_proposta:
         print("     2. Para as funções adicionais fora do catálogo:")
-        print("        👉 Se a equipa não deve ter esse acesso: Registar na folha CUA_REMOVE para remoção.")
+        print("        Se a equipa não deve ter esse acesso: Registar na folha CUA_REMOVE para remoção.")
     if inativos:
         print("     3. Colaboradores expirados (USR02):")
-        print("        👉 Confirmar se saíram da empresa e atualizar status na folha CONTROLO/Proposta.")
+        print("        Confirmar se saíram da empresa e atualizar status na folha CONTROLO/Proposta.")
     print("=" * 78)
 
 
@@ -3063,39 +3047,39 @@ def imprimir_auditoria_utilizador(res: Dict[str, Any]):
     u = res.get("utilizador", "")
     p = res.get("proposta") or {}
     print("\n" + "=" * 75)
-    print(f"  👤 AUDITORIA COMPLETA DE UTILIZADOR: {u}")
+    print(f"  AUDITORIA COMPLETA DE UTILIZADOR: {u}")
     if p.get("nome"):
         print(f"  Nome: {p.get('nome')} | Cargo: {p.get('cargo')} | Departamento: {p.get('departamento')}")
     print("=" * 75)
 
     # 1. Proposta Ativa
     if p:
-        print("\n  📋 1. DADOS NA 'PROPOSTA ATIVA':")
+        print("\n  1. DADOS NA 'PROPOSTA ATIVA':")
         print(f"     ├─ Função Composta: {p.get('composta') or 'Nenhuma'}")
         print(f"     ├─ Funções Simples Declaradas: {p.get('total_singles_proposta')}")
-        print(f"     └─ 🎯 Total Esperado após Expansão Relacional: {res.get('esperadas_total')} Funções")
+        print(f"     └─ Total Esperado após Expansão Relacional: {res.get('esperadas_total')} Funções")
     else:
-        print("\n  📋 1. 'PROPOSTA ATIVA': Utilizador não localizado na folha Proposta Ativa.")
+        print("\n  1. 'PROPOSTA ATIVA': Utilizador não localizado na folha Proposta Ativa.")
 
     # 2. CUA
     cua = res.get("cua", {})
     adds = cua.get("adicionar", [])
     rms = cua.get("remover", [])
     if adds or rms:
-        print(f"\n  🔄 2. ATRIBUIÇÕES NO CUA: {len(adds)} para Adicionar, {len(rms)} para Remover")
+        print(f"\n  2. ATRIBUIÇÕES NO CUA: {len(adds)} para Adicionar, {len(rms)} para Remover")
     else:
-        print("\n  🔄 2. ATRIBUIÇÕES NO CUA: Nenhuma instrução pendente em CUA_ADICIONAR/CUA_REMOVE.")
+        print("\n  2. ATRIBUIÇÕES NO CUA: Nenhuma instrução pendente em CUA_ADICIONAR/CUA_REMOVE.")
 
     # 3. SAP PRD
     if not res.get("prd_conectado"):
-        print(f"\n  ❌ 3. SAP PRD: Erro de ligação RFC ({res.get('prd_erro')})")
+        print(f"\n  [ERRO] 3. SAP PRD: Erro de ligação RFC ({res.get('prd_erro')})")
         return
 
     m = res.get("mestre_usr02", {})
-    print("\n  🌐 3. ESTADO NO SAP PRD (Mestre USR02 & AGR_USERS):")
+    print("\n  3. ESTADO NO SAP PRD (Mestre USR02 & AGR_USERS):")
     if m:
-        st_lock = "🔒 BLOQUEADO" if m.get("bloqueado") else "🔓 Desbloqueado"
-        st_exp = f"⏸️ EXPIRADO a {m.get('validade_fim')}" if m.get("expirado") else "✅ Conta Ativa"
+        st_lock = "[BLOQUEADO] BLOQUEADO" if m.get("bloqueado") else "[Desbloqueado] Desbloqueado"
+        st_exp = f"[EXPIRADO] EXPIRADO a {m.get('validade_fim')}" if m.get("expirado") else "Conta Ativa"
         print(f"     ├─ Tipo: {m.get('tipo', 'A')} | Estado: {st_lock} | Validade: {st_exp}")
         print(f"     ├─ Último Logon: {m.get('ultimo_logon') or 'Nunca'}")
     print(f"     ├─ Funções Ativas no PRD:       {res.get('ativas_total')}")
@@ -3103,25 +3087,25 @@ def imprimir_auditoria_utilizador(res: Dict[str, Any]):
     print(f"     └─ Conformidade com a Proposta: {res.get('esperadas_ativas')}/{res.get('esperadas_total')} ativas")
 
     if res.get("faltam"):
-        print(f"\n  ❌ FUNÇÕES EM FALTA ({len(res['faltam'])}):")
+        print(f"\n  [ERRO] FUNÇÕES EM FALTA ({len(res['faltam'])}):")
         for f in res["faltam"]:
             print(f"     ├─ {f}")
     else:
-        print("\n  ✅ TODAS AS FUNÇÕES PREVISTAS ESTÃO 100% ATIVAS NO PRD (0 em falta)!")
+        print("\n  TODAS AS FUNÇÕES PREVISTAS ESTÃO 100% ATIVAS NO PRD (0 em falta)!")
 
     prot = res.get("protegidas_exclusao", [])
     if prot:
-        print(f"\n  🛡️ Ocorrências Protegidas por EXCLUÇÃO ({len(prot)}):")
+        print(f"\n  Ocorrências Protegidas por EXCLUÇÃO ({len(prot)}):")
         for pr in prot:
             print(f"     ├─ {pr}")
 
     adicionais = res.get("adicionais_reais", [])
     if adicionais:
-        print(f"\n  📌 FUNÇÕES ADICIONAIS A VALIDAR ({len(adicionais)}):")
+        print(f"\n  FUNÇÕES ADICIONAIS A VALIDAR ({len(adicionais)}):")
         for a in adicionais:
             print(f"     ├─ {a}")
     else:
-        print("\n  🎉 NENHUMA FUNÇÃO ADICIONAL PENDENTE DE VALIDAÇÃO (0 adicionais)!")
+        print("\n  NENHUMA FUNÇÃO ADICIONAL PENDENTE DE VALIDAÇÃO (0 adicionais)!")
 
 
 # =====================================================================
@@ -3131,21 +3115,21 @@ def imprimir_auditoria_utilizador(res: Dict[str, Any]):
 def imprimir_cabecalho(ficheiro: str):
     sp_url = os.getenv("SHAREPOINT_PERFIS_URL", "")
     print("\n" + "=" * 75)
-    print("  🚀 PROJETO PERFIL - Leitor e Pesquisador de Funções SAP (PFCG / CUA)")
-    print(f"  📂 Ficheiro:          {os.path.basename(ficheiro)}")
-    print(f"  📍 Caminho Local:     {ficheiro}")
+    print("  PROJETO PERFIL - Leitor e Pesquisador de Funções SAP (PFCG / CUA)")
+    print(f"  Ficheiro:          {os.path.basename(ficheiro)}")
+    print(f"  Caminho Local:     {ficheiro}")
     if sp_url:
-        print(f"  🌐 SharePoint:        {sp_url}")
+        print(f"  SharePoint:        {sp_url}")
     print("=" * 75)
 
 
 def imprimir_validacao_controlo(dados: ProjetoPerfilData):
     """Exibe no terminal a validação dos departamentos da sheet CONTROLO."""
     print("\n" + "=" * 75)
-    print("  📋 VALIDAÇÃO DA SHEET 'CONTROLO' (Departamentos & Status)")
+    print("  VALIDAÇÃO DA SHEET 'CONTROLO' (Departamentos & Status)")
     print("=" * 75)
     if not dados.controlo:
-        print("  ⚠️ A sheet 'CONTROLO' não foi encontrada ou não possui dados.")
+        print("  [AVISO] A sheet 'CONTROLO' não foi encontrada ou não possui dados.")
         return
 
     pendentes = [d for d in dados.controlo if d.get("pendente")]
@@ -3153,29 +3137,29 @@ def imprimir_validacao_controlo(dados: ProjetoPerfilData):
     print(f"  Departamentos pendentes (STATUS e TIMESTAMP vazios): {len(pendentes)}")
     print("-" * 75)
     for c in dados.controlo:
-        status_tag = "⏳ PENDENTE (STATUS E TIMESTAMP VAZIOS)" if c["pendente"] else f"✅ {c['status']}"
+        status_tag = "PENDENTE (STATUS E TIMESTAMP VAZIOS)" if c["pendente"] else f"{c['status']}"
         ts_info = f" | {c['timestamp']}" if c.get("timestamp") else ""
         print(f"  Linha {c['linha']}: {c['departamento']:<30} -> {status_tag}{ts_info}")
 
     print("-" * 75)
     proximo = dados.obter_proximo_departamento()
     if proximo:
-        print(f"  🎯 PRÓXIMO DEPARTAMENTO A AVANÇAR: '{proximo}'")
+        print(f"  PRÓXIMO DEPARTAMENTO A AVANÇAR: '{proximo}'")
         item_prox = next((p for p in pendentes if p["departamento"] == proximo), {})
         tem_sheet = proximo in dados.sheets_disponiveis
         sheet_info = f"[Sheet correspondente '{proximo}' EXISTE no Excel]" if tem_sheet else "[Sheet correspondente não encontrada]"
-        print(f"     👉 Linha {item_prox.get('linha')}: STATUS e TIMESTAMP estão vazios! {sheet_info}")
+        print(f"     Linha {item_prox.get('linha')}: STATUS e TIMESTAMP estão vazios! {sheet_info}")
         if len(pendentes) > 1:
             print("\n  Demais departamentos pendentes:")
             for p in pendentes[1:]:
                 print(f"     - '{p['departamento']}' (Linha {p['linha']})")
     else:
-        print("  ✅ Todos os departamentos na sheet CONTROLO já possuem STATUS e TIMESTAMP preenchidos.")
+        print("  Todos os departamentos na sheet CONTROLO já possuem STATUS e TIMESTAMP preenchidos.")
 
 
 def imprimir_resumo(dados: ProjetoPerfilData):
     stats = dados.obter_estatisticas()
-    print("\n📊 RESUMO GERAL DAS FUNÇÕES:")
+    print("\nRESUMO GERAL DAS FUNÇÕES:")
     print(f"  ├─ Ficheiro:                  {stats['caminho']}")
     print(f"  ├─ Total de Sheets lidas:     {stats['total_sheets']} {dados.sheets_disponiveis}")
     print(f"  ├─ Departamentos em CONTROLO: {stats['departamentos_controlo']} ({stats['departamentos_pendentes']} pendentes com STATUS vazio)")
@@ -3189,10 +3173,10 @@ def imprimir_resumo(dados: ProjetoPerfilData):
 
 def imprimir_resultado_funcao(res: List[Dict[str, Any]]):
     if not res:
-        print("  ⚠️ Nenhuma função encontrada com o critério indicado.")
+        print("  [AVISO] Nenhuma função encontrada com o critério indicado.")
         return
 
-    print(f"\n🔍 Encontrada(s) {len(res)} função(ões):")
+    print(f"\nEncontrada(s) {len(res)} função(ões):")
     for idx, item in enumerate(res, 1):
         print(f"\n  [{idx}] {item['tipo'].upper()}: {item['role']}")
         if item.get("descricao"):
@@ -3219,10 +3203,10 @@ def imprimir_resultado_funcao(res: List[Dict[str, Any]]):
 
 def imprimir_resultado_tcode(res: List[Dict[str, Any]]):
     if not res:
-        print("  ⚠️ Nenhuma função encontrada que contenha esta transação.")
+        print("  [AVISO] Nenhuma função encontrada que contenha esta transação.")
         return
 
-    print(f"\n🔍 Encontrada(s) {len(res)} correspondência(s) de transação:")
+    print(f"\nEncontrada(s) {len(res)} correspondência(s) de transação:")
     # Agrupar por TCODE
     por_tc: Dict[str, List[Dict[str, Any]]] = {}
     for r in res:
@@ -3230,7 +3214,7 @@ def imprimir_resultado_tcode(res: List[Dict[str, Any]]):
         por_tc.setdefault(tc, []).append(r)
 
     for tc, lista in por_tc.items():
-        print(f"\n  📌 TCODE: {tc}")
+        print(f"\n  TCODE: {tc}")
         for item in lista:
             role = item["role_simples"]
             desc = f" ({item['descricao_role']})" if item.get("descricao_role") else ""
@@ -3241,23 +3225,23 @@ def imprimir_resultado_tcode(res: List[Dict[str, Any]]):
 def imprimir_resultado_user(res: Dict[str, Any]):
     users = res.get("resultados", [])
     if not users:
-        print("  ⚠️ Nenhum utilizador encontrado com esse identificador no CUA.")
+        print("  [AVISO] Nenhum utilizador encontrado com esse identificador no CUA.")
         return
 
-    print(f"\n🔍 Encontrado(s) {len(users)} utilizador(es):")
+    print(f"\nEncontrado(s) {len(users)} utilizador(es):")
     for u in users:
         nome_user = u["utilizador"]
         adds = u.get("adicionar", [])
         rms = u.get("remover", [])
-        print(f"\n  👤 Utilizador: {nome_user}")
+        print(f"\n  Utilizador: {nome_user}")
         if adds:
-            print(f"     ✅ Funções para Adicionar ({len(adds)}):")
+            print(f"     Funções para Adicionar ({len(adds)}):")
             for a in adds:
                 st = f" [STATUS: {a['status']}]" if a.get("status") else " [PENDENTE]"
                 sis = f" ({a['sistema']})" if a.get("sistema") else ""
                 print(f"        ├─ {a['role']}{sis}{st}")
         if rms:
-            print(f"     ❌ Funções para Remover ({len(rms)}):")
+            print(f"     [ERRO] Funções para Remover ({len(rms)}):")
             for r in rms:
                 st = f" [STATUS: {r['status']}]" if r.get("status") else " [PENDENTE]"
                 sis = f" ({r['sistema']})" if r.get("sistema") else ""
@@ -3271,8 +3255,8 @@ def imprimir_resultado_user(res: Dict[str, Any]):
 def imprimir_cabecalho_compacto(ficheiro: str):
     """Exibe cabeçalho limpo e direto ao iniciar."""
     print("\n" + "=" * 75)
-    print("  🚀 PROJETO PERFIL - PROCESSAMENTO DE DEPARTAMENTOS (CUA / PFCG)")
-    print(f"  📂 Ficheiro: {os.path.basename(ficheiro)}")
+    print("  PROJETO PERFIL - PROCESSAMENTO DE DEPARTAMENTOS (CUA / PFCG)")
+    print(f"  Ficheiro: {os.path.basename(ficheiro)}")
     print("=" * 75)
 
 
@@ -3281,13 +3265,13 @@ def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]
     Exibe a tabela clara dos departamentos na folha CONTROLO com as suas linhas no Excel
     e retorna o próximo departamento pendente sugerido (se houver).
     """
-    print("\n📋 DEPARTAMENTOS NA SHEET 'CONTROLO':")
+    print("\nDEPARTAMENTOS NA SHEET 'CONTROLO':")
     print("-" * 75)
     print(f"  {'Linha':<8} | {'Departamento':<30} | {'Estado na CONTROLO':<30}")
     print("-" * 75)
 
     if not dados.controlo:
-        print("  ⚠️ Nenhuma linha encontrada na folha CONTROLO.")
+        print("  Nenhuma linha encontrada na folha CONTROLO.")
         print("-" * 75)
         return None
 
@@ -3295,20 +3279,20 @@ def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]
     for c in dados.controlo:
         linha_str = f"[{c['linha']}]"
         if c.get("pendente"):
-            status_desc = "⏳ DISPONÍVEL (Pendente)"
+            status_desc = "DISPONIVEL (Pendente)"
             if not proximo_sugerido:
                 proximo_sugerido = c
         else:
             ts_curto = str(c.get("timestamp", ""))[:16]
             ts = f" ({ts_curto})" if ts_curto else ""
-            status_desc = f"✅ {c.get('status', 'PROCESSADO')}{ts}"
+            status_desc = f"{c.get('status', 'PROCESSADO')}{ts}"
         print(f"  {linha_str:<8} | {c['departamento']:<30} | {status_desc}")
     print("-" * 75)
 
     if proximo_sugerido:
-        print(f"  🎯 Próximo departamento sugerido: Linha {proximo_sugerido['linha']} ('{proximo_sugerido['departamento']}')")
+        print(f"  Proximo departamento sugerido: Linha {proximo_sugerido['linha']} ('{proximo_sugerido['departamento']}')")
     else:
-        print("  ✅ Todos os departamentos registados na sheet CONTROLO estão processados.")
+        print("  Todos os departamentos registados na sheet CONTROLO estao processados.")
 
     return proximo_sugerido
 
@@ -3322,7 +3306,7 @@ def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dic
     prompt_sugestao = f" [Enter para Linha {padrao_linha}]" if padrao_linha else ""
 
     while True:
-        entrada = input(f"\n👉 Indique a LINHA do departamento que quer processar{prompt_sugestao} ('M' Menu Geral, '0' Sair): ").strip().upper()
+        entrada = input(f"\nIndique a LINHA do departamento que quer processar{prompt_sugestao} ('M' Menu Geral, '0' Sair): ").strip().upper()
 
         if entrada in ("0", "SAIR", "Q", "QUIT", "EXIT"):
             return None
@@ -3343,7 +3327,7 @@ def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dic
         if item_por_nome:
             return item_por_nome
 
-        print(f"⚠️ Linha ou departamento '{entrada}' não encontrado na folha CONTROLO. Escolha uma das linhas listadas.")
+        print(f"[AVISO] Linha ou departamento '{entrada}' não encontrado na folha CONTROLO. Escolha uma das linhas listadas.")
 
 
 def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Dict[str, Any]):
@@ -3361,16 +3345,16 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
 
     analise = analisar_departamento_proposta(dados, dep_nome)
     if not analise.get("encontrado"):
-        print(f"❌ Não foi possível carregar os utilizadores do departamento '{dep_nome}'.")
+        print(f"[ERRO] Não foi possível carregar os utilizadores do departamento '{dep_nome}'.")
         return
 
     users = [u["usuario"] for u in analise.get("usuarios", []) if u.get("usuario")]
     if not users:
-        print(f"❌ Nenhum utilizador encontrado para '{dep_nome}'.")
+        print(f"[ERRO] Nenhum utilizador encontrado para '{dep_nome}'.")
         return
 
     print(f"\n" + "=" * 75)
-    print(f"  🚀 INICIAR SINCRONIZAÇÃO CUA: {dep_nome.upper()} ({len(users)} Utilizadores)")
+    print(f"  INICIAR SINCRONIZAÇÃO CUA: {dep_nome.upper()} ({len(users)} Utilizadores)")
     print("=" * 75)
     print(f"  Utilizadores a processar: {', '.join(users)}")
     print("  Etapas automáticas:")
@@ -3382,9 +3366,9 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
     print("    6. Gravação oficial em CUA_REMOVE, CUA_ADICIONAR e CONTROLO")
     print("-" * 75)
 
-    confirma = input("👉 Confirma a execução imediata no SAP CUA? (S/N): ").strip().upper()
+    confirma = input("Confirma a execução imediata no SAP CUA? (S/N): ").strip().upper()
     if confirma not in ("S", "SIM", "Y", "YES"):
-        print("⏸️ Operação cancelada pelo utilizador.")
+        print("[EXPIRADO] Operação cancelada pelo utilizador.")
         return
 
     import threading
@@ -3414,7 +3398,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
             roles_adicionadas = []
 
             for u in users:
-                print(f"\n  👤 A processar utilizador: {u} ...")
+                print(f"\n  A processar utilizador: {u} ...")
 
                 # A. Remover S4DCLNT100 na aba Sistemas se existir
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
@@ -3441,7 +3425,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                     time.sleep(0.3)
                     session.findById("wnd[0]").sendVKey(11) # Salvar
                     time.sleep(0.6)
-                    print(f"     ✅ S4DCLNT100 removido de {u}.")
+                    print(f"     S4DCLNT100 removido de {u}.")
 
                 # B. Remover roles expiradas de S4PCLNT100
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
@@ -3500,7 +3484,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                     time.sleep(0.8)
                     for r_exp in expired_p:
                         roles_removidas.append((u, "S4PCLNT100", r_exp, "CONCLUÍDO", f"User {u} has changed"))
-                    print(f"     ✅ {len(expired_p)} roles expiradas removidas de S4PCLNT100.")
+                    print(f"     {len(expired_p)} roles expiradas removidas de S4PCLNT100.")
 
                 # C. Remover roles obsoletas de S4QCLNT100
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
@@ -3540,7 +3524,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                     time.sleep(0.8)
                     for r_q in roles_q:
                         roles_removidas.append((u, "S4QCLNT100", r_q, "CONCLUÍDO", f"User {u} has changed"))
-                    print(f"     ✅ {len(roles_q)} roles obsoletas removidas de S4QCLNT100.")
+                    print(f"     {len(roles_q)} roles obsoletas removidas de S4QCLNT100.")
 
                 # D. Adicionar roles ativas de S4PCLNT100 em S4QCLNT100
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
@@ -3591,7 +3575,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                 time.sleep(0.5)
                 session.findById("wnd[0]").sendVKey(11) # Salvar
                 time.sleep(0.8)
-                print(f"     ✅ {len(p_roles_dict)} roles ativas replicadas para S4QCLNT100.")
+                print(f"     {len(p_roles_dict)} roles ativas replicadas para S4QCLNT100.")
 
                 # E. Auditoria final
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
@@ -3608,13 +3592,13 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                 p_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4PCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")}
                 q_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")}
                 sess_ok = (p_finais == q_finais)
-                print(f"     🎯 Auditoria {u}: P={len(p_finais)} | Q={len(q_finais)} -> MATCH EXATO: {sess_ok}")
+                print(f"     Auditoria {u}: P={len(p_finais)} | Q={len(q_finais)} -> MATCH EXATO: {sess_ok}")
 
             session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
             session.findById("wnd[0]").sendVKey(0)
 
             # Gravação em Excel
-            print("\n  📊 A atualizar folhas de cálculo oficiais (CUA_REMOVE, CUA_ADICIONAR, CONTROLO)...")
+            print("\n  A atualizar folhas de cálculo oficiais (CUA_REMOVE, CUA_ADICIONAR, CONTROLO)...")
             xl = win32com.client.Dispatch("Excel.Application")
             wb = None
             for w in xl.Workbooks:
@@ -3673,16 +3657,16 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                     wb.SaveCopyAs(str(caminho_local))
                 except:
                     pass
-                print("  ✅ Excel guardado com sucesso!")
+                print("  Excel guardado com sucesso!")
 
             item_dep["status"] = "PROCESSADO"
             item_dep["timestamp"] = timestamp_str
             item_dep["pendente"] = False
-            print(f"\n🎉 Sincronização do departamento '{dep_nome}' concluída com sucesso!")
+            print(f"\nSincronização do departamento '{dep_nome}' concluída com sucesso!")
 
         except Exception as exc:
             erro_execucao.append(exc)
-            print(f"❌ Erro na execução da sincronização CUA: {exc}")
+            print(f"[ERRO] Erro na execução da sincronização CUA: {exc}")
 
     t = threading.Thread(target=worker_sync)
     t.start()
@@ -3701,42 +3685,42 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
 
     while True:
         print("\n" + "=" * 75)
-        print(f"  🏢 DEPARTAMENTO SELECIONADO: {dep_nome.upper()} (Linha {linha} no Excel)")
+        print(f"  DEPARTAMENTO SELECIONADO: {dep_nome.upper()} (Linha {linha} no Excel)")
         print("=" * 75)
 
-        st_tag = "⏳ PENDENTE (Disponível para processamento)" if item_dep.get("pendente") else f"✅ {item_dep.get('status')} | {item_dep.get('timestamp')}"
-        print(f"  📌 Estado na CONTROLO: {st_tag}")
+        st_tag = "PENDENTE (Disponível para processamento)" if item_dep.get("pendente") else f"{item_dep.get('status')} | {item_dep.get('timestamp')}"
+        print(f"  Estado na CONTROLO: {st_tag}")
 
         if analise.get("encontrado"):
             users = analise.get("usuarios", [])
             compostas = analise.get("compostas", [])
-            print(f"  👥 Utilizadores no Departamento ({len(users)}):")
+            print(f"  Utilizadores no Departamento ({len(users)}):")
             for u in users:
                 comp = f"[Composta: {u['composta']}]" if u.get("composta") else "[Sem Composta]"
                 print(f"     • {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']} {comp} -> {u['total_singles']} Singles")
             if compostas:
-                print(f"  📦 Funções Compostas ({len(compostas)}): {', '.join(compostas)}")
-            print(f"  🧩 Funções Individuais (Singles): {analise.get('total_singles_distintas', 0)} distintas")
+                print(f"  Funções Compostas ({len(compostas)}): {', '.join(compostas)}")
+            print(f"  Funções Individuais (Singles): {analise.get('total_singles_distintas', 0)} distintas")
         else:
-            print(f"  ⚠️ Aviso: {analise.get('mensagem', 'Departamento não encontrado na folha Proposta Ativa.')}")
+            print(f"  [AVISO] Aviso: {analise.get('mensagem', 'Departamento não encontrado na folha Proposta Ativa.')}")
 
         print("-" * 75)
         print("  AÇÕES DISPONÍVEIS PARA ESTE DEPARTAMENTO:")
-        print("  [1] 👤 Validar Utilizadores no SAP PRD (AGR_USERS via RFC & Cruzamento)")
-        print("  [2] 🔗 Cruzar Fontes (PFCG_CREATE, COMPOSTA, AUTHORITY, EXCLUÇÃO)")
-        print("  [3] 🔄 Sincronizar CUA (Remover S4D / Limpar PRD / Alinhar QAS)")
-        print("  [4] 🌐 Verificar Existência de Funções no SAP PRD (AGR_DEFINE)")
-        print("  [5] 📋 Ver Análise Detalhada (Proposta Ativa)")
+        print("  [1] Validar Utilizadores no SAP PRD (AGR_USERS via RFC & Cruzamento)")
+        print("  [2] Cruzar Fontes (PFCG_CREATE, COMPOSTA, AUTHORITY, EXCLUÇÃO)")
+        print("  [3] Sincronizar CUA (Remover S4D / Limpar PRD / Alinhar QAS)")
+        print("  [4] Verificar Existência de Funções no SAP PRD (AGR_DEFINE)")
+        print("  [5] Ver Análise Detalhada (Proposta Ativa)")
         print("  [6] ➕ Incorporar Funções do Catálogo Ativas na 'Proposta Ativa'")
-        print("  [7] ↩️  Voltar / Escolher Outro Departamento da CONTROLO")
-        print("  [8] 🔍 Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)")
-        print("  [0] 🚪 Sair")
+        print("  [7] ↩  Voltar / Escolher Outro Departamento da CONTROLO")
+        print("  [8] Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)")
+        print("  [0] Sair")
         print("-" * 75)
 
-        acao = input("👉 Escolha uma ação: ").strip().upper()
+        acao = input("Escolha uma ação: ").strip().upper()
 
         if acao == "1":
-            print(f"\n⏳ A validar atribuições no SAP PRD para '{dep_nome}' ...")
+            print(f"\nA validar atribuições no SAP PRD para '{dep_nome}' ...")
             res_prd = validar_utilizadores_prd(dados, dep_nome)
             imprimir_validacao_utilizadores_prd(res_prd)
 
@@ -3749,12 +3733,12 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
                     cands.append((u["usuario"], u["nome"], r))
             if cands:
                 print("-" * 75)
-                conf = input(f"👉 Foram detetadas {len(cands)} função(ões) ativas no PRD que constam no catálogo criado.\n   Deseja acrescentá-las à folha 'Proposta Ativa' agora? (S/N): ").strip().upper()
+                conf = input(f"Foram detetadas {len(cands)} função(ões) ativas no PRD que constam no catálogo criado.\n   Deseja acrescentá-las à folha 'Proposta Ativa' agora? (S/N): ").strip().upper()
                 if conf in ("S", "SIM", "Y", "YES"):
                     for u_id, u_nome, r_nome in cands:
                         res_add = adicionar_funcao_proposta_ativa(dados.caminho, u_id, r_nome, dados=dados)
                         print(f"   └─ {res_add.get('mensagem')}")
-                    print("\n⏳ A recarregar dados do Excel e revalidar conformidade...")
+                    print("\nA recarregar dados do Excel e revalidar conformidade...")
                     dados = carregar_projeto_perfil(dados.caminho)
                     analise = analisar_departamento_proposta(dados, dep_nome)
                     res_prd_nova = validar_utilizadores_prd(dados, dep_nome)
@@ -3773,23 +3757,23 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
                 res_prd = verificar_funcoes_prd(roles_dep)
                 imprimir_resultado_verificacao_prd(res_prd, f"Departamento '{dep_nome}'")
             else:
-                print("⚠️ Não foi possível obter as funções do departamento.")
+                print("[AVISO] Não foi possível obter as funções do departamento.")
 
         elif acao == "5":
             imprimir_analise_departamento(analise)
 
         elif acao == "6":
-            print(f"\n⏳ A verificar funções do catálogo ativas no PRD para '{dep_nome}' ...")
+            print(f"\nA verificar funções do catálogo ativas no PRD para '{dep_nome}' ...")
             res_inc = incorporar_adicionais_catalogo_departamento(dados, dep_nome)
             if not res_inc.get("ok"):
-                print(f"❌ Erro ao incorporar funções: {res_inc.get('erro')}")
+                print(f"[ERRO] Erro ao incorporar funções: {res_inc.get('erro')}")
             elif res_inc.get("total_incorporadas") == 0:
-                print(f"ℹ️ {res_inc.get('mensagem', 'Nenhuma função do catálogo para incorporar.')}")
+                print(f"ℹ {res_inc.get('mensagem', 'Nenhuma função do catálogo para incorporar.')}")
             else:
                 for item in res_inc.get("resultados", []):
                     res_item = item.get("resultado", {})
-                    print(f"  ✅ {res_item.get('mensagem')}")
-                print("\n⏳ A recarregar dados do Excel atualizados...")
+                    print(f"  {res_item.get('mensagem')}")
+                print("\nA recarregar dados do Excel atualizados...")
                 dados = carregar_projeto_perfil(dados.caminho)
                 analise = analisar_departamento_proposta(dados, dep_nome)
 
@@ -3803,50 +3787,50 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
             return "SAIR"
 
         else:
-            print("⚠️ Opção inválida. Tente novamente.")
+            print("[AVISO] Opção inválida. Tente novamente.")
 
 
 def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
     """Menu de pesquisas avançadas de funções, tcodes e utilizadores."""
     while True:
         print("\n" + "-" * 75)
-        print("  🔍 MENU GERAL DE PESQUISAS & ESTATÍSTICAS:")
-        print("  [1] 🔍 Pesquisar por Nome de Função (Role / Perfil)")
-        print("  [2] 📌 Pesquisar por Transação (TCODE -> Funções)")
-        print("  [3] 👤 Pesquisar por Utilizador (CUA: Adições / Remoções)")
-        print("  [4] 📋 Listar todas as Roles Simples")
-        print("  [5] 📋 Listar todas as Roles Compostas")
-        print("  [6] 📊 Ver Resumo Geral de Todas as Funções")
-        print("  [7] 📂 Abrir outro ficheiro Excel")
-        print("  [8] 🔍 Validar TCODEs da folha 'Proposta' no SAP PRD (TSTC via RFC)")
-        print("  [9] 🚀 Sincronizar Catálogo (Proposta ➔ PFCG_CREATE ➔ SAP PRD)")
-        print("  [0] ↩️  Voltar ao Processamento de Departamentos")
+        print("  MENU GERAL DE PESQUISAS & ESTATÍSTICAS:")
+        print("  [1] Pesquisar por Nome de Função (Role / Perfil)")
+        print("  [2] Pesquisar por Transação (TCODE -> Funções)")
+        print("  [3] Pesquisar por Utilizador (CUA: Adições / Remoções)")
+        print("  [4] Listar todas as Roles Simples")
+        print("  [5] Listar todas as Roles Compostas")
+        print("  [6] Ver Resumo Geral de Todas as Funções")
+        print("  [7] Abrir outro ficheiro Excel")
+        print("  [8] Validar TCODEs da folha 'Proposta' no SAP PRD (TSTC via RFC)")
+        print("  [9] Sincronizar Catálogo (Proposta -> PFCG_CREATE -> SAP PRD)")
+        print("  [0] ↩  Voltar ao Processamento de Departamentos")
         print("-" * 75)
 
-        op = input("👉 Escolha uma opção: ").strip()
+        op = input("Escolha uma opção: ").strip()
 
         if op == "1":
-            termo = input("🔎 Digite o nome da função ou texto (ex.: Z_BR, MANAGER, ZORG): ").strip()
+            termo = input("Digite o nome da função ou texto (ex.: Z_BR, MANAGER, ZORG): ").strip()
             if termo:
                 imprimir_resultado_funcao(pesquisar_funcao(dados, termo))
 
         elif op == "2":
-            tcode = input("🔎 Digite a transação SAP (ex.: FB03, ME21N, BP): ").strip()
+            tcode = input("Digite a transação SAP (ex.: FB03, ME21N, BP): ").strip()
             if tcode:
                 imprimir_resultado_tcode(pesquisar_por_tcode(dados, tcode))
 
         elif op == "3":
-            user = input("🔎 Digite o utilizador SAP (ex.: S6005, S170): ").strip()
+            user = input("Digite o utilizador SAP (ex.: S6005, S170): ").strip()
             if user:
                 imprimir_auditoria_utilizador(auditar_utilizador(dados, user))
 
         elif op == "4":
-            print(f"\n📋 TODAS AS ROLES SIMPLES ({len(dados.roles_simples)}):")
+            print(f"\nTODAS AS ROLES SIMPLES ({len(dados.roles_simples)}):")
             for r, info in sorted(dados.roles_simples.items()):
                 print(f"  - {r:<35} | {len(info.get('tcodes', []))} TCODEs | {info.get('descricao', '')}")
 
         elif op == "5":
-            print(f"\n📋 TODAS AS ROLES COMPOSTAS ({len(dados.roles_compostas)}):")
+            print(f"\nTODAS AS ROLES COMPOSTAS ({len(dados.roles_compostas)}):")
             for r, info in sorted(dados.roles_compostas.items()):
                 print(f"  - {r:<35} | {len(info.get('roles_filhas', []))} Filhas | {info.get('descricao', '')}")
 
@@ -3854,27 +3838,27 @@ def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
             imprimir_resumo(dados)
 
         elif op == "7":
-            novo = input("📂 Caminho do novo ficheiro Excel: ").strip()
+            novo = input("Caminho do novo ficheiro Excel: ").strip()
             if novo and os.path.exists(novo):
                 dados = carregar_projeto_perfil(novo)
-                print("✅ Novo ficheiro carregado com sucesso!")
+                print("Novo ficheiro carregado com sucesso!")
             else:
-                print("❌ Ficheiro não encontrado.")
+                print("[ERRO] Ficheiro não encontrado.")
 
         elif op == "8":
             analise_prop = analisar_folha_proposta(dados)
             if not analise_prop.get("encontrado"):
-                print(f"❌ {analise_prop.get('mensagem')}")
+                print(f"[ERRO] {analise_prop.get('mensagem')}")
             else:
                 tcodes_alvo = analise_prop["todos_tcodes"]
-                print(f"\n⏳ A validar {len(tcodes_alvo)} transações únicas da folha 'Proposta' no SAP PRD (tabela TSTC via RFC)...")
+                print(f"\nA validar {len(tcodes_alvo)} transações únicas da folha 'Proposta' no SAP PRD (tabela TSTC via RFC)...")
                 res_tc = verificar_tcodes_prd(tcodes_alvo)
                 imprimir_resultado_verificacao_tcodes_prd(res_tc, "Folha 'Proposta'")
                 if res_tc.get("nao_existentes"):
-                    print(f"\n⏳ A retirar da lista e marcar como 'Transação não existe' na folha 'Proposta'...")
+                    print(f"\nA retirar da lista e marcar como 'Transação não existe' na folha 'Proposta'...")
                     res_m = marcar_tcodes_inexistentes_sheet_proposta(dados.caminho, res_tc["nao_existentes"])
                     if res_m.get("ok"):
-                        print(f"✅ {res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' na coluna ao lado.")
+                        print(f"{res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' na coluna ao lado.")
                         for d in res_m.get("detalhes", []):
                             print(f"   └─ Linha {d['linha']}: {d['tcode']} da role {d['role']}")
 
@@ -3885,7 +3869,7 @@ def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
             return "VOLTAR"
 
         else:
-            print("⚠️ Opção inválida.")
+            print("[AVISO] Opção inválida.")
 
 
 def menu_interativo(caminho_inicial: Optional[str] = None):
@@ -3893,17 +3877,17 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
     caminho = caminho_inicial or encontrar_excel_padrao()
 
     if not caminho or not os.path.exists(caminho):
-        print("📂 Nenhum ficheiro Excel detectado automaticamente.")
+        print("Nenhum ficheiro Excel detectado automaticamente.")
         caminho = selecionar_ficheiro_dialogo()
         if not caminho:
-            print("❌ Operação cancelada. Saindo.")
+            print("[ERRO] Operação cancelada. Saindo.")
             return
 
     try:
-        print(f"⏳ A carregar ficheiro Excel: {os.path.basename(caminho)} ...")
+        print(f"A carregar ficheiro Excel: {os.path.basename(caminho)} ...")
         dados = carregar_projeto_perfil(caminho)
     except Exception as e:
-        print(f"❌ Erro ao ler Excel: {e}")
+        print(f"[ERRO] Erro ao ler Excel: {e}")
         return
 
     # Regra do Projeto: Validação e Sincronização Automática Completa no Arranque (4 Fases)
@@ -3914,7 +3898,7 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
     while True:
         item_selecionado = selecionar_departamento_interativo(dados)
         if not item_selecionado:
-            print("\n👋 Encerrando. Até logo!")
+            print("\nEncerrando. Até logo!")
             break
 
         if item_selecionado.get("tipo") == "MENU_GERAL":
@@ -3925,7 +3909,7 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
 
         acao = executar_menu_departamento(dados, item_selecionado)
         if acao == "SAIR":
-            print("\n👋 Encerrando. Até logo!")
+            print("\nEncerrando. Até logo!")
             break
         elif acao == "MENU_GERAL":
             acao_g = menu_geral_pesquisas(dados)
@@ -3963,7 +3947,7 @@ if __name__ == "__main__":
     # Se foram passados parâmetros de pesquisa direta via CLI:
     if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo:
         if not caminho_alvo:
-            print("❌ Erro: Ficheiro Excel não encontrado.")
+            print("[ERRO] Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
         
         dados = carregar_projeto_perfil(caminho_alvo)
@@ -3974,11 +3958,11 @@ if __name__ == "__main__":
             imprimir_validacao_controlo(dados)
         if args.proximo:
             if proximo_dep:
-                print(f"\n🎯 PRÓXIMO DEPARTAMENTO A AVANÇAR: '{proximo_dep}' (STATUS e TIMESTAMP vazios em CONTROLO)")
+                print(f"\nPRÓXIMO DEPARTAMENTO A AVANÇAR: '{proximo_dep}' (STATUS e TIMESTAMP vazios em CONTROLO)")
                 res_dep = analisar_departamento_proposta(dados, proximo_dep)
                 imprimir_analise_departamento(res_dep)
             else:
-                print("\n✅ Todos os departamentos na sheet CONTROLO já possuem STATUS preenchido.")
+                print("\nTodos os departamentos na sheet CONTROLO já possuem STATUS preenchido.")
         if args.departamento is not None and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.incorporar_adicionais):
             alvo = args.departamento.strip() if args.departamento.strip() else proximo_dep
             if not alvo:
@@ -4003,14 +3987,14 @@ if __name__ == "__main__":
                 alvo_dep = "Purchase & Services"
             res_inc = incorporar_adicionais_catalogo_departamento(dados, alvo_dep)
             if not res_inc.get("ok"):
-                print(f"❌ Erro ao incorporar funções: {res_inc.get('erro')}")
+                print(f"[ERRO] Erro ao incorporar funções: {res_inc.get('erro')}")
             elif res_inc.get("total_incorporadas") == 0:
-                print(f"ℹ️ {res_inc.get('mensagem', 'Nenhuma função do catálogo para incorporar.')}")
+                print(f"ℹ {res_inc.get('mensagem', 'Nenhuma função do catálogo para incorporar.')}")
             else:
                 for item in res_inc.get("resultados", []):
                     res_item = item.get("resultado", {})
-                    print(f"  ✅ {res_item.get('mensagem')}")
-                print("\n⏳ A recarregar dados e revalidar utilizadores no PRD...")
+                    print(f"  {res_item.get('mensagem')}")
+                print("\nA recarregar dados e revalidar utilizadores no PRD...")
                 dados = carregar_projeto_perfil(caminho_alvo)
                 res_prd_novos = validar_utilizadores_prd(dados, alvo_dep)
                 imprimir_validacao_utilizadores_prd(res_prd_novos)
@@ -4038,17 +4022,17 @@ if __name__ == "__main__":
         if args.validar_proposta_tcodes:
             analise_prop = analisar_folha_proposta(dados)
             if not analise_prop.get("encontrado"):
-                print(f"❌ {analise_prop.get('mensagem')}")
+                print(f"[ERRO] {analise_prop.get('mensagem')}")
             else:
                 tcodes_alvo = analise_prop["todos_tcodes"]
-                print(f"\n⏳ A validar {len(tcodes_alvo)} transações únicas da folha 'Proposta' no SAP PRD (tabela TSTC via RFC)...")
+                print(f"\nA validar {len(tcodes_alvo)} transações únicas da folha 'Proposta' no SAP PRD (tabela TSTC via RFC)...")
                 res_tc = verificar_tcodes_prd(tcodes_alvo)
                 imprimir_resultado_verificacao_tcodes_prd(res_tc, "Folha 'Proposta'")
                 if res_tc.get("nao_existentes"):
-                    print(f"\n⏳ A retirar da lista e marcar como 'Transação não existe' na folha 'Proposta'...")
+                    print(f"\nA retirar da lista e marcar como 'Transação não existe' na folha 'Proposta'...")
                     res_m = marcar_tcodes_inexistentes_sheet_proposta(dados.caminho, res_tc["nao_existentes"])
                     if res_m.get("ok"):
-                        print(f"✅ {res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' na coluna ao lado.")
+                        print(f"{res_m.get('marcados')} ocorrência(s) marcada(s) com 'Transação não existe' na coluna ao lado.")
                         for d in res_m.get("detalhes", []):
                             print(f"   └─ Linha {d['linha']}: {d['tcode']} da role {d['role']}")
         if args.sincronizar_catalogo:
