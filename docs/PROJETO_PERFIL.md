@@ -317,3 +317,32 @@ Sempre que [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil
    - Consulta a tabela `AGR_AGRS` no SAP PRD para as 24 Composite Roles.
    - Filtra com base em `AGR_FLAGS` apenas as funções individuais (simples), ignorando funções compostas que pertencem à atribuição de utilizador no CUA.
    - Invoca o módulo padrão RFC `PRGN_RFC_ADD_AGRS_TO_COLL_AGR` para atribuir eventuais funções em falta no sistema produtivo.
+
+## 13. Preparação da CUA_ADICIONAR para os Departamentos da CONTROLO (12/09/2026)
+
+Foi preparada a folha `CUA_ADICIONAR` para o sistema `S4PCLNT100`, cruzando os três
+departamentos atualmente registados na folha `CONTROLO` com `Proposta Ativa` e
+`DEFINIÇÕES`:
+
+- `Purchase & Services`: 7 utilizadores.
+- `Client Services`: 6 utilizadores.
+- `Construction & Maintenance`: 9 utilizadores.
+
+Para cada um dos 22 utilizadores foram registadas:
+
+- 8 funções determinadas pelas regras `REGRA EMPRESA`, `DEFAULT`,
+  `REGRA BP FUNCTION` e `REGRA TYPE OF BUSINESS PARTNER` da folha `DEFINIÇÕES`;
+- 1 Composite Role obtida diretamente da respetiva linha na folha `Proposta Ativa`.
+
+Resultado final na folha `CUA_ADICIONAR`:
+
+- 198 registos, com IDs sequenciais de `1` a `198`;
+- 176 atribuições derivadas de `DEFINIÇÕES`;
+- 22 atribuições de Composite Roles derivadas de `Proposta Ativa`;
+- todos os registos destinados a `S4PCLNT100`;
+- 0 combinações duplicadas de utilizador, sistema e função;
+- `STATUS`, `MSG`, `TIMESTEMP` e `PRD` mantidos vazios, pois as atribuições ainda não
+  foram executadas no SAP.
+
+Esta atividade alterou somente o ficheiro Excel oficial sincronizado pelo OneDrive e
+a respetiva cópia local de trabalho. Nenhuma atribuição foi executada no SAP.
