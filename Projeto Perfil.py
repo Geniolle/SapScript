@@ -1270,6 +1270,82 @@ def atribuir_tcodes_funcao_prd_rfc(role_name: str, novos_tcodes: List[str]) -> D
         return {"ok": False, "role": role_norm, "erro": str(exc)}
 
 
+def atribuir_funcoes_composta_prd_rfc(role_composta: str, novas_funcoes: List[str]) -> Dict[str, Any]:
+    """
+    Atribui novas funções individuais (single roles) a uma função composta (composite role)
+    já existente no SAP PRD através de RFC chamando o módulo padrão PRGN_RFC_ADD_AGRS_TO_COLL_AGR.
+    """
+    if not novas_funcoes:
+        return {"ok": True, "adicionadas": []}
+
+    role_norm = str(role_composta or "").strip().upper()
+    funcoes_limpas = [str(f).strip().upper() for f in novas_funcoes if str(f).strip()]
+
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_write_guard, read_table, make_option_eq
+        )
+        from pyrfc import Connection
+
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for("PRD")
+
+        guard = make_write_guard(
+            ("RFC_PING", "RFC_READ_TABLE", "PRGN_RFC_ADD_AGRS_TO_COLL_AGR"),
+            ("AGR_DEFINE", "AGR_AGRS", "AGR_FLAGS")
+        )
+
+        conn = Connection(**params)
+        guard.assert_function_allowed("RFC_PING")
+        conn.call("RFC_PING")
+
+        # Obter funções já atribuídas na função composta
+        rows_existentes = read_table(
+            conn, guard, table_name="AGR_AGRS", fields=["CHILD_AGR"],
+            options=make_option_eq("AGR_NAME", role_norm), rowcount=0
+        )
+        atuais = {r[0].strip().upper() for r in rows_existentes if r}
+
+        faltam = [f for f in funcoes_limpas if f not in atuais]
+        if not faltam:
+            conn.close()
+            return {"ok": True, "role": role_norm, "adicionadas": [], "mensagem": "Todas as funções já se encontram atribuídas."}
+
+        guard.assert_function_allowed("PRGN_RFC_ADD_AGRS_TO_COLL_AGR")
+        call_res = conn.call(
+            "PRGN_RFC_ADD_AGRS_TO_COLL_AGR",
+            ACTIVITY_GROUP=role_norm,
+            CHECK_NAMESPACE="X",
+            ENQUEUE="X",
+            NO_DIALOG="X",
+            PROFILE_COMPARISON="X",
+            REC_PERS_DATA="X",
+            REC_PROF_DATA="X",
+            REC_SINGLE_ROLES="X",
+            REQUEST="",
+            ACTIVITY_GROUPS=[{"AGR_NAME": f, "TEXT": ""} for f in faltam],
+        )
+        conn.close()
+
+        ret_rows = call_res.get("RETURN") or []
+        erros = [r for r in ret_rows if str(r.get("TYPE", "")).upper() in ("E", "A")]
+        if erros:
+            msg_erro = "; ".join([str(e.get("MESSAGE", "")) for e in erros])
+            return {"ok": False, "role": role_norm, "erro": msg_erro, "detalhes": erros}
+
+        return {
+            "ok": True,
+            "role": role_norm,
+            "adicionadas": faltam,
+            "total_atribuidas": len(atuais) + len(faltam),
+            "mensagem": f"Funções {', '.join(faltam)} atribuídas com sucesso à função composta {role_norm} no SAP PRD."
+        }
+    except Exception as exc:
+        return {"ok": False, "role": role_norm, "erro": str(exc)}
+
+
 def adicionar_linhas_pfcg_create(caminho_excel: Optional[str], novas_linhas: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Adiciona novas linhas no final da folha 'PFCG_CREATE' no ficheiro Excel com os campos:

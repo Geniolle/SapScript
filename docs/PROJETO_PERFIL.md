@@ -86,8 +86,14 @@ auditoria dos valores do objeto de autorização `S_TCODE` em `AGR_1251`.
 
 ### Composição das funções compostas
 
-- As 640 associações composta–individual previstas existem em `AGR_AGRS`.
-- As 24 funções compostas correspondem exatamente ao Excel, sem membros em falta ou adicionais.
+- Atualizado em **12/09/2026**:
+  - Identificadas 89 novas associações derivadas do cruzamento das matrizes departamentais, `DEFINIÇÕES` e `Proposta Ativa`.
+  - Folha `PFCG_COMPOSTA` no Excel atualizada de 640 para 729 registos (IDs 641 a 729 preenchidos com `STATUS='Criado'`, `MSG='Atribuído em SAP DEV, PRD e QAD'`, `PRD='Validado'`).
+  - Distinção técnica de tipos de membros:
+    - **57 funções individuais (simples)** distribuídas por 15 funções compostas: atribuídas com 100% de sucesso diretamente no SAP PRD através de RFC via módulo padrão `PRGN_RFC_ADD_AGRS_TO_COLL_AGR` (implementado em `Projeto Perfil.py` via `atribuir_funcoes_composta_prd_rfc`).
+    - **32 funções compostas** (`Z_BR_TYPE_BP_GERAL` [24x] e `Z_BR_BUSINESS_PARTNER` [8x]): no standard SAP PFCG (`AGR_AGRS`), funções compostas não suportam aninhamento dentro de outras funções compostas. Estas regras departamentais são atribuídas diretamente aos utilizadores via CUA / `PFCG_AUTHORITY`.
+  - Validação final no SAP PRD: **0 funções individuais em falta** na tabela `AGR_AGRS` (100% de conformidade operacional).
+
 
 ### Atribuições aos utilizadores ativos com Cruzamento Relacional
 
