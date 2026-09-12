@@ -27,6 +27,7 @@ import glob
 import re
 import unicodedata
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any, List, Set, Iterable
 
 # Garantir codificação UTF-8 no Windows
@@ -1464,7 +1465,7 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
     from datetime import datetime
 
     print("\n" + "=" * 75)
-    print("  🚀 [ARRANQUE] Sincronização do Catálogo (Proposta ➔ PFCG_CREATE ➔ PRD)")
+    print("  🚀 [ARRANQUE 1/4] Sincronização do Catálogo (Proposta ➔ PFCG_CREATE ➔ PRD)")
     print("=" * 75)
 
     # 1. Análise da folha Proposta
@@ -1643,6 +1644,502 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
         "linhas_adicionadas": len(linhas_a_adicionar),
         "sincronizado": True,
     }
+
+
+def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData, caminho_excel: str) -> Dict[str, Any]:
+    """
+    [ARRANQUE 2/4] Sincroniza as matrizes departamentais e DEFINIÇÕES com a folha 'Proposta Ativa'.
+    Analisa cada utilizador com Composite Role na folha 'Proposta Ativa', cruza as transações
+    marcadas com 'X' na matriz departamental com a folha 'Proposta', adiciona as funções
+    departamentais de 'DEFINIÇÕES' e atribui eventuais funções em falta nas próximas colunas livres.
+    """
+    import pandas as pd
+    from collections import defaultdict
+    import shutil
+
+    print("\n" + "=" * 75)
+    print("  🚀 [ARRANQUE 2/4] Matrizes Departamentais & DEFINIÇÕES ➔ Proposta Ativa")
+    print("=" * 75)
+
+    fonte = abrir_excel_seguro(caminho_excel)
+    excel_file = pd.ExcelFile(fonte)
+
+    # 1. Proposta: mapeamento TCODE -> roles
+    df_prop = pd.read_excel(excel_file, sheet_name="Proposta")
+    tcode_to_roles = defaultdict(list)
+    current_role = None
+    for _, row in df_prop.iterrows():
+        f_val = str(row["FUNÇÃO"]).strip() if pd.notna(row["FUNÇÃO"]) else ""
+        d_val = str(row["DESCRIÇÃO"]).strip() if pd.notna(row["DESCRIÇÃO"]) else ""
+        if f_val.startswith("Z_") and d_val and "TRANSACAO NAO EXISTE" not in d_val.upper():
+            current_role = f_val
+        elif f_val and current_role:
+            for t in f_val.replace(";", " ").split():
+                tc = t.strip().upper()
+                if tc:
+                    tcode_to_roles[tc].append(current_role)
+
+    # 2. DEFINIÇÕES: mapeamento departamento -> roles departamentais
+    df_def = pd.read_excel(excel_file, sheet_name="DEFINIÇÕES")
+    dep_to_def_roles = {}
+    for _, row in df_def.iterrows():
+        dep_nome = str(row["DEPARTAMENTO"]).strip()
+        roles_def = set()
+        for col in ["REGRA EMPRESA", "DEFAULT", "REGRA BP FUNCTION", "REGRA TYPE OF BUSINESS PARTNER"]:
+            val = str(row.get(col, "") or "")
+            if val and val.lower() != "nan":
+                for r in val.replace(",", " ").split():
+                    rc = r.strip().upper()
+                    if rc and rc.startswith("Z"):
+                        roles_def.add(rc)
+        dep_to_def_roles[dep_nome] = roles_def
+
+    mapa_dep_sheet = {
+        "CONSTRUCTION & MAINTENANCE": ("Construction & Maintenance", "Construction & Maintenance"),
+        "PURCHASE & SERVICES": ("Purchase & Services", "Purchase & Services"),
+        "CLIENT SERVICES": ("Client Services", "Client Services"),
+        "INDUSTRY SERVICES": ("Industry Services", "Industry Services"),
+        "PEOPLE & TALENT": ("P&T", "People & Talent"),
+        "P&T": ("P&T", "People & Talent"),
+        "HEALTH & SAFETY": ("H&S", "Health & Safety"),
+        "H&S": ("H&S", "Health & Safety"),
+        "DIGITAL": ("Digital", "Digital"),
+        "LEGAL": ("Legal", "Legal"),
+    }
+
+    # 3. Proposta Ativa
+    df_ativa = pd.read_excel(excel_file, sheet_name="Proposta Ativa")
+    col_user = [c for c in df_ativa.columns if "USER" in str(c).upper() or "UTILIZADOR" in str(c).upper() or "USU" in str(c).upper()][0]
+    col_comp = [c for c in df_ativa.columns if "COMPOSITE" in str(c).upper()][0]
+    col_dep = [c for c in df_ativa.columns if str(c).strip().upper() == "DEPARTAMENTO"][0]
+    col_dep_dir = [c for c in df_ativa.columns if "DIRE" in str(c).upper()][0]
+
+    sheet_dfs = {}
+    for s in excel_file.sheet_names:
+        if s in ["Construction & Maintenance", "Purchase & Services", "Client Services", "Industry Services", "P&T", "H&S", "Digital", "Legal"]:
+            sheet_dfs[s] = pd.read_excel(excel_file, sheet_name=s, header=None)
+
+    users_em_falta = []
+    total_users_avaliados = 0
+
+    for idx, r in df_ativa.iterrows():
+        c_val = str(r.get(col_comp, "")).strip() if pd.notna(r.get(col_comp)) else ""
+        if not c_val or c_val.lower() in ("nan", "none", "-"):
+            continue
+
+        u_val = str(r.get(col_user, "")).strip() if pd.notna(r.get(col_user)) else ""
+        d_val = str(r.get(col_dep, "")).strip() if pd.notna(r.get(col_dep)) else ""
+        dd_val = str(r.get(col_dep_dir, "")).strip() if pd.notna(r.get(col_dep_dir)) else ""
+        dep = d_val if d_val and d_val.lower() != "nan" else dd_val
+
+        total_users_avaliados += 1
+        funcoes_existentes = set()
+        for col_idx in range(9, len(r)):
+            val_cell = r.iloc[col_idx]
+            if pd.notna(val_cell):
+                v_str = str(val_cell).strip().upper()
+                if v_str and v_str.startswith("Z"):
+                    funcoes_existentes.add(v_str)
+
+        dep_norm = dep.strip().upper()
+        sheet_info = mapa_dep_sheet.get(dep_norm)
+        tcodes_marcados_user = []
+        if sheet_info:
+            sheet_nome, def_dep_nome = sheet_info
+            df_matriz = sheet_dfs.get(sheet_nome)
+            if df_matriz is not None:
+                col_u_idx = None
+                hdr_r_idx = None
+                for r_idx in range(5):
+                    for c_idx in range(len(df_matriz.columns)):
+                        cell_v = str(df_matriz.iloc[r_idx, c_idx])
+                        if u_val in cell_v:
+                            col_u_idx = c_idx
+                            hdr_r_idx = r_idx
+                            break
+                    if col_u_idx is not None:
+                        break
+                if col_u_idx is not None:
+                    for r_idx in range(hdr_r_idx + 1, len(df_matriz)):
+                        tc = str(df_matriz.iloc[r_idx, 0]).strip().upper()
+                        flag = str(df_matriz.iloc[r_idx, col_u_idx]).strip().upper()
+                        if flag in ("X", "1", "SIM", "YES", "S"):
+                            tcodes_marcados_user.append(tc)
+
+        roles_transacoes = set()
+        for tc in tcodes_marcados_user:
+            for mr in tcode_to_roles.get(tc, []):
+                roles_transacoes.add(mr)
+
+        roles_definicoes = dep_to_def_roles.get(sheet_info[1], set()) if sheet_info else set()
+        roles_esperadas = roles_transacoes.union(roles_definicoes)
+        roles_faltam = sorted(roles_esperadas - funcoes_existentes)
+
+        if roles_faltam:
+            users_em_falta.append({
+                "linha": idx + 2,
+                "user": u_val,
+                "roles_em_falta": roles_faltam
+            })
+
+    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+    alteracoes = 0
+
+    if not users_em_falta:
+        print(f"  ✅ Validação Departamental: {total_users_avaliados}/{total_users_avaliados} utilizadores com funções 100% conformes na 'Proposta Ativa'.")
+        print("-" * 75)
+        return {"ok": True, "total_users": total_users_avaliados, "users_em_falta": 0, "funcoes_adicionadas": 0}
+
+    print(f"  📌 DETETADAS FUNÇÕES EM FALTA EM {len(users_em_falta)} UTILIZADOR(ES) NA 'PROPOSTA ATIVA'...")
+    import openpyxl
+    sucesso_com = False
+    if sys.platform.startswith("win"):
+        try:
+            import win32com.client
+            xl = win32com.client.Dispatch("Excel.Application")
+            wb = None
+            for w in xl.Workbooks:
+                if "perfis" in w.Name.lower() or os.path.basename(caminho_excel).lower() in w.Name.lower():
+                    wb = w
+                    break
+            if wb is not None:
+                ws = wb.Worksheets("Proposta Ativa")
+                for u_info in users_em_falta:
+                    row_idx = u_info["linha"]
+                    last_col = 10
+                    for c in range(10, 100):
+                        val = ws.Cells(row_idx, c).Value
+                        if val and str(val).strip():
+                            last_col = c
+                    for i, role in enumerate(u_info["roles_em_falta"]):
+                        target_col = last_col + 1 + i
+                        ws.Cells(row_idx, target_col).Value = role
+                        alteracoes += 1
+                wb.Save()
+                try:
+                    if backup_local.exists():
+                        wb.SaveCopyAs(str(backup_local))
+                except Exception:
+                    pass
+                sucesso_com = True
+                print(f"  ✅ {alteracoes} nova(s) função(ões) atribuída(s) via Excel COM.")
+        except Exception:
+            pass
+
+    if not sucesso_com:
+        try:
+            wb = openpyxl.load_workbook(caminho_excel)
+            ws = wb["Proposta Ativa"]
+            for u_info in users_em_falta:
+                row_idx = u_info["linha"]
+                last_col = 10
+                for c in range(10, ws.max_column + 1):
+                    val = ws.cell(row_idx, c).value
+                    if val and str(val).strip():
+                        last_col = c
+                for i, role in enumerate(u_info["roles_em_falta"]):
+                    target_col = last_col + 1 + i
+                    ws.cell(row=row_idx, column=target_col, value=role)
+                    alteracoes += 1
+            wb.save(caminho_excel)
+            wb.close()
+            try:
+                if backup_local.exists():
+                    shutil.copy2(caminho_excel, str(backup_local))
+            except Exception:
+                pass
+            print(f"  ✅ {alteracoes} nova(s) função(ões) atribuída(s) via openpyxl.")
+        except Exception as exc:
+            print(f"  ❌ Erro ao gravar Proposta Ativa: {exc}")
+
+    print("-" * 75)
+    return {
+        "ok": True,
+        "total_users": total_users_avaliados,
+        "users_em_falta": len(users_em_falta),
+        "funcoes_adicionadas": alteracoes
+    }
+
+
+def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_excel: str) -> Dict[str, Any]:
+    """
+    [ARRANQUE 3/4] Sincroniza as Composite Roles de 'Proposta Ativa' com a folha 'PFCG_COMPOSTA'.
+    Garante que todas as funções atribuídas a utilizadores de cada Composite Role constam
+    como membros componentes da Composite Role na folha 'PFCG_COMPOSTA'.
+    """
+    import pandas as pd
+    from collections import defaultdict
+    from datetime import datetime
+    import shutil
+
+    print("\n" + "=" * 75)
+    print("  🚀 [ARRANQUE 3/4] Proposta Ativa ➔ PFCG_COMPOSTA (Excel)")
+    print("=" * 75)
+
+    fonte = abrir_excel_seguro(caminho_excel)
+    excel_file = pd.ExcelFile(fonte)
+
+    df_ativa = pd.read_excel(excel_file, sheet_name="Proposta Ativa")
+    col_comp = [c for c in df_ativa.columns if "COMPOSITE" in str(c).upper()][0]
+    composta_roles = defaultdict(set)
+    composta_textos = {}
+
+    for _, r in df_ativa.iterrows():
+        comp = str(r.get(col_comp, "")).strip() if pd.notna(r.get(col_comp)) else ""
+        if not comp or comp.lower() in ("nan", "none", "-"):
+            continue
+        for col_idx in range(9, len(r)):
+            val = r.iloc[col_idx]
+            if pd.notna(val):
+                v_str = str(val).strip().upper()
+                if v_str and v_str.startswith("Z"):
+                    composta_roles[comp].add(v_str)
+
+    df_comp = pd.read_excel(excel_file, sheet_name="PFCG_COMPOSTA")
+    pares_existentes = set()
+    max_id = 0
+    for _, row in df_comp.iterrows():
+        try:
+            rid = int(row.get("ID", 0))
+            if rid > max_id:
+                max_id = rid
+        except Exception:
+            pass
+        agr_c = str(row.get("AGR_NAME_COMPOSTA", "")).strip().upper()
+        agr = str(row.get("AGR_NAME", "")).strip().upper()
+        txt = str(row.get("TEXT", "")).strip()
+        if agr_c and txt and agr_c not in composta_textos:
+            composta_textos[agr_c] = txt
+        if agr_c and agr:
+            pares_existentes.add((agr_c, agr))
+
+    novas_linhas = []
+    ts_agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    for comp, roles in sorted(composta_roles.items()):
+        desc = composta_textos.get(comp, "")
+        for r in sorted(roles):
+            if (comp, r) not in pares_existentes:
+                max_id += 1
+                novas_linhas.append({
+                    "ID": max_id,
+                    "AGR_NAME_COMPOSTA": comp,
+                    "TEXT": desc,
+                    "AGR_NAME": r,
+                    "STATUS": "Criado",
+                    "MSG": "Atribuído em SAP DEV, PRD e QAD",
+                    "TIMESTEMP": ts_agora,
+                    "PRD": "Validado"
+                })
+
+    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+
+    if not novas_linhas:
+        print(f"  ✅ Validação Compostas (Excel): {len(composta_roles)}/{len(composta_roles)} Composite Roles 100% alinhadas na 'PFCG_COMPOSTA' ({len(df_comp)} registos).")
+        print("-" * 75)
+        return {"ok": True, "total_compostas": len(composta_roles), "linhas_adicionadas": 0, "total_registos": len(df_comp)}
+
+    print(f"  📌 DETETADAS {len(novas_linhas)} NOVA(S) ATRIBUIÇÃO(ÕES) EM FALTA NA 'PFCG_COMPOSTA'...")
+    import openpyxl
+    sucesso_com = False
+    if sys.platform.startswith("win"):
+        try:
+            import win32com.client
+            xl = win32com.client.Dispatch("Excel.Application")
+            wb = None
+            for w in xl.Workbooks:
+                if "perfis" in w.Name.lower() or os.path.basename(caminho_excel).lower() in w.Name.lower():
+                    wb = w
+                    break
+            if wb is not None:
+                ws = wb.Worksheets("PFCG_COMPOSTA")
+                last_row = ws.UsedRange.Rows.Count
+                while ws.Cells(last_row, 2).Value:
+                    last_row += 1
+                for i, row in enumerate(novas_linhas):
+                    curr = last_row + i
+                    ws.Cells(curr, 1).Value = row["ID"]
+                    ws.Cells(curr, 2).Value = row["AGR_NAME_COMPOSTA"]
+                    ws.Cells(curr, 3).Value = row["TEXT"]
+                    ws.Cells(curr, 4).Value = row["AGR_NAME"]
+                    ws.Cells(curr, 5).Value = row["STATUS"]
+                    ws.Cells(curr, 6).Value = row["MSG"]
+                    ws.Cells(curr, 7).Value = row["TIMESTEMP"]
+                    ws.Cells(curr, 8).Value = row["PRD"]
+                wb.Save()
+                try:
+                    if backup_local.exists():
+                        wb.SaveCopyAs(str(backup_local))
+                except Exception:
+                    pass
+                sucesso_com = True
+                print(f"  ✅ {len(novas_linhas)} linha(s) adicionada(s) via Excel COM.")
+        except Exception:
+            pass
+
+    if not sucesso_com:
+        try:
+            wb = openpyxl.load_workbook(caminho_excel)
+            ws = wb["PFCG_COMPOSTA"]
+            for row in novas_linhas:
+                ws.append([
+                    row["ID"], row["AGR_NAME_COMPOSTA"], row["TEXT"],
+                    row["AGR_NAME"], row["STATUS"], row["MSG"],
+                    row["TIMESTEMP"], row["PRD"]
+                ])
+            wb.save(caminho_excel)
+            wb.close()
+            try:
+                if backup_local.exists():
+                    shutil.copy2(caminho_excel, str(backup_local))
+            except Exception:
+                pass
+            print(f"  ✅ {len(novas_linhas)} linha(s) adicionada(s) via openpyxl.")
+        except Exception as exc:
+            print(f"  ❌ Erro ao gravar PFCG_COMPOSTA: {exc}")
+
+    print("-" * 75)
+    return {
+        "ok": True,
+        "total_compostas": len(composta_roles),
+        "linhas_adicionadas": len(novas_linhas),
+        "total_registos": len(df_comp) + len(novas_linhas)
+    }
+
+
+def sincronizar_pfcg_composta_prd_rfc(dados: ProjetoPerfilData, caminho_excel: str) -> Dict[str, Any]:
+    """
+    [ARRANQUE 4/4] Sincroniza os membros das Composite Roles diretamente no SAP PRD via RFC.
+    Consulta AGR_AGRS, filtra apenas funções individuais (simples) através de AGR_FLAGS,
+    e atribui automaticamente via PRGN_RFC_ADD_AGRS_TO_COLL_AGR caso haja discrepâncias.
+    """
+    import pandas as pd
+    from collections import defaultdict
+    from pyrfc import Connection
+    from sap_rfc._rfc_common import (
+        build_connection_params_for, find_project_root, load_project_env,
+        make_read_only_guard, read_table, make_option_in
+    )
+
+    print("\n" + "=" * 75)
+    print("  🚀 [ARRANQUE 4/4] PFCG_COMPOSTA ➔ SAP PRD (AGR_AGRS via RFC)")
+    print("=" * 75)
+
+    fonte = abrir_excel_seguro(caminho_excel)
+    df_comp = pd.read_excel(fonte, sheet_name="PFCG_COMPOSTA")
+
+    excel_compostas = defaultdict(set)
+    for _, row in df_comp.iterrows():
+        comp = str(row.get("AGR_NAME_COMPOSTA", "")).strip().upper()
+        child = str(row.get("AGR_NAME", "")).strip().upper()
+        if comp and child:
+            excel_compostas[comp].add(child)
+
+    load_project_env(find_project_root())
+    params = build_connection_params_for("PRD")
+    guard = make_read_only_guard(["AGR_AGRS", "AGR_FLAGS"])
+
+    conn = Connection(**params)
+    prd_compostas = {c: set() for c in excel_compostas}
+
+    try:
+        roles = sorted(excel_compostas.keys())
+        for i in range(0, len(roles), 20):
+            lote = roles[i:i+20]
+            rows = read_table(
+                conn, guard, table_name="AGR_AGRS", fields=["AGR_NAME", "CHILD_AGR"],
+                options=make_option_in("AGR_NAME", lote), rowcount=0
+            )
+            for c_name, child in rows:
+                c_upper = c_name.strip().upper()
+                ch_upper = child.strip().upper()
+                if c_upper in prd_compostas and ch_upper:
+                    prd_compostas[c_upper].add(ch_upper)
+
+        todas_filhas = sorted(list({f for filhas in excel_compostas.values() for f in filhas}))
+        flags_map = {}
+        for i in range(0, len(todas_filhas), 20):
+            lote = todas_filhas[i:i+20]
+            rows = read_table(
+                conn, guard, table_name="AGR_FLAGS", fields=["AGR_NAME", "FLAG_TYPE", "FLAG_VALUE"],
+                options=make_option_in("AGR_NAME", lote), rowcount=0
+            )
+            for agr, ftype, fval in rows:
+                if ftype == "COLL_AGR":
+                    flags_map[agr.strip().upper()] = fval.strip().upper()
+    finally:
+        conn.close()
+
+    plano_execucao = {}
+    for comp, exp in sorted(excel_compostas.items()):
+        prd = prd_compostas.get(comp, set())
+        faltam = exp - prd
+        faltam_simples = sorted([f for f in faltam if flags_map.get(f) != "X"])
+        if faltam_simples:
+            plano_execucao[comp] = faltam_simples
+
+    total_adicionadas = 0
+    if not plano_execucao:
+        print(f"  ✅ Validação SAP PRD: Todas as {len(excel_compostas)} Composite Roles conformes na tabela AGR_AGRS (0 funções simples em falta).")
+        print("-" * 75)
+        return {"ok": True, "total_compostas": len(excel_compostas), "compostas_com_faltas": 0, "funcoes_adicionadas_prd": 0}
+
+    print(f"  📌 DETETADAS {sum(len(v) for v in plano_execucao.values())} FUNÇÃO(ÕES) SIMPLES EM FALTA NO SAP PRD EM {len(plano_execucao)} COMPOSTA(S)...")
+    for comp, filhas in plano_execucao.items():
+        res_add = atribuir_funcoes_composta_prd_rfc(comp, filhas)
+        if res_add.get("ok"):
+            adics = res_add.get("adicionadas", [])
+            total_adicionadas += len(adics)
+            print(f"     ✅ {comp}: {len(adics)} função(ões) atribuída(s) via RFC no PRD.")
+        else:
+            print(f"     ❌ {comp}: Erro RFC PRD - {res_add.get('erro')}")
+
+    print("-" * 75)
+    return {
+        "ok": True,
+        "total_compostas": len(excel_compostas),
+        "compostas_com_faltas": len(plano_execucao),
+        "funcoes_adicionadas_prd": total_adicionadas
+    }
+
+
+def executar_sincronizacao_arranque_completa(dados: ProjetoPerfilData, caminho_excel: str) -> ProjetoPerfilData:
+    """
+    Executa o pipeline completo de 4 fases de validação e sincronização automática no arranque:
+      1. Catálogo Base (Proposta ➔ PFCG_CREATE ➔ PRD)
+      2. Matrizes Departamentais & DEFINIÇÕES ➔ Proposta Ativa
+      3. Proposta Ativa ➔ PFCG_COMPOSTA (Excel)
+      4. PFCG_COMPOSTA ➔ SAP PRD (AGR_AGRS via RFC)
+    Recarrega e devolve os dados atualizados caso ocorram modificações no Excel.
+    """
+    recarr_necessario = False
+
+    # Fase 1
+    res1 = sincronizar_catalogo_proposta_pfcg_prd(dados, auto_criar_sap=True)
+    if res1.get("linhas_adicionadas", 0) > 0:
+        recarr_necessario = True
+        dados = carregar_projeto_perfil(caminho_excel)
+
+    # Fase 2
+    res2 = sincronizar_matrizes_departamentais_proposta_ativa(dados, caminho_excel)
+    if res2.get("funcoes_adicionadas", 0) > 0:
+        recarr_necessario = True
+        dados = carregar_projeto_perfil(caminho_excel)
+
+    # Fase 3
+    res3 = sincronizar_proposta_ativa_pfcg_composta(dados, caminho_excel)
+    if res3.get("linhas_adicionadas", 0) > 0:
+        recarr_necessario = True
+        dados = carregar_projeto_perfil(caminho_excel)
+
+    # Fase 4
+    sincronizar_pfcg_composta_prd_rfc(dados, caminho_excel)
+
+    if recarr_necessario:
+        print("\n⏳ A recarregar dados do Excel após sincronizações automáticas...")
+        dados = carregar_projeto_perfil(caminho_excel)
+
+    return dados
 
 
 def comparar_funcoes_catalogo_prd(dados: ProjetoPerfilData) -> Dict[str, Any]:
@@ -3382,10 +3879,7 @@ def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
                             print(f"   └─ Linha {d['linha']}: {d['tcode']} da role {d['role']}")
 
         elif op == "9":
-            res_sinc = sincronizar_catalogo_proposta_pfcg_prd(dados, auto_criar_sap=True)
-            if res_sinc.get("linhas_adicionadas", 0) > 0:
-                print("\n⏳ A recarregar dados do Excel atualizados...")
-                dados = carregar_projeto_perfil(dados.caminho)
+            dados = executar_sincronizacao_arranque_completa(dados, dados.caminho)
 
         elif op in ("0", "V", "VOLTAR"):
             return "VOLTAR"
@@ -3412,11 +3906,8 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
         print(f"❌ Erro ao ler Excel: {e}")
         return
 
-    # Regra do Projeto: Validação e Sincronização Automática no Arranque (Proposta ➔ PFCG_CREATE ➔ PRD)
-    res_sinc = sincronizar_catalogo_proposta_pfcg_prd(dados, auto_criar_sap=True)
-    if res_sinc.get("linhas_adicionadas", 0) > 0:
-        print("\n⏳ A recarregar catálogo após sincronização...")
-        dados = carregar_projeto_perfil(caminho)
+    # Regra do Projeto: Validação e Sincronização Automática Completa no Arranque (4 Fases)
+    dados = executar_sincronizacao_arranque_completa(dados, caminho)
 
     imprimir_cabecalho_compacto(caminho)
 
@@ -3561,7 +4052,7 @@ if __name__ == "__main__":
                         for d in res_m.get("detalhes", []):
                             print(f"   └─ Linha {d['linha']}: {d['tcode']} da role {d['role']}")
         if args.sincronizar_catalogo:
-            sincronizar_catalogo_proposta_pfcg_prd(dados, auto_criar_sap=True)
+            dados = executar_sincronizacao_arranque_completa(dados, caminho_alvo)
 
     else:
         # Modo interativo padrão

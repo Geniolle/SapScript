@@ -293,3 +293,27 @@ A experiência de execução manual do script [`Projeto Perfil.py`](file:///C:/w
      - `[6] ↩️ Voltar / Escolher Outro Departamento da CONTROLO`
      - `[7] 🔍 Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)`
      - `[0] 🚪 Sair`
+
+## 12. Pipeline Completo de Sincronização e Validação no Arranque (4 Fases)
+
+Sempre que [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil.py) é executado (manual ou automaticamente), corre antecipadamente uma validação e sincronização relacional em 4 fases antes da apresentação do menu departamental:
+
+1. **[ARRANQUE 1/4] Catálogo Base (Proposta ➔ PFCG_CREATE ➔ PRD)**:
+   - Valida todas as transações da folha `Proposta` na tabela `TSTC` do SAP PRD.
+   - Garante que todas as funções individuais e pares `(AGR_NAME, TCODE)` estão presentes em `PFCG_CREATE` e no SAP PRD.
+
+2. **[ARRANQUE 2/4] Matrizes Departamentais & DEFINIÇÕES ➔ Proposta Ativa**:
+   - Analisa as folhas matriciais de departamento (`Construction & Maintenance`, `Industry Services`, `Purchase & Services`, `Client Services`, `P&T`, `H&S`, `Digital`, `Legal`).
+   - Mapeia as transações marcadas com `X` por utilizador para as funções individuais correspondentes (`Proposta`).
+   - Agrega as regras departamentais da folha `DEFINIÇÕES` (`REGRA EMPRESA`, `DEFAULT`, `REGRA BP FUNCTION`, `REGRA TYPE OF BUSINESS PARTNER`).
+   - Identifica funções em falta e atribui-as automaticamente nas próximas colunas livres da folha `Proposta Ativa` (Excel COM/openpyxl).
+
+3. **[ARRANQUE 3/4] Proposta Ativa ➔ PFCG_COMPOSTA (Excel)**:
+   - Reúne todas as funções componentes atribuídas aos utilizadores de cada Composite Role na folha `Proposta Ativa`.
+   - Valida a presença de cada associação na folha `PFCG_COMPOSTA`.
+   - Insere novos registos no fim da tabela com `ID` sequencial, `STATUS='Criado'`, `MSG='Atribuído em SAP DEV, PRD e QAD'`, `PRD='Validado'`.
+
+4. **[ARRANQUE 4/4] PFCG_COMPOSTA ➔ SAP PRD (AGR_AGRS via RFC)**:
+   - Consulta a tabela `AGR_AGRS` no SAP PRD para as 24 Composite Roles.
+   - Filtra com base em `AGR_FLAGS` apenas as funções individuais (simples), ignorando funções compostas que pertencem à atribuição de utilizador no CUA.
+   - Invoca o módulo padrão RFC `PRGN_RFC_ADD_AGRS_TO_COLL_AGR` para atribuir eventuais funções em falta no sistema produtivo.
