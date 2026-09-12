@@ -346,3 +346,32 @@ Resultado final na folha `CUA_ADICIONAR`:
 
 Esta atividade alterou somente o ficheiro Excel oficial sincronizado pelo OneDrive e
 a respetiva cópia local de trabalho. Nenhuma atribuição foi executada no SAP.
+
+## 14. Preparação da CUA_REMOVE por Comparação com o PRD (12/09/2026)
+
+Foi efetuada uma consulta RFC exclusivamente de leitura à tabela `AGR_USERS` do SAP
+PRD para os 22 utilizadores presentes na folha `CUA_ADICIONAR`. Foram consideradas
+somente as atribuições ativas na data da validação.
+
+O conjunto destinado à folha `CUA_REMOVE` foi calculado por:
+
+```text
+Funções ativas em AGR_USERS
+− funções previstas na CUA_ADICIONAR
+− funções protegidas pela folha EXCLUÇÃO
+= funções candidatas à CUA_REMOVE
+```
+
+Resultado:
+
+- 805 atribuições ativas encontradas no PRD;
+- 623 diferenças brutas em relação à `CUA_ADICIONAR`;
+- 35 ocorrências protegidas retiradas pelo motor `is_excluida`;
+- 588 registos gravados na `CUA_REMOVE`, com IDs sequenciais de `1` a `588`;
+- 21 utilizadores com funções candidatas a remoção;
+- o utilizador `S80001870` não possuía funções ativas e gerou 0 registos;
+- todos os registos destinados a `S4PCLNT100`;
+- 0 combinações duplicadas e 0 funções protegidas na lista final;
+- `STATUS`, `MSG`, `TIMESTEMP` e `PRD` mantidos vazios.
+
+A atividade apenas preparou a fila no Excel. Nenhuma função foi removida no SAP.
