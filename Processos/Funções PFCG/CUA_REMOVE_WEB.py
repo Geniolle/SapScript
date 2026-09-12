@@ -365,6 +365,33 @@ def preencher_popup_filtro(session, valor):
         + " | ".join(erros)
     )
 
+def preencher_popup_filtros_combinados(session, sistema, agr_name):
+    """Mantém SUBSYSTEM e AGR_NAME no mesmo popup antes de confirmar."""
+    candidatos = obter_campos_low_popup(session)
+    if len(candidatos) < 2:
+        raise Exception("O popup não apresentou os dois campos de filtro esperados.")
+
+    candidatos = sorted(candidatos, key=lambda info: info["id"].upper())
+    campo_sistema = next(
+        (info for info in candidatos if normalizar_coluna(info.get("text", "")) == normalizar_coluna(sistema)),
+        candidatos[0],
+    )
+    restantes = [info for info in candidatos if info["id"] != campo_sistema["id"]]
+    campo_role = restantes[-1]
+
+    for info, valor, nome in (
+        (campo_sistema, sistema, "SUBSYSTEM"),
+        (campo_role, agr_name, "AGR_NAME"),
+    ):
+        obj = session.findById(info["id"])
+        obj.text = str(valor)
+        escrito = str(getattr(obj, "Text", "") or "")
+        if normalizar_coluna(escrito) != normalizar_coluna(valor):
+            raise Exception(f"Filtro {nome} não aceitou o valor '{valor}'.")
+        print(f"✅ Filtro {nome}: '{escrito}'")
+
+    pressionar_botao_debug(session, "wnd[1]/tbar[0]/btn[0]", "confirmar filtros combinados")
+
 def obter_grid_roles(session):
     return session.findById(
         "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/"
@@ -388,6 +415,18 @@ def obter_valor_celula_grid(shell, row, coluna):
         except Exception:
             pass
     return ""
+
+def encontrar_linha_exata_grid(shell, sistema, agr_name):
+    """Localiza a linha exata; nunca presume que a primeira linha é a correta."""
+    for row in range(obter_row_count_grid(shell)):
+        role_grid = obter_valor_celula_grid(shell, row, "AGR_NAME")
+        sistema_grid = obter_valor_celula_grid(shell, row, "SUBSYSTEM")
+        if (
+            normalizar_coluna(role_grid) == normalizar_coluna(agr_name)
+            and normalizar_coluna(sistema_grid) == normalizar_coluna(sistema)
+        ):
+            return row
+    return None
 
 ###################################################################################
 # BLOCO 4: LEITURA DO EXCEL
@@ -558,7 +597,7 @@ def remover_funcao_usuario(df, session):
             shell.currentCellColumn = "AGR_NAME"
             shell.contextMenu()
             shell.selectContextMenuItem("&FILTER")
-            preencher_popup_filtro(session, agr_name)
+            preencher_popup_filtros_combinados(session, sistema, agr_name)
             time.sleep(0.3)
 
             row_count = obter_row_count_grid(shell)
@@ -572,10 +611,22 @@ def remover_funcao_usuario(df, session):
                 enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                 continue
 
-            agr_encontrado = obter_valor_celula_grid(shell, 0, "AGR_NAME")
-            sistema_encontrado = obter_valor_celula_grid(shell, 0, "SUBSYSTEM")
+            linha_alvo = encontrar_linha_exata_grid(shell, sistema, agr_name)
+            if linha_alvo is None:
+                msg = (
+                    "Nenhuma linha corresponde simultaneamente a "
+                    f"SISTEMA='{sistema}' e AGR_NAME='{agr_name}'."
+                )
+                print(f"❌ {msg}")
+                registar_resultado(df, idx, "ERRO", msg)
+                setar_texto_debug(session, "wnd[0]/tbar[0]/okcd", "/N", "campo de comando")
+                enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
+                continue
 
-            print(f"🔍 Linha 0 do grid | AGR_NAME='{agr_encontrado}' | SUBSYSTEM='{sistema_encontrado}'")
+            agr_encontrado = obter_valor_celula_grid(shell, linha_alvo, "AGR_NAME")
+            sistema_encontrado = obter_valor_celula_grid(shell, linha_alvo, "SUBSYSTEM")
+
+            print(f"🔍 Linha {linha_alvo} do grid | AGR_NAME='{agr_encontrado}' | SUBSYSTEM='{sistema_encontrado}'")
 
             if agr_encontrado and normalizar_coluna(agr_encontrado) != normalizar_coluna(agr_name):
                 msg = (
@@ -599,11 +650,11 @@ def remover_funcao_usuario(df, session):
                 enviar_vkey_debug(session, "wnd[0]", 0, "sair da transação")
                 continue
 
-            print("➡️ Passo 8: Selecionar linha 0 e remover")
+            print(f"➡️ Passo 8: Selecionar linha {linha_alvo} e remover")
             print("\n[Etapa 3] Remoção de Perfis")
             pausar("Validar antes de remover a linha do grid")
-            shell.setCurrentCell(0, "AGR_NAME")
-            shell.selectedRows = "0"
+            shell.setCurrentCell(linha_alvo, "AGR_NAME")
+            shell.selectedRows = str(linha_alvo)
             shell.pressToolbarButton("DEL_LINE")
             time.sleep(0.3)
 
@@ -728,10 +779,13 @@ def _resumir(df):
         col = df["STATUS"].astype(str).str.strip().str.upper()
     except Exception:
         return {"total": 0}
+    normalizados = col.map(normalizar_coluna)
+    sucesso = normalizados.isin(("SUCESSO", "CONCLUIDO")) | normalizados.str.startswith("S")
+    erro = normalizados.str.startswith("E") | normalizados.str.startswith("A")
     return {
         "total": len(col),
-        "sucesso": int(col.str.startswith("S").sum()),
-        "erro": int((col.str.startswith("E") | col.str.startswith("A")).sum()),
+        "sucesso": int(sucesso.sum()),
+        "erro": int(erro.sum()),
     }
 
 
@@ -785,7 +839,7 @@ def executar(
         r = df_final.iloc[0]
         st = str(r.get("STATUS") or "").strip()
         detalhe = str(r.get("MSG") or "").strip()
-        ok = st[:1].upper() == "S"
+        ok = normalizar_coluna(st) in ("SUCESSO", "CONCLUIDO") or st[:1].upper() == "S"
         return {
             "ok": ok,
             "status": "SUCESSO" if ok else "ERRO",

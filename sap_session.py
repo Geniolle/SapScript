@@ -355,8 +355,6 @@ def _submit_login(session, target: SapTarget) -> None:
     session.findById("wnd[0]/usr/pwdRSYST-BCODE").text = target.password
     session.findById("wnd[0]/usr/txtRSYST-LANGU").text = target.language
     session.findById("wnd[0]").sendVKey(0)
-    time.sleep(SECOND_ENTER_DELAY_S)
-    session.findById("wnd[0]").sendVKey(0)
 
 
 def _validate_target(target: SapTarget) -> None:
@@ -380,15 +378,43 @@ def _validate_target(target: SapTarget) -> None:
 
 
 def _get_scripting_engine(target: SapTarget, win32_client):
-    try:
-        sap = win32_client.GetObject("SAPGUI")
-    except Exception:
+    def _get_sap():
+        try:
+            rot = win32_client.Dispatch("SapROTWr.SapROTWrapper")
+            entry = rot.GetROTEntry("SAPGUI")
+            if entry:
+                return entry
+        except Exception:
+            pass
+        try:
+            return win32_client.GetObject("SAPGUI")
+        except Exception:
+            return None
+
+    sap = _get_sap()
+    if not sap:
         saplogon = Path(target.saplogon_path)
         if not saplogon.exists():
             raise RuntimeError(f"SAP Logon nao encontrado em: {target.saplogon_path}")
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", "saplogon.exe", "/IM", "sapgui.exe"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                time.sleep(0.5)
+            except Exception:
+                pass
         subprocess.Popen([str(saplogon)], shell=False)
-        time.sleep(5)
-        sap = win32_client.GetObject("SAPGUI")
+        for _ in range(15):
+            time.sleep(1)
+            sap = _get_sap()
+            if sap:
+                break
+
+    if not sap:
+        raise RuntimeError("SAP GUI Scripting indisponivel apos iniciar SAP Logon.")
 
     _try_minimize_saplogon_windows()
     application = sap.GetScriptingEngine

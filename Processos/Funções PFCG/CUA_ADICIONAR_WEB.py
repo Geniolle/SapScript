@@ -245,7 +245,14 @@ def ler_ficheiro(caminho_ficheiro, nome_sheet):
 
 def conectar_sap(sistema_desejado):
     try:
-        sap_gui_auto = win32com.client.GetObject("SAPGUI")
+        try:
+            sap_gui_auto = win32com.client.GetObject("SAPGUI")
+        except Exception:
+            rot = win32com.client.Dispatch("SapROTWr.SapROTWrapper")
+            sap_gui_auto = rot.GetROTEntry("SAPGUI")
+        if not sap_gui_auto:
+            print("❌ SAP GUI não registado no ROT. Certifique-se de que o SAP GUI está aberto e logado.")
+            return None
         application = sap_gui_auto.GetScriptingEngine
 
         for conn in application.Children:
@@ -530,13 +537,16 @@ def marcar_resultado(df_ref, idx, status, msg):
 
 def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pular_confirmacao=False):
     """
-    Atribui AGR_NAME ao UTILIZADOR via SU10.
-    STATUS final definido pelo histórico do wnd[0]/sbar.
+    Agrupa as linhas por UTILIZADOR + SISTEMA e atribui todas as respetivas
+    AGR_NAME numa única passagem pela SU10, com uma gravação por utilizador.
+    O STATUS final de cada lote é definido pelo histórico do wnd[0]/sbar.
     """
     if df_filtrado is None or df_filtrado.empty:
         return df_filtrado
 
-    total = len(df_filtrado)
+    total_linhas = len(df_filtrado)
+    grupos = list(df_filtrado.groupby(["UTILIZADOR", "SISTEMA"], sort=False, dropna=False))
+    total_grupos = len(grupos)
     tempo_total_inicio = time.time()
 
     if not pular_confirmacao:
@@ -547,38 +557,29 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pular_confir
     else:
         print("▶️ Modo cockpit: confirmação automática (S).")
 
-    for i, (idx, row) in enumerate(df_filtrado.iterrows(), 1):
+    for i, ((utilizador_raw, sistema_raw), grupo) in enumerate(grupos, 1):
         inicio = time.time()
         eventos_status = []
+        utilizador = texto_limpo(utilizador_raw)
+        sistema = texto_limpo(sistema_raw)
+        indices = list(grupo.index)
+        roles = [texto_limpo(valor) for valor in grupo["AGR_NAME"].tolist()]
 
-        utilizador = texto_limpo(row["UTILIZADOR"])
-        sistema = texto_limpo(row["SISTEMA"])
-        agr_name = texto_limpo(row["AGR_NAME"])
+        print(f"\n🔧 {i}/{total_grupos} - {utilizador} | {sistema} | {len(roles)} função(ões)")
 
-        print(f"\n🔧 {i}/{total} - Utilizador: {utilizador} | Sistema: {sistema} | AGR_NAME: {agr_name}")
-
-        if valor_vazio(row["ID"]):
-            msg = "ID vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
-            continue
-
+        erro_validacao = ""
         if not utilizador:
-            msg = "UTILIZADOR vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
-            continue
-
-        if not sistema:
-            msg = "SISTEMA vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
-            continue
-
-        if not agr_name:
-            msg = "AGR_NAME vazio."
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ {msg}")
+            erro_validacao = "UTILIZADOR vazio."
+        elif not sistema:
+            erro_validacao = "SISTEMA vazio."
+        elif any(valor_vazio(grupo.at[idx, "ID"]) for idx in indices):
+            erro_validacao = "ID vazio."
+        elif any(not role for role in roles):
+            erro_validacao = "AGR_NAME vazio."
+        if erro_validacao:
+            for idx in indices:
+                marcar_resultado(df_filtrado, idx, "ERRO", erro_validacao)
+            print(f"❌ {erro_validacao}")
             continue
 
         try:
@@ -647,26 +648,31 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pular_confir
                 print(f"❌ {msg}")
                 continue
 
-            # 4) Preenche subsystem e AGR_NAME
-            shell.modifyCell(0, "SUBSYSTEM", sistema)
-            shell.modifyCell(0, "AGR_NAME", agr_name)
-            shell.currentCellColumn = "AGR_NAME"
-            shell.pressEnter()
-            time.sleep(0.70)
+            # 4) Preenche todas as funções do utilizador na mesma grelha
+            for posicao, agr_name in enumerate(roles):
+                try:
+                    shell.firstVisibleRow = max(0, posicao - 5)
+                except Exception:
+                    pass
+                shell.modifyCell(posicao, "SUBSYSTEM", sistema)
+                shell.modifyCell(posicao, "AGR_NAME", agr_name)
+                shell.currentCellRow = posicao
+                shell.currentCellColumn = "AGR_NAME"
+                shell.pressEnter()
+                time.sleep(0.25)
 
-            tipo_pre, _, _ = capturar_status_bar(
-                session,
-                eventos_status,
-                origem="VALIDACAO_AGR_NAME",
-                tentativas=8,
-                espera=0.20,
-            )
-
-            if normalizar_valor(tipo_pre) in ("E", "A", "X"):
-                msg_final = montar_msg_final(eventos_status)
-                marcar_resultado(df_filtrado, idx, "ERRO", msg_final)
-                print(f"❌ {msg_final}")
-                continue
+                tipo_pre, _, _ = capturar_status_bar(
+                    session,
+                    eventos_status,
+                    origem=f"VALIDACAO_AGR_NAME_{posicao + 1}",
+                    tentativas=4,
+                    espera=0.15,
+                )
+                if normalizar_valor(tipo_pre) in ("E", "A", "X"):
+                    raise RuntimeError(
+                        f"Falha ao validar {agr_name}: "
+                        f"{montar_msg_final(eventos_status) or 'erro SAP sem mensagem'}"
+                    )
 
             # 5) Save - captura imediata antes de qualquer navegação
             session.findById("wnd[0]/tbar[0]/btn[11]").press()
@@ -695,15 +701,17 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pular_confir
             status_final = decidir_status_pelo_historico(eventos_status)
             msg_final = montar_msg_final(eventos_status)
 
-            marcar_resultado(df_filtrado, idx, status_final, msg_final)
+            for idx in indices:
+                marcar_resultado(df_filtrado, idx, status_final, msg_final)
 
             duracao = time.time() - inicio
-            print(f"{'✅' if status_final == 'CONCLUÍDO' else '❌'} {msg_final} | Tempo: {duracao:.1f}s")
+            print(f"{'✅' if status_final == 'CONCLUÍDO' else '❌'} {len(roles)} função(ões) | {msg_final} | {duracao:.1f}s")
 
         except Exception as e:
             msg = str(e)
-            marcar_resultado(df_filtrado, idx, "ERRO", msg)
-            print(f"❌ Erro ao atribuir '{agr_name}' a '{utilizador}': {msg}")
+            for idx in indices:
+                marcar_resultado(df_filtrado, idx, "ERRO", msg)
+            print(f"❌ Erro no lote de '{utilizador}': {msg}")
 
         finally:
             voltar_para_inicio(session)
@@ -714,7 +722,7 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pular_confir
     status_norm = df_filtrado["STATUS"].apply(normalizar_valor)
     total_ok = (status_norm == "CONCLUIDO").sum()
     total_erro = (status_norm == "ERRO").sum()
-    print(f"📊 Total concluído: {total_ok} | Com erro: {total_erro}")
+    print(f"📊 Linhas: {total_linhas} | Concluídas: {total_ok} | Com erro: {total_erro}")
 
     return df_filtrado
 

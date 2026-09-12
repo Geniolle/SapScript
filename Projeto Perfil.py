@@ -1829,7 +1829,8 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
     """
     [ARRANQUE 3/4] Sincroniza as Composite Roles de 'Proposta Ativa' com a folha 'PFCG_COMPOSTA'.
     Garante que todas as funções atribuídas a utilizadores de cada Composite Role constam
-    como membros componentes da Composite Role na folha 'PFCG_COMPOSTA'.
+    como membros componentes da Composite Role na folha 'PFCG_COMPOSTA' e remove relações
+    que já não constam na 'Proposta Ativa'.
     """
     import pandas as pd
     from collections import defaultdict
@@ -1859,6 +1860,7 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
 
     df_comp = pd.read_excel(excel_file, sheet_name="PFCG_COMPOSTA")
     pares_existentes = set()
+    linhas_obsoletas = []
     max_id = 0
     for _, row in df_comp.iterrows():
         try:
@@ -1874,6 +1876,19 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
             composta_textos[agr_c] = txt
         if agr_c and agr:
             pares_existentes.add((agr_c, agr))
+
+    pares_esperados = {
+        (comp.strip().upper(), role.strip().upper())
+        for comp, roles in composta_roles.items()
+        for role in roles
+    }
+    for idx, row in df_comp.iterrows():
+        par = (
+            str(row.get("AGR_NAME_COMPOSTA", "")).strip().upper(),
+            str(row.get("AGR_NAME", "")).strip().upper(),
+        )
+        if par not in pares_esperados:
+            linhas_obsoletas.append(idx + 2)
 
     novas_linhas = []
     ts_agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1896,11 +1911,11 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
 
     backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
 
-    if not novas_linhas:
+    if not novas_linhas and not linhas_obsoletas:
         print(f"  [3/4] PFCG_COMPOSTA: {len(composta_roles)}/{len(composta_roles)} Composite Roles alinhadas no Excel ({len(df_comp)} registos).")
-        return {"ok": True, "total_compostas": len(composta_roles), "linhas_adicionadas": 0, "total_registos": len(df_comp)}
+        return {"ok": True, "total_compostas": len(composta_roles), "linhas_adicionadas": 0, "linhas_removidas": 0, "total_registos": len(df_comp)}
 
-    print(f"  DETETADAS {len(novas_linhas)} NOVA(S) ATRIBUIÇÃO(ÕES) EM FALTA NA 'PFCG_COMPOSTA'...")
+    print(f"  PFCG_COMPOSTA: {len(novas_linhas)} relação(ões) em falta e {len(linhas_obsoletas)} obsoleta(s).")
     import openpyxl
     sucesso_com = False
     if sys.platform.startswith("win"):
@@ -1914,6 +1929,8 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
                     break
             if wb is not None:
                 ws = wb.Worksheets("PFCG_COMPOSTA")
+                for row_idx in reversed(linhas_obsoletas):
+                    ws.Rows(row_idx).Delete()
                 last_row = ws.UsedRange.Rows.Count
                 while ws.Cells(last_row, 2).Value:
                     last_row += 1
@@ -1942,6 +1959,8 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
         try:
             wb = openpyxl.load_workbook(caminho_excel)
             ws = wb["PFCG_COMPOSTA"]
+            for row_idx in reversed(linhas_obsoletas):
+                ws.delete_rows(row_idx, 1)
             for row in novas_linhas:
                 ws.append([
                     row["ID"], row["AGR_NAME_COMPOSTA"], row["TEXT"],
@@ -1964,7 +1983,8 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
         "ok": True,
         "total_compostas": len(composta_roles),
         "linhas_adicionadas": len(novas_linhas),
-        "total_registos": len(df_comp) + len(novas_linhas)
+        "linhas_removidas": len(linhas_obsoletas),
+        "total_registos": len(df_comp) - len(linhas_obsoletas) + len(novas_linhas)
     }
 
 
@@ -2089,7 +2109,7 @@ def executar_sincronizacao_arranque_completa(dados: ProjetoPerfilData, caminho_e
 
     # Fase 3
     res3 = sincronizar_proposta_ativa_pfcg_composta(dados, caminho_excel)
-    if res3.get("linhas_adicionadas", 0) > 0:
+    if res3.get("linhas_adicionadas", 0) > 0 or res3.get("linhas_removidas", 0) > 0:
         recarr_necessario = True
         dados = carregar_projeto_perfil(caminho_excel)
 
@@ -3238,6 +3258,83 @@ def imprimir_cabecalho_compacto(ficheiro: str):
     print("=" * 75)
 
 
+def obter_pendencias_status(caminho_excel: str) -> Dict[str, int]:
+    """Conta linhas com STATUS vazio nas folhas operacionais, sem alterar o Excel."""
+    import pandas as pd
+
+    folhas = ["PFCG_CREATE", "PFCG_COMPOSTA", "CUA_ADICIONAR", "CUA_REMOVE"]
+    fonte = abrir_excel_seguro(caminho_excel)
+    excel_file = pd.ExcelFile(fonte)
+    resultado = {}
+    for folha in folhas:
+        sheet = next((s for s in excel_file.sheet_names if normalizar_nome_coluna(s) == normalizar_nome_coluna(folha)), None)
+        if not sheet:
+            continue
+        df = pd.read_excel(excel_file, sheet_name=sheet)
+        col_status = next((c for c in df.columns if normalizar_nome_coluna(c) == "STATUS"), None)
+        if col_status is None:
+            continue
+        status = df[col_status].fillna("").astype(str).str.strip()
+        quantidade = int(status.eq("").sum())
+        if quantidade:
+            resultado[folha] = quantidade
+    return resultado
+
+
+def executar_processos_pendentes(caminho_excel: str, pendencias: Dict[str, int]) -> None:
+    """Executa, na ordem operacional, somente as folhas que possuem STATUS vazio."""
+    import importlib.util
+
+    pasta = Path(__file__).resolve().parent / "Processos" / "Funções PFCG"
+
+    def carregar(nome_modulo: str, nome_ficheiro: str):
+        spec = importlib.util.spec_from_file_location(nome_modulo, pasta / nome_ficheiro)
+        if not spec or not spec.loader:
+            raise RuntimeError(f"Não foi possível carregar {nome_ficheiro}")
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+        return modulo
+
+    if "PFCG_CREATE" in pendencias:
+        print("\n[1/4] Executando PFCG_CREATE...")
+        modulo = carregar("processo_pfcg_create", "A. PFCG_CREATE.py")
+        modulo.executar("PRD", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False, metodo="RFC")
+
+    if "PFCG_COMPOSTA" in pendencias:
+        print("\n[2/4] Executando PFCG_COMPOSTA...")
+        modulo = carregar("processo_pfcg_composta", "D. PFCG_COMPOSTA.py")
+        modulo.executar("PRD", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+
+    if "CUA_ADICIONAR" in pendencias:
+        print("\n[3/4] Executando CUA_ADICIONAR...")
+        modulo = carregar("processo_cua_adicionar", "CUA_ADICIONAR_WEB.py")
+        modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+
+    if "CUA_REMOVE" in pendencias:
+        print("\n[4/4] Executando CUA_REMOVE...")
+        modulo = carregar("processo_cua_remove", "CUA_REMOVE_WEB.py")
+        modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+
+
+def verificar_e_perguntar_pendencias(caminho_excel: str) -> bool:
+    """Mostra as filas pendentes e pede uma única confirmação para executá-las."""
+    pendencias = obter_pendencias_status(caminho_excel)
+    print("\n" + "=" * 60)
+    print("PROCESSOS PENDENTES")
+    print("=" * 60)
+    if not pendencias:
+        print("Nenhuma linha com STATUS vazio.")
+        return False
+    for folha, quantidade in pendencias.items():
+        print(f"{folha}: {quantidade} linha(s)")
+    resposta = input("Executar os processos pendentes? (S/N): ").strip().upper()
+    if resposta not in ("S", "SIM", "Y", "YES"):
+        print("Processos pendentes não executados.")
+        return False
+    executar_processos_pendentes(caminho_excel, pendencias)
+    return True
+
+
 def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:
     """
     Exibe a tabela clara dos departamentos na folha CONTROLO com as suas linhas no Excel
@@ -3662,38 +3759,30 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
     analise = analisar_departamento_proposta(dados, dep_nome)
 
     while True:
-        print("\n" + "=" * 75)
-        print(f"  DEPARTAMENTO SELECIONADO: {dep_nome.upper()} (Linha {linha} no Excel)")
-        print("=" * 75)
+        print("\n" + "=" * 60)
+        print(f"DEP: {dep_nome.upper()} | Linha {linha}")
+        print("=" * 60)
 
-        st_tag = "PENDENTE (Disponível para processamento)" if item_dep.get("pendente") else f"{item_dep.get('status')} | {item_dep.get('timestamp')}"
-        print(f"  Estado na CONTROLO: {st_tag}")
+        st_tag = "PENDENTE" if item_dep.get("pendente") else f"{item_dep.get('status')} | {item_dep.get('timestamp')}"
+        print(f"Estado: {st_tag}")
 
         if analise.get("encontrado"):
             users = analise.get("usuarios", [])
             compostas = analise.get("compostas", [])
-            print(f"  Utilizadores no Departamento ({len(users)}):")
+            total_singles = analise.get("total_singles_distintas", 0)
+            print(f"Users: {len(users)} | Compostas: {len(compostas)} | Singles: {total_singles}")
             for u in users:
-                comp = f"[Composta: {u['composta']}]" if u.get("composta") else "[Sem Composta]"
-                print(f"     • {u['usuario']:<10} | {u['nome']:<25} | {u['cargo']} {comp} -> {u['total_singles']} Singles")
-            if compostas:
-                print(f"  Funções Compostas ({len(compostas)}): {', '.join(compostas)}")
-            print(f"  Funções Individuais (Singles): {analise.get('total_singles_distintas', 0)} distintas")
+                comp = u.get("composta") or "SEM_COMPOSTA"
+                print(f" {u['usuario']} | {u['nome']} | {u['cargo']} | {comp} | {u['total_singles']} funções")
         else:
-            print(f"  [AVISO] Aviso: {analise.get('mensagem', 'Departamento não encontrado na folha Proposta Ativa.')}")
+            print(f"[AVISO] {analise.get('mensagem', 'Departamento não encontrado na folha Proposta Ativa.')}")
 
-        print("-" * 75)
-        print("  AÇÕES DISPONÍVEIS PARA ESTE DEPARTAMENTO:")
-        print("  [1] Validar Utilizadores no SAP PRD (AGR_USERS via RFC & Cruzamento)")
-        print("  [2] Cruzar Fontes (PFCG_CREATE, COMPOSTA, AUTHORITY, EXCLUÇÃO)")
-        print("  [3] Sincronizar CUA (Remover S4D / Limpar PRD / Alinhar QAS)")
-        print("  [4] Verificar Existência de Funções no SAP PRD (AGR_DEFINE)")
-        print("  [5] Ver Análise Detalhada (Proposta Ativa)")
-        print("  [6] ➕ Incorporar Funções do Catálogo Ativas na 'Proposta Ativa'")
-        print("  [7] ↩  Voltar / Escolher Outro Departamento da CONTROLO")
-        print("  [8] Menu Geral de Pesquisas (Roles, TCODEs, Users, etc.)")
-        print("  [0] Sair")
-        print("-" * 75)
+        print("-" * 60)
+        print("[1] Validar users no PRD  [2] Cruzar fontes")
+        print("[3] Sincronizar CUA       [4] Verificar funções PRD")
+        print("[5] Análise detalhada     [6] Incorporar catálogo")
+        print("[7] Outro departamento    [8] Menu geral  [0] Sair")
+        print("-" * 60)
 
         acao = input("Escolha uma ação: ").strip().upper()
 
@@ -3867,6 +3956,9 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
     except Exception as e:
         print(f"[ERRO] Erro ao ler Excel: {e}")
         return
+
+    if verificar_e_perguntar_pendencias(caminho):
+        dados = carregar_projeto_perfil(caminho)
 
     # Regra do Projeto: Validação e Sincronização Automática Completa no Arranque (4 Fases)
     dados = executar_sincronizacao_arranque_completa(dados, caminho)

@@ -298,6 +298,12 @@ A experiência de execução manual do script [`Projeto Perfil.py`](file:///C:/w
 
 Sempre que [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil.py) é executado (manual ou automaticamente), corre antecipadamente uma validação e sincronização relacional em 4 fases antes da apresentação do menu departamental:
 
+Antes das quatro fases, o modo interativo verifica o campo `STATUS` das folhas
+`PFCG_CREATE`, `PFCG_COMPOSTA`, `CUA_ADICIONAR` e `CUA_REMOVE`. As folhas com linhas
+de `STATUS` vazio são apresentadas com a respetiva quantidade. Uma única confirmação
+`S/N` determina se os processos pendentes dessas folhas serão executados, pela ordem
+indicada, antes de continuar para o menu departamental.
+
 1. **[ARRANQUE 1/4] Catálogo Base (Proposta ➔ PFCG_CREATE ➔ PRD)**:
    - Valida todas as transações da folha `Proposta` na tabela `TSTC` do SAP PRD.
    - Garante que todas as funções individuais e pares `(AGR_NAME, TCODE)` estão presentes em `PFCG_CREATE` e no SAP PRD.
@@ -310,8 +316,8 @@ Sempre que [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil
 
 3. **[ARRANQUE 3/4] Proposta Ativa ➔ PFCG_COMPOSTA (Excel)**:
    - Reúne todas as funções componentes atribuídas aos utilizadores de cada Composite Role na folha `Proposta Ativa`.
-   - Valida a presença de cada associação na folha `PFCG_COMPOSTA`.
-   - Insere novos registos no fim da tabela com `ID` sequencial, `STATUS='Criado'`, `MSG='Atribuído em SAP DEV, PRD e QAD'`, `PRD='Validado'`.
+   - Reconcilia as associações da folha `PFCG_COMPOSTA`: acrescenta relações em falta e elimina relações que já não constam na `Proposta Ativa`.
+   - Em 12/09/2026, foram eliminadas 311 relações obsoletas; permaneceram 418 pares Composite Role/Função válidos, sem relações em falta.
 
 4. **[ARRANQUE 4/4] PFCG_COMPOSTA ➔ SAP PRD (AGR_AGRS via RFC)**:
    - Consulta a tabela `AGR_AGRS` no SAP PRD para as 24 Composite Roles.
@@ -375,3 +381,25 @@ Resultado:
 - `STATUS`, `MSG`, `TIMESTEMP` e `PRD` mantidos vazios.
 
 A atividade apenas preparou a fila no Excel. Nenhuma função foi removida no SAP.
+
+## 15. Processamento CUA_ADICIONAR em Lote por Utilizador
+
+O executor `CUA_ADICIONAR_WEB.py` agrupa as linhas pendentes por `UTILIZADOR` e
+`SISTEMA`. Para cada grupo, abre a `SU10` uma vez, insere todas as funções na grelha,
+grava uma vez e aplica o resultado a todas as respetivas linhas no Excel.
+
+## 16. Limpeza das Composite Roles no SAP PRD (12/09/2026)
+
+As 24 Composite Roles da folha `PFCG_COMPOSTA` foram comparadas individualmente com
+a tabela `AGR_AGRS` do SAP PRD. As associações existentes no PRD que já não constavam
+no ficheiro foram removidas pelo módulo padrão `PRGN_RFC_DEL_AGRS_IN_COLL_AGR`.
+
+- 24 Composite Roles analisadas e validadas;
+- 279 associações excedentes removidas;
+- 0 erros RFC;
+- segunda auditoria com 0 associações excedentes nas 24 Composite Roles;
+- quantidade e conjunto final de membros no PRD iguais ao ficheiro em todos os casos.
+
+No arranque interativo, antes do menu departamental, são apresentadas as quantidades
+de linhas com `STATUS` vazio em `PFCG_CREATE`, `PFCG_COMPOSTA`, `CUA_ADICIONAR` e
+`CUA_REMOVE`. Os processos somente são iniciados após confirmação explícita `S/N`.

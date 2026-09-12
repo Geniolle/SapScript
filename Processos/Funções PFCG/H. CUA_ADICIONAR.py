@@ -21,9 +21,17 @@
 ###################################################################################
 
 import os
+import sys
 import time
 import unicodedata
 from datetime import datetime
+
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 import pandas as pd
 import win32com.client
@@ -238,27 +246,53 @@ def ler_ficheiro(caminho_ficheiro, nome_sheet):
 
 def conectar_sap(sistema_desejado):
     try:
-        sap_gui_auto = win32com.client.GetObject("SAPGUI")
-        application = sap_gui_auto.GetScriptingEngine
+        try:
+            rot = win32com.client.Dispatch("SapROTWr.SapROTWrapper")
+            sap_gui_auto = rot.GetROTEntry("SAPGUI")
+        except Exception:
+            sap_gui_auto = None
+        if not sap_gui_auto:
+            try:
+                sap_gui_auto = win32com.client.GetObject("SAPGUI")
+            except Exception:
+                sap_gui_auto = None
 
-        for conn in application.Children:
-            for sess in conn.Children:
-                try:
-                    if texto_limpo(sess.Info.SystemName).upper() == sistema_desejado:
-                        print(
-                            f"✅ Conectado: {sess.Info.SystemName} "
-                            f"| User: {sess.Info.User} "
-                            f"| Cliente: {sess.Info.Client}"
-                        )
-                        return sess
-                except Exception:
-                    continue
+        if sap_gui_auto:
+            application = sap_gui_auto.GetScriptingEngine
+            for conn in application.Children:
+                for sess in conn.Children:
+                    try:
+                        if texto_limpo(sess.Info.SystemName).upper() == sistema_desejado:
+                            print(
+                                f"Conectado: {sess.Info.SystemName} "
+                                f"| User: {sess.Info.User} "
+                                f"| Cliente: {sess.Info.Client}"
+                            )
+                            return sess
+                    except Exception:
+                        continue
 
-        print(f"❌ Sessão SAP não encontrada para o sistema {sistema_desejado}.")
+        print(f"Sessao SAP nao encontrada para {sistema_desejado}. A tentar auto-login...")
+        try:
+            import sys
+            sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+            from sap_session import ensure_sap_access_from_env
+            sess = ensure_sap_access_from_env(key=sistema_desejado)
+            if sess:
+                print(
+                    f"Conectado via auto-login: {sess.Info.SystemName} "
+                    f"| User: {sess.Info.User} "
+                    f"| Cliente: {sess.Info.Client}"
+                )
+                return sess
+        except Exception as exc_login:
+            print(f"Falha no auto-login: {exc_login}")
+            return None
+
         return None
 
     except Exception as e:
-        print(f"❌ Erro ao conectar SAP GUI: {e}")
+        print(f"Erro ao conectar SAP GUI: {e}")
         return None
 
 
@@ -486,22 +520,23 @@ def montar_msg_final(eventos):
 # BLOCO 7: FILTRO DE LINHAS A PROCESSAR
 ###################################################################################
 
-def filtrar_pendentes(df):
+def filtrar_pendentes(df, utilizador_alvo=None):
     if df is None or df.empty:
         return pd.DataFrame()
 
     df2 = df.copy()
     df2["STATUS_NORM"] = df2["STATUS"].apply(normalizar_valor)
 
-    pend = df2[
-        (df2["CHAVE_ID"] != "") &
-        (df2["STATUS_NORM"] != "CONCLUIDO")
-    ].drop(columns=["STATUS_NORM"])
+    mask = (df2["CHAVE_ID"] != "") & (df2["STATUS_NORM"] != "CONCLUIDO")
+    if utilizador_alvo:
+        mask = mask & (df2["UTILIZADOR"].apply(normalizar_valor) == normalizar_valor(utilizador_alvo))
+
+    pend = df2[mask].drop(columns=["STATUS_NORM"])
 
     if pend.empty:
-        print("\n⚠️ Nenhuma linha com STATUS ≠ 'Concluído' foi encontrada.")
+        print(f"\nNenhuma linha com STATUS != 'Concluido' foi encontrada{' para ' + utilizador_alvo if utilizador_alvo else ''}.")
     else:
-        print("\n📋 Linhas a processar:")
+        print(f"\nLinhas a processar{' (' + utilizador_alvo + ')' if utilizador_alvo else ''}:")
         exibir = pend[["ID", "UTILIZADOR", "SISTEMA", "AGR_NAME"]].copy()
         for c in exibir.columns:
             exibir[c] = exibir[c].apply(texto_limpo)
@@ -807,11 +842,14 @@ def gravar_preservando_formatacao(caminho_ficheiro, nome_sheet, df_atualizado):
 # BLOCO 10: API PARA O COCKPIT
 ###################################################################################
 
-def executar(ambiente):
-    print(f"✅ Processo selecionado: {NOME_SCRIPT}")
-    print(f"📄 Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
+def executar(ambiente, caminho_ficheiro=None, utilizador=None):
+    print(f"Processo selecionado: {NOME_SCRIPT}")
+    print(f"Script atual: {NOME_SCRIPT} | Sheet alvo: '{NOME_SHEET}'")
 
-    caminho = selecionar_ficheiro_excel()
+    if caminho_ficheiro and os.path.exists(caminho_ficheiro):
+        caminho = caminho_ficheiro
+    else:
+        caminho = selecionar_ficheiro_excel()
     if not caminho:
         return False
 
@@ -822,20 +860,20 @@ def executar(ambiente):
 
     sistema_desejado = MAPA_SISTEMA.get(ambiente)
     if not sistema_desejado:
-        print(f"❌ Ambiente inválido: {ambiente}. Use: {', '.join(MAPA_SISTEMA.keys())}")
+        print(f"Ambiente invalido: {ambiente}. Use: {', '.join(MAPA_SISTEMA.keys())}")
         return False
 
     session = conectar_sap(sistema_desejado)
     if not session:
         return False
 
-    df_pend = filtrar_pendentes(df)
+    df_pend = filtrar_pendentes(df, utilizador_alvo=utilizador)
     if df_pend.empty:
         return True
 
     df_proc = atribuir_funcao_usuario(df_pend.copy(), session, sistema_desejado)
 
-    print("\n[Etapa 4] Gravação de Resultados")
+    print("\n[Etapa 4] Gravacao de Resultados")
     ok_save = gravar_preservando_formatacao(caminho, NOME_SHEET, df_proc)
     return ok_save
 
@@ -845,4 +883,6 @@ def executar(ambiente):
 ###################################################################################
 
 if __name__ == "__main__":
-    executar("CUA")
+    caminho_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    user_arg = sys.argv[2] if len(sys.argv) > 2 else None
+    executar("CUA", caminho_ficheiro=caminho_arg, utilizador=user_arg)
