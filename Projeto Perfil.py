@@ -1637,10 +1637,11 @@ def sincronizar_catalogo_proposta_pfcg_prd(dados: ProjetoPerfilData, auto_criar_
 
 def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData, caminho_excel: str) -> Dict[str, Any]:
     """
-    [ARRANQUE 2/4] Sincroniza as matrizes departamentais e DEFINIÇÕES com a folha 'Proposta Ativa'.
+    [ARRANQUE 2/4] Sincroniza as matrizes departamentais com a folha 'Proposta Ativa'.
     Analisa cada utilizador com Composite Role na folha 'Proposta Ativa', cruza as transações
-    marcadas com 'X' na matriz departamental com a folha 'Proposta', adiciona as funções
-    departamentais de 'DEFINIÇÕES' e atribui eventuais funções em falta nas próximas colunas livres.
+    marcadas com 'X' na matriz departamental com a folha 'Proposta' e atribui eventuais
+    funções em falta nas próximas colunas livres. A folha 'DEFINIÇÕES' não participa
+    deste preenchimento.
     """
     import pandas as pd
     from collections import defaultdict
@@ -1665,21 +1666,6 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                 tc = t.strip().upper()
                 if tc:
                     tcode_to_roles[tc].append(current_role)
-
-    # 2. DEFINIÇÕES: mapeamento departamento -> roles departamentais
-    df_def = pd.read_excel(excel_file, sheet_name="DEFINIÇÕES")
-    dep_to_def_roles = {}
-    for _, row in df_def.iterrows():
-        dep_nome = str(row["DEPARTAMENTO"]).strip()
-        roles_def = set()
-        for col in ["REGRA EMPRESA", "DEFAULT", "REGRA BP FUNCTION", "REGRA TYPE OF BUSINESS PARTNER"]:
-            val = str(row.get(col, "") or "")
-            if val and val.lower() != "nan":
-                for r in val.replace(",", " ").split():
-                    rc = r.strip().upper()
-                    if rc and rc.startswith("Z"):
-                        roles_def.add(rc)
-        dep_to_def_roles[dep_nome] = roles_def
 
     mapa_dep_sheet = {
         "CONSTRUCTION & MAINTENANCE": ("Construction & Maintenance", "Construction & Maintenance"),
@@ -1732,7 +1718,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
         sheet_info = mapa_dep_sheet.get(dep_norm)
         tcodes_marcados_user = []
         if sheet_info:
-            sheet_nome, def_dep_nome = sheet_info
+            sheet_nome, _ = sheet_info
             df_matriz = sheet_dfs.get(sheet_nome)
             if df_matriz is not None:
                 col_u_idx = None
@@ -1758,25 +1744,25 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
             for mr in tcode_to_roles.get(tc, []):
                 roles_transacoes.add(mr)
 
-        roles_definicoes = dep_to_def_roles.get(sheet_info[1], set()) if sheet_info else set()
-        roles_esperadas = roles_transacoes.union(roles_definicoes)
+        roles_esperadas = roles_transacoes
         roles_faltam = sorted(roles_esperadas - funcoes_existentes)
 
-        if roles_faltam:
+        if roles_esperadas != funcoes_existentes:
             users_em_falta.append({
                 "linha": idx + 2,
                 "user": u_val,
-                "roles_em_falta": roles_faltam
+                "roles_em_falta": roles_faltam,
+                "roles_esperadas": sorted(roles_esperadas),
             })
 
     backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
     alteracoes = 0
 
     if not users_em_falta:
-        print(f"  [2/4] Proposta Ativa: {total_users_avaliados}/{total_users_avaliados} utilizadores conformes com matrizes e DEFINICOES.")
+        print(f"  [2/4] Proposta Ativa: {total_users_avaliados}/{total_users_avaliados} utilizadores conformes com as matrizes departamentais.")
         return {"ok": True, "total_users": total_users_avaliados, "users_em_falta": 0, "funcoes_adicionadas": 0}
 
-    print(f"  DETETADAS FUNÇÕES EM FALTA EM {len(users_em_falta)} UTILIZADOR(ES) NA 'PROPOSTA ATIVA'...")
+    print(f"  DETETADAS LINHAS DESALINHADAS EM {len(users_em_falta)} UTILIZADOR(ES) NA 'PROPOSTA ATIVA'...")
     import openpyxl
     sucesso_com = False
     if sys.platform.startswith("win"):
@@ -1792,14 +1778,10 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                 ws = wb.Worksheets("Proposta Ativa")
                 for u_info in users_em_falta:
                     row_idx = u_info["linha"]
-                    last_col = 10
-                    for c in range(10, 100):
-                        val = ws.Cells(row_idx, c).Value
-                        if val and str(val).strip():
-                            last_col = c
-                    for i, role in enumerate(u_info["roles_em_falta"]):
-                        target_col = last_col + 1 + i
-                        ws.Cells(row_idx, target_col).Value = role
+                    last_col = max(10, ws.UsedRange.Columns.Count)
+                    ws.Range(ws.Cells(row_idx, 10), ws.Cells(row_idx, last_col)).ClearContents()
+                    for i, role in enumerate(u_info["roles_esperadas"]):
+                        ws.Cells(row_idx, 10 + i).Value = role
                         alteracoes += 1
                 wb.Save()
                 try:
@@ -1808,7 +1790,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                 except Exception:
                     pass
                 sucesso_com = True
-                print(f"  {alteracoes} nova(s) função(ões) atribuída(s) via Excel COM.")
+                print(f"  {alteracoes} função(ões) reescrita(s) via Excel COM.")
         except Exception:
             pass
 
@@ -1818,14 +1800,10 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
             ws = wb["Proposta Ativa"]
             for u_info in users_em_falta:
                 row_idx = u_info["linha"]
-                last_col = 10
                 for c in range(10, ws.max_column + 1):
-                    val = ws.cell(row_idx, c).value
-                    if val and str(val).strip():
-                        last_col = c
-                for i, role in enumerate(u_info["roles_em_falta"]):
-                    target_col = last_col + 1 + i
-                    ws.cell(row=row_idx, column=target_col, value=role)
+                    ws.cell(row_idx, c).value = None
+                for i, role in enumerate(u_info["roles_esperadas"]):
+                    ws.cell(row=row_idx, column=10 + i, value=role)
                     alteracoes += 1
             wb.save(caminho_excel)
             wb.close()
@@ -1834,7 +1812,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                     shutil.copy2(caminho_excel, str(backup_local))
             except Exception:
                 pass
-            print(f"  {alteracoes} nova(s) função(ões) atribuída(s) via openpyxl.")
+            print(f"  {alteracoes} função(ões) reescrita(s) via openpyxl.")
         except Exception as exc:
             print(f"  [ERRO] Erro ao gravar Proposta Ativa: {exc}")
 

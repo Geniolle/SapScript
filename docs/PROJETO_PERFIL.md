@@ -302,11 +302,11 @@ Sempre que [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil
    - Valida todas as transações da folha `Proposta` na tabela `TSTC` do SAP PRD.
    - Garante que todas as funções individuais e pares `(AGR_NAME, TCODE)` estão presentes em `PFCG_CREATE` e no SAP PRD.
 
-2. **[ARRANQUE 2/4] Matrizes Departamentais & DEFINIÇÕES ➔ Proposta Ativa**:
+2. **[ARRANQUE 2/4] Matrizes Departamentais ➔ Proposta Ativa**:
    - Analisa as folhas matriciais de departamento (`Construction & Maintenance`, `Industry Services`, `Purchase & Services`, `Client Services`, `P&T`, `H&S`, `Digital`, `Legal`).
    - Mapeia as transações marcadas com `X` por utilizador para as funções individuais correspondentes (`Proposta`).
-   - Agrega as regras departamentais da folha `DEFINIÇÕES` (`REGRA EMPRESA`, `DEFAULT`, `REGRA BP FUNCTION`, `REGRA TYPE OF BUSINESS PARTNER`).
-   - Identifica funções em falta e atribui-as automaticamente nas próximas colunas livres da folha `Proposta Ativa` (Excel COM/openpyxl).
+   - A folha `DEFINIÇÕES` não participa no preenchimento da `Proposta Ativa`.
+   - Reconcilia cada linha de forma exata: limpa as colunas de funções e reescreve somente as funções derivadas da respetiva matriz (Excel COM/openpyxl).
 
 3. **[ARRANQUE 3/4] Proposta Ativa ➔ PFCG_COMPOSTA (Excel)**:
    - Reúne todas as funções componentes atribuídas aos utilizadores de cada Composite Role na folha `Proposta Ativa`.
