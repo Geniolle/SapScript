@@ -6,7 +6,7 @@ Módulo de pesquisa, análise e leitura estruturada do ficheiro Excel
 de Perfis de Autorização e Funções SAP (PFCG / CUA).
 
 Funcionalidades:
-  - Localização automática do ficheiro Excel (sap_script_uploads ou diálogo)
+  - Localização automática do ficheiro Excel (sap_script_uploads ou diálogo)    
   - Identificação e consolidação inteligente de sheets:
       * PFCG_CREATE      (Roles simples, descrições e transações/TCODEs)
       * PFCG_COMPOSTA    (Roles compostas e associação com roles simples)
@@ -3372,37 +3372,78 @@ def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]
     return proximo_sugerido
 
 
-def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:
+def perguntar_modo_analise() -> str:
     """
-    Apresenta a listagem da folha CONTROLO e solicita ao utilizador indicar a linha a processar.
+    Pergunta ao utilizador se quer analisar por Departamento ou por Utilizador.
+    Devolve 'DEPARTAMENTO', 'UTILIZADOR', 'MENU_GERAL' ou 'SAIR'.
     """
-    sugerido = exibir_tabela_controlo(dados)
-    padrao_linha = str(sugerido["linha"]) if sugerido else ""
-    prompt_sugestao = f" [Enter para Linha {padrao_linha}]" if padrao_linha else ""
-
     while True:
-        entrada = input(f"\nIndique a LINHA do departamento que quer processar{prompt_sugestao} ('M' Menu Geral, '0' Sair): ").strip().upper()
+        entrada = input("\nDeseja analisar por [D]epartamento ou por [U]tilizador? [Enter para Departamento] ('M' Menu Geral, '0' Sair): ").strip().upper()
 
-        if entrada in ("0", "SAIR", "Q", "QUIT", "EXIT"):
-            return None
+        if not entrada or entrada in ("D", "DEPARTAMENTO"):
+            return "DEPARTAMENTO"
+
+        if entrada in ("U", "UTILIZADOR", "USUARIO", "USUÁRIO"):
+            return "UTILIZADOR"
 
         if entrada in ("M", "MENU", "GERAL"):
+            return "MENU_GERAL"
+
+        if entrada in ("0", "SAIR", "Q", "QUIT", "EXIT"):
+            return "SAIR"
+
+        print(f"[AVISO] Opção '{entrada}' inválida. Escolha 'D', 'U', 'M' ou '0'.")
+
+
+def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:
+    """
+    Pergunta se a análise é por departamento ou por utilizador. Se for por utilizador,
+    executa a auditoria diretamente e volta a perguntar. Se for por departamento,
+    apresenta a listagem da folha CONTROLO e solicita ao utilizador indicar a linha a processar.
+    """
+    while True:
+        modo = perguntar_modo_analise()
+
+        if modo == "SAIR":
+            return None
+
+        if modo == "MENU_GERAL":
             return {"tipo": "MENU_GERAL"}
 
-        if not entrada and padrao_linha:
-            entrada = padrao_linha
+        if modo == "UTILIZADOR":
+            user = input("Digite o utilizador SAP (ex.: S6005, S170): ").strip()
+            if user:
+                imprimir_auditoria_utilizador(auditar_utilizador(dados, user))
+            continue
 
-        # Busca por número de linha
-        item_match = next((c for c in dados.controlo if str(c.get("linha")) == entrada), None)
-        if item_match:
-            return item_match
+        # modo == "DEPARTAMENTO"
+        sugerido = exibir_tabela_controlo(dados)
+        padrao_linha = str(sugerido["linha"]) if sugerido else ""
+        prompt_sugestao = f" [Enter para Linha {padrao_linha}]" if padrao_linha else ""
 
-        # Busca alternativa por nome de departamento
-        item_por_nome = next((c for c in dados.controlo if entrada in c.get("departamento", "").upper()), None)
-        if item_por_nome:
-            return item_por_nome
+        while True:
+            entrada = input(f"\nIndique a LINHA do departamento que quer processar{prompt_sugestao} ('M' Menu Geral, '0' Sair): ").strip().upper()
 
-        print(f"[AVISO] Linha ou departamento '{entrada}' não encontrado na folha CONTROLO. Escolha uma das linhas listadas.")
+            if entrada in ("0", "SAIR", "Q", "QUIT", "EXIT"):
+                return None
+
+            if entrada in ("M", "MENU", "GERAL"):
+                return {"tipo": "MENU_GERAL"}
+
+            if not entrada and padrao_linha:
+                entrada = padrao_linha
+
+            # Busca por número de linha
+            item_match = next((c for c in dados.controlo if str(c.get("linha")) == entrada), None)
+            if item_match:
+                return item_match
+
+            # Busca alternativa por nome de departamento
+            item_por_nome = next((c for c in dados.controlo if entrada in c.get("departamento", "").upper()), None)
+            if item_por_nome:
+                return item_por_nome
+
+            print(f"[AVISO] Linha ou departamento '{entrada}' não encontrado na folha CONTROLO. Escolha uma das linhas listadas.")
 
 
 def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Dict[str, Any]):
