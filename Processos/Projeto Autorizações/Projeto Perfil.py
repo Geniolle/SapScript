@@ -6,7 +6,7 @@ Módulo de pesquisa, análise e leitura estruturada do ficheiro Excel
 de Perfis de Autorização e Funções SAP (PFCG / CUA).
 
 Funcionalidades:
-  - Localização automática do ficheiro Excel (sap_script_uploads ou diálogo)    
+  - Utilização exclusiva do ficheiro Excel mestre local configurado no código
   - Identificação e consolidação inteligente de sheets:
       * PFCG_CREATE      (Roles simples, descrições e transações/TCODEs)
       * PFCG_COMPOSTA    (Roles compostas e associação com roles simples)
@@ -42,8 +42,8 @@ if sys.platform.startswith("win"):
 try:
     import pandas
 except ImportError:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_python = os.path.join(base_dir, ".venv-rfc", "Scripts", "python.exe")
+    project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    venv_python = os.path.join(project_root_dir, ".venv-rfc", "Scripts", "python.exe")
     if os.path.exists(venv_python) and sys.executable.lower() != venv_python.lower():
         import subprocess
         res = subprocess.run([venv_python, os.path.abspath(__file__)] + sys.argv[1:])
@@ -91,10 +91,29 @@ def limpar_tcode(tcode_raw: Any) -> List[str]:
     return resultado
 
 
-# Carregar variáveis de ambiente do .env
+def is_role_sap_valida(role_raw: Any) -> bool:
+    """Valida nomes técnicos de roles SAP do projeto, evitando descrições/cargos."""
+    role = normalizar_texto(role_raw)
+    return role.startswith("Z") and len(role) >= 4
+
+
+def extrair_roles_sap(valor_raw: Any) -> List[str]:
+    """Extrai roles SAP de uma célula, aceitando listas separadas por vírgula, ponto-e-vírgula ou quebra de linha."""
+    if valor_raw is None:
+        return []
+    texto = str(valor_raw).replace("\r", "\n").replace("\t", " ")
+    roles = []
+    for parte in re.split(r"[,;\n]+", texto):
+        role = normalizar_texto(parte)
+        if is_role_sap_valida(role) and role not in roles:
+            roles.append(role)
+    return roles
+
+
+# Carregar variáveis de ambiente do .env (raiz do projeto SapScript)
 try:
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env"))
 except ImportError:
     pass
 
@@ -103,53 +122,14 @@ except ImportError:
 # LOCALIZAÇÃO DO FICHEIRO EXCEL
 # =====================================================================
 
+CAMINHO_EXCEL_LOCAL = str(Path(__file__).resolve().parents[2] / "S4H_Perfis de autorização_v1.xlsx")
+CAMINHO_EXCEL_BACKUP_LOCAL = str(Path(__file__).resolve().parents[2] / "output" / "S4H_Perfis de autorização_v1_backup_automatico.xlsx")
+
+
 def encontrar_excel_padrao(diretorio_base: Optional[str] = None) -> Optional[str]:
-    """
-    Procura automaticamente pelo ficheiro Excel de perfis:
-      1. Caminho configurado no .env (SHAREPOINT_PERFIS_FILE ou SHAREPOINT_PERFIS_LOCAL_DIR)
-      2. Pasta sap_script_uploads ou diretório base
-    """
-    if not diretorio_base:
-        diretorio_base = os.path.dirname(os.path.abspath(__file__))
-
-    # 1. Verificar ficheiro direto configurado no .env
-    sp_file = os.getenv("SHAREPOINT_PERFIS_FILE", "").strip()
-    if sp_file and os.path.isfile(sp_file):
-        return sp_file
-
-    pastas_busca = []
-    # 2. Verificar pasta sincronizada do SharePoint no .env
-    sp_dir = os.getenv("SHAREPOINT_PERFIS_LOCAL_DIR", "").strip()
-    if sp_dir and os.path.isdir(sp_dir):
-        pastas_busca.append(sp_dir)
-
-    pastas_busca.extend([
-        os.path.join(diretorio_base, "sap_script_uploads"),
-        diretorio_base,
-        os.path.join(diretorio_base, "Processos", "Funções PFCG"),
-    ])
-
-    candidatos = []
-    for pasta in pastas_busca:
-        if not os.path.isdir(pasta):
-            continue
-        for padrao in ("*Perfis*.xlsx", "*PERFIS*.xlsx", "*Role*.xlsx", "*.xlsx"):
-            for f in glob.glob(os.path.join(pasta, padrao)):
-                # Ignora ficheiros temporários do Excel
-                if os.path.basename(f).startswith("~$"):
-                    continue
-                try:
-                    mtime = os.path.getmtime(f)
-                    candidatos.append((mtime, f))
-                except OSError:
-                    continue
-
-    if not candidatos:
-        return None
-
-    # Ordenar pelo mais recente
-    candidatos.sort(key=lambda x: x[0], reverse=True)
-    return candidatos[0][1]
+    """Devolve exclusivamente o ficheiro mestre local definido para o projeto."""
+    del diretorio_base  # compatibilidade com chamadas antigas; não é usado.
+    return CAMINHO_EXCEL_LOCAL if os.path.isfile(CAMINHO_EXCEL_LOCAL) else None
 
 
 def selecionar_ficheiro_dialogo(titulo: str = "Selecione o ficheiro Excel de Perfis SAP") -> Optional[str]:
@@ -212,6 +192,9 @@ class ProjetoPerfilData:
         # Sheet EXCLUÇÃO: padrões globais a desconsiderar (ex.: ZMM_APROVA_PEDC_COD_*, Z_MY_HOME)
         self.padroes_exclusao: List[str] = []
 
+        # Sheet DEFINIÇÕES: roles base por departamento {DEPARTAMENTO: set(roles)}
+        self.definicoes_departamento: Dict[str, Set[str]] = {}
+
     def is_excluida(self, role: str) -> bool:
         """Verifica se uma role corresponde a algum padrão da sheet EXCLUÇÃO."""
         import fnmatch
@@ -223,13 +206,15 @@ class ProjetoPerfilData:
         Expande recursivamente um conjunto de roles respeitando:
         - Filhas em PFCG_COMPOSTA
         - Avulsas em PFCG_AUTHORITY
-        - Desconsiderando as que coincidem com EXCLUÇÃO
+
+        A folha EXCLUÇÃO não participa da expansão nem da atribuição de funções;
+        ela é reservada exclusivamente ao processo CUA_REMOVE.
         """
         expandidas: Set[str] = set()
         pendentes = [str(r).strip().upper() for r in roles if str(r).strip()]
         while pendentes:
             role = pendentes.pop()
-            if not role or role in expandidas or self.is_excluida(role):
+            if not role or role in expandidas:
                 continue
             expandidas.add(role)
             membros = set(self.roles_compostas.get(role, {}).get("roles_filhas", []))
@@ -350,7 +335,9 @@ def carregar_projeto_perfil(caminho_excel: Optional[str] = None) -> ProjetoPerfi
                     ts = ""
 
                 # Regra oficial: o departamento a avançar é aquele com STATUS e TIMESTAMP vazios
-                is_pendente = (not bool(st)) and (not bool(ts))
+                # A fila operacional é controlada exclusivamente por STATUS.
+                # Um timestamp residual não deve ocultar um departamento por processar.
+                is_pendente = not bool(st)
 
                 dados.controlo.append({
                     "linha": idx + 2,
@@ -543,6 +530,26 @@ def carregar_projeto_perfil(caminho_excel: Optional[str] = None) -> ProjetoPerfi
                 if normalizar_texto(v)
             ]
 
+    # -------------------------------------------------------------
+    # 7. Leitura de DEFINIÇÕES (roles base por departamento)
+    # -------------------------------------------------------------
+    sheet_def = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) in ("DEFINICOES", "DEFINICOES")), None)
+    if sheet_def:
+        df_def = pd.read_excel(excel_file, sheet_name=sheet_def)
+        cols_map = {normalizar_nome_coluna(c): c for c in df_def.columns}
+        col_dep = cols_map.get("DEPARTAMENTO")
+        if col_dep:
+            for _, row in df_def.iterrows():
+                dep = normalizar_texto(row.get(col_dep))
+                if not dep:
+                    continue
+                roles_dep = dados.definicoes_departamento.setdefault(dep, set())
+                for col in df_def.columns:
+                    if col == col_dep:
+                        continue
+                    for role in extrair_roles_sap(row.get(col)):
+                        roles_dep.add(role)
+
     return dados
 
 
@@ -718,8 +725,8 @@ def analisar_departamento_proposta(dados: ProjetoPerfilData, departamento: str =
                 compostas.add(comp)
 
             user_singles = [
-                str(x).strip() for x in df_raw.iloc[idx, 9:].dropna().tolist()
-                if str(x).strip() and str(x).strip().upper() not in ("NAN", "NONE", "")
+                normalizar_texto(x) for x in df_raw.iloc[idx, 9:].dropna().tolist()
+                if is_role_sap_valida(x)
             ]
             for s in user_singles:
                 singles_counter[s] += 1
@@ -1148,7 +1155,7 @@ def marcar_tcodes_inexistentes_sheet_proposta(caminho_excel: Optional[str], tcod
                 if alterados:
                     wb.Save()
                     try:
-                        backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                        backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
                         if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
                             wb.SaveCopyAs(str(backup_local))
                     except Exception:
@@ -1178,7 +1185,7 @@ def marcar_tcodes_inexistentes_sheet_proposta(caminho_excel: Optional[str], tcod
             if alterados:
                 wb.save(caminho_excel)
                 try:
-                    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                    backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
                     if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
                         import shutil
                         shutil.copy2(caminho_excel, str(backup_local))
@@ -1394,7 +1401,7 @@ def adicionar_linhas_pfcg_create(caminho_excel: Optional[str], novas_linhas: Lis
 
                 wb.Save()
                 try:
-                    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                    backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
                     if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
                         wb.SaveCopyAs(str(backup_local))
                 except Exception:
@@ -1427,7 +1434,7 @@ def adicionar_linhas_pfcg_create(caminho_excel: Optional[str], novas_linhas: Lis
 
             wb.save(caminho_excel)
             try:
-                backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
                 if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
                     import shutil
                     shutil.copy2(caminho_excel, str(backup_local))
@@ -1755,7 +1762,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                 "roles_esperadas": sorted(roles_esperadas),
             })
 
-    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+    backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
     alteracoes = 0
 
     if not users_em_falta:
@@ -1909,7 +1916,7 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
                     "PRD": "Validado"
                 })
 
-    backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+    backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
 
     if not novas_linhas and not linhas_obsoletas:
         print(f"  [3/4] PFCG_COMPOSTA: {len(composta_roles)}/{len(composta_roles)} Composite Roles alinhadas no Excel ({len(df_comp)} registos).")
@@ -2210,11 +2217,12 @@ def comparar_funcoes_catalogo_prd(dados: ProjetoPerfilData) -> Dict[str, Any]:
 
     dif_total_bruto = set_roles_prd - roles_excel
     dif_z_bruto = roles_z_prd - roles_excel
-    dif_total_sem_exclusao = {r for r in dif_total_bruto if not dados.is_excluida(r)}
-    dif_z_sem_exclusao = {r for r in dif_z_bruto if not dados.is_excluida(r)}
+    # EXCLUÇÃO é aplicada somente ao processo CUA_REMOVE.
+    dif_total_sem_exclusao = set(dif_total_bruto)
+    dif_z_sem_exclusao = set(dif_z_bruto)
 
     dif_atrib_bruto = roles_atribuidas_prd - roles_excel
-    dif_atrib_sem_exclusao = {r for r in dif_atrib_bruto if not dados.is_excluida(r)}
+    dif_atrib_sem_exclusao = set(dif_atrib_bruto)
 
     z_org = sorted([r for r in dif_z_sem_exclusao if r.startswith("ZORG_")])
     z_br = sorted([r for r in dif_z_sem_exclusao if r.startswith("Z_BR_")])
@@ -2319,12 +2327,14 @@ def cruzar_fontes_departamento(dados: ProjetoPerfilData, departamento: str = "Pu
         usr = u["usuario"]
         comp = u.get("composta")
         singles_prop = [r for r in u.get("singles", []) if r]
+        definicoes_dep = dados.definicoes_departamento.get(normalizar_texto(departamento), set())
 
         # Base inicial: Composta (se houver) + Singles da Proposta Ativa
         base_set = set()
         if comp:
             base_set.add(comp)
         base_set.update(singles_prop)
+        base_set.update(definicoes_dep)
 
         # Membros PFCG_COMPOSTA
         membros_comp = set(dados.roles_compostas.get(comp, {}).get("roles_filhas", [])) if comp else set()
@@ -2335,7 +2345,7 @@ def cruzar_fontes_departamento(dados: ProjetoPerfilData, departamento: str = "Pu
         esperado_expandido = dados.expandir_funcoes(base_set)
 
         # Identificar exclusões presentes na proposta original
-        excluidas_na_proposta = [r for r in base_set if dados.is_excluida(r)]
+        excluidas_na_proposta = []  # EXCLUÇÃO é exclusiva de CUA_REMOVE.
 
         usuarios_detalhe.append({
             "usuario": usr,
@@ -2343,6 +2353,8 @@ def cruzar_fontes_departamento(dados: ProjetoPerfilData, departamento: str = "Pu
             "cargo": u["cargo"],
             "composta": comp,
             "singles_proposta_total": len(singles_prop),
+            "definicoes_total": len(definicoes_dep),
+            "definicoes_roles": sorted(definicoes_dep),
             "membros_composta_total": len(membros_comp),
             "authority_composta_total": len(authority_comp),
             "membros_composta": sorted(membros_comp),
@@ -2486,7 +2498,7 @@ def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purc
             atv = ativas_prd[uname]
             faltam = sorted(esp - atv)
             adicionais_brutas = sorted(atv - esp)
-            desconsideradas = sorted([r for r in adicionais_brutas if dados.is_excluida(r)])
+            desconsideradas = []  # EXCLUÇÃO é exclusiva de CUA_REMOVE.
             adicionais_reais = sorted(set(adicionais_brutas) - set(desconsideradas))
 
             # Validação relacional: Quais das adicionais reais constam no catálogo criado?
@@ -2553,7 +2565,7 @@ def adicionar_funcao_proposta_ativa(
     Acrescenta uma função à linha de um utilizador na folha 'Proposta Ativa'.
     Tenta primeiro via interface COM do Excel (se estiver aberto pelo utilizador);
     caso contrário, utiliza openpyxl para gravação direta no ficheiro.
-    Atualiza também a cópia local em sap_script_uploads (se existir).
+    Atualiza também a cópia de segurança local configurada (se aplicável).
     """
     if not caminho_excel:
         caminho_excel = encontrar_excel_padrao()
@@ -2608,7 +2620,7 @@ def adicionar_funcao_proposta_ativa(
                             coluna_afetada = col_livre
                             wb.Save()
                             try:
-                                backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                                backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
                                 if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
                                     wb.SaveCopyAs(str(backup_local))
                             except Exception:
@@ -2658,7 +2670,7 @@ def adicionar_funcao_proposta_ativa(
 
                         # Gravar cópia local de backup se existir
                         try:
-                            backup_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                            backup_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
                             if backup_local.exists() and str(backup_local.resolve()).lower() != os.path.abspath(caminho_excel).lower():
                                 import shutil
                                 shutil.copy2(caminho_excel, str(backup_local))
@@ -3015,7 +3027,7 @@ def auditar_utilizador(dados: ProjetoPerfilData, utilizador: str) -> Dict[str, A
 
     faltam = sorted(esperadas - ativas_prd) if esperadas else []
     adicionais_brutas = sorted(ativas_prd - esperadas) if esperadas else sorted(ativas_prd)
-    desconsideradas = sorted([r for r in adicionais_brutas if dados.is_excluida(r)])
+    desconsideradas = []  # EXCLUÇÃO é exclusiva de CUA_REMOVE.
     adicionais_reais = sorted(set(adicionais_brutas) - set(desconsideradas))
 
     return {
@@ -3111,13 +3123,10 @@ def imprimir_auditoria_utilizador(res: Dict[str, Any]):
 # =====================================================================
 
 def imprimir_cabecalho(ficheiro: str):
-    sp_url = os.getenv("SHAREPOINT_PERFIS_URL", "")
     print("\n" + "=" * 75)
     print("  PROJETO PERFIL - Leitor e Pesquisador de Funções SAP (PFCG / CUA)")
     print(f"  Ficheiro:          {os.path.basename(ficheiro)}")
     print(f"  Caminho Local:     {ficheiro}")
-    if sp_url:
-        print(f"  SharePoint:        {sp_url}")
     print("=" * 75)
 
 
@@ -3132,10 +3141,10 @@ def imprimir_validacao_controlo(dados: ProjetoPerfilData):
 
     pendentes = [d for d in dados.controlo if d.get("pendente")]
     print(f"  Total de departamentos registados: {len(dados.controlo)}")
-    print(f"  Departamentos pendentes (STATUS e TIMESTAMP vazios): {len(pendentes)}")
+    print(f"  Departamentos pendentes (STATUS vazio): {len(pendentes)}")
     print("-" * 75)
     for c in dados.controlo:
-        status_tag = "PENDENTE (STATUS E TIMESTAMP VAZIOS)" if c["pendente"] else f"{c['status']}"
+        status_tag = "PENDENTE (STATUS VAZIO)" if c["pendente"] else f"{c['status']}"
         ts_info = f" | {c['timestamp']}" if c.get("timestamp") else ""
         print(f"  Linha {c['linha']}: {c['departamento']:<30} -> {status_tag}{ts_info}")
 
@@ -3146,13 +3155,13 @@ def imprimir_validacao_controlo(dados: ProjetoPerfilData):
         item_prox = next((p for p in pendentes if p["departamento"] == proximo), {})
         tem_sheet = proximo in dados.sheets_disponiveis
         sheet_info = f"[Sheet correspondente '{proximo}' EXISTE no Excel]" if tem_sheet else "[Sheet correspondente não encontrada]"
-        print(f"     Linha {item_prox.get('linha')}: STATUS e TIMESTAMP estão vazios! {sheet_info}")
+        print(f"     Linha {item_prox.get('linha')}: STATUS está vazio! {sheet_info}")
         if len(pendentes) > 1:
             print("\n  Demais departamentos pendentes:")
             for p in pendentes[1:]:
                 print(f"     - '{p['departamento']}' (Linha {p['linha']})")
     else:
-        print("  Todos os departamentos na sheet CONTROLO já possuem STATUS e TIMESTAMP preenchidos.")
+        print("  Todos os departamentos na sheet CONTROLO já possuem STATUS preenchido.")
 
 
 def imprimir_resumo(dados: ProjetoPerfilData):
@@ -3285,7 +3294,7 @@ def executar_processos_pendentes(caminho_excel: str, pendencias: Dict[str, int])
     """Executa, na ordem operacional, somente as folhas que possuem STATUS vazio."""
     import importlib.util
 
-    pasta = Path(__file__).resolve().parent / "Processos" / "Funções PFCG"
+    pasta = Path(__file__).resolve().parents[2] / "Processos" / "Funções PFCG"
 
     def carregar(nome_modulo: str, nome_ficheiro: str):
         spec = importlib.util.spec_from_file_location(nome_modulo, pasta / nome_ficheiro)
@@ -3446,7 +3455,11 @@ def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dic
             print(f"[AVISO] Linha ou departamento '{entrada}' não encontrado na folha CONTROLO. Escolha uma das linhas listadas.")
 
 
-def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Dict[str, Any]):
+def sincronizar_departamento_cua_completo(
+    dados: ProjetoPerfilData,
+    item_dep: Dict[str, Any],
+    confirmar_execucao: bool = True,
+) -> bool:
     """
     Executa o fluxo completo de sincronização no SAP CUA para o departamento selecionado:
       1. Remoção de S4DCLNT100
@@ -3454,7 +3467,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
       3. Remoção de funções obsoletas em S4QCLNT100
       4. Replicação das funções ativas de S4PCLNT100 para S4QCLNT100
       5. Auditoria em tempo real (P == Q)
-      6. Atualização de CUA_REMOVE, CUA_ADICIONAR e CONTROLO (SharePoint COM e local)
+      6. Atualização de CUA_REMOVE, CUA_ADICIONAR e CONTROLO no ficheiro local
     """
     dep_nome = item_dep["departamento"]
     linha_excel = item_dep.get("linha", 0)
@@ -3462,12 +3475,12 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
     analise = analisar_departamento_proposta(dados, dep_nome)
     if not analise.get("encontrado"):
         print(f"[ERRO] Não foi possível carregar os utilizadores do departamento '{dep_nome}'.")
-        return
+        return False
 
     users = [u["usuario"] for u in analise.get("usuarios", []) if u.get("usuario")]
     if not users:
         print(f"[ERRO] Nenhum utilizador encontrado para '{dep_nome}'.")
-        return
+        return False
 
     print(f"\n" + "=" * 75)
     print(f"  INICIAR SINCRONIZAÇÃO CUA: {dep_nome.upper()} ({len(users)} Utilizadores)")
@@ -3482,13 +3495,15 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
     print("    6. Gravação oficial em CUA_REMOVE, CUA_ADICIONAR e CONTROLO")
     print("-" * 75)
 
-    confirma = input("Confirma a execução imediata no SAP CUA? (S/N): ").strip().upper()
-    if confirma not in ("S", "SIM", "Y", "YES"):
-        print("[EXPIRADO] Operação cancelada pelo utilizador.")
-        return
+    if confirmar_execucao:
+        confirma = input("Confirma a execução imediata no SAP CUA? (S/N): ").strip().upper()
+        if confirma not in ("S", "SIM", "Y", "YES"):
+            print("[EXPIRADO] Operação cancelada pelo utilizador.")
+            return False
 
     import threading
     erro_execucao = []
+    execucao_concluida = []
 
     def worker_sync():
         try:
@@ -3512,6 +3527,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
 
             roles_removidas = []
             roles_adicionadas = []
+            auditorias_invalidas = []
 
             for u in users:
                 print(f"\n  A processar utilizador: {u} ...")
@@ -3709,6 +3725,13 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                 q_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")}
                 sess_ok = (p_finais == q_finais)
                 print(f"     Auditoria {u}: P={len(p_finais)} | Q={len(q_finais)} -> MATCH EXATO: {sess_ok}")
+                if not sess_ok:
+                    auditorias_invalidas.append(u)
+
+            if auditorias_invalidas:
+                raise RuntimeError(
+                    "Auditoria P == Q falhou para: " + ", ".join(auditorias_invalidas)
+                )
 
             session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
             session.findById("wnd[0]").sendVKey(0)
@@ -3718,7 +3741,7 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
             xl = win32com.client.Dispatch("Excel.Application")
             wb = None
             for w in xl.Workbooks:
-                if "S4H_Perfis de autorização.xlsx" in w.Name or "perfis" in w.Name.lower():
+                if Path(w.FullName).resolve() == Path(dados.caminho).resolve():
                     wb = w
                     break
 
@@ -3769,15 +3792,21 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
                         break
                 wb.Save()
                 try:
-                    caminho_local = Path(r"C:\workspace\SapScript\sap_script_uploads\S4H_Perfis de autorização.xlsx")
+                    caminho_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
                     wb.SaveCopyAs(str(caminho_local))
                 except:
                     pass
                 print("  Excel guardado com sucesso!")
+            else:
+                raise RuntimeError(
+                    f"O ficheiro local {os.path.basename(dados.caminho)} não está aberto no Excel; "
+                    "o STATUS não foi atualizado."
+                )
 
             item_dep["status"] = "PROCESSADO"
             item_dep["timestamp"] = timestamp_str
             item_dep["pendente"] = False
+            execucao_concluida.append(True)
             print(f"\nSincronização do departamento '{dep_nome}' concluída com sucesso!")
 
         except Exception as exc:
@@ -3787,6 +3816,58 @@ def sincronizar_departamento_cua_completo(dados: ProjetoPerfilData, item_dep: Di
     t = threading.Thread(target=worker_sync)
     t.start()
     t.join()
+    return bool(execucao_concluida) and not erro_execucao
+
+
+def obter_departamentos_pendentes(dados: ProjetoPerfilData) -> List[Dict[str, Any]]:
+    """Devolve a fila da CONTROLO com STATUS vazio, respeitando a ordem das linhas."""
+    return sorted(
+        (item for item in dados.controlo if item.get("pendente")),
+        key=lambda item: int(item.get("linha") or 0),
+    )
+
+
+def processar_departamentos_pendentes_em_sequencia(dados: ProjetoPerfilData) -> bool:
+    """
+    Processa, pela ordem da CONTROLO, todos os departamentos cujo STATUS está vazio.
+
+    A confirmação SAP é única para toda a fila. Cada departamento só recebe o estado
+    PROCESSADO depois de concluir todas as etapas e a auditoria P == Q. A fila para
+    imediatamente se um departamento falhar, preservando os seguintes como pendentes.
+    """
+    fila = obter_departamentos_pendentes(dados)
+    exibir_tabela_controlo(dados)
+    if not fila:
+        return False
+
+    print("\nFILA SEQUENCIAL DE DEPARTAMENTOS PENDENTES:")
+    for posicao, item in enumerate(fila, 1):
+        print(f"  {posicao}. Linha {item.get('linha')}: {item.get('departamento')}")
+
+    resposta = input(
+        f"Executar agora a sequência CUA completa dos {len(fila)} departamento(s), "
+        "pela ordem apresentada? (S/N): "
+    ).strip().upper()
+    if resposta not in ("S", "SIM", "Y", "YES"):
+        print("Fila departamental não executada.")
+        return False
+
+    for posicao, item in enumerate(fila, 1):
+        print(
+            f"\n[DEPARTAMENTO {posicao}/{len(fila)}] "
+            f"{item.get('departamento')} — linha {item.get('linha')}"
+        )
+        if not sincronizar_departamento_cua_completo(
+            dados, item, confirmar_execucao=False
+        ):
+            print(
+                f"[ERRO] A fila foi interrompida em '{item.get('departamento')}'. "
+                "Os departamentos seguintes permanecem pendentes."
+            )
+            return False
+
+    print("\nTodos os departamentos pendentes concluíram a sequência completa.")
+    return True
 
 
 def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any]) -> str:
@@ -3985,11 +4066,8 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
     caminho = caminho_inicial or encontrar_excel_padrao()
 
     if not caminho or not os.path.exists(caminho):
-        print("Nenhum ficheiro Excel detectado automaticamente.")
-        caminho = selecionar_ficheiro_dialogo()
-        if not caminho:
-            print("[ERRO] Operação cancelada. Saindo.")
-            return
+        print("[ERRO] Ficheiro Excel não selecionado ou não encontrado. Saindo.")
+        return
 
     try:
         print(f"A carregar ficheiro Excel: {os.path.basename(caminho)} ...")
@@ -3997,6 +4075,11 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
     except Exception as e:
         print(f"[ERRO] Erro ao ler Excel: {e}")
         return
+
+    # A CONTROLO é a primeira validação funcional. Havendo vários STATUS vazios,
+    # forma uma única fila e processa os departamentos pela ordem das linhas.
+    if processar_departamentos_pendentes_em_sequencia(dados):
+        dados = carregar_projeto_perfil(caminho)
 
     if verificar_e_perguntar_pendencias(caminho):
         dados = carregar_projeto_perfil(caminho)
@@ -4151,4 +4234,4 @@ if __name__ == "__main__":
 
     else:
         # Modo interativo padrão
-        menu_interativo(caminho_alvo)
+        menu_interativo(args.ficheiro)

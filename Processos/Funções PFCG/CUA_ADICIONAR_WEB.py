@@ -9,6 +9,13 @@
 ###################################################################################
 # PROCESSO: Adicionar Função SU01/SU10  (sheet = nome do .py SEM o prefixo)
 # Ex.: "H. CUA_ADICIONAR.py"  →  Sheet "CUA_ADICIONAR"
+
+import sys
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 #
 # ESTRUTURA ESPERADA DA SHEET:
 # ID | UTILIZADOR | SISTEMA | AGR_NAME | STATUS | MSG | TIMESTEMP
@@ -700,6 +707,9 @@ def atribuir_funcao_usuario(df_filtrado, session, sistema_desejado, pular_confir
             # 7) Decide resultado final
             status_final = decidir_status_pelo_historico(eventos_status)
             msg_final = montar_msg_final(eventos_status)
+            if status_final == "ERRO" and msg_final == "Sem mensagem relevante do SAP":
+                status_final = "AVISO"
+                msg_final = "Save executado no SAP, mas sem confirmação na status bar; requer validação RFC/visual."
 
             for idx in indices:
                 marcar_resultado(df_filtrado, idx, status_final, msg_final)
@@ -843,6 +853,7 @@ def _df_individual(utilizador, agr_name, subsystem):
     import pandas as pd
     return pd.DataFrame([{
         "ID": "1",
+        "CHAVE_ID": "1",
         "UTILIZADOR": str(utilizador or "").strip().upper(),
         "SISTEMA": str(subsystem or "").strip().upper(),
         "AGR_NAME": str(agr_name or "").strip().upper(),

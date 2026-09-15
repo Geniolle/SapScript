@@ -3,11 +3,25 @@
 ## 1. Visão Geral
 O script `Projeto Perfil.py` foi criado para consolidar, analisar e pesquisar perfis de autorização SAP (PFCG) e atribuições no CUA a partir de folhas de cálculo Excel.
 
-## 2. Integração com SharePoint e OneDrive
-O script conecta-se diretamente ao repositório corporativo no SharePoint via sincronização local do OneDrive (configurada no `.env`):
-- `SHAREPOINT_PERFIS_URL`: URL oficial da pasta no SharePoint (`006. Perfis Autorização`).
-- `SHAREPOINT_PERFIS_LOCAL_DIR`: Caminho da pasta sincronizada localmente no Windows via OneDrive.
-- `SHAREPOINT_PERFIS_FILE`: Caminho completo do ficheiro mestre `S4H_Perfis de autorização.xlsx`.
+## 2. Ficheiro mestre local
+
+Desde 15/09/2026, o script não procura nem seleciona automaticamente o ficheiro do
+SharePoint e ignora as variáveis `SHAREPOINT_PERFIS_*` para a resolução do Excel.
+O ficheiro mestre padrão passou a ficar na raiz do projeto para reduzir a latência
+de leitura/gravação face ao OneDrive:
+
+```text
+C:\workspace\SapScript\S4H_Perfis de autorização_v1.xlsx
+```
+
+As rotinas que produzem uma cópia automática usam:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis de autorização_v1_backup_automatico.xlsx
+```
+
+O argumento explícito `--xlsx` continua disponível para testes controlados, mas o
+modo normal usa diretamente o ficheiro `_v1` da raiz do projeto.
 
 ### Leitura Concorrente (Sem Bloqueio do Excel)
 Graças à função `abrir_excel_seguro`, o script abre o ficheiro utilizando a API do Windows (`win32file.CreateFile`) com as flags `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`. Isso permite executar pesquisas e análises mesmo enquanto o ficheiro estiver aberto e em edição no Microsoft Excel.
@@ -20,7 +34,7 @@ Graças à função `abrir_excel_seguro`, o script abre o ficheiro utilizando a 
 - Verifica se existe a sheet correspondente com o detalhe das transações do departamento.
 - Comando:
   ```powershell
-  python "Projeto Perfil.py" --controlo
+  python "Processos\Projeto Autorizações\Projeto Perfil.py" --controlo
   ```
 
 ### Etapa 2: Sheet `Proposta Ativa`
@@ -31,25 +45,25 @@ Graças à função `abrir_excel_seguro`, o script abre o ficheiro utilizando a 
   - Funções Individuais (Single Roles) associadas aos utilizadores, com contagem de frequência de atribuição.
 - Comando:
   ```powershell
-  python "Projeto Perfil.py" --departamento "Purchase & Services"
+  python "Processos\Projeto Autorizações\Projeto Perfil.py" --departamento "Purchase & Services"
   ```
 
 ## 4. Funcionalidades do Motor de Pesquisa
 - **Pesquisa por Função / Perfil**:
   ```powershell
-  python "Projeto Perfil.py" --pesquisar-role EXPANSION
+  python "Processos\Projeto Autorizações\Projeto Perfil.py" --pesquisar-role EXPANSION
   ```
 - **Pesquisa por Transação (TCODE)**:
   ```powershell
-  python "Projeto Perfil.py" --pesquisar-tcode FB03
+  python "Processos\Projeto Autorizações\Projeto Perfil.py" --pesquisar-tcode FB03
   ```
 - **Pesquisa por Utilizador (CUA)**:
   ```powershell
-  python "Projeto Perfil.py" --pesquisar-user S6005
+  python "Processos\Projeto Autorizações\Projeto Perfil.py" --pesquisar-user S6005
   ```
 - **Menu Interativo de Consola**:
   ```powershell
-  python "Projeto Perfil.py"
+  python "Processos\Projeto Autorizações\Projeto Perfil.py"
   ```
 
 ## 5. Validação do departamento Purchase & Services em PRD
@@ -127,10 +141,10 @@ O relatório detalhado está documentado em `docs/FUNCOES_DIFERENTES_PURCHASE_SE
 
 ```powershell
 # Cruzamento relacional das quatro fontes para o departamento
-python "Projeto Perfil.py" --cruzar-fontes -d "Purchase & Services"
+python "Processos\Projeto Autorizações\Projeto Perfil.py" --cruzar-fontes -d "Purchase & Services"
 
 # Validação real no SAP PRD (AGR_USERS & USR02) com expansão relacional
-python "Projeto Perfil.py" --validar-users-prd -d "Purchase & Services"
+python "Processos\Projeto Autorizações\Projeto Perfil.py" --validar-users-prd -d "Purchase & Services"
 ```
 
 ## 6. Remoção de Sistemas no SAP CUA (`K. CUA_REMOVE_SISTEMA.py`)
@@ -176,7 +190,7 @@ O comando `--comparar-prd` realiza a extração completa do catálogo do SAP PRD
 
 Comando de execução:
 ```powershell
-python "Projeto Perfil.py" --comparar-prd
+python "Processos\Projeto Autorizações\Projeto Perfil.py" --comparar-prd
 ```
 
 ## 8. Eliminação de Funções Expiradas no CUA via Filtro Duplo
@@ -272,7 +286,7 @@ O departamento **Client Services** foi concluído com **100% de conformidade** e
 
 ## 11. Novo Fluxo Interativo Guiado por Linha da Folha CONTROLO (`Projeto Perfil.py`)
 
-A experiência de execução manual do script [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil.py) foi integralmente reformulada para eliminar ruído visual e permitir ao operador trabalhar departamento a departamento de forma direta:
+A experiência de execução manual do script [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Processos/Projeto%20Autoriza%C3%A7%C3%B5es/Projeto%20Perfil.py) foi integralmente reformulada para eliminar ruído visual e permitir ao operador trabalhar departamento a departamento de forma direta:
 
 ### Melhorias Implementadas:
 1. **Eliminação do Ruído Inicial**:
@@ -296,7 +310,7 @@ A experiência de execução manual do script [`Projeto Perfil.py`](file:///C:/w
 
 ## 12. Pipeline Completo de Sincronização e Validação no Arranque (4 Fases)
 
-Sempre que [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Projeto%20Perfil.py) é executado (manual ou automaticamente), corre antecipadamente uma validação e sincronização relacional em 4 fases antes da apresentação do menu departamental:
+Sempre que [`Projeto Perfil.py`](file:///C:/workspace/SapScript/Processos/Projeto%20Autoriza%C3%A7%C3%B5es/Projeto%20Perfil.py) é executado (manual ou automaticamente), corre antecipadamente uma validação e sincronização relacional em 4 fases antes da apresentação do menu departamental:
 
 Antes das quatro fases, o modo interativo verifica o campo `STATUS` das folhas
 `PFCG_CREATE`, `PFCG_COMPOSTA`, `CUA_ADICIONAR` e `CUA_REMOVE`. As folhas com linhas
@@ -403,3 +417,434 @@ no ficheiro foram removidas pelo módulo padrão `PRGN_RFC_DEL_AGRS_IN_COLL_AGR`
 No arranque interativo, antes do menu departamental, são apresentadas as quantidades
 de linhas com `STATUS` vazio em `PFCG_CREATE`, `PFCG_COMPOSTA`, `CUA_ADICIONAR` e
 `CUA_REMOVE`. Os processos somente são iniciados após confirmação explícita `S/N`.
+
+## 17. Fila sequencial da folha CONTROLO (15/09/2026)
+
+No modo interativo, o fluxo inicial passou a ser:
+
+1. carregar o ficheiro mestre local `S4H_Perfis de autorização_v1.xlsx` no Desktop
+   sincronizado pelo OneDrive;
+2. carregar e apresentar a folha `CONTROLO`;
+3. considerar pendente toda linha de departamento cujo campo `STATUS` esteja vazio,
+   independentemente de existir um valor residual em `TIMESTAMP`;
+4. formar uma fila pela ordem física das linhas da folha;
+5. pedir uma única confirmação antes de iniciar alterações no SAP CUA;
+6. executar a sequência CUA completa de cada departamento antes de avançar para o
+   seguinte.
+
+Para cada departamento, a sequência permanece:
+
+1. remover `S4DCLNT100`, se estiver atribuído;
+2. remover funções expiradas de `S4PCLNT100`;
+3. remover funções obsoletas de `S4QCLNT100`;
+4. replicar as funções ativas de `S4PCLNT100` para `S4QCLNT100`;
+5. confirmar por auditoria que os conjuntos de funções de PRD e QAS são iguais;
+6. gravar `CUA_REMOVE`, `CUA_ADICIONAR`, `STATUS='PROCESSADO'` e `TIMESTAMP` no
+   ficheiro oficial.
+
+O departamento somente é marcado como `PROCESSADO` após todas as etapas e a
+auditoria `P == Q` concluírem com sucesso. Se houver erro ou divergência, a fila é
+interrompida e o departamento atual e os seguintes permanecem pendentes. A gravação
+do estado também exige que o ficheiro oficial esteja aberto no Excel; a ausência do
+workbook é tratada como falha, não como conclusão.
+
+Na validação de 15/09/2026, o ficheiro oficial continha cinco departamentos com
+`STATUS` vazio, nesta ordem:
+
+1. `Purchase & Services` (linha 2);
+2. `Client Services` (linha 3);
+3. `Construction & Maintenance` (linha 4);
+4. `People & Talent` (linha 5);
+5. `Health & Safety` (linha 6).
+
+### Validação isolada da primeira etapa — Purchase & Services (15/09/2026)
+
+Antes de ativar a sequência completa, foi executada isoladamente apenas a primeira
+etapa para o primeiro departamento pendente: consulta e eventual remoção de
+`S4DCLNT100` no dado mestre dos utilizadores no CUA (`SPA`, mandante `001`).
+
+A folha `Proposta Ativa` devolveu sete utilizadores para `Purchase & Services`:
+`S170`, `S270`, `S419`, `S75`, `S80000148`, `S80001870` e `S965`.
+
+Resultado da consulta utilizador a utilizador:
+
+- 7 processados;
+- 7 com resultado `NAO_EXISTIA`;
+- 0 remoções necessárias;
+- todos apresentavam somente `S4PCLNT100` e `S4QCLNT100` na lista de sistemas;
+- nenhuma função de PRD/QAS foi removida ou replicada;
+- o `STATUS` do departamento na folha `CONTROLO` permaneceu vazio.
+
+### Auditoria PFCG_CREATE por ambiente — Purchase & Services (15/09/2026)
+
+A linha 2 da folha `CONTROLO` marca `X` somente em `QAS` e `PRD`; `DEV` não foi
+incluído nesta auditoria. Foi realizada uma consulta RFC exclusivamente de leitura
+às tabelas `AGR_DEFINE` e `AGR_TCODES`, comparando os ambientes assinalados com a
+folha `PFCG_CREATE`:
+
+- universo esperado: 77 funções e 577 associações função–transação;
+- QAS (`QAD`, mandante `100`): 77/77 funções existentes, 577/577 associações
+  presentes, 0 funções e 0 transações em falta;
+- PRD (mandante `100`): 77/77 funções existentes, 577/577 associações presentes,
+  0 funções e 0 transações em falta.
+
+Nenhuma função ou transação foi criada ou alterada e nenhum campo do Excel foi
+atualizado durante a auditoria.
+
+### Auditoria PFCG_COMPOSTA por ambiente — Purchase & Services (15/09/2026)
+
+Foi repetida a validação exclusivamente de leitura nos ambientes assinalados com
+`X` na linha 2 da `CONTROLO`, comparando a folha `PFCG_COMPOSTA` com `AGR_DEFINE` e
+`AGR_AGRS`:
+
+- universo esperado: 21 funções compostas e 402 relações composta–função;
+- PRD, mandante `100`: 21/21 compostas existentes, 402/402 relações presentes,
+  0 relações em falta e 0 adicionais;
+- QAS (`QAD`), mandante `100`: 21/21 compostas existentes, 54 relações em falta
+  distribuídas por 19 compostas e 248 relações adicionais face ao Excel.
+
+Relações em falta em QAS:
+
+- `Z_BR_CONSTCONTROLER_SPECIALIST`: `Z_COSTCENTER_CREATE`, `Z_PROJECT_APPROVE`;
+- `Z_BR_CONSTMAINT_MANAGER`: `Z_COSTCENTER_CREATE`;
+- `Z_BR_CONSTMANUT_SPECIALIST`: `Z_COSTCENTER_CREATE`;
+- `Z_BR_CONSTPROJ_MANAGER`: `Z_COSTCENTER_CREATE`;
+- `Z_BR_EXPANSIONPROJ_MANAGER`: `Z_PURCHASE_TABLE_VIEW`;
+- `Z_BR_INDBUYER_MANAGER`: `Z_ARTICLE_DISPLAY`, `Z_CREDIT_OVERVIEW_APPROVE`,
+  `Z_INVOICE_DISPLAY`, `Z_INVOICE_REPORT`, `Z_PURCHASE_ORDER_DISPLAY`,
+  `Z_PURCHASE_PRICECOND_DISPLAY`, `Z_PURCHASE_REQ_DISPLAY`,
+  `Z_SALES_PRICECOND_CREATE`;
+- `Z_BR_INDBUYER_SPECIALIST`: `Z_ARTICLE_DISPLAY`, `Z_DELIVERY_DISPLAY`,
+  `Z_DELIVERY_REPORT`, `Z_INVOICE_DISPLAY`, `Z_INVOICE_REPORT`,
+  `Z_PRODUCTION_ORDER_DISPLAY`, `Z_PURCHASE_ORDER_DISPLAY`;
+- `Z_BR_INDBUYER_TEAMLEAD`: `Z_INVOICE_DISPLAY`, `Z_PURCHASE_ORDER_DISPLAY`,
+  `Z_PURCHASE_PRICECOND_DISPLAY`, `Z_PURCHASE_REQ_DISPLAY`;
+- `Z_BR_INDLOG_SPECIALIST`: `Z_DELIVERY_DISPLAY`, `Z_PRODUCTION_ORDER_DISPLAY`,
+  `Z_PURCHASE_ORDER_DISPLAY`;
+- `Z_BR_INDMAINT_SPECIALIST`: `Z_ARTICLE_DISPLAY`, `Z_PURCHASE_REQ_DISPLAY`;
+- `Z_BR_INDPRODDEV_MANAGER`: `Z_PURCHASE_ORDER_DISPLAY`,
+  `Z_PURCHASE_REQ_DISPLAY`;
+- `Z_BR_INDSERV_MANAGER`: `Z_ARTICLE_DISPLAY`, `Z_DELIVERY_DISPLAY`,
+  `Z_INVOICE_DISPLAY`, `Z_INVOICE_REPORT`, `Z_PRODUCTION_ORDER_DISPLAY`,
+  `Z_PURCHASE_ORDER_DISPLAY`, `Z_PURCHASE_REQ_DISPLAY`,
+  `Z_SALES_PRICECOND_REPORT`;
+- `Z_BR_INDSERV_SPECIALIST`: `Z_DELIVERY_DISPLAY`, `Z_INVOICE_DISPLAY`,
+  `Z_PRODUCTION_ORDER_DISPLAY`, `Z_PURCHASE_ORDER_DISPLAY`,
+  `Z_PURCHASE_REQ_DISPLAY`;
+- `Z_BR_PURCHASEREQ_SPECIALIST`: `Z_COSTCENTER_CREATE`;
+- `Z_BR_PURCHSERV_MANAGER`: `Z_COSTCENTER_CREATE`, `Z_PROJECT_APPROVE`;
+- `Z_BR_PURCHSERV_SPECIALIST`: `Z_COSTCENTER_CREATE`,
+  `Z_INVOICE_RECEIPT_COCKPIT`, `Z_PROJECT_APPROVE`;
+- `Z_BR_PURCHSERV_TEAMLEAD`: `Z_COSTCENTER_CREATE`;
+- `Z_BR_STOREMAINT_SPECIALIST`: `Z_COSTCENTER_CREATE`;
+- `Z_BR_STOREMAINT_TEAMLEAD`: `Z_COSTCENTER_CREATE`.
+
+Nenhuma relação foi criada ou eliminada e nenhum campo do Excel foi atualizado.
+
+#### Correção das relações em falta em QAS (15/09/2026)
+
+Após autorização explícita, as 54 relações em falta foram criadas em QAS (`QAD`,
+mandante `100`) por RFC com `PRGN_RFC_ADD_AGRS_TO_COLL_AGR`. As relações foram
+agrupadas por função composta e, para cada uma das 19 compostas alteradas, foi
+executada a geração de perfil e user comparison por
+`PRGN_GEN_PROFILES_FOR_ROLES`.
+
+Resultado:
+
+- 54 relações solicitadas e criadas;
+- 19 funções compostas atualizadas;
+- 0 erros de criação;
+- auditoria final em `AGR_AGRS`: 0 relações esperadas em falta;
+- as 248 relações adicionais existentes em QAS foram preservadas, pois esta etapa
+  autorizou somente a criação das entradas em falta;
+- PRD e o ficheiro Excel não foram alterados;
+- o `STATUS` de `Purchase & Services` permaneceu vazio.
+
+### Auditoria PFCG_AUTHORITY por ambiente — Purchase & Services (15/09/2026)
+
+A folha `PFCG_AUTHORITY` contém 19 funções individuais de autorização e 76 valores
+esperados nos objetos `F_KNA1_GRP` e `B_BUPA_RLT`, considerando os campos `KTOKD`,
+`ACTVT` e `RLTYP`. Foi efetuada uma comparação RFC de leitura com `AGR_DEFINE` e
+`AGR_1251` nos ambientes marcados na `CONTROLO`:
+
+- QAS (`QAD`), mandante `100`: 19/19 roles existentes e 76/76 valores presentes;
+  0 valores em falta e 0 adicionais nos campos controlados. Não foi necessário criar
+  qualquer entrada;
+- PRD, mandante `100`: 19/19 roles existentes; os valores específicos de `KTOKD` e
+  `RLTYP` estão presentes. Em 18 roles, `ACTVT` está configurado como `*`, enquanto
+  o Excel prevê explicitamente `01,02,03`. A exceção já conforme é
+  `ZORG_BP_Z008_DCS_GENERALSITE`.
+
+O `*` em `ACTVT` abrange as atividades previstas, portanto não representa falta
+efetiva de autorização, mas é uma divergência de configuração mais permissiva face
+ao Excel. Nenhuma alteração foi feita em PRD, QAS ou no ficheiro Excel, e o `STATUS`
+do departamento permaneceu vazio.
+
+Para a decisão de avanço do processo, a validação de `PFCG_AUTHORITY` considera
+somente a existência das 19 funções nos ambientes aplicáveis. Os valores internos
+dos objetos de autorização (`KTOKD`, `ACTVT` e `RLTYP`) são informativos e não
+bloqueiam a etapa.
+
+### Preenchimento não destrutivo dos campos de validação (15/09/2026)
+
+Após as auditorias de `PFCG_CREATE`, `PFCG_COMPOSTA` e `PFCG_AUTHORITY`, os campos
+de controlo do ficheiro oficial foram preenchidos segundo a regra de nunca
+sobrescrever uma célula que já contenha dados. Para as células vazias foram usados:
+
+- `STATUS = 'Criado'`;
+- `MSG = 'Validado em SAP QAD e PRD'`;
+- `TIMESTEMP = '2026-09-15 09:53:06'`;
+- `PRD = 'Validado'`;
+- `QAS = 'Validado'`;
+- `DEV` permaneceu vazio, pois a linha do departamento na `CONTROLO` não tem `X`
+  nesse ambiente.
+
+Totais atualizados e confirmados por nova leitura do ficheiro:
+
+- `PFCG_CREATE`: 577 linhas;
+- `PFCG_COMPOSTA`: 402 linhas;
+- `PFCG_AUTHORITY`: 19 linhas.
+
+A regra permanente para estas folhas é preencher somente campos de controlo vazios.
+Valores anteriores em `STATUS`, `MSG`, `TIMESTEMP`, `PRD`, `QAS` ou `DEV` devem ser
+sempre preservados.
+
+### Escopo exclusivo da folha EXCLUÇÃO (15/09/2026)
+
+A folha `EXCLUÇÃO` deve ser consultada exclusivamente durante o cálculo e a execução
+de `CUA_REMOVE`. Ela não filtra funções de `DEFINIÇÕES`, não participa na expansão
+das funções previstas e não pode retirar funções das filas de atribuição.
+
+Consequentemente, `Z_MY_HOME`, definida na coluna `FIORI` para
+`Purchase & Services`, integra a lista de atribuições. A lista validada passa a ter:
+
+- 1 Composite Role específica por utilizador;
+- 9 funções comuns provenientes da linha 5 de `DEFINIÇÕES`;
+- 10 funções por utilizador;
+- 70 atribuições para os 7 utilizadores;
+- 12 funções distintas no conjunto completo, todas existentes em QAS e PRD.
+
+### Recuperação do ficheiro Excel oficial (15/09/2026)
+
+Após o Excel indicar corrupção, o ficheiro oficial foi preservado e recuperado pelo
+mecanismo nativo `OpenAndRepair` do Microsoft Excel. A versão reparada substituiu o
+ficheiro no caminho sincronizado do SharePoint somente depois das seguintes
+validações:
+
+- pacote XLSX/ZIP íntegro, sem membros corrompidos;
+- leitura completa por `openpyxl`;
+- 31 folhas preservadas;
+- `CONTROLO`: 6 linhas e 6 colunas;
+- `PFCG_CREATE`: 578 linhas e 10 colunas;
+- `PFCG_COMPOSTA`: 641 linhas e 10 colunas;
+- `PFCG_AUTHORITY`: 23 linhas e 15 colunas.
+
+Foram mantidas duas cópias recuperáveis em `output`:
+
+- `S4H_Perfis_autorizacao_corrompido_20260915_110013.xlsx`: cópia binária do estado
+  encontrado antes da reparação;
+- `S4H_Perfis_autorizacao_reparado_20260915_110013.xlsx`: versão produzida pelo
+  Microsoft Excel e usada na restauração.
+
+Uma verificação final numa segunda instância invisível do Excel falhou por erro RPC
+da aplicação, sem mensagem de corrupção do conteúdo. Para evitar conflitos COM, a
+confirmação visual deve ser feita após fechar completamente as instâncias do Excel e
+reabrir o ficheiro oficial normalmente.
+
+Após confirmação de que a versão sincronizada continuava corrompida, ela deixou de
+ser a fonte operacional. O projeto passou a usar o ficheiro local `_v1` do Desktop,
+que foi validado com 31 folhas legíveis antes da alteração do código.
+
+## 18. Validação e execução CUA_ADICIONAR — Purchase & Services (15/09/2026)
+
+A etapa `CUA_ADICIONAR` foi validada para o primeiro departamento pendente,
+`Purchase & Services`, usando a lógica atual:
+
+- os utilizadores vêm da folha `Proposta Ativa`;
+- a Composite Role vem da coluna `Composite Role` de cada utilizador;
+- as funções comuns vêm da linha do departamento na folha `DEFINIÇÕES`;
+- a folha `EXCLUSÃO` não participa nesta etapa, sendo exclusiva do processo
+  `CUA_REMOVE`;
+- os ambientes considerados são apenas os marcados com `X` na linha do departamento
+  na folha `CONTROLO`: `PRD` e `QAS`; `DEV` permanece fora da validação;
+- quando a combinação utilizador/sistema/função já existe no SAP mas falta no
+  Excel, a linha é acrescentada ao Excel e marcada como validada;
+- quando falta no SAP, a atribuição é criada via SAP CUA GUI e confirmada por RFC
+  antes de atualizar o Excel;
+- campos `STATUS`, `MSG`, `TIMESTEMP`, `PRD`, `QAS` e `DEV` já preenchidos não
+  devem ser sobrescritos por execuções normais.
+
+Universo validado:
+
+- 7 utilizadores: `S170`, `S270`, `S419`, `S75`, `S80000148`, `S80001870`, `S965`;
+- 10 funções por utilizador: 9 funções comuns de `DEFINIÇÕES`, incluindo
+  `Z_MY_HOME`, mais 1 Composite Role da `Proposta Ativa`;
+- 70 atribuições esperadas em `S4PCLNT100`;
+- 70 atribuições esperadas em `S4QCLNT100`.
+
+Auditoria inicial:
+
+- PRD: 63 linhas já existiam no Excel e 69 atribuições estavam ativas no SAP;
+  faltavam no Excel os 7 registos `Z_MY_HOME`, e no SAP faltava apenas
+  `S80001870 / Z_MY_HOME`;
+- QAS: 0 linhas existiam no Excel e 64 atribuições estavam ativas no SAP; faltavam
+  no SAP 6 registos `Z_MY_HOME`
+  (`S170`, `S270`, `S419`, `S80000148`, `S80001870`, `S965`).
+
+Execução:
+
+- foram criadas no CUA as 7 atribuições realmente em falta no SAP;
+- a confirmação RFC posterior encontrou 70/70 atribuições ativas em PRD e 70/70 em
+  QAS;
+- a folha `CUA_ADICIONAR` no ficheiro local `_v1` ficou com as 140 linhas esperadas
+  para o departamento;
+- `STATUS = 'CONCLUÍDO'` em todas as 140 linhas;
+- coluna `PRD = 'OK'` nas 70 linhas de `S4PCLNT100`;
+- coluna `QAS = 'OK'` nas 70 linhas de `S4QCLNT100`;
+- coluna `DEV` permaneceu vazia.
+
+Foi criado backup antes da última gravação:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_cua_adicionar_20260915_122536.xlsx
+```
+
+Correção técnica aplicada:
+
+- `CUA_ADICIONAR_WEB.py` passou a incluir `CHAVE_ID` no DataFrame criado pelo modo
+  individual (`utilizador`, `agr_name`, `subsystem`), pois o filtro de pendentes já
+  dependia dessa coluna.
+- O fallback de status do executor foi ajustado para não assumir sucesso quando a
+  barra de status não devolve mensagem relevante. Nesses casos, o lote fica como
+  `AVISO` com a mensagem
+  `Save executado no SAP, mas sem confirmação na status bar; requer validação RFC/visual.`
+  Para decisão operacional desta etapa, a confirmação RFC continua a prevalecer
+  quando disponível.
+
+### Exceção `Z_PROJECT_APPROVE_SPEC` para S75 em QAD (15/09/2026)
+
+A função `Z_PROJECT_APPROVE_SPEC` foi acrescentada à folha `EXCLUSÃO` pelo operador
+e validada como exceção. Consulta RFC mostrou:
+
+- em PRD (`S4PCLNT100`), `S75` possui `Z_PROJECT_APPROVE_SPEC` ativa de
+  `20260914` até `99991231`;
+- em QAS (`S4QCLNT100`), a função não existia inicialmente em `AGR_DEFINE` e não
+  estava atribuída à utilizadora.
+
+Foi criada em QAD uma role local `Z_PROJECT_APPROVE_SPEC` pelo processo
+`PFCG_CREATE` via RFC, com:
+
+- descrição `Project System Creation and Reporting for manager`;
+- TCODE `CJ20N`;
+- geração de perfil concluída com mensagem `O perfil de autorização é atual.`;
+- `transport_mode = LOCAL`.
+
+A criação da role foi confirmada em QAD por `AGR_DEFINE` e `AGR_TCODES`. Em seguida,
+foram testadas três formas de atribuição à `S75`:
+
+- CUA/SU10 pelo executor `CUA_ADICIONAR_WEB.py`;
+- CUA/SU01 com inserção direta na grelha;
+- CUA/SU01 com `Text Comparison from Child Sys` e `Insert in New Row`.
+
+Nas tentativas via CUA, a linha chegou a aparecer na grelha antes do save, mas
+desapareceu após reabrir o mestre da utilizadora e não foi refletida em `AGR_USERS`
+no QAD. A tentativa direta via BAPI em QAD foi bloqueada pelo SAP com a mensagem:
+
+```text
+Modificações neste sist.não autorizadas (atualiz.usuário central ativa)
+```
+
+Estado final da etapa:
+
+- role `Z_PROJECT_APPROVE_SPEC` criada em QAD;
+- atribuição `S75 / S4QCLNT100 / Z_PROJECT_APPROVE_SPEC` ainda não ativa;
+- a atribuição deve ser concluída no CUA após validação do motivo pelo qual o
+  sistema central não persiste esta role recém-criada na grelha de funções.
+
+### Remoção de duplicados `Z_MY_HOME` em QAS (15/09/2026)
+
+Após a etapa `CUA_ADICIONAR`, foi executada uma auditoria RFC em `AGR_USERS` para
+os utilizadores de `Purchase & Services`, procurando duplicados dentro do mesmo
+sistema:
+
+- PRD (`S4PCLNT100`): 308 registos lidos, 308 pares utilizador/função únicos, 0
+  duplicados;
+- QAS (`S4QCLNT100`): 385 registos lidos, 380 pares únicos, 5 pares duplicados.
+
+Os duplicados encontrados em QAS eram todos da função `Z_MY_HOME`, com duas
+ocorrências diretas por utilizador:
+
+- ocorrência antiga: `FROM_DAT = 20260912`, `TO_DAT = 99991231`;
+- ocorrência nova: `FROM_DAT = 20260915`, `TO_DAT = 99991231`.
+
+Critério aplicado, validado antes da execução:
+
+1. manter a ocorrência ativa mais antiga quando ambas têm o mesmo `TO_DAT`;
+2. remover a ocorrência mais recente (`FROM_DAT = 20260915`);
+3. localizar a linha exata no CUA por `SUBSYSTEM + AGR_NAME + UPDATE_FROM_DAT +
+   UPDATE_TO_DAT`;
+4. confirmar após cada gravação por RFC no QAD.
+
+Foram removidas 5 ocorrências em `S4QCLNT100`:
+
+- `S170 / Z_MY_HOME / FROM_DAT 20260915`;
+- `S270 / Z_MY_HOME / FROM_DAT 20260915`;
+- `S419 / Z_MY_HOME / FROM_DAT 20260915`;
+- `S80000148 / Z_MY_HOME / FROM_DAT 20260915`;
+- `S965 / Z_MY_HOME / FROM_DAT 20260915`.
+
+Cada gravação devolveu status SAP `S` com mensagem `User <utilizador> has changed`.
+A verificação RFC final confirmou que cada um dos cinco utilizadores ficou com
+apenas uma ocorrência ativa de `Z_MY_HOME`, mantendo `FROM_DAT = 20260912` e
+`TO_DAT = 99991231`.
+
+## 19. Preparação CUA_ADICIONAR — Client Services (15/09/2026)
+
+Após marcar `Purchase & Services` como `PROCESSADO`, o próximo departamento pendente
+na folha `CONTROLO` passou a ser `Client Services`.
+
+Foi identificada e corrigida uma inflação na análise inicial: o modelo expandido
+contava também as funções filhas internas de `PFCG_COMPOSTA`, gerando 209 faltas em
+QAS. Para a etapa `CUA_ADICIONAR`, o critério correto é atribuição direta:
+
+- Composite Role da coluna `Composite Role` da folha `Proposta Ativa`;
+- funções base da folha `DEFINIÇÕES`;
+- não incluir como atribuições diretas as funções filhas internas da composta.
+
+Correções aplicadas em `Projeto Perfil.py`:
+
+- nova validação `is_role_sap_valida`, evitando tratar descrições/cargos como roles
+  SAP;
+- nova extração `extrair_roles_sap`, separando funções em células com vírgulas,
+  ponto-e-vírgula ou quebras de linha;
+- leitura da folha `DEFINIÇÕES` para consolidar roles base por departamento;
+- expansão departamental corrigida para incluir `DEFINIÇÕES` sem transformar as
+  filhas de compostas em payload direto de CUA.
+
+Resultado operacional da correção na folha `CUA_ADICIONAR`:
+
+- removidas 432 linhas previamente preparadas pelo critério expandido;
+- recriadas 120 linhas diretas para `Client Services`:
+  - 60 linhas PRD (`S4PCLNT100`) já preenchidas/validadas;
+  - 7 linhas QAS (`S4QCLNT100`) já preenchidas/validadas;
+  - 53 linhas QAS (`S4QCLNT100`) pendentes para execução CUA;
+- PRD ficou sem pendências diretas;
+- QAS ficou com 53 pendências diretas, distribuídas por utilizador:
+  - `S5092`: 9;
+  - `S5441`: 9;
+  - `S5877`: 9;
+  - `S80000647`: 8;
+  - `S80000781`: 9;
+  - `S80001601`: 9.
+
+Foi criada uma cópia do Excel mestre na raiz do projeto:
+
+```text
+C:\workspace\SapScript\S4H_Perfis de autorização_v1.xlsx
+```
+
+Backup criado antes da correção da `CUA_ADICIONAR`:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_fix_client_services_cua_adicionar_20260915_175201.xlsx
+```
