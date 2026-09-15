@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-spec = importlib.util.spec_from_file_location("projeto_perfil", ROOT / "Projeto Perfil.py")
+spec = importlib.util.spec_from_file_location("projeto_perfil", ROOT / "Processos" / "Projeto Autorizações" / "Projeto Perfil.py")
 if spec is None or spec.loader is None:
     raise RuntimeError("Não foi possível carregar Projeto Perfil.py")
 modulo = importlib.util.module_from_spec(spec)

@@ -37,7 +37,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 def _carregar_modulo_projeto_perfil():
-    caminho = PROJECT_ROOT / "Projeto Perfil.py"
+    caminho = PROJECT_ROOT / "Processos" / "Projeto Autorizações" / "Projeto Perfil.py"
     spec = importlib.util.spec_from_file_location("projeto_perfil", caminho)
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)

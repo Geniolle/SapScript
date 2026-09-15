@@ -283,7 +283,7 @@ def obter_utilizadores_excel(
     """Carrega os utilizadores a partir da folha Proposta Ativa."""
     import importlib.util
     raiz = Path(__file__).resolve().parent.parent.parent
-    spec = importlib.util.spec_from_file_location("projeto_perfil", raiz / "Projeto Perfil.py")
+    spec = importlib.util.spec_from_file_location("projeto_perfil", raiz / "Processos" / "Projeto Autorizações" / "Projeto Perfil.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
@@ -333,7 +333,7 @@ def main():
             if not dep:
                 import importlib.util
                 raiz = Path(__file__).resolve().parent.parent.parent
-                spec = importlib.util.spec_from_file_location("projeto_perfil", raiz / "Projeto Perfil.py")
+                spec = importlib.util.spec_from_file_location("projeto_perfil", raiz / "Processos" / "Projeto Autorizações" / "Projeto Perfil.py")
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 dep = mod.obter_proximo_departamento_controlo()
