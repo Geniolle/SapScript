@@ -40,8 +40,6 @@ from datetime import datetime
 
 import pandas as pd
 import win32com.client
-import tkinter as tk
-from tkinter import filedialog
 from openpyxl import load_workbook
 
 ###################################################################################
@@ -144,6 +142,8 @@ def selecionar_ficheiro_excel():
     O Windows tende a abrir no último local utilizado.
     """
     try:
+        import tkinter as tk
+        from tkinter import filedialog
         root = tk.Tk()
         root.withdraw()
         root.update_idletasks()
@@ -252,11 +252,22 @@ def ler_ficheiro(caminho_ficheiro, nome_sheet):
 
 def conectar_sap(sistema_desejado):
     try:
+        if sys.platform.startswith("win"):
+            try:
+                import win32service
+                hwinsta = win32service.OpenWindowStation("WinSta0", True, 0x037F)
+                hwinsta.SetProcessWindowStation()
+                hdesk = win32service.OpenDesktop("default", 0, True, 0x01FF)
+                hdesk.SetThreadDesktop()
+            except Exception:
+                pass
+        import pythoncom
+        pythoncom.CoInitialize()
         try:
-            sap_gui_auto = win32com.client.GetObject("SAPGUI")
-        except Exception:
             rot = win32com.client.Dispatch("SapROTWr.SapROTWrapper")
             sap_gui_auto = rot.GetROTEntry("SAPGUI")
+        except Exception:
+            sap_gui_auto = None
         if not sap_gui_auto:
             print("❌ SAP GUI não registado no ROT. Certifique-se de que o SAP GUI está aberto e logado.")
             return None

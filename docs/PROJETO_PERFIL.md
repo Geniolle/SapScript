@@ -1130,3 +1130,59 @@ aprovação explícita por ser alteração destrutiva no SAP.
 
 QAS continua pendente por indisponibilidade RFC (`WSAETIMEDOUT` no destino
 `172.19.66.22:3300`).
+
+## 23. Início e conclusão do departamento Health & Safety (15/09/2026)
+
+O próximo departamento processado foi `Health & Safety` (Linha 6 da folha `CONTROLO`).
+
+Escopo identificado na `Proposta Ativa`:
+
+- 2 utilizadores:
+  - `S80001882` (Marta Ramos — Health & Safety Specialist);
+  - `S80001974` (Joana Saldanha — Executive Office Assistant);
+- 9 funções base vindas de `DEFINIÇÕES`:
+  - `Z_BASIS_BASE`
+  - `Z_MY_HOME` (já ativa em ambos no PRD)
+  - `ZORG_BP_FLVN01_LOGISTICS_VENDO`
+  - `ZORG_BP_Z001_GENERALPARTNERS`
+  - `ZORG_BP_GERAL`
+  - `ZORG_BP_Z003_RELATEDPARTNERS`
+  - `ZORG_BP_LOGISTICS_CUSTOMER`
+  - `Z_BR_TYPE_BP_GERAL`
+  - `ZORG_TODAS_EMPRESAS`
+- 1 função composta atribuída a ambos: `Z_BR_PURCHREQ&PO_SPECIALIST`;
+- payload direto por utilizador: 10 funções (9 base + 1 composta; 9 novas por utilizador).
+
+### Remoção do sistema legado S4DCLNT100
+
+Foi executado dry-run e execução real no SAP CUA (`SPA`, mandante `001`) via `K. CUA_REMOVE_SISTEMA.py`:
+
+- `S80001882`: sistema legado `S4DCLNT100` removido com sucesso via SAP GUI (restantes: `S4PCLNT100`, `S4QCLNT100`);
+- `S80001974`: sistema `S4DCLNT100` já não existia no utilizador (apenas `S4PCLNT100`).
+
+### CUA_ADICIONAR PRD
+
+Foram criadas 18 linhas de atribuição direta na folha `CUA_ADICIONAR` (IDs 504 a 521), correspondendo às 9 funções em falta para cada um dos 2 utilizadores em `S4PCLNT100`.
+
+A execução foi realizada via SAP GUI Scripting no SAP CUA. A reconciliação oficial por RFC no SAP PRD confirmou:
+
+- `S80001882`: 24/24 funções ativas do plano (**100% CONFORME**);
+- `S80001974`: 24/24 funções ativas do plano (**100% CONFORME**);
+- faltas diretas: `0`;
+- as linhas da folha `CUA_ADICIONAR` foram marcadas como `CONCLUÍDO`, `PRD = OK` e mensagem `Atribuição criada/confirmada no SAP PRD via RFC`.
+
+Backups gerados:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_health_cua_prd_20260915_233215.xlsx
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_reconcile_health_cua_prd_20260915_234120.xlsx
+```
+
+### Funções adicionais detetadas no SAP PRD
+
+- `S80001882`: 14 adicionais legados (`ZORG_CENTROS_2XXX`, `ZORG_EMPRESA_2010..2160`, `Z_CROSS_LOGISTIC_SLS`, `Z_LOGISTIC_TEMP_SLS`);
+- `S80001974`: 18 adicionais legados (`ZFIN_AR_BASIC`, `ZFIN_DADOS_MESTRE_BASIC`, `ZHR_COLAB_BASIC`, `ZMM_CRIA_PEDC`, `ZMM_CRIA_REQC`, `ZMM_SUPPLY_CHAIN_BASIC`, `ZORG_EMPRESA_2010..2160`, `Z_CROSS_LOGISTIC_ALL`).
+
+Nenhuma remoção de acessos legados foi executada sem prévia aprovação explícita.
+
+QAS continua pendente por indisponibilidade RFC (`WSAETIMEDOUT` no destino `172.19.66.22:3300`).
