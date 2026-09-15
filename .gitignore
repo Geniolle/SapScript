@@ -33,3 +33,16 @@ sap_script_web_cockpit_v2/worker/.sap_script_web_worker*
 tests/*_tmp_*.sqlite3
 tests/_tmp_*
 _store_job_state_*
+*_temp.py
+.venv*
+
+# Scratch analysis dumps and temporary investigation probes
+scratch/_*
+scratch/fase*
+scratch/investigar_*
+scratch/rq*
+scratch/vbrk_*
+scratch/*.json
+scratch/*.sap
+scratch/*.vbs
+

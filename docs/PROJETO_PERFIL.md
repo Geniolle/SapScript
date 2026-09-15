@@ -848,3 +848,285 @@ Backup criado antes da correção da `CUA_ADICIONAR`:
 ```text
 C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_fix_client_services_cua_adicionar_20260915_175201.xlsx
 ```
+
+## 20. Execução CUA_ADICIONAR e auditoria pós-CUA — Client Services (15/09/2026)
+
+As 53 pendências diretas em QAS (`S4QCLNT100`) foram executadas via SAP GUI/CUA e
+confirmadas por RFC. Apesar de o executor devolver `AVISO` por não obter mensagem
+conclusiva na status bar, a validação em `AGR_USERS` confirmou todas as 53
+atribuições. A folha `CUA_ADICIONAR` foi atualizada com:
+
+- `STATUS = CONCLUÍDO`;
+- `MSG = Atribuição criada/confirmada no SAP QAD via RFC`;
+- `QAS = OK`;
+- `TIMESTEMP` da execução.
+
+Backup criado antes da execução:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_exec_client_services_cua_qas_20260915_191746.xlsx
+```
+
+Na auditoria pós-CUA foi confirmada a ausência de faltas diretas:
+
+- PRD / `S4PCLNT100`: `0` faltas diretas e `0` candidatos a `CUA_REMOVE`;
+- QAS / `S4QCLNT100`: `0` faltas diretas e `0` candidatos a `CUA_REMOVE`, após
+  correção do catálogo de compostas.
+
+Durante a comparação inicial apareceram 32 funções como “extra” em QAS, mas todas
+tinham `COL_FLAG = X`, ou seja, eram herdadas por função composta. Foi validado via
+`AGR_AGRS` que essas funções pertencem às compostas `Z_BR_CLIENTSERV_SPECIALIST` e
+`Z_BR_CLIENTSERV_TEAMLEAD`. A folha `PFCG_COMPOSTA` foi então complementada sem
+sobrepor valores existentes:
+
+- 24 relações novas adicionadas;
+- 96 células vazias preenchidas em `STATUS`, `MSG`, `TIMESTEMP`, `PRD` e/ou `QAS`;
+- QAS passou a refletir 66 relações para as compostas de Client Services;
+- PRD reflete 42 relações para as mesmas compostas.
+
+Backup criado antes da atualização da `PFCG_COMPOSTA`:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_pfcg_composta_client_services_20260915_193755.xlsx
+```
+
+Após aprovação explícita, foram removidos 53 duplicados diretos em QAS pelo SAP
+GUI/CUA, mantendo a ocorrência com maior validade (`TO_DAT` maior; em empate,
+`FROM_DAT` mais recente). Para estes casos foi mantido `FROM_DAT = 20260915` e
+removido `FROM_DAT = 20260912`.
+
+Relatório gerado:
+
+```text
+C:\workspace\SapScript\output\client_services_qas_duplicados_removidos_20260915_194346.csv
+```
+
+Validação final por RFC:
+
+- PRD / `S4PCLNT100`: `0` faltas diretas, `0` candidatos a `CUA_REMOVE`, `0`
+  duplicados diretos e `0` duplicados totais;
+- QAS / `S4QCLNT100`: `0` faltas diretas, `0` candidatos a `CUA_REMOVE`, `0`
+  duplicados diretos e `7` duplicados totais herdados (`COL_FLAG = X`), que não
+  devem ser removidos diretamente pelo CUA.
+
+A linha 3 da folha `CONTROLO` (`Client Services`) foi marcada como:
+
+- `STATUS = PROCESSADO`;
+- `TIMESTEMP = 2026-09-15 19:44:45`;
+- `MSG = Processado com sucesso; validação final PRD/QAS OK`.
+
+Backup criado antes da atualização da `CONTROLO`:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_controlo_client_services_20260915_194443.xlsx
+```
+
+Próximos departamentos pendentes na folha `CONTROLO`:
+
+1. `Construction & Maintenance`;
+2. `People & Talent`;
+3. `Health & Safety`.
+
+## 21. Início do departamento Construction & Maintenance (15/09/2026)
+
+O próximo departamento pendente identificado na folha `CONTROLO` foi
+`Construction & Maintenance`, com ambientes `QAS` e `PRD` marcados.
+
+Escopo identificado na `Proposta Ativa`:
+
+- 9 utilizadores;
+- 9 funções base vindas de `DEFINIÇÕES`;
+- 8 funções compostas distintas;
+- payload direto por utilizador: 10 funções (9 base + 1 composta).
+
+Utilizadores:
+
+- `S105` — `Z_BR_CONSTMANUT_SPECIALIST`;
+- `S13020` — `Z_BR_STOREMAINT_SPECIALIST`;
+- `S13360` — `Z_BR_STOREMAINT_SPECIALIST`;
+- `S4244` — `Z_BR_CONSTMAINT_MANAGER`;
+- `S425` — `Z_BR_STOREMAINT_TEAMLEAD`;
+- `S5006` — `Z_BR_CONSTPROJ_MANAGER`;
+- `S5354` — `Z_BR_PURCHASEREQ_SPECIALIST`;
+- `S6005` — `Z_BR_EXPANSIONPROJ_MANAGER`;
+- `S80000721` — `Z_BR_CONSTCONTROLER_SPECIALIST`.
+
+### Remoção do sistema legado S4DCLNT100
+
+Foi executado primeiro um `dry-run` no SAP CUA (`SPA`, mandante `001`), que
+confirmou que os 9 utilizadores ainda tinham o sistema `S4DCLNT100`.
+
+Após confirmação operacional do fluxo, foi executada a remoção real via SAP GUI/CUA.
+Resultado:
+
+- 9 utilizadores processados;
+- 9 concluídos com sucesso;
+- todos ficaram apenas com `S4PCLNT100` e `S4QCLNT100`.
+
+### Validação PFCG/Compostas
+
+PRD / `S4PCLNT100` foi validado por RFC:
+
+- 17 funções diretas existem em `AGR_DEFINE`;
+- 8 compostas existem;
+- 102 relações de composta encontradas em `AGR_AGRS`;
+- nenhuma função direta em falta.
+
+QAS / `S4QCLNT100` ficou pendente por indisponibilidade RFC. A ligação ao destino
+`172.19.66.22:3300` falhou repetidamente com `WSAETIMEDOUT`, inclusive fora do
+sandbox. Nenhuma validação QAS foi assumida por inferência.
+
+### Auditoria PRD de atribuições atuais
+
+PRD ficou sem faltas diretas de `CUA_ADICIONAR` para os 9 utilizadores.
+
+Pontos encontrados antes de qualquer alteração:
+
+- `S6005 / S4PCLNT100`: função extra candidata a avaliação para `CUA_REMOVE`:
+  `Z_PURCHASE_ORDER_DISPLAY`;
+- `S4244 / S4PCLNT100`: 2 duplicados diretos ativos:
+  - `ZMM_APROVA_PEDC_COD_JO10`: `20260914-99991231` e `20260912-99991231`;
+  - `ZMM_APROVA_PEDC_COD_L210`: `20260914-99991231` e `20260912-99991231`.
+
+Nenhuma remoção PRD foi executada ainda; por ser destrutiva, requer confirmação
+explícita do critério e autorização de execução.
+
+Após autorização explícita, foram removidos em PRD os 2 duplicados diretos de
+`S4244`, mantendo as ocorrências com `FROM_DAT = 20260914` e removendo as
+ocorrências antigas com `FROM_DAT = 20260912`:
+
+- `ZMM_APROVA_PEDC_COD_JO10`;
+- `ZMM_APROVA_PEDC_COD_L210`.
+
+Relatório gerado:
+
+```text
+C:\workspace\SapScript\output\construction_prd_remocoes_20260915_224353.csv
+```
+
+A função `Z_PURCHASE_ORDER_DISPLAY` em `S6005` não era atribuição direta
+removível: o registo em `AGR_USERS` tinha `COL_FLAG = X`, portanto era herdado
+por composta. A relação `Z_BR_EXPANSIONPROJ_MANAGER -> Z_PURCHASE_ORDER_DISPLAY`
+foi adicionada à folha `PFCG_COMPOSTA`, sem sobrepor dados já existentes.
+
+Backup criado antes da atualização:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_pfcg_composta_construction_prd_20260915_224444.xlsx
+```
+
+Validação final PRD após correções:
+
+- faltas diretas: `0`;
+- candidatos a `CUA_REMOVE`: `0`;
+- duplicados diretos: `0`.
+
+QAS continua pendente por indisponibilidade RFC (`WSAETIMEDOUT` no destino
+`172.19.66.22:3300`).
+
+## 22. Início do departamento People & Talent (15/09/2026)
+
+O próximo departamento operacional processado foi `People & Talent`. `Construction
+& Maintenance` permanece sem marcação final `PROCESSADO` porque QAS continuou
+pendente por timeout RFC.
+
+Escopo identificado na `Proposta Ativa`:
+
+- 12 utilizadores;
+- 9 funções base vindas de `DEFINIÇÕES`;
+- 3 funções compostas distintas:
+  - `Z_BR_PURCHREQ&PO_MANAGER`;
+  - `Z_BR_PURCHREQ&PO_SPECIALIST`;
+  - `Z_BR_PURCHREQ&PO_TEAMLEAD`;
+- payload direto por utilizador: 10 funções (9 base + 1 composta).
+
+### Remoção do sistema legado S4DCLNT100
+
+Foi executado `dry-run` no SAP CUA (`SPA`, mandante `001`):
+
+- 10 utilizadores ainda tinham `S4DCLNT100`;
+- 2 utilizadores já não tinham o sistema (`S80001028`, `S80001500`).
+
+Foi executada a remoção real:
+
+- 10 remoções concluídas;
+- 2 casos `NAO_EXISTIA`, tratados como OK;
+- os utilizadores processados ficaram sem o sistema legado `S4DCLNT100`.
+
+### CUA_ADICIONAR PRD
+
+A auditoria inicial PRD apontou 108 atribuições diretas em falta (12 utilizadores
+x 9 funções base/compostas em falta; `Z_MY_HOME` já existia).
+
+As 108 linhas foram criadas na folha `CUA_ADICIONAR` e executadas via SAP GUI/CUA
+em lotes. A saída do executor ficou silenciosa durante parte da execução, por isso
+a reconciliação oficial foi feita por RFC:
+
+- 108 atribuições confirmadas em PRD;
+- 0 pendências diretas PRD após reconciliação;
+- as 108 linhas foram marcadas como `CONCLUÍDO`, `PRD = OK` e mensagem
+  `Atribuição criada/confirmada no SAP PRD via RFC`.
+
+Backups relevantes:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_people_cua_prd_20260915_225216.xlsx
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_people_cua_prd_20260915_225645.xlsx
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_people_cua_prd_20260915_225954.xlsx
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_reconcile_people_cua_prd_20260915_230130.xlsx
+```
+
+### Sincronização PFCG_COMPOSTA PRD
+
+Após ativar as compostas, várias funções-filhas apareceram como “extras” por falta
+de catálogo local. Foram lidas por RFC as relações PRD em `AGR_AGRS` para:
+
+- `Z_BR_PURCHREQ&PO_MANAGER`;
+- `Z_BR_PURCHREQ&PO_SPECIALIST`;
+- `Z_BR_PURCHREQ&PO_TEAMLEAD`.
+
+Resultado:
+
+- 26 relações PRD adicionadas à folha `PFCG_COMPOSTA`;
+- 104 células vazias preenchidas em `STATUS`, `MSG`, `TIMESTEMP` e `PRD`;
+- dados existentes não foram sobrepostos.
+
+Backup:
+
+```text
+C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_sync_people_compostas_prd_20260915_230231.xlsx
+```
+
+### Estado PRD após inclusão e sincronização de catálogo
+
+Validação PRD:
+
+- faltas diretas: `0`;
+- funções diretas existem em `AGR_DEFINE`: OK;
+- compostas PRD:
+  - `Z_BR_PURCHREQ&PO_MANAGER`: 9 filhas;
+  - `Z_BR_PURCHREQ&PO_SPECIALIST`: 8 filhas;
+  - `Z_BR_PURCHREQ&PO_TEAMLEAD`: 9 filhas.
+
+Pendências PRD antes de qualquer remoção:
+
+- funções extras antigas ainda candidatas a análise para `CUA_REMOVE` em vários
+  utilizadores;
+- 11 duplicados diretos em `S538`, todos com `FROM_DAT 20220715` e `20230529`:
+  - `ZORG_EMPRESA_2010`;
+  - `ZORG_EMPRESA_2020`;
+  - `ZORG_EMPRESA_2070`;
+  - `ZORG_EMPRESA_2080`;
+  - `ZORG_EMPRESA_2100`;
+  - `ZORG_EMPRESA_2110`;
+  - `ZORG_EMPRESA_2120`;
+  - `ZORG_EMPRESA_2130`;
+  - `ZORG_EMPRESA_2140`;
+  - `ZORG_EMPRESA_2150`;
+  - `ZORG_EMPRESA_2160`.
+
+Nenhuma remoção PRD de extras/duplicados foi executada nesta etapa; requer
+aprovação explícita por ser alteração destrutiva no SAP.
+
+QAS continua pendente por indisponibilidade RFC (`WSAETIMEDOUT` no destino
+`172.19.66.22:3300`).
