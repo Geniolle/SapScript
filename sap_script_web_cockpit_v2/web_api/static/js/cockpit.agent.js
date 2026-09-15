@@ -377,74 +377,134 @@
                     label: 'Utilizador',
                     icon: 'user-plus',
                     prompt: 'Quero analisar dados de um utilizador.',
-                    followupText: 'O que deseja analisar do utilizador?',
+                    followupText: 'Como deseja importar os utilizadores?',
                     followupActionsSource: 'children',
                     children: [
                         {
-                            id: 'user-search',
-                            label: 'Pesquisar por Nome',
-                            icon: 'analysis',
-                            prompt: 'Quero pesquisar um utilizador por nome.',
-                            followupText: 'Escreva o nome (ou parte) a pesquisar:',
+                            id: 'cua-add-excel',
+                            label: 'Importar em Massa',
+                            icon: 'upload',
+                            prompt: 'Quero importar utilizadores em massa.',
                             children: []
                         },
                         {
-                            id: 'user-analyze-master',
-                            label: 'Dados Mestre',
-                            icon: 'analysis',
-                            prompt: 'Quero ver os dados mestre do utilizador.',
-                            followupText: 'Qual é o utilizador SAP? (ex.: CLOPES)',
-                            children: []
-                        },
-                        {
-                            id: 'user-analyze-personal',
-                            label: 'Dados Pessoais',
-                            icon: 'analysis',
-                            prompt: 'Quero ver os dados pessoais do utilizador.',
-                            followupText: 'Qual é o utilizador SAP? (ex.: CLOPES)',
-                            children: []
-                        },
-                        {
-                            id: 'user-analyze-roles',
-                            label: 'Funções',
-                            icon: 'user-plus',
-                            prompt: 'Quero ver as funções atribuídas ao utilizador.',
-                            followupText: 'Qual é o utilizador SAP? (ex.: CLOPES)',
-                            children: []
-                        },
-                        {
-                            id: 'cua-adicionar',
-                            label: 'Adicionar Utilizador',
+                            id: 'cua-add-individual',
+                            label: 'Individual',
                             icon: 'user-plus',
                             processo: 'Funções PFCG',
                             subprocesso: 'H. CUA_ADICIONAR.py',
-                            prompt: 'Quero adicionar um utilizador.',
-                            followupText: 'Certo. Vamos preparar a adição do utilizador.',
-                            children: []
-                        },
-                        {
-                            id: 'cua-enddate',
-                            label: 'Alterar Data Fim',
-                            icon: 'calendar',
-                            processo: 'Funções PFCG',
-                            subprocesso: 'I. CUA_ENDDATE.py',
-                            prompt: 'Quero alterar a data fim de um utilizador.',
-                            followupText: 'Certo. Vamos preparar a alteração da data fim do utilizador.',
-                            children: []
-                        },
-                        {
-                            id: 'cua-remove',
-                            label: 'Remover Utilizador Função',
-                            icon: 'user-minus',
-                            processo: 'Funções PFCG',
-                            subprocesso: 'CUA_REMOVE_WEB.py',
-                            prompt: 'Quero remover uma função de um utilizador.',
-                            followupText: 'Certo. Vamos preparar a remoção da função do utilizador.',
-                            children: []
-                        },
-                        {
-                            ...ASI_MAIN_MENU_ACTION,
-                            prompt: 'Quero voltar ao menu principal.'
+                            prompt: 'Quero importar um utilizador individualmente.',
+                            followupText: 'O que deseja fazer com o utilizador?',
+                            followupActionsSource: 'children',
+                            children: [
+                                {
+                                    id: 'user-individual-password',
+                                    label: 'Alterar senha',
+                                    icon: 'authorization',
+                                    prompt: 'Quero alterar a senha de um utilizador.',
+                                    children: []
+                                },
+                                {
+                                    id: 'user-individual-unlock',
+                                    label: 'Desbloquear user',
+                                    icon: 'authorization',
+                                    prompt: 'Quero desbloquear um utilizador.',
+                                    children: []
+                                },
+                                {
+                                    id: 'user-individual-personal-data',
+                                    label: 'Alterar dados pessoais',
+                                    icon: 'user-plus',
+                                    prompt: 'Quero alterar os dados pessoais de um utilizador.',
+                                    children: []
+                                },
+                                {
+                                    id: 'user-individual-end-date',
+                                    label: 'Data fim',
+                                    icon: 'calendar',
+                                    prompt: 'Quero alterar a data fim de um utilizador.',
+                                    children: []
+                                },
+                                {
+                                    id: 'user-individual-create',
+                                    label: 'Criar User',
+                                    icon: 'user-plus',
+                                    prompt: 'Quero criar um utilizador.',
+                                    children: []
+                                },
+                                {
+                                    id: 'user-individual-system',
+                                    label: 'Sistema',
+                                    icon: 'settings',
+                                    prompt: 'Quero gerir o sistema de um utilizador.',
+                                    followupText: 'O que deseja fazer com o sistema do utilizador?',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'user-individual-system-assign',
+                                            label: 'Atribuir',
+                                            icon: 'user-plus',
+                                            prompt: 'Quero atribuir um sistema ao utilizador.',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'user-individual-system-delete',
+                                            label: 'Eliminar',
+                                            icon: 'user-minus',
+                                            prompt: 'Quero eliminar um sistema do utilizador.',
+                                            children: []
+                                        }
+                                    ]
+                                },
+                                {
+                                    id: 'user-individual-functions',
+                                    label: 'Funções',
+                                    icon: 'user-plus',
+                                    prompt: 'Quero gerir as funções de um utilizador.',
+                                    followupText: 'O que deseja fazer com as funções do utilizador?',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'user-individual-functions-assign',
+                                            label: 'Atribuir',
+                                            icon: 'user-plus',
+                                            prompt: 'Quero atribuir funções ao utilizador.',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'user-individual-functions-delete',
+                                            label: 'Eliminar',
+                                            icon: 'user-minus',
+                                            prompt: 'Quero eliminar funções do utilizador.',
+                                            children: []
+                                        }
+                                    ]
+                                },
+                                {
+                                    id: 'user-individual-profile',
+                                    label: 'Perfil',
+                                    icon: 'authorization',
+                                    prompt: 'Quero gerir o perfil de um utilizador.',
+                                    followupText: 'O que deseja fazer com o perfil do utilizador?',
+                                    followupActionsSource: 'children',
+                                    children: [
+                                        {
+                                            id: 'user-individual-profile-assign',
+                                            label: 'Atribuir',
+                                            icon: 'user-plus',
+                                            prompt: 'Quero atribuir um perfil ao utilizador.',
+                                            children: []
+                                        },
+                                        {
+                                            id: 'user-individual-profile-delete',
+                                            label: 'Eliminar',
+                                            icon: 'user-minus',
+                                            prompt: 'Quero eliminar um perfil do utilizador.',
+                                            children: []
+                                        }
+                                    ]
+                                }
+                            ]
                         }
                     ]
                 },
@@ -2819,6 +2879,17 @@
     }
 
     function asiAppendMessage(message) {
+        if (message && message.role === 'assistant'
+            && (!Array.isArray(message.breadcrumb) || message.breadcrumb.length === 0)) {
+            const activeBreadcrumb = asiBuildBreadcrumbTrail();
+            const previousAssistant = [...asiChatHistory]
+                .reverse()
+                .find((item) => item && item.role === 'assistant'
+                    && Array.isArray(item.breadcrumb) && item.breadcrumb.length > 0);
+            message.breadcrumb = activeBreadcrumb.length > 0
+                ? activeBreadcrumb
+                : (previousAssistant ? previousAssistant.breadcrumb.slice() : []);
+        }
         asiChatHistory.push(message);
         asiRenderMessages();
     }
@@ -9083,8 +9154,8 @@
                     }, 0);
                 } else if (asiConfigContext === 'utilizador') {
                     const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
-                    asiAppendMessage(asiCreateMessage('assistant', 'O que deseja analisar do utilizador?', {
-                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                    asiAppendMessage(asiCreateMessage('assistant', 'Como deseja importar os utilizadores?', {
+                        breadcrumb: asiBuildQuickActionBreadcrumb('utilizador', [asiPfcgSystem]),
                         actions: (uNode && Array.isArray(uNode.children)) ? uNode.children : [],
                         actionLevel: 2,
                         parentActionId: 'utilizador',
@@ -9092,7 +9163,7 @@
                     }));
                 } else {
                     asiAppendMessage(asiCreateMessage('assistant', 'O que deseja fazer com o Perfil de Autorização?', {
-                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                        breadcrumb: asiBuildQuickActionBreadcrumb('perfil-autorizacao', [asiPfcgSystem]),
                         ...asiPostResultMenu()
                     }));
                 }
@@ -9247,8 +9318,8 @@
                     }, 0);
                 } else if (asiConfigContext === 'utilizador') {
                     const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
-                    asiAppendMessage(asiCreateMessage('assistant', 'O que deseja analisar do utilizador?', {
-                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                    asiAppendMessage(asiCreateMessage('assistant', 'Como deseja importar os utilizadores?', {
+                        breadcrumb: asiBuildQuickActionBreadcrumb('utilizador', [asiPfcgSystem]),
                         actions: (uNode && Array.isArray(uNode.children)) ? uNode.children : [],
                         actionLevel: 2,
                         parentActionId: 'utilizador',
@@ -9256,7 +9327,7 @@
                     }));
                 } else {
                     asiAppendMessage(asiCreateMessage('assistant', 'O que deseja fazer com o Perfil de Autorização?', {
-                        breadcrumb: asiBuildQuickActionBreadcrumb(actionId, [asiPfcgSystem]),
+                        breadcrumb: asiBuildQuickActionBreadcrumb('perfil-autorizacao', [asiPfcgSystem]),
                         ...asiPostResultMenu()
                     }));
                 }
@@ -9411,18 +9482,21 @@
         }
         if (action.id === 'cua-add-excel') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
-            asiAppendMessage(asiCreateMessage('user', 'Selecionar Excel'));
+            asiAppendMessage(asiCreateMessage('user', 'Importar em Massa'));
             asiStartCuaAdicionarExcel();
             return;
         }
         if (action.id === 'cua-add-individual') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
-            asiAppendMessage(asiCreateMessage('user', 'Individualmente'));
-            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP? (ex.: CLOPES)'));
-            asiConversationState = { ...asiConversationState, awaitingInput: ASI_CUA_ADD_USER_INPUT, cuaAdd: {} };
+            asiAppendMessage(asiCreateMessage('user', 'Individual'));
+            asiAppendMessage(asiCreateMessage('assistant', action.followupText, {
+                actions: action.children,
+                actionLevel: 3,
+                parentActionId: action.id,
+                selectionGroupKey: action.id
+            }));
+            asiConversationState = { ...asiConversationState, awaitingInput: '', cuaAdd: {} };
             asiUpdateComposerState();
-            const { input } = asiGetElements();
-            if (input) input.focus();
             return;
         }
 
