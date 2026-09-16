@@ -46,3 +46,7 @@ scratch/*.json
 scratch/*.sap
 scratch/*.vbs
 
+# Office / Excel temporary lock files
+~$*
+
+
