@@ -3869,6 +3869,38 @@ def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dic
             print(f"[AVISO] Linha ou departamento '{entrada}' não encontrado na folha CONTROLO. Escolha uma das linhas listadas.")
 
 
+def obter_data_fim_sap_gui(grid_act=None) -> str:
+    """
+    Retorna a data de validade final (31/12/9999) formatada rigorosamente conforme
+    o padrão de data configurado no perfil SAP GUI do utilizador (ex: '31.12.9999' para DD.MM.YYYY).
+    Previne o erro SAP DB749 ('Invalid date; enter the date in the format DD.MM.YYYY').
+    """
+    if grid_act is not None:
+        try:
+            # 1. Inspecionar se já existe alguma linha com data final na grelha
+            for r in range(grid_act.RowCount):
+                val = str(grid_act.GetCellValue(r, "UPDATE_TO_DAT") or "").strip()
+                if "9999" in val and len(val) >= 8:
+                    return val
+                val_from = str(grid_act.GetCellValue(r, "UPDATE_FROM_DAT") or "").strip()
+                if "." in val_from:
+                    return "31.12.9999"
+                elif "/" in val_from:
+                    parts = val_from.split("/")
+                    if len(parts) == 3 and len(parts[2]) == 4:
+                        return "12/31/9999" if (int(parts[0]) <= 12 and int(parts[1]) > 12) else "31/12/9999"
+                elif "-" in val_from:
+                    parts = val_from.split("-")
+                    if len(parts) == 3 and len(parts[0]) == 4:
+                        return "9999-12-31"
+                    return "31-12-9999"
+        except Exception:
+            pass
+
+    # Padrão corporativo SAP Salsa Jeans / Portugal (DD.MM.YYYY)
+    return "31.12.9999"
+
+
 def sincronizar_departamento_cua_completo(
     dados: ProjetoPerfilData,
     item_dep: Dict[str, Any],
@@ -3965,6 +3997,19 @@ def sincronizar_departamento_cua_completo(
                     session.findById("wnd[0]/tbar[0]/btn[11]").press()
                 except Exception:
                     session.findById("wnd[0]").sendVKey(11)
+                time.sleep(0.5)
+                # Confirmar eventuais popups modais de aviso/informação pós-salvamento
+                try:
+                    for _ in range(3):
+                        if session.Children.Count > 1:
+                            wnd_pop = session.findById("wnd[1]")
+                            try:
+                                wnd_pop.sendVKey(0)
+                            except Exception:
+                                pass
+                            time.sleep(0.3)
+                except Exception:
+                    pass
 
             # Mapa de roles esperadas da Proposta Ativa para cada utilizador
             user_expected_map = {}
@@ -4109,16 +4154,28 @@ def sincronizar_departamento_cua_completo(
                     curr_row = first_empty
                     roles_adicionadas_user = []
 
+                    # Obter a data fim no formato exato configurado no SAP GUI (ex: '31.12.9999' para DD.MM.YYYY)
+                    data_fim_sap = obter_data_fim_sap_gui(grid_act)
+
                     # 3. Adicionar roles do catálogo para S4PCLNT100
                     for agr in sorted(expected_roles):
                         grid_act.firstVisibleRow = max(0, curr_row - 2)
                         grid_act.modifyCell(curr_row, "SUBSYSTEM", "S4PCLNT100")
                         grid_act.modifyCell(curr_row, "AGR_NAME", agr)
-                        grid_act.modifyCell(curr_row, "UPDATE_TO_DAT", "99991231")
+                        grid_act.modifyCell(curr_row, "UPDATE_TO_DAT", data_fim_sap)
                         grid_act.currentCellRow = curr_row
                         grid_act.currentCellColumn = "AGR_NAME"
                         grid_act.pressEnter()
                         time.sleep(0.1)
+                        # Tratar eventual mensagem de erro no status bar
+                        try:
+                            sbar = session.findById("wnd[0]/sbar")
+                            sbar_type = str(getattr(sbar, "MessageType", "") or "").strip().upper()
+                            if sbar_type in ("E", "A"):
+                                sbar_txt = str(getattr(sbar, "Text", "") or "").strip()
+                                print(f"     [AVISO SAP] {u} ({agr}): {sbar_txt}", flush=True)
+                        except Exception:
+                            pass
                         roles_adicionadas_user.append((u, "S4PCLNT100", agr, "CONCLUÍDO", f"User {u} has changed"))
                         curr_row += 1
 
@@ -4127,11 +4184,20 @@ def sincronizar_departamento_cua_completo(
                         grid_act.firstVisibleRow = max(0, curr_row - 2)
                         grid_act.modifyCell(curr_row, "SUBSYSTEM", "S4QCLNT100")
                         grid_act.modifyCell(curr_row, "AGR_NAME", agr)
-                        grid_act.modifyCell(curr_row, "UPDATE_TO_DAT", "99991231")
+                        grid_act.modifyCell(curr_row, "UPDATE_TO_DAT", data_fim_sap)
                         grid_act.currentCellRow = curr_row
                         grid_act.currentCellColumn = "AGR_NAME"
                         grid_act.pressEnter()
                         time.sleep(0.1)
+                        # Tratar eventual mensagem de erro no status bar
+                        try:
+                            sbar = session.findById("wnd[0]/sbar")
+                            sbar_type = str(getattr(sbar, "MessageType", "") or "").strip().upper()
+                            if sbar_type in ("E", "A"):
+                                sbar_txt = str(getattr(sbar, "Text", "") or "").strip()
+                                print(f"     [AVISO SAP] {u} ({agr}): {sbar_txt}", flush=True)
+                        except Exception:
+                            pass
                         roles_adicionadas_user.append((u, "S4QCLNT100", agr, "CONCLUÍDO", f"User {u} has changed"))
                         curr_row += 1
 
