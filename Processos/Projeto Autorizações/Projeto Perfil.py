@@ -4563,8 +4563,401 @@ def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
             print("[AVISO] Opção inválida.")
 
 
+def executar_fluxo_pesquisa_atribuir_transacao(
+    dados: ProjetoPerfilData,
+    caminho_excel: Optional[str] = None,
+    transacao_alvo: Optional[str] = None,
+    user_alvo: Optional[str] = None,
+    simular: bool = False,
+    assumir_sim: bool = False,
+) -> bool:
+    """
+    [OPÇÃO 4: PESQUISA / ANALISAR]
+    Fluxo automatizado de pesquisa de transação no SAP PRD via RFC e atribuição ao utilizador:
+      1. Pesquisa a transação no SAP PRD (AGR_TCODES, AGR_TEXTS, TSTCT) e identifica a role oficial.
+      2. Pede ou recebe o utilizador SAP.
+      3. Na folha 'Proposta Ativa', localiza o utilizador, lê o Departamento e atribui a função
+         na primeira coluna livre a partir das roles existentes (coluna 10+).
+      4. Na folha 'PFCG_CREATE', verifica a função em AGR_NAME:
+         - Opção A: Se a transação já existir na role (ex.: FB02 na linha 394 com status 'Criado'),
+           mantém o registo existente sem duplicar.
+         - Se não existir, adiciona nova linha mantendo a estrutura e status a vazio.
+      5. Na folha departamental correspondente (ex.: 'Client Services'):
+         - Localiza o utilizador no cabeçalho da Linha 2.
+         - Localiza ou cria a linha da transação e atribui com 'X' na coluna do utilizador.
+      6. Grava com segurança (backup automático em output/ e sincronização do Desktop).
+    """
+    import openpyxl
+    import shutil
+
+    caminho = caminho_excel or dados.caminho or encontrar_excel_padrao()
+    if not caminho or not os.path.exists(caminho):
+        print("[ERRO] Ficheiro Excel não encontrado.")
+        return False
+
+    print("\n" + "=" * 78)
+    print("  FLUXO DE PESQUISA, ANÁLISE E ATRIBUIÇÃO DE TRANSAÇÃO SAP")
+    print("=" * 78)
+
+    # 1. Obter Transação
+    if not transacao_alvo:
+        transacao_alvo = input("\nIntroduza o código da transação SAP (ex: FB02) [Enter para cancelar]: ").strip().upper()
+        if not transacao_alvo:
+            return False
+    else:
+        transacao_alvo = transacao_alvo.strip().upper()
+
+    # 2. Obter Utilizador SAP
+    if not user_alvo:
+        user_alvo = input("Introduza o ID do utilizador SAP (ex: S5092) [Enter para cancelar]: ").strip().upper()
+        if not user_alvo:
+            return False
+    else:
+        user_alvo = user_alvo.strip().upper()
+
+    # 3. Consulta RFC ao SAP PRD
+    print(f"\n[ETAPA 1] A pesquisar transação '{transacao_alvo}' no SAP PRD via RFC...")
+    try:
+        from sap_rfc.pfcg_transaction_roles_service import analyze_transaction_roles_prd
+        res_rfc = analyze_transaction_roles_prd(transacao_alvo)
+    except Exception as e_rfc:
+        print(f"  [ERRO RFC]: Falha ao comunicar com SAP PRD via RFC: {e_rfc}")
+        return False
+
+    if not res_rfc.get("ok"):
+        print(f"  [ERRO RFC]: {res_rfc.get('message')}")
+        return False
+
+    tcode_desc = res_rfc.get("tcode_description") or ""
+    roles_prd = [r["role"] for r in res_rfc.get("roles", [])]
+    print(f"  ✓ Transação SAP: {transacao_alvo} — {tcode_desc}")
+    print(f"  ✓ {len(roles_prd)} função(ões) associada(s) encontrada(s) no SAP PRD: {roles_prd}")
+    if not roles_prd:
+        print(f"  [AVISO] A transação '{transacao_alvo}' não está associada a nenhuma função no PRD.")
+        return False
+
+    # 4. Cruzar com catálogo oficial do Excel
+    roles_catalogo = set(dados.roles_simples.keys())
+    roles_no_catalogo = [r for r in roles_prd if r in roles_catalogo]
+
+    role_selecionada = None
+    if len(roles_no_catalogo) == 1:
+        role_selecionada = roles_no_catalogo[0]
+        desc_cat = dados.roles_simples.get(role_selecionada, {}).get("descricao", "")
+        print(f"  ✓ Função oficial do catálogo identificada: {role_selecionada} ('{desc_cat}')")
+    elif len(roles_no_catalogo) > 1:
+        print(f"\n  Múltiplas funções do catálogo oficial encontradas no PRD com esta transação:")
+        for i, r_cat in enumerate(roles_no_catalogo, 1):
+            desc_cat = dados.roles_simples.get(r_cat, {}).get("descricao", "")
+            print(f"    [{i}] {r_cat} — {desc_cat}")
+        if assumir_sim:
+            role_selecionada = roles_no_catalogo[0]
+        else:
+            escolha = input(f"  Selecione a função desejada [1-{len(roles_no_catalogo)}] (Padrão: 1): ").strip()
+            idx_sel = int(escolha) - 1 if escolha.isdigit() and 1 <= int(escolha) <= len(roles_no_catalogo) else 0
+            role_selecionada = roles_no_catalogo[idx_sel]
+    else:
+        print(f"\n  [AVISO] Nenhuma das funções do PRD pertence ao catálogo oficial atual.")
+        for i, r_prd in enumerate(roles_prd, 1):
+            print(f"    [{i}] {r_prd}")
+        if assumir_sim:
+            role_selecionada = roles_prd[0]
+        else:
+            escolha = input(f"  Selecione a função a utilizar [1-{len(roles_prd)}] (Padrão: 1): ").strip()
+            idx_sel = int(escolha) - 1 if escolha.isdigit() and 1 <= int(escolha) <= len(roles_prd) else 0
+            role_selecionada = roles_prd[idx_sel]
+
+    def num_to_col(n: int) -> str:
+        s = ""
+        while n > 0:
+            n, m = divmod(n - 1, 26)
+            s = chr(65 + m) + s
+        return s
+
+    # 5. Carregar e analisar a estrutura atual do Excel
+    wb = openpyxl.load_workbook(caminho, data_only=True)
+
+    # 5.1 Proposta Ativa
+    print(f"\n[ETAPA 2] Folha 'Proposta Ativa' para o utilizador '{user_alvo}':")
+    if "Proposta Ativa" not in wb.sheetnames:
+        print("[ERRO] Folha 'Proposta Ativa' não encontrada no ficheiro Excel.")
+        wb.close()
+        return False
+
+    ws_pa = wb["Proposta Ativa"]
+    user_row = None
+    for r in range(2, ws_pa.max_row + 1):
+        u_val = str(ws_pa.cell(r, 1).value or "").strip().upper()
+        if u_val == user_alvo:
+            user_row = r
+            break
+
+    if not user_row:
+        print(f"  [ERRO] Utilizador '{user_alvo}' não encontrado na folha 'Proposta Ativa'.")
+        wb.close()
+        return False
+
+    user_nome = str(ws_pa.cell(user_row, 3).value or "").strip()
+    dep_nome = str(ws_pa.cell(user_row, 8).value or ws_pa.cell(user_row, 6).value or "").strip()
+    comp_role = str(ws_pa.cell(user_row, 9).value or "").strip()
+
+    print(f"  ✓ Utilizador: {user_alvo} ({user_nome}) localizado na Linha {user_row}")
+    print(f"  ✓ Departamento: '{dep_nome}' | Composite Role: '{comp_role}'")
+
+    col_livre = None
+    roles_existentes_user = []
+    col_ja_atribuida = None
+    for c in range(10, ws_pa.max_column + 10):
+        val = str(ws_pa.cell(user_row, c).value or "").strip()
+        if val:
+            roles_existentes_user.append(val)
+            if val.upper() == role_selecionada.upper():
+                col_ja_atribuida = c
+        elif col_livre is None:
+            col_livre = c
+            break
+
+    gravar_proposta_ativa = False
+    if col_ja_atribuida:
+        print(f"  ℹ A função '{role_selecionada}' já se encontra atribuída na célula {num_to_col(col_ja_atribuida)}{user_row}.")
+    else:
+        gravar_proposta_ativa = True
+        col_letra = num_to_col(col_livre)
+        print(f"  ✓ Roles atribuídas atualmente: {len(roles_existentes_user)}")
+        print(f"  ✓ Primeira coluna livre identificada: Coluna {col_livre} ({col_letra}) -> Célula {col_letra}{user_row}")
+        print(f"  -> Ação Planeada: Gravar '{role_selecionada}' na célula {col_letra}{user_row}")
+
+    # 5.2 PFCG_CREATE
+    print(f"\n[ETAPA 3] Folha 'PFCG_CREATE' para a role '{role_selecionada}':")
+    if "PFCG_CREATE" not in wb.sheetnames:
+        print("[ERRO] Folha 'PFCG_CREATE' não encontrada no ficheiro Excel.")
+        wb.close()
+        return False
+
+    ws_pfcg = wb["PFCG_CREATE"]
+    role_text = ""
+    tcode_existente_pfcg = False
+    linha_pfcg_existente = None
+    status_pfcg_existente = ""
+    max_id_pfcg = 0
+    for r in range(2, ws_pfcg.max_row + 1):
+        try:
+            val_id = int(ws_pfcg.cell(r, 1).value or 0)
+            if val_id > max_id_pfcg:
+                max_id_pfcg = val_id
+        except (ValueError, TypeError):
+            pass
+
+        agr = str(ws_pfcg.cell(r, 2).value or "").strip()
+        txt = str(ws_pfcg.cell(r, 3).value or "").strip()
+        tc = str(ws_pfcg.cell(r, 4).value or "").strip().upper()
+        if agr.upper() == role_selecionada.upper():
+            if txt and not role_text:
+                role_text = txt
+            if tc == transacao_alvo:
+                tcode_existente_pfcg = True
+                linha_pfcg_existente = r
+                status_pfcg_existente = str(ws_pfcg.cell(r, 5).value or "").strip()
+
+    if not role_text:
+        role_text = dados.roles_simples.get(role_selecionada, {}).get("descricao", "")
+
+    gravar_pfcg_create = False
+    novo_id_pfcg = max_id_pfcg + 1
+    nova_linha_pfcg = ws_pfcg.max_row + 1
+
+    if tcode_existente_pfcg:
+        print(f"  ℹ Opção A: A transação '{transacao_alvo}' já existe na role '{role_selecionada}' (Linha {linha_pfcg_existente}, Status: '{status_pfcg_existente}').")
+        print(f"     Mantendo registo existente sem duplicar em 'PFCG_CREATE'.")
+        gravar_pfcg_create = False
+    else:
+        gravar_pfcg_create = True
+        print(f"  ✓ A transação '{transacao_alvo}' não consta na role '{role_selecionada}' em 'PFCG_CREATE'.")
+        print(f"  -> Ação Planeada: Criar Linha {nova_linha_pfcg} (ID={novo_id_pfcg}, AGR_NAME='{role_selecionada}', TEXT='{role_text}', TCODE='{transacao_alvo}', STATUS='')")
+
+    # 5.3 Folha Departamental
+    print(f"\n[ETAPA 4] Folha Departamental '{dep_nome}':")
+    sheet_dep_nome = next((s for s in wb.sheetnames if s.strip().upper() == dep_nome.strip().upper()), None)
+    if not sheet_dep_nome:
+        sheet_dep_nome = next((s for s in wb.sheetnames if dep_nome.strip().upper() in s.strip().upper() or s.strip().upper() in dep_nome.strip().upper()), None)
+
+    if not sheet_dep_nome:
+        print(f"  [ERRO] Folha departamental '{dep_nome}' não encontrada no livro Excel.")
+        wb.close()
+        return False
+
+    ws_dep = wb[sheet_dep_nome]
+    col_user_dep = None
+    user_hdr_texto = ""
+    for c in range(1, ws_dep.max_column + 1):
+        val_cab = str(ws_dep.cell(2, c).value or "").strip().upper()
+        if user_alvo in val_cab:
+            col_user_dep = c
+            user_hdr_texto = str(ws_dep.cell(2, c).value or "").strip()
+            break
+
+    if not col_user_dep:
+        print(f"  [ERRO] Utilizador '{user_alvo}' não encontrado no cabeçalho (Linha 2) da folha '{sheet_dep_nome}'.")
+        wb.close()
+        return False
+
+    col_user_letra = num_to_col(col_user_dep)
+    print(f"  ✓ Utilizador '{user_alvo}' localizado no cabeçalho (Linha 2, Coluna {col_user_dep} / {col_user_letra}): {repr(user_hdr_texto)}")
+
+    linha_tcode_dep = None
+    for r in range(3, ws_dep.max_row + 1):
+        tc = str(ws_dep.cell(r, 1).value or "").strip().upper()
+        if tc == transacao_alvo:
+            linha_tcode_dep = r
+            break
+
+    gravar_dep = False
+    nova_linha_dep = None
+
+    if linha_tcode_dep:
+        val_x = str(ws_dep.cell(linha_tcode_dep, col_user_dep).value or "").strip().upper()
+        if val_x == "X":
+            print(f"  ℹ O utilizador '{user_alvo}' já possui 'X' atribuído na transação '{transacao_alvo}' (Célula {col_user_letra}{linha_tcode_dep}).")
+        else:
+            gravar_dep = True
+            print(f"  ✓ Transação '{transacao_alvo}' existe na Linha {linha_tcode_dep}.")
+            print(f"  -> Ação Planeada: Marcar 'X' na célula {col_user_letra}{linha_tcode_dep}")
+    else:
+        gravar_dep = True
+        nova_linha_dep = ws_dep.max_row + 1
+        print(f"  ✓ Transação '{transacao_alvo}' não existe na folha '{sheet_dep_nome}'.")
+        print(f"  -> Ação Planeada: Criar Linha {nova_linha_dep}: Col A='{transacao_alvo}', Col B='{tcode_desc}', Col {col_user_letra}='X'")
+
+    wb.close()
+
+    # 6. Avaliar se há alterações a realizar
+    if not (gravar_proposta_ativa or gravar_pfcg_create or gravar_dep):
+        print("\n" + "=" * 78)
+        print(f"  ℹ Todas as atribuições para {user_alvo} e {transacao_alvo} já se encontram ativas no ficheiro!")
+        print("=" * 78)
+        return True
+
+    if simular:
+        print("\n" + "=" * 78)
+        print("  MODO SIMULAÇÃO CONCLUÍDO: Nenhuma alteração foi gravada no ficheiro Excel.")
+        print("=" * 78)
+        return True
+
+    # Confirmação do utilizador
+    if not assumir_sim:
+        conf = input("\nDeseja aplicar e gravar estas alterações no ficheiro Excel? (S/N) [Padrão: S]: ").strip().upper()
+        if conf in ("N", "NAO", "NÃO"):
+            print("Operação cancelada pelo utilizador.")
+            return False
+
+    # 7. Backup de segurança antes de gravar
+    try:
+        output_dir = PROJECT_ROOT / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = output_dir / f"S4H_Perfis_backup_{timestamp_str}.xlsx"
+        shutil.copy2(caminho, backup_path)
+        print(f"\n  ✓ Backup de segurança criado: {backup_path.name}")
+    except Exception as e_bkp:
+        print(f"  [AVISO] Falha ao criar backup de segurança: {e_bkp}")
+
+    # 8. Gravação (COM se Excel estiver aberto, ou openpyxl)
+    xl = None
+    wb_com = None
+    try:
+        import win32com.client
+        xl = win32com.client.Dispatch("Excel.Application")
+        for w in xl.Workbooks:
+            if Path(w.FullName).resolve() == Path(caminho).resolve():
+                wb_com = w
+                break
+    except Exception:
+        wb_com = None
+        xl = None
+
+    if wb_com is not None and xl is not None:
+        old_su = xl.ScreenUpdating
+        old_da = xl.DisplayAlerts
+        try:
+            xl.ScreenUpdating = False
+            xl.DisplayAlerts = False
+
+            if gravar_proposta_ativa:
+                ws_pa_com = wb_com.Worksheets("Proposta Ativa")
+                ws_pa_com.Cells(user_row, col_livre).Value = role_selecionada
+
+            if gravar_pfcg_create:
+                ws_pfcg_com = wb_com.Worksheets("PFCG_CREATE")
+                lr_pfcg = ws_pfcg_com.UsedRange.Rows.Count + 1
+                ws_pfcg_com.Cells(lr_pfcg, 1).Value = novo_id_pfcg
+                ws_pfcg_com.Cells(lr_pfcg, 2).Value = role_selecionada
+                ws_pfcg_com.Cells(lr_pfcg, 3).Value = role_text
+                ws_pfcg_com.Cells(lr_pfcg, 4).Value = transacao_alvo
+                ws_pfcg_com.Cells(lr_pfcg, 5).Value = ""
+                ws_pfcg_com.Cells(lr_pfcg, 6).Value = ""
+                ws_pfcg_com.Cells(lr_pfcg, 7).Value = ""
+                ws_pfcg_com.Cells(lr_pfcg, 8).Value = ""
+
+            if gravar_dep:
+                ws_dep_com = wb_com.Worksheets(sheet_dep_nome)
+                if linha_tcode_dep:
+                    ws_dep_com.Cells(linha_tcode_dep, col_user_dep).Value = "X"
+                else:
+                    lr_dep = ws_dep_com.UsedRange.Rows.Count + 1
+                    ws_dep_com.Cells(lr_dep, 1).Value = transacao_alvo
+                    ws_dep_com.Cells(lr_dep, 2).Value = tcode_desc
+                    ws_dep_com.Cells(lr_dep, col_user_dep).Value = "X"
+
+            wb_com.Save()
+            print("  ✓ Alterações gravadas com sucesso via Excel.Application (COM)!")
+        finally:
+            try:
+                xl.ScreenUpdating = old_su
+                xl.DisplayAlerts = old_da
+            except Exception:
+                pass
+    else:
+        wb_ox = openpyxl.load_workbook(caminho)
+
+        if gravar_proposta_ativa:
+            ws_pa_ox = wb_ox["Proposta Ativa"]
+            ws_pa_ox.cell(row=user_row, column=col_livre, value=role_selecionada)
+
+        if gravar_pfcg_create:
+            ws_pfcg_ox = wb_ox["PFCG_CREATE"]
+            ws_pfcg_ox.append([novo_id_pfcg, role_selecionada, role_text, transacao_alvo, None, None, None, None])
+
+        if gravar_dep:
+            ws_dep_ox = wb_ox[sheet_dep_nome]
+            if linha_tcode_dep:
+                ws_dep_ox.cell(row=linha_tcode_dep, column=col_user_dep, value="X")
+            else:
+                new_r_dep = ws_dep_ox.max_row + 1
+                ws_dep_ox.cell(row=new_r_dep, column=1, value=transacao_alvo)
+                ws_dep_ox.cell(row=new_r_dep, column=2, value=tcode_desc)
+                ws_dep_ox.cell(row=new_r_dep, column=col_user_dep, value="X")
+
+        wb_ox.save(caminho)
+        wb_ox.close()
+        print("  ✓ Alterações gravadas com sucesso via openpyxl!")
+
+    # 9. Sincronizar cópia na Área de Trabalho (Desktop)
+    try:
+        desktop_f = Path(r"C:\Users\clayton.silva\OneDrive - Salsajeans\Desktop\S4H_Perfis de autorização_v1.xlsx")
+        if desktop_f.exists():
+            shutil.copy2(caminho, desktop_f)
+            print("  ✓ Cópia sincronizada na Área de Trabalho (Desktop)!")
+    except Exception as e_dsk:
+        print(f"  [AVISO] Falha ao sincronizar Desktop: {e_dsk}")
+
+    print("\n" + "=" * 78)
+    print(f"  ✓ ATRIBUIÇÃO CONCLUÍDA COM SUCESSO: {user_alvo} -> {transacao_alvo} ({role_selecionada})")
+    print("=" * 78)
+    return True
+
+
 def menu_interativo(caminho_inicial: Optional[str] = None):
-    """Executa o novo menu interativo limpo direcionado por departamento."""
+    """Executa o novo menu interativo limpo com as 4 opções principais."""
     caminho = caminho_inicial or encontrar_excel_padrao()
 
     if not caminho or not os.path.exists(caminho):
@@ -4583,34 +4976,67 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
     #   Etapa 4: Proposta Ativa -> PFCG_COMPOSTA (Alinhamento de membros das composite roles)
     dados = executar_atualizacao_integrada_excel(caminho)
 
-    # A CONTROLO é a validação funcional seguinte. Havendo vários STATUS vazios,
-    # forma uma única fila e processa os departamentos pela ordem das linhas.
-    if processar_departamentos_pendentes_em_sequencia(dados):
-        dados = carregar_projeto_perfil(caminho)
-
-    if verificar_e_perguntar_pendencias(caminho):
-        dados = carregar_projeto_perfil(caminho)
-
+    # =========================================================================
+    # MENU PRINCIPAL APÓS ATUALIZAÇÃO DO FICHEIRO
+    # =========================================================================
     while True:
-        item_selecionado = selecionar_departamento_interativo(dados)
-        if not item_selecionado:
+        print("\n" + "=" * 78)
+        print("  MENU PRINCIPAL - PROJETO PERFIL")
+        print("=" * 78)
+        print("  [1] Execução       - Sincronização CUA e Despacho de Pendências")
+        print("  [2] Departamento   - Fluxo Departamental de Autorizações (Matrizes)")
+        print("  [3] Utilizador     - Auditoria e Pesquisa Individual de Utilizador")
+        print("  [4] Pesquisa       - Analisar Transação no PRD e Atribuir a Utilizador")
+        print("  [0] Sair")
+        print("-" * 78)
+        op = input("Selecione uma opção [1-4, 0]: ").strip().upper()
+
+        if op == "1" or op in ("EXECUCAO", "EXECUÇÃO"):
+            print("\n" + "=" * 78)
+            print("  [OPÇÃO 1] EXECUÇÃO: Sincronização CUA e Processamento de Pendências")
+            print("=" * 78)
+            if processar_departamentos_pendentes_em_sequencia(dados):
+                dados = carregar_projeto_perfil(caminho)
+            if verificar_e_perguntar_pendencias(caminho):
+                dados = carregar_projeto_perfil(caminho)
+
+        elif op == "2" or op == "DEPARTAMENTO":
+            while True:
+                item_selecionado = selecionar_departamento_interativo(dados)
+                if not item_selecionado:
+                    break
+                if item_selecionado.get("tipo") == "MENU_GERAL":
+                    acao = menu_geral_pesquisas(dados)
+                    if acao == "SAIR":
+                        break
+                    continue
+                acao = executar_menu_departamento(dados, item_selecionado)
+                if acao == "SAIR":
+                    break
+                elif acao == "MENU_GERAL":
+                    acao_g = menu_geral_pesquisas(dados)
+                    if acao_g == "SAIR":
+                        break
+
+        elif op == "3" or op == "UTILIZADOR":
+            while True:
+                u_in = input("\nIntroduza o ID do utilizador SAP para auditoria (ex: S5092) [Enter para voltar]: ").strip()
+                if not u_in:
+                    break
+                res_audit = auditar_utilizador(dados, u_in)
+                imprimir_auditoria_utilizador(res_audit)
+
+        elif op == "4" or op in ("PESQUISA", "ANALISAR", "PESQUISAR"):
+            sucesso = executar_fluxo_pesquisa_atribuir_transacao(dados, caminho)
+            if sucesso:
+                dados = carregar_projeto_perfil(caminho)
+
+        elif op in ("0", "S", "SAIR", "Q", "QUIT", ""):
             print("\nEncerrando. Até logo!")
             break
 
-        if item_selecionado.get("tipo") == "MENU_GERAL":
-            acao = menu_geral_pesquisas(dados)
-            if acao == "SAIR":
-                break
-            continue
-
-        acao = executar_menu_departamento(dados, item_selecionado)
-        if acao == "SAIR":
-            print("\nEncerrando. Até logo!")
-            break
-        elif acao == "MENU_GERAL":
-            acao_g = menu_geral_pesquisas(dados)
-            if acao_g == "SAIR":
-                break
+        else:
+            print("[AVISO] Opção inválida. Por favor escolha 1, 2, 3, 4 ou 0.")
 
 
 # =====================================================================
@@ -4639,6 +5065,8 @@ if __name__ == "__main__":
     parser.add_argument("--executar-pendencias", "--despachar-pendencias", dest="executar_pendencias", action="store_true", help="Executar o despachante de processos com STATUS pendente nas folhas operacionais (Rotina 7)")
     parser.add_argument("--sincronizar-cua", dest="sincronizar_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para o departamento")
     parser.add_argument("--fila-cua", "--sincronizar-fila", dest="fila_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para todos os departamentos pendentes em sequência")
+    parser.add_argument("--atribuir-transacao", "--pesquisar-atribuir", dest="atribuir_transacao", action="store_true", help="Pesquisar transação via RFC no PRD e atribuir a utilizador na Proposta Ativa, PFCG_CREATE e folha departamental")
+    parser.add_argument("--simular", dest="simular", action="store_true", help="Apenas simular a operação sem gravar no Excel")
     parser.add_argument("--yes", "-y", dest="assumir_sim", action="store_true", help="Confirmar automaticamente sem perguntar interativamente")
 
     args = parser.parse_args()
@@ -4646,7 +5074,7 @@ if __name__ == "__main__":
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo or args.sincronizar_cua or args.fila_cua or args.atualizar_excel or args.executar_pendencias:
+    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo or args.sincronizar_cua or args.fila_cua or args.atualizar_excel or args.executar_pendencias or args.atribuir_transacao:
         if not caminho_alvo:
             print("[ERRO] Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
@@ -4720,9 +5148,9 @@ if __name__ == "__main__":
             imprimir_comparacao_catalogo_prd(res_comp)
         if args.role:
             imprimir_resultado_funcao(pesquisar_funcao(dados, args.role))
-        if args.tcode:
+        if args.tcode and not args.atribuir_transacao:
             imprimir_resultado_tcode(pesquisar_por_tcode(dados, args.tcode))
-        if args.user:
+        if args.user and not args.atribuir_transacao:
             res_audit = auditar_utilizador(dados, args.user)
             imprimir_auditoria_utilizador(res_audit)
         if args.validar_proposta_tcodes:
@@ -4774,6 +5202,16 @@ if __name__ == "__main__":
         if args.executar_pendencias:
             print("\n[ROTINA 7] A verificar e despachar processos pendentes nas folhas operacionais...")
             verificar_e_perguntar_pendencias(caminho_alvo)
+
+        if args.atribuir_transacao:
+            executar_fluxo_pesquisa_atribuir_transacao(
+                dados=dados,
+                caminho_excel=caminho_alvo,
+                transacao_alvo=args.tcode,
+                user_alvo=args.user,
+                simular=args.simular,
+                assumir_sim=args.assumir_sim,
+            )
 
     else:
         # Modo interativo padrão
