@@ -4402,15 +4402,58 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
             print(f"[AVISO] {analise.get('mensagem', 'Departamento não encontrado na folha Proposta Ativa.')}")
 
         print("-" * 60)
-        print("[1] Validar users no PRD  [2] Cruzar fontes")
-        print("[3] Sincronizar CUA       [4] Verificar funções PRD")
-        print("[5] Análise detalhada     [6] Incorporar catálogo")
-        print("[7] Outro departamento    [8] Menu geral  [0] Sair")
+        print("[1] Global (Executar Todas as Etapas)")
+        print("[2] Validar users no PRD  [3] Cruzar fontes")
+        print("[4] Sincronizar CUA       [5] Verificar funções PRD")
+        print("[6] Análise detalhada     [7] Incorporar catálogo")
+        print("[8] Outro departamento    [9] Menu geral  [0] Sair")
         print("-" * 60)
 
         acao = input("Escolha uma ação: ").strip().upper()
 
-        if acao == "1":
+        if acao in ("1", "GLOBAL", "G"):
+            print("\n" + "=" * 70)
+            print(f"  EXECUÇÃO GLOBAL DO DEPARTAMENTO: {dep_nome.upper()} (Linha {linha})")
+            print("=" * 70)
+
+            # Etapa 1: Cruzar fontes relacionais
+            print("\n[ETAPA 1/5] Cruzamento relacional de fontes (PFCG_CREATE, PFCG_COMPOSTA, PFCG_AUTHORITY, EXCLUÇÃO)...")
+            res_cruz = cruzar_fontes_departamento(dados, dep_nome)
+            imprimir_cruzamento_fontes(res_cruz)
+
+            # Etapa 2: Incorporar funções do catálogo ativas no PRD
+            print("\n[ETAPA 2/5] A verificar e incorporar funções do catálogo ativas no PRD...")
+            res_inc = incorporar_adicionais_catalogo_departamento(dados, dep_nome)
+            if res_inc.get("ok") and res_inc.get("total_incorporadas", 0) > 0:
+                print(f"  ✓ {res_inc.get('total_incorporadas')} função(ões) incorporada(s) na folha 'Proposta Ativa'.")
+                dados = carregar_projeto_perfil(dados.caminho)
+                analise = analisar_departamento_proposta(dados, dep_nome)
+            else:
+                print(f"  ℹ {res_inc.get('mensagem', 'Nenhuma nova função do catálogo a incorporar.')}")
+
+            # Etapa 3: Verificar existência de funções no PRD
+            print("\n[ETAPA 3/5] A verificar existência de funções no SAP PRD...")
+            roles_dep = list(analise.get("compostas", [])) + list(analise.get("singles_frequencia", {}).keys())
+            if roles_dep:
+                res_verif = verificar_funcoes_prd(roles_dep)
+                imprimir_resultado_verificacao_prd(res_verif, f"Departamento '{dep_nome}'")
+
+            # Etapa 4: Validar utilizadores e conformidade no SAP PRD
+            print("\n[ETAPA 4/5] A validar utilizadores no SAP PRD...")
+            res_prd = validar_utilizadores_prd(dados, dep_nome)
+            imprimir_validacao_utilizadores_prd(res_prd)
+
+            # Etapa 5: Sincronização CUA completa
+            print("\n[ETAPA 5/5] Sincronização CUA completa (PRD e QAS)...")
+            sucesso = sincronizar_departamento_cua_completo(dados, item_dep)
+            if sucesso:
+                dados = carregar_projeto_perfil(dados.caminho)
+                item_dep["status"] = "PROCESSADO"
+                item_dep["pendente"] = False
+                analise = analisar_departamento_proposta(dados, dep_nome)
+                print(f"\n✓ Execução Global concluída com sucesso para o departamento '{dep_nome}'!")
+
+        elif acao == "2":
             print(f"\nA validar atribuições no SAP PRD para '{dep_nome}' ...")
             res_prd = validar_utilizadores_prd(dados, dep_nome)
             imprimir_validacao_utilizadores_prd(res_prd)
@@ -4435,14 +4478,14 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
                     res_prd_nova = validar_utilizadores_prd(dados, dep_nome)
                     imprimir_validacao_utilizadores_prd(res_prd_nova)
 
-        elif acao == "2":
+        elif acao == "3":
             res_cruz = cruzar_fontes_departamento(dados, dep_nome)
             imprimir_cruzamento_fontes(res_cruz)
 
-        elif acao == "3":
+        elif acao == "4":
             sincronizar_departamento_cua_completo(dados, item_dep)
 
-        elif acao == "4":
+        elif acao == "5":
             if analise.get("encontrado"):
                 roles_dep = list(analise["compostas"]) + list(analise["singles_frequencia"].keys())
                 res_prd = verificar_funcoes_prd(roles_dep)
@@ -4450,10 +4493,10 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
             else:
                 print("[AVISO] Não foi possível obter as funções do departamento.")
 
-        elif acao == "5":
+        elif acao == "6":
             imprimir_analise_departamento(analise)
 
-        elif acao == "6":
+        elif acao == "7":
             print(f"\nA verificar funções do catálogo ativas no PRD para '{dep_nome}' ...")
             res_inc = incorporar_adicionais_catalogo_departamento(dados, dep_nome)
             if not res_inc.get("ok"):
@@ -4468,10 +4511,10 @@ def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any
                 dados = carregar_projeto_perfil(dados.caminho)
                 analise = analisar_departamento_proposta(dados, dep_nome)
 
-        elif acao in ("7", "V", "VOLTAR"):
+        elif acao in ("8", "V", "VOLTAR"):
             return "VOLTAR"
 
-        elif acao in ("8", "M", "GERAL"):
+        elif acao in ("9", "M", "GERAL"):
             return "MENU_GERAL"
 
         elif acao in ("0", "S", "SAIR", "Q"):
