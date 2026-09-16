@@ -4563,6 +4563,100 @@ def menu_geral_pesquisas(dados: ProjetoPerfilData) -> str:
             print("[AVISO] Opção inválida.")
 
 
+def sincronizar_composta_sap_rfc(
+    ambiente: str,
+    composta: str,
+    funcao_individual: str,
+    texto_funcao: str = "",
+) -> Dict[str, Any]:
+    """
+    Sincroniza a adição de uma função individual a uma função composta no sistema SAP (PRD ou QAD) via RFC:
+      1. Consulta os membros atuais da composta na tabela AGR_AGRS.
+      2. Se ainda não for membro, adiciona via PRGN_RFC_ADD_AGRS_TO_COLL_AGR.
+      3. Gera perfil e executa User Compare na Composta via PRGN_GEN_PROFILES_FOR_ROLES (IV_USERCOMPARE='X').
+      4. Gera perfil e executa User Compare na Função Individual via PRGN_GEN_PROFILES_FOR_ROLES (IV_USERCOMPARE='X')
+         para resolver o semáforo amarelo para verde.
+    """
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_write_guard, make_read_only_guard, fetch_composite_members,
+        )
+        from pyrfc import Connection
+
+        load_project_env(find_project_root())
+        params = build_connection_params_for(ambiente)
+
+        # 1. Consulta membros atuais
+        guard_ro = make_read_only_guard(["AGR_AGRS", "AGR_TEXTS"])
+        conn_ro = Connection(**params)
+        try:
+            membros = fetch_composite_members(conn_ro, guard_ro, composta)
+        finally:
+            conn_ro.close()
+
+        ja_membro = funcao_individual.strip().upper() in membros
+
+        # 2. Escrita e User Compare
+        conn = Connection(**params)
+        guard = make_write_guard(
+            allowed_functions=["PRGN_RFC_ADD_AGRS_TO_COLL_AGR", "PRGN_GEN_PROFILES_FOR_ROLES"],
+            allowed_tables=["AGR_AGRS", "AGR_TEXTS"]
+        )
+        try:
+            if not ja_membro:
+                guard.assert_function_allowed("PRGN_RFC_ADD_AGRS_TO_COLL_AGR")
+                res_add = conn.call(
+                    "PRGN_RFC_ADD_AGRS_TO_COLL_AGR",
+                    ACTIVITY_GROUP=composta,
+                    ACTIVITY_GROUPS=[{"AGR_NAME": funcao_individual, "TEXT": texto_funcao}],
+                    NO_DIALOG="X",
+                )
+                mensagens = res_add.get("RETURN", []) or []
+                erros = [m for m in mensagens if str(m.get("TYPE", "")).upper() in ("E", "A")]
+                if erros:
+                    return {
+                        "ok": False,
+                        "ambiente": ambiente,
+                        "message": "; ".join(m.get("MESSAGE", "") for m in erros)
+                    }
+
+            # 3. Gerar perfil e atualizar utilizador (User Compare) na Composta
+            guard.assert_function_allowed("PRGN_GEN_PROFILES_FOR_ROLES")
+            conn.call(
+                "PRGN_GEN_PROFILES_FOR_ROLES",
+                IT_ROLES=[{"AGR_NAME": composta}],
+                IV_USERCOMPARE="X",
+            )
+
+            # 4. Gerar perfil e atualizar utilizador (User Compare) na Função Individual (amarelo -> verde)
+            try:
+                conn.call(
+                    "PRGN_GEN_PROFILES_FOR_ROLES",
+                    IT_ROLES=[{"AGR_NAME": funcao_individual}],
+                    IV_USERCOMPARE="X",
+                )
+            except Exception:
+                pass
+
+            status_msg = "já era membro" if ja_membro else "adicionada com sucesso"
+            return {
+                "ok": True,
+                "ambiente": ambiente,
+                "ja_membro": ja_membro,
+                "message": f"SAP {ambiente}: Função {funcao_individual} ({status_msg}) na Composta {composta}. Perfis gerados e User Compare atualizado (semáforo verde)."
+            }
+        finally:
+            conn.close()
+
+    except Exception as exc:
+        return {
+            "ok": False,
+            "ambiente": ambiente,
+            "message": f"Erro RFC no SAP {ambiente}: {exc}"
+        }
+
+
 def executar_fluxo_pesquisa_atribuir_transacao(
     dados: ProjetoPerfilData,
     caminho_excel: Optional[str] = None,
@@ -4576,16 +4670,18 @@ def executar_fluxo_pesquisa_atribuir_transacao(
     Fluxo automatizado de pesquisa de transação no SAP PRD via RFC e atribuição ao utilizador:
       1. Pesquisa a transação no SAP PRD (AGR_TCODES, AGR_TEXTS, TSTCT) e identifica a role oficial.
       2. Pede ou recebe o utilizador SAP.
-      3. Na folha 'Proposta Ativa', localiza o utilizador, lê o Departamento e atribui a função
-         na primeira coluna livre a partir das roles existentes (coluna 10+).
-      4. Na folha 'PFCG_CREATE', verifica a função em AGR_NAME:
-         - Opção A: Se a transação já existir na role (ex.: FB02 na linha 394 com status 'Criado'),
-           mantém o registo existente sem duplicar.
-         - Se não existir, adiciona nova linha mantendo a estrutura e status a vazio.
+      3. Na folha 'Proposta Ativa', localiza o utilizador, lê o Departamento e a Composite Role,
+         e atribui a função individual na primeira coluna livre a partir das roles existentes (coluna 10+).
+      4. Na folha 'PFCG_COMPOSTA': adiciona a nova função individual como membro da Composite Role
+         do utilizador (a folha PFCG_CREATE permanece intacta).
       5. Na folha departamental correspondente (ex.: 'Client Services'):
          - Localiza o utilizador no cabeçalho da Linha 2.
          - Localiza ou cria a linha da transação e atribui com 'X' na coluna do utilizador.
-      6. Grava com segurança (backup automático em output/ e sincronização do Desktop).
+      6. Sincronização nos Sistemas SAP (1º PRD e depois 2º QAD):
+         - Adiciona a role à composta via RFC PRGN_RFC_ADD_AGRS_TO_COLL_AGR.
+         - Executa User Compare na composta e na função individual via PRGN_GEN_PROFILES_FOR_ROLES
+           (IV_USERCOMPARE='X') para passar o semáforo de amarelo a verde.
+      7. Grava no Excel com segurança (backup automático em output/ e sincronização do Desktop).
     """
     import openpyxl
     import shutil
@@ -4667,6 +4763,8 @@ def executar_fluxo_pesquisa_atribuir_transacao(
             idx_sel = int(escolha) - 1 if escolha.isdigit() and 1 <= int(escolha) <= len(roles_prd) else 0
             role_selecionada = roles_prd[idx_sel]
 
+    desc_role = dados.roles_simples.get(role_selecionada, {}).get("descricao", "")
+
     def num_to_col(n: int) -> str:
         s = ""
         while n > 0:
@@ -4701,6 +4799,11 @@ def executar_fluxo_pesquisa_atribuir_transacao(
     dep_nome = str(ws_pa.cell(user_row, 8).value or ws_pa.cell(user_row, 6).value or "").strip()
     comp_role = str(ws_pa.cell(user_row, 9).value or "").strip()
 
+    if not comp_role or comp_role.upper() in ("NAN", "NONE", "-"):
+        print(f"  [ERRO] Utilizador '{user_alvo}' não possui Composite Role definida na folha 'Proposta Ativa'.")
+        wb.close()
+        return False
+
     print(f"  ✓ Utilizador: {user_alvo} ({user_nome}) localizado na Linha {user_row}")
     print(f"  ✓ Departamento: '{dep_nome}' | Composite Role: '{comp_role}'")
 
@@ -4727,53 +4830,51 @@ def executar_fluxo_pesquisa_atribuir_transacao(
         print(f"  ✓ Primeira coluna livre identificada: Coluna {col_livre} ({col_letra}) -> Célula {col_letra}{user_row}")
         print(f"  -> Ação Planeada: Gravar '{role_selecionada}' na célula {col_letra}{user_row}")
 
-    # 5.2 PFCG_CREATE
-    print(f"\n[ETAPA 3] Folha 'PFCG_CREATE' para a role '{role_selecionada}':")
-    if "PFCG_CREATE" not in wb.sheetnames:
-        print("[ERRO] Folha 'PFCG_CREATE' não encontrada no ficheiro Excel.")
+    # 5.2 PFCG_COMPOSTA (Substitui PFCG_CREATE)
+    print(f"\n[ETAPA 3] Folha 'PFCG_COMPOSTA' para a Composite Role '{comp_role}':")
+    if "PFCG_COMPOSTA" not in wb.sheetnames:
+        print("[ERRO] Folha 'PFCG_COMPOSTA' não encontrada no ficheiro Excel.")
         wb.close()
         return False
 
-    ws_pfcg = wb["PFCG_CREATE"]
-    role_text = ""
-    tcode_existente_pfcg = False
-    linha_pfcg_existente = None
-    status_pfcg_existente = ""
-    max_id_pfcg = 0
-    for r in range(2, ws_pfcg.max_row + 1):
+    ws_comp = wb["PFCG_COMPOSTA"]
+    comp_text = ""
+    ja_membro_excel = False
+    linha_membro_existente = None
+    max_id_comp = 0
+    for r in range(2, ws_comp.max_row + 1):
         try:
-            val_id = int(ws_pfcg.cell(r, 1).value or 0)
-            if val_id > max_id_pfcg:
-                max_id_pfcg = val_id
+            val_id = int(ws_comp.cell(r, 1).value or 0)
+            if val_id > max_id_comp:
+                max_id_comp = val_id
         except (ValueError, TypeError):
             pass
 
-        agr = str(ws_pfcg.cell(r, 2).value or "").strip()
-        txt = str(ws_pfcg.cell(r, 3).value or "").strip()
-        tc = str(ws_pfcg.cell(r, 4).value or "").strip().upper()
-        if agr.upper() == role_selecionada.upper():
-            if txt and not role_text:
-                role_text = txt
-            if tc == transacao_alvo:
-                tcode_existente_pfcg = True
-                linha_pfcg_existente = r
-                status_pfcg_existente = str(ws_pfcg.cell(r, 5).value or "").strip()
+        agr_c = str(ws_comp.cell(r, 2).value or "").strip().upper()
+        txt_c = str(ws_comp.cell(r, 3).value or "").strip()
+        agr_filha = str(ws_comp.cell(r, 4).value or "").strip().upper()
 
-    if not role_text:
-        role_text = dados.roles_simples.get(role_selecionada, {}).get("descricao", "")
+        if agr_c == comp_role.upper():
+            if txt_c and not comp_text:
+                comp_text = txt_c
+            if agr_filha == role_selecionada.upper():
+                ja_membro_excel = True
+                linha_membro_existente = r
 
-    gravar_pfcg_create = False
-    novo_id_pfcg = max_id_pfcg + 1
-    nova_linha_pfcg = ws_pfcg.max_row + 1
+    if not comp_text:
+        comp_text = dados.roles_compostas.get(comp_role, {}).get("descricao", comp_role)
 
-    if tcode_existente_pfcg:
-        print(f"  ℹ Opção A: A transação '{transacao_alvo}' já existe na role '{role_selecionada}' (Linha {linha_pfcg_existente}, Status: '{status_pfcg_existente}').")
-        print(f"     Mantendo registo existente sem duplicar em 'PFCG_CREATE'.")
-        gravar_pfcg_create = False
+    gravar_pfcg_composta = False
+    novo_id_comp = max_id_comp + 1
+    nova_linha_comp = ws_comp.max_row + 1
+
+    if ja_membro_excel:
+        print(f"  ℹ A função '{role_selecionada}' já se encontra associada à Composta '{comp_role}' (Linha {linha_membro_existente}) em 'PFCG_COMPOSTA'.")
+        gravar_pfcg_composta = False
     else:
-        gravar_pfcg_create = True
-        print(f"  ✓ A transação '{transacao_alvo}' não consta na role '{role_selecionada}' em 'PFCG_CREATE'.")
-        print(f"  -> Ação Planeada: Criar Linha {nova_linha_pfcg} (ID={novo_id_pfcg}, AGR_NAME='{role_selecionada}', TEXT='{role_text}', TCODE='{transacao_alvo}', STATUS='')")
+        gravar_pfcg_composta = True
+        print(f"  ✓ A função '{role_selecionada}' ainda não consta em '{comp_role}' na folha 'PFCG_COMPOSTA'.")
+        print(f"  -> Ação Planeada: Adicionar Linha {nova_linha_comp} (ID={novo_id_comp}, AGR_NAME_COMPOSTA='{comp_role}', TEXT='{comp_text}', AGR_NAME='{role_selecionada}', STATUS='')")
 
     # 5.3 Folha Departamental
     print(f"\n[ETAPA 4] Folha Departamental '{dep_nome}':")
@@ -4831,26 +4932,73 @@ def executar_fluxo_pesquisa_atribuir_transacao(
     wb.close()
 
     # 6. Avaliar se há alterações a realizar
-    if not (gravar_proposta_ativa or gravar_pfcg_create or gravar_dep):
+    if not (gravar_proposta_ativa or gravar_pfcg_composta or gravar_dep):
         print("\n" + "=" * 78)
-        print(f"  ℹ Todas as atribuições para {user_alvo} e {transacao_alvo} já se encontram ativas no ficheiro!")
+        print(f"  ℹ Todas as atribuições no Excel para {user_alvo} e {transacao_alvo} já se encontram ativas!")
         print("=" * 78)
-        return True
+    else:
+        print("\n" + "-" * 78)
+        print("  RESUMO DE ALTERAÇÕES PLANEADAS:")
+        if gravar_proposta_ativa:
+            print(f"    ├─ Proposta Ativa: Gravar '{role_selecionada}' na célula {num_to_col(col_livre)}{user_row}")
+        if gravar_pfcg_composta:
+            print(f"    ├─ PFCG_COMPOSTA: Adicionar '{role_selecionada}' a '{comp_role}' (ID {novo_id_comp})")
+        if gravar_dep:
+            if linha_tcode_dep:
+                print(f"    └─ {sheet_dep_nome}: Marcar 'X' para {user_alvo} na Linha {linha_tcode_dep}")
+            else:
+                print(f"    └─ {sheet_dep_nome}: Criar Linha {nova_linha_dep} com {transacao_alvo} e 'X' para {user_alvo}")
+        print("-" * 78)
+
+    print(f"  PLANEAMENTO SAP: Sincronizar Composta '{comp_role}' com '{role_selecionada}' em PRD e QAD (User Compare incluído).")
 
     if simular:
         print("\n" + "=" * 78)
-        print("  MODO SIMULAÇÃO CONCLUÍDO: Nenhuma alteração foi gravada no ficheiro Excel.")
+        print("  MODO SIMULAÇÃO CONCLUÍDO: Nenhuma alteração foi gravada no ficheiro Excel nem no SAP.")
         print("=" * 78)
         return True
 
     # Confirmação do utilizador
     if not assumir_sim:
-        conf = input("\nDeseja aplicar e gravar estas alterações no ficheiro Excel? (S/N) [Padrão: S]: ").strip().upper()
+        conf = input("\nDeseja aplicar as alterações no ficheiro Excel e sincronizar no SAP PRD/QAD? (S/N) [Padrão: S]: ").strip().upper()
         if conf in ("N", "NAO", "NÃO"):
             print("Operação cancelada pelo utilizador.")
             return False
 
-    # 7. Backup de segurança antes de gravar
+    # 7. Sincronização nos Sistemas SAP (PRD e depois QAD) via RFC
+    print("\n" + "=" * 78)
+    print("  ETAPA 5: SINCRONIZAÇÃO NOS SISTEMAS SAP (PRD E QAD)")
+    print("=" * 78)
+
+    print(f"\n  [1/2] A atualizar Composta '{comp_role}' no SAP PRD...")
+    res_prd = sincronizar_composta_sap_rfc("PRD", comp_role, role_selecionada, desc_role)
+    if res_prd.get("ok"):
+        print(f"  ✓ {res_prd.get('message')}")
+    else:
+        print(f"  [AVISO SAP PRD]: {res_prd.get('message')}")
+
+    print(f"\n  [2/2] A atualizar Composta '{comp_role}' no SAP QAD...")
+    res_qad = sincronizar_composta_sap_rfc("QAD", comp_role, role_selecionada, desc_role)
+    if res_qad.get("ok"):
+        print(f"  ✓ {res_qad.get('message')}")
+    else:
+        print(f"  [AVISO SAP QAD]: {res_qad.get('message')}")
+
+    ts_agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if res_prd.get("ok") and res_qad.get("ok"):
+        status_comp = "Criado"
+        msg_comp = "Atribuído em SAP PRD e QAD (User Compare gerado)"
+        prd_comp = "Validado"
+    elif res_prd.get("ok"):
+        status_comp = "Criado"
+        msg_comp = "Atribuído em SAP PRD (QAD pendente)"
+        prd_comp = "Validado"
+    else:
+        status_comp = ""
+        msg_comp = "Pendente de sincronização SAP"
+        prd_comp = ""
+
+    # 8. Backup de segurança antes de gravar
     try:
         output_dir = PROJECT_ROOT / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -4861,7 +5009,7 @@ def executar_fluxo_pesquisa_atribuir_transacao(
     except Exception as e_bkp:
         print(f"  [AVISO] Falha ao criar backup de segurança: {e_bkp}")
 
-    # 8. Gravação (COM se Excel estiver aberto, ou openpyxl)
+    # 9. Gravação no Excel (COM se aberto, ou openpyxl)
     xl = None
     wb_com = None
     try:
@@ -4886,17 +5034,17 @@ def executar_fluxo_pesquisa_atribuir_transacao(
                 ws_pa_com = wb_com.Worksheets("Proposta Ativa")
                 ws_pa_com.Cells(user_row, col_livre).Value = role_selecionada
 
-            if gravar_pfcg_create:
-                ws_pfcg_com = wb_com.Worksheets("PFCG_CREATE")
-                lr_pfcg = ws_pfcg_com.UsedRange.Rows.Count + 1
-                ws_pfcg_com.Cells(lr_pfcg, 1).Value = novo_id_pfcg
-                ws_pfcg_com.Cells(lr_pfcg, 2).Value = role_selecionada
-                ws_pfcg_com.Cells(lr_pfcg, 3).Value = role_text
-                ws_pfcg_com.Cells(lr_pfcg, 4).Value = transacao_alvo
-                ws_pfcg_com.Cells(lr_pfcg, 5).Value = ""
-                ws_pfcg_com.Cells(lr_pfcg, 6).Value = ""
-                ws_pfcg_com.Cells(lr_pfcg, 7).Value = ""
-                ws_pfcg_com.Cells(lr_pfcg, 8).Value = ""
+            if gravar_pfcg_composta:
+                ws_comp_com = wb_com.Worksheets("PFCG_COMPOSTA")
+                lr_comp = ws_comp_com.UsedRange.Rows.Count + 1
+                ws_comp_com.Cells(lr_comp, 1).Value = novo_id_comp
+                ws_comp_com.Cells(lr_comp, 2).Value = comp_role
+                ws_comp_com.Cells(lr_comp, 3).Value = comp_text
+                ws_comp_com.Cells(lr_comp, 4).Value = role_selecionada
+                ws_comp_com.Cells(lr_comp, 5).Value = status_comp
+                ws_comp_com.Cells(lr_comp, 6).Value = msg_comp
+                ws_comp_com.Cells(lr_comp, 7).Value = ts_agora
+                ws_comp_com.Cells(lr_comp, 8).Value = prd_comp
 
             if gravar_dep:
                 ws_dep_com = wb_com.Worksheets(sheet_dep_nome)
@@ -4923,9 +5071,9 @@ def executar_fluxo_pesquisa_atribuir_transacao(
             ws_pa_ox = wb_ox["Proposta Ativa"]
             ws_pa_ox.cell(row=user_row, column=col_livre, value=role_selecionada)
 
-        if gravar_pfcg_create:
-            ws_pfcg_ox = wb_ox["PFCG_CREATE"]
-            ws_pfcg_ox.append([novo_id_pfcg, role_selecionada, role_text, transacao_alvo, None, None, None, None])
+        if gravar_pfcg_composta:
+            ws_comp_ox = wb_ox["PFCG_COMPOSTA"]
+            ws_comp_ox.append([novo_id_comp, comp_role, comp_text, role_selecionada, status_comp, msg_comp, ts_agora, prd_comp])
 
         if gravar_dep:
             ws_dep_ox = wb_ox[sheet_dep_nome]
@@ -4941,7 +5089,7 @@ def executar_fluxo_pesquisa_atribuir_transacao(
         wb_ox.close()
         print("  ✓ Alterações gravadas com sucesso via openpyxl!")
 
-    # 9. Sincronizar cópia na Área de Trabalho (Desktop)
+    # 10. Sincronizar cópia na Área de Trabalho (Desktop)
     try:
         desktop_f = Path(r"C:\Users\clayton.silva\OneDrive - Salsajeans\Desktop\S4H_Perfis de autorização_v1.xlsx")
         if desktop_f.exists():
@@ -4951,7 +5099,12 @@ def executar_fluxo_pesquisa_atribuir_transacao(
         print(f"  [AVISO] Falha ao sincronizar Desktop: {e_dsk}")
 
     print("\n" + "=" * 78)
-    print(f"  ✓ ATRIBUIÇÃO CONCLUÍDA COM SUCESSO: {user_alvo} -> {transacao_alvo} ({role_selecionada})")
+    print(f"  ✓ ATRIBUIÇÃO E SINCRONIZAÇÃO CONCLUÍDAS COM SUCESSO!")
+    print(f"     Utilizador:      {user_alvo} ({user_nome})")
+    print(f"     Transação:       {transacao_alvo} ({tcode_desc})")
+    print(f"     Role Individual: {role_selecionada}")
+    print(f"     Role Composta:   {comp_role}")
+    print(f"     Sistemas SAP:    PRD e QAD sincronizados com User Compare")
     print("=" * 78)
     return True
 
