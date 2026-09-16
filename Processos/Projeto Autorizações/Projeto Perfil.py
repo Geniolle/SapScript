@@ -4667,6 +4667,7 @@ if __name__ == "__main__":
     parser.add_argument("--validar-proposta-tcodes", "--validar-tcodes-prd", dest="validar_proposta_tcodes", action="store_true", help="Validar se todas as transações da sheet Proposta existem na tabela TSTC do SAP PRD")
     parser.add_argument("--sincronizar-catalogo", dest="sincronizar_catalogo", action="store_true", help="Sincronizar catálogo da folha Proposta com PFCG_CREATE e SAP PRD")
     parser.add_argument("--atualizar-excel", "--sincronizar-excel", dest="atualizar_excel", action="store_true", help="Executar a atualização e sincronização integrada do Excel como primeira tarefa")
+    parser.add_argument("--executar-pendencias", "--despachar-pendencias", dest="executar_pendencias", action="store_true", help="Executar o despachante de processos com STATUS pendente nas folhas operacionais (Rotina 7)")
     parser.add_argument("--sincronizar-cua", dest="sincronizar_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para o departamento")
     parser.add_argument("--fila-cua", "--sincronizar-fila", dest="fila_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para todos os departamentos pendentes em sequência")
     parser.add_argument("--yes", "-y", dest="assumir_sim", action="store_true", help="Confirmar automaticamente sem perguntar interativamente")
@@ -4676,7 +4677,7 @@ if __name__ == "__main__":
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo or args.sincronizar_cua or args.fila_cua or args.atualizar_excel:
+    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo or args.sincronizar_cua or args.fila_cua or args.atualizar_excel or args.executar_pendencias:
         if not caminho_alvo:
             print("[ERRO] Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
@@ -4800,6 +4801,10 @@ if __name__ == "__main__":
                 if not item_dep:
                     item_dep = {"departamento": alvo_dep, "status": "", "linha": "?"}
                 sincronizar_departamento_cua_completo(dados, item_dep, confirmar_execucao=not args.assumir_sim)
+
+        if args.executar_pendencias:
+            print("\n[ROTINA 7] A verificar e despachar processos pendentes nas folhas operacionais...")
+            verificar_e_perguntar_pendencias(caminho_alvo)
 
     else:
         # Modo interativo padrão
