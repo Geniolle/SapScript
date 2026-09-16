@@ -38,8 +38,8 @@ if str(PROJECT_ROOT) not in sys.path:
 # Garantir codificação UTF-8 no Windows
 if sys.platform.startswith("win"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
+        sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
     except Exception:
         pass
 
@@ -3512,39 +3512,66 @@ def sincronizar_departamento_cua_completo(
 
     def worker_sync():
         try:
-            import win32service, pythoncom, win32com.client, win32clipboard
+            import sys
+            if sys.platform.startswith("win"):
+                try:
+                    import win32service
+                    hwinsta = win32service.OpenWindowStation("WinSta0", True, 0x037F)
+                    hwinsta.SetProcessWindowStation()
+                    hdesk = win32service.OpenDesktop("default", 0, True, 0x01FF)
+                    hdesk.SetThreadDesktop()
+                except Exception:
+                    pass
+
+            import pythoncom, win32com.client, win32clipboard
             import time
             from datetime import datetime
             from pathlib import Path
 
-            try:
-                hwinsta = win32service.OpenWindowStation("WinSta0", True, 0x037F)
-                hwinsta.SetProcessWindowStation()
-                hdesk = win32service.OpenDesktop("default", 0, True, 0x01FF)
-                hdesk.SetThreadDesktop()
-            except:
-                pass
             pythoncom.CoInitialize()
 
             rot = win32com.client.Dispatch("SapROTWr.SapROTWrapper")
             sap = rot.GetROTEntry("SAPGUI")
-            session = sap.GetScriptingEngine.Children(0).Children(0)
+            if not sap:
+                raise RuntimeError("SAP GUI não encontrado no ROT. Certifique-se de que o SAP GUI está aberto e logado.")
+
+            app = sap.GetScriptingEngine
+            session = None
+            for conn in app.Children:
+                for sess in conn.Children:
+                    try:
+                        if str(sess.Info.SystemName).strip().upper() == "SPA":
+                            session = sess
+                            break
+                    except Exception:
+                        continue
+                if session:
+                    break
+            if not session:
+                session = app.Children(0).Children(0)
 
             roles_removidas = []
             roles_adicionadas = []
             auditorias_invalidas = []
 
-            for u in users:
-                print(f"\n  A processar utilizador: {u} ...")
+            def salvar_su01():
+                try:
+                    session.findById("wnd[0]/tbar[0]/btn[11]").press()
+                except Exception:
+                    session.findById("wnd[0]").sendVKey(11)
 
-                # A. Remover S4DCLNT100 na aba Sistemas se existir
+            for u in users:
+                print(f"\n  A processar utilizador: {u} ...", flush=True)
+
+                # 1. Abrir SU01 em modo de alteração
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
                 session.findById("wnd[0]").sendVKey(0)
                 time.sleep(0.3)
                 session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
-                session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                session.findById("wnd[0]/tbar[1]/btn[18]").press() # Alterar
                 time.sleep(0.4)
 
+                # A. Remover S4DCLNT100 na aba Sistemas se existir
                 session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpSYSTEMS").select()
                 time.sleep(0.3)
                 grid_sys = session.findById(
@@ -3560,22 +3587,25 @@ def sincronizar_departamento_cua_completo(
                     grid_sys.selectedRows = str(linha_s4d)
                     grid_sys.pressToolbarButton("DEL_LINE")
                     time.sleep(0.3)
-                    session.findById("wnd[0]").sendVKey(11) # Salvar
+                    salvar_su01()
                     time.sleep(0.6)
-                    print(f"     S4DCLNT100 removido de {u}.")
+                    print(f"     S4DCLNT100 removido de {u}.", flush=True)
+                    # Reabrir após salvar
+                    session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                    session.findById("wnd[0]").sendVKey(0)
+                    time.sleep(0.3)
+                    session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                    session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                    time.sleep(0.4)
 
-                # B. Remover roles expiradas de S4PCLNT100
-                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
-                session.findById("wnd[0]").sendVKey(0)
-                time.sleep(0.3)
-                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
-                session.findById("wnd[0]/tbar[1]/btn[18]").press()
-                time.sleep(0.4)
+                # B. Mudar diretamente para aba Funções (tabpACTG)
                 session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
                 time.sleep(0.3)
                 grid_act = session.findById(
                     "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
                 )
+
+                # Verificar roles expiradas de S4PCLNT100
                 expired_p = []
                 for r in range(grid_act.RowCount):
                     sis = grid_act.GetCellValue(r, "SUBSYSTEM")
@@ -3615,147 +3645,181 @@ def sincronizar_departamento_cua_completo(
                         try:
                             session.findById("wnd[1]/tbar[0]/btn[0]").press()
                             time.sleep(0.3)
-                        except:
+                        except Exception:
                             pass
-                    session.findById("wnd[0]").sendVKey(11) # Salvar
+                    salvar_su01()
                     time.sleep(0.8)
                     for r_exp in expired_p:
                         roles_removidas.append((u, "S4PCLNT100", r_exp, "CONCLUÍDO", f"User {u} has changed"))
-                    print(f"     {len(expired_p)} roles expiradas removidas de S4PCLNT100.")
+                    print(f"     {len(expired_p)} roles expiradas removidas de S4PCLNT100.", flush=True)
 
-                # C. Remover roles obsoletas de S4QCLNT100
-                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
-                session.findById("wnd[0]").sendVKey(0)
-                time.sleep(0.3)
-                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
-                session.findById("wnd[0]/tbar[1]/btn[18]").press()
-                time.sleep(0.4)
-                session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
-                time.sleep(0.3)
-                grid_act = session.findById(
-                    "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
-                )
-                roles_q = [
-                    grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount)
-                    if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")
-                ]
-                if roles_q:
-                    grid_act.selectColumn("SUBSYSTEM")
-                    grid_act.pressToolbarButton("&MB_FILTER")
+                    # Reabrir após salvar
+                    session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                    session.findById("wnd[0]").sendVKey(0)
                     time.sleep(0.3)
-                    wnd1 = session.findById("wnd[1]")
-                    wnd1.findById("usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN001-LOW").text = "S4QCLNT100"
-                    wnd1.findById("tbar[0]/btn[0]").press()
+                    session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                    session.findById("wnd[0]/tbar[1]/btn[18]").press()
                     time.sleep(0.4)
-                    rc_q = grid_act.RowCount
-                    if rc_q > 0:
-                        grid_act.selectedRows = ",".join(str(i) for i in range(rc_q))
-                        grid_act.pressToolbarButton("DEL_LINE")
-                        time.sleep(0.3)
-                        try:
-                            session.findById("wnd[1]/tbar[0]/btn[0]").press()
-                            time.sleep(0.3)
-                        except:
-                            pass
-                    session.findById("wnd[0]").sendVKey(11) # Salvar
-                    time.sleep(0.8)
-                    for r_q in roles_q:
-                        roles_removidas.append((u, "S4QCLNT100", r_q, "CONCLUÍDO", f"User {u} has changed"))
-                    print(f"     {len(roles_q)} roles obsoletas removidas de S4QCLNT100.")
+                    session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
+                    time.sleep(0.3)
+                    grid_act = session.findById(
+                        "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
+                    )
 
-                # D. Adicionar roles ativas de S4PCLNT100 em S4QCLNT100
-                session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
-                session.findById("wnd[0]").sendVKey(0)
-                time.sleep(0.3)
-                session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
-                session.findById("wnd[0]/tbar[1]/btn[18]").press()
-                time.sleep(0.4)
-                session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
-                time.sleep(0.3)
-                grid_act = session.findById(
-                    "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
-                )
+                # Roles ativas em S4PCLNT100 (validade 9999) - ignorando roles de exclusão (ex.: ZMM_APROVA_PEDC_COD_*)
                 p_roles_dict = {}
                 for r in range(grid_act.RowCount):
                     sis = grid_act.GetCellValue(r, "SUBSYSTEM")
                     agr = grid_act.GetCellValue(r, "AGR_NAME")
                     f_dat = grid_act.GetCellValue(r, "UPDATE_FROM_DAT")
                     t_dat = grid_act.GetCellValue(r, "UPDATE_TO_DAT")
-                    if sis == "S4PCLNT100" and agr:
-                        if agr not in p_roles_dict or "9999" in str(t_dat):
-                            p_roles_dict[agr] = (f_dat, t_dat)
+                    if sis == "S4PCLNT100" and agr and "9999" in str(t_dat) and not dados.is_excluida(agr):
+                        p_roles_dict[agr] = (f_dat, t_dat)
 
-                first_empty = -1
-                for r in range(grid_act.RowCount):
-                    if not grid_act.GetCellValue(r, "SUBSYSTEM") and not grid_act.GetCellValue(r, "AGR_NAME"):
-                        first_empty = r
-                        break
-                if first_empty == -1:
-                    first_empty = grid_act.RowCount
+                # Roles atuais em S4QCLNT100
+                all_roles_q = [
+                    grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount)
+                    if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")
+                ]
+                roles_q = [r for r in all_roles_q if not dados.is_excluida(r)]
 
-                curr_row = first_empty
-                for agr, (f_dat, t_dat) in sorted(p_roles_dict.items()):
-                    grid_act.firstVisibleRow = max(0, curr_row - 2)
-                    grid_act.modifyCell(curr_row, "SUBSYSTEM", "S4QCLNT100")
-                    grid_act.modifyCell(curr_row, "AGR_NAME", agr)
-                    if f_dat:
-                        try: grid_act.modifyCell(curr_row, "UPDATE_FROM_DAT", f_dat)
-                        except: pass
-                    if t_dat:
-                        try: grid_act.modifyCell(curr_row, "UPDATE_TO_DAT", t_dat)
-                        except: pass
-                    roles_adicionadas.append((u, "S4QCLNT100", agr, "CONCLUÍDO", f"User {u} has changed"))
-                    curr_row += 1
+                # Se P ativo e Q já forem idênticos, não necessita alterar roles
+                if set(p_roles_dict.keys()) == set(roles_q) and len(all_roles_q) == len(roles_q):
+                    print(f"     {u}: Paridade P == Q já confirmada ({len(p_roles_dict)} roles ativas).", flush=True)
+                    # Sair limpo
+                    session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+                    session.findById("wnd[0]").sendVKey(0)
+                    try:
+                        session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
+                    except Exception:
+                        pass
+                else:
+                    # Remover roles de S4QCLNT100
+                    if all_roles_q:
+                        grid_act.selectColumn("SUBSYSTEM")
+                        grid_act.pressToolbarButton("&MB_FILTER")
+                        time.sleep(0.3)
+                        wnd1 = session.findById("wnd[1]")
+                        wnd1.findById("usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN001-LOW").text = "S4QCLNT100"
+                        wnd1.findById("tbar[0]/btn[0]").press()
+                        time.sleep(0.4)
+                        rc_q = grid_act.RowCount
+                        if rc_q > 0:
+                            grid_act.selectedRows = ",".join(str(i) for i in range(rc_q))
+                            grid_act.pressToolbarButton("DEL_LINE")
+                            time.sleep(0.3)
+                            try:
+                                session.findById("wnd[1]/tbar[0]/btn[0]").press()
+                                time.sleep(0.3)
+                            except Exception:
+                                pass
+                        salvar_su01()
+                        time.sleep(0.8)
+                        for r_q in all_roles_q:
+                            roles_removidas.append((u, "S4QCLNT100", r_q, "CONCLUÍDO", f"User {u} has changed"))
+                        print(f"     {len(all_roles_q)} roles obsoletas removidas de S4QCLNT100.", flush=True)
 
-                grid_act.currentCellColumn = "AGR_NAME"
-                grid_act.pressEnter()
-                time.sleep(0.5)
-                session.findById("wnd[0]").sendVKey(11) # Salvar
-                time.sleep(0.8)
-                print(f"     {len(p_roles_dict)} roles ativas replicadas para S4QCLNT100.")
+                        # Reabrir após salvar
+                        session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
+                        session.findById("wnd[0]").sendVKey(0)
+                        time.sleep(0.3)
+                        session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
+                        session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                        time.sleep(0.4)
+                        session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
+                        time.sleep(0.3)
+                        grid_act = session.findById(
+                            "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
+                        )
 
-                # E. Auditoria final
+                    # D. Adicionar roles ativas de S4PCLNT100 em S4QCLNT100
+                    first_empty = -1
+                    for r in range(grid_act.RowCount):
+                        if not grid_act.GetCellValue(r, "SUBSYSTEM") and not grid_act.GetCellValue(r, "AGR_NAME"):
+                            first_empty = r
+                            break
+                    if first_empty == -1:
+                        first_empty = grid_act.RowCount
+
+                    curr_row = first_empty
+                    for agr, (f_dat, t_dat) in sorted(p_roles_dict.items()):
+                        grid_act.firstVisibleRow = max(0, curr_row - 2)
+                        grid_act.modifyCell(curr_row, "SUBSYSTEM", "S4QCLNT100")
+                        grid_act.modifyCell(curr_row, "AGR_NAME", agr)
+                        if f_dat:
+                            try: grid_act.modifyCell(curr_row, "UPDATE_FROM_DAT", f_dat)
+                            except Exception: pass
+                        if t_dat:
+                            try: grid_act.modifyCell(curr_row, "UPDATE_TO_DAT", t_dat)
+                            except Exception: pass
+                        grid_act.currentCellRow = curr_row
+                        grid_act.currentCellColumn = "AGR_NAME"
+                        grid_act.pressEnter()
+                        time.sleep(0.2)
+                        roles_adicionadas.append((u, "S4QCLNT100", agr, "CONCLUÍDO", f"User {u} has changed"))
+                        curr_row += 1
+
+                    time.sleep(0.3)
+                    salvar_su01()
+                    time.sleep(0.8)
+                    print(f"     {len(p_roles_dict)} roles ativas replicadas para S4QCLNT100.", flush=True)
+
+                # E. Auditoria final em tempo real (Exibição)
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
                 session.findById("wnd[0]").sendVKey(0)
                 time.sleep(0.3)
                 session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
-                session.findById("wnd[0]/tbar[1]/btn[18]").press()
+                session.findById("wnd[0]/tbar[1]/btn[7]").press() # Exibir
                 time.sleep(0.4)
                 session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpACTG").select()
                 time.sleep(0.3)
                 grid_act = session.findById(
                     "wnd[0]/usr/tabsTABSTRIP1/tabpACTG/ssubMAINAREA:SAPLSUID_MAINTENANCE:1106/cntlG_ROLES_CONTAINER/shellcont/shell"
                 )
-                p_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4PCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")}
-                q_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME")}
+                p_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4PCLNT100" and grid_act.GetCellValue(r, "AGR_NAME") and "9999" in str(grid_act.GetCellValue(r, "UPDATE_TO_DAT")) and not dados.is_excluida(grid_act.GetCellValue(r, "AGR_NAME"))}
+                q_finais = {grid_act.GetCellValue(r, "AGR_NAME") for r in range(grid_act.RowCount) if grid_act.GetCellValue(r, "SUBSYSTEM") == "S4QCLNT100" and grid_act.GetCellValue(r, "AGR_NAME") and not dados.is_excluida(grid_act.GetCellValue(r, "AGR_NAME"))}
                 sess_ok = (p_finais == q_finais)
-                print(f"     Auditoria {u}: P={len(p_finais)} | Q={len(q_finais)} -> MATCH EXATO: {sess_ok}")
+                print(f"     Auditoria {u}: P={len(p_finais)} | Q={len(q_finais)} -> MATCH EXATO: {sess_ok}", flush=True)
                 if not sess_ok:
                     auditorias_invalidas.append(u)
+
+                session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+                session.findById("wnd[0]").sendVKey(0)
 
             if auditorias_invalidas:
                 raise RuntimeError(
                     "Auditoria P == Q falhou para: " + ", ".join(auditorias_invalidas)
                 )
 
-            session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
-            session.findById("wnd[0]").sendVKey(0)
-
             # Gravação em Excel
             print("\n  A atualizar folhas de cálculo oficiais (CUA_REMOVE, CUA_ADICIONAR, CONTROLO)...")
-            xl = win32com.client.Dispatch("Excel.Application")
-            wb = None
-            for w in xl.Workbooks:
-                if Path(w.FullName).resolve() == Path(dados.caminho).resolve():
-                    wb = w
-                    break
-
             timestamp_now = datetime.now()
-            timestamp_str = timestamp_now.strftime("%d/%m/%Y %H:%M:%S")
+            timestamp_str = timestamp_now.strftime("%Y-%m-%d %H:%M:%S")
 
-            if wb:
-                # CUA_REMOVE
-                ws_rem = wb.Worksheets("CUA_REMOVE")
+            # Backup de segurança antes de alterar
+            try:
+                import shutil
+                output_dir = Path(r"C:\workspace\SapScript\output")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                backup_path = output_dir / f"S4H_Perfis_backup_{timestamp_now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+                shutil.copy2(dados.caminho, backup_path)
+                print(f"  Backup criado em: {backup_path.name}")
+            except Exception as e_bkp:
+                print(f"  [AVISO] Falha ao criar backup: {e_bkp}")
+
+            wb_com = None
+            try:
+                xl = win32com.client.Dispatch("Excel.Application")
+                for w in xl.Workbooks:
+                    if Path(w.FullName).resolve() == Path(dados.caminho).resolve():
+                        wb_com = w
+                        break
+            except Exception:
+                wb_com = None
+
+            if wb_com:
+                # Gravação via COM se a folha estiver aberta no Excel
+                ws_rem = wb_com.Worksheets("CUA_REMOVE")
                 lr_rem = ws_rem.UsedRange.Rows.Count
                 lid_rem = int(ws_rem.Cells(lr_rem, 1).Value or 0)
                 cur_r = lr_rem + 1
@@ -3771,8 +3835,7 @@ def sincronizar_departamento_cua_completo(
                     cur_r += 1
                     cur_id += 1
 
-                # CUA_ADICIONAR
-                ws_add = wb.Worksheets("CUA_ADICIONAR")
+                ws_add = wb_com.Worksheets("CUA_ADICIONAR")
                 lr_add = ws_add.UsedRange.Rows.Count
                 lid_add = int(ws_add.Cells(lr_add, 1).Value or 0)
                 cur_r = lr_add + 1
@@ -3788,25 +3851,83 @@ def sincronizar_departamento_cua_completo(
                     cur_r += 1
                     cur_id += 1
 
-                # CONTROLO
-                ws_ctrl = wb.Worksheets("CONTROLO")
+                ws_ctrl = wb_com.Worksheets("CONTROLO")
                 for r in range(2, ws_ctrl.UsedRange.Rows.Count + 1):
-                    if str(ws_ctrl.Cells(r, 1).Value or "").strip() == dep_nome:
+                    if str(ws_ctrl.Cells(r, 1).Value or "").strip().upper() == dep_nome.strip().upper():
                         ws_ctrl.Cells(r, 2).Value = "PROCESSADO"
-                        ws_ctrl.Cells(r, 3).Value = timestamp_now
+                        ws_ctrl.Cells(r, 3).Value = timestamp_str
                         break
-                wb.Save()
-                try:
-                    caminho_local = Path(CAMINHO_EXCEL_BACKUP_LOCAL)
-                    wb.SaveCopyAs(str(caminho_local))
-                except:
-                    pass
-                print("  Excel guardado com sucesso!")
+                wb_com.Save()
+                print("  Excel guardado via Excel.Application com sucesso!")
             else:
-                raise RuntimeError(
-                    f"O ficheiro local {os.path.basename(dados.caminho)} não está aberto no Excel; "
-                    "o STATUS não foi atualizado."
-                )
+                # Gravação autônoma via openpyxl (quando Excel não está aberto)
+                import openpyxl, shutil
+                wb_ox = openpyxl.load_workbook(dados.caminho)
+
+                # CUA_REMOVE
+                if "CUA_REMOVE" in wb_ox.sheetnames and roles_removidas:
+                    ws_rem = wb_ox["CUA_REMOVE"]
+                    max_id_rem = 0
+                    for r in range(2, ws_rem.max_row + 1):
+                        v = ws_rem.cell(r, 1).value
+                        try:
+                            v_int = int(v)
+                            if v_int > max_id_rem: max_id_rem = v_int
+                        except (ValueError, TypeError): pass
+                    for usr, sis, rol, st, msg in roles_removidas:
+                        max_id_rem += 1
+                        new_r = ws_rem.max_row + 1
+                        ws_rem.cell(new_r, 1, max_id_rem)
+                        ws_rem.cell(new_r, 2, usr)
+                        ws_rem.cell(new_r, 3, sis)
+                        ws_rem.cell(new_r, 4, rol)
+                        ws_rem.cell(new_r, 5, st)
+                        ws_rem.cell(new_r, 6, msg)
+                        ws_rem.cell(new_r, 7, timestamp_str)
+
+                # CUA_ADICIONAR
+                if "CUA_ADICIONAR" in wb_ox.sheetnames and roles_adicionadas:
+                    ws_add = wb_ox["CUA_ADICIONAR"]
+                    max_id_add = 0
+                    for r in range(2, ws_add.max_row + 1):
+                        v = ws_add.cell(r, 1).value
+                        try:
+                            v_int = int(v)
+                            if v_int > max_id_add: max_id_add = v_int
+                        except (ValueError, TypeError): pass
+                    for usr, sis, rol, st, msg in roles_adicionadas:
+                        max_id_add += 1
+                        new_r = ws_add.max_row + 1
+                        ws_add.cell(new_r, 1, max_id_add)
+                        ws_add.cell(new_r, 2, usr)
+                        ws_add.cell(new_r, 3, sis)
+                        ws_add.cell(new_r, 4, rol)
+                        ws_add.cell(new_r, 5, st)
+                        ws_add.cell(new_r, 6, msg)
+                        ws_add.cell(new_r, 7, timestamp_str)
+                        ws_add.cell(new_r, 9, "OK") # QAS
+
+                # CONTROLO
+                if "CONTROLO" in wb_ox.sheetnames:
+                    ws_ctrl = wb_ox["CONTROLO"]
+                    for r in range(2, ws_ctrl.max_row + 1):
+                        if str(ws_ctrl.cell(r, 1).value or "").strip().upper() == dep_nome.strip().upper():
+                            ws_ctrl.cell(r, 2, "PROCESSADO")
+                            ws_ctrl.cell(r, 3, timestamp_str)
+                            break
+
+                wb_ox.save(dados.caminho)
+                print(f"  Ficheiro Excel {Path(dados.caminho).name} atualizado com openpyxl!")
+
+            # Cópia para o Desktop se o ficheiro de trabalho do Desktop existir
+            try:
+                import shutil
+                desktop_f = Path(r"C:\Users\clayton.silva\OneDrive - Salsajeans\Desktop\S4H_Perfis de autorização_v1.xlsx")
+                if desktop_f.exists():
+                    shutil.copy2(dados.caminho, desktop_f)
+                    print("  Cópia sincronizada na Área de Trabalho (Desktop)!")
+            except Exception as e_dsk:
+                print(f"  [AVISO] Falha ao sincronizar Desktop: {e_dsk}")
 
             item_dep["status"] = "PROCESSADO"
             item_dep["timestamp"] = timestamp_str
@@ -4138,13 +4259,16 @@ if __name__ == "__main__":
     parser.add_argument("--incorporar-adicionais", dest="incorporar_adicionais", action="store_true", help="Incorporar na Proposta Ativa as funções do catálogo que já estão ativas no SAP PRD")
     parser.add_argument("--validar-proposta-tcodes", "--validar-tcodes-prd", dest="validar_proposta_tcodes", action="store_true", help="Validar se todas as transações da sheet Proposta existem na tabela TSTC do SAP PRD")
     parser.add_argument("--sincronizar-catalogo", dest="sincronizar_catalogo", action="store_true", help="Sincronizar catálogo da folha Proposta com PFCG_CREATE e SAP PRD")
+    parser.add_argument("--sincronizar-cua", dest="sincronizar_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para o departamento")
+    parser.add_argument("--fila-cua", "--sincronizar-fila", dest="fila_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para todos os departamentos pendentes em sequência")
+    parser.add_argument("--yes", "-y", dest="assumir_sim", action="store_true", help="Confirmar automaticamente sem perguntar interativamente")
 
     args = parser.parse_args()
 
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo:
+    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo or args.sincronizar_cua or args.fila_cua:
         if not caminho_alvo:
             print("[ERRO] Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
@@ -4162,7 +4286,7 @@ if __name__ == "__main__":
                 imprimir_analise_departamento(res_dep)
             else:
                 print("\nTodos os departamentos na sheet CONTROLO já possuem STATUS preenchido.")
-        if args.departamento is not None and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.incorporar_adicionais):
+        if args.departamento is not None and not (args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.incorporar_adicionais or args.sincronizar_cua):
             alvo = args.departamento.strip() if args.departamento.strip() else proximo_dep
             if not alvo:
                 alvo = "Purchase & Services"
@@ -4236,6 +4360,33 @@ if __name__ == "__main__":
                             print(f"   └─ Linha {d['linha']}: {d['tcode']} da role {d['role']}")
         if args.sincronizar_catalogo:
             dados = executar_sincronizacao_arranque_completa(dados, caminho_alvo)
+
+        if args.fila_cua:
+            fila = obter_departamentos_pendentes(dados)
+            if not fila:
+                print("\nTodos os departamentos na folha CONTROLO já estão processados!")
+            else:
+                print(f"\nA iniciar processamento da fila CUA ({len(fila)} departamentos pendentes)...")
+                for posicao, item in enumerate(fila, 1):
+                    print(f"\n[DEPARTAMENTO {posicao}/{len(fila)}] {item.get('departamento')} — Linha {item.get('linha')}")
+                    sucesso = sincronizar_departamento_cua_completo(dados, item, confirmar_execucao=not args.assumir_sim)
+                    if not sucesso:
+                        print(f"[ERRO] Falha na sincronização de '{item.get('departamento')}'. Interrompendo fila.")
+                        break
+                    # Recarregar dados após atualização do Excel
+                    dados = carregar_projeto_perfil(caminho_alvo)
+
+        if args.sincronizar_cua:
+            alvo_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else proximo_dep
+            if not alvo_dep:
+                print("[ERRO] Nenhum departamento especificado ou pendente para sincronizar.")
+            else:
+                item_dep = next((it for it in dados.controlo if str(it.get("departamento", "")).strip().upper() == alvo_dep.strip().upper()), None)
+                if not item_dep:
+                    item_dep = next((it for it in dados.controlo if alvo_dep.strip().upper() in str(it.get("departamento", "")).strip().upper()), None)
+                if not item_dep:
+                    item_dep = {"departamento": alvo_dep, "status": "", "linha": "?"}
+                sincronizar_departamento_cua_completo(dados, item_dep, confirmar_execucao=not args.assumir_sim)
 
     else:
         # Modo interativo padrão
