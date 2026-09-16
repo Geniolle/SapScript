@@ -231,9 +231,13 @@ def _find_logged_session(application, *, system_name: str, client: str):
     return None
 
 
-def _find_login_session(application):
+def _find_login_session(application, *, system_name: str = ""):
+    expected_system = str(system_name or "").strip().upper()
     for _conn, sess in _iter_sessions(application):
         try:
+            sess_sys = str(getattr(sess.Info, "SystemName", "") or "").strip().upper()
+            if expected_system and sess_sys and sess_sys != expected_system:
+                continue
             sess.findById("wnd[0]/usr/txtRSYST-BNAME")
             sess.findById("wnd[0]/usr/pwdRSYST-BCODE")
             sess.findById("wnd[0]/usr/txtRSYST-MANDT")
@@ -260,6 +264,15 @@ def _dismiss_popup_if_any(session) -> None:
         session.findById("wnd[1]")
     except Exception:
         return
+
+    # Dialogo de multi-logon (ex: continuar inicio de sessao sem terminar outros)
+    try:
+        rad2 = session.findById("wnd[1]/usr/radMULTI_LOGON_OPT2")
+        rad2.select()
+        session.findById("wnd[1]/tbar[0]/btn[0]").press()
+        return
+    except Exception:
+        pass
 
     for btn in ("wnd[1]/tbar[0]/btn[0]", "wnd[1]/tbar[0]/btn[11]", "wnd[1]/tbar[0]/btn[12]"):
         try:
@@ -377,6 +390,18 @@ def _validate_target(target: SapTarget) -> None:
         raise RuntimeError("Variaveis de ambiente em falta: " + ", ".join(missing))
 
 
+def _ensure_desktop_attach() -> None:
+    if os.name == "nt":
+        try:
+            import win32service
+            hwinsta = win32service.OpenWindowStation("WinSta0", True, 0x037F)
+            hwinsta.SetProcessWindowStation()
+            hdesk = win32service.OpenDesktop("default", 0, True, 0x01FF)
+            hdesk.SetThreadDesktop()
+        except Exception:
+            pass
+
+
 def _get_scripting_engine(target: SapTarget, win32_client):
     def _get_sap():
         try:
@@ -396,18 +421,11 @@ def _get_scripting_engine(target: SapTarget, win32_client):
         saplogon = Path(target.saplogon_path)
         if not saplogon.exists():
             raise RuntimeError(f"SAP Logon nao encontrado em: {target.saplogon_path}")
-        if os.name == "nt":
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/IM", "saplogon.exe", "/IM", "sapgui.exe"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                time.sleep(0.5)
-            except Exception:
-                pass
-        subprocess.Popen([str(saplogon)], shell=False)
-        for _ in range(15):
+        try:
+            os.startfile(str(saplogon))
+        except Exception:
+            subprocess.Popen([str(saplogon)], shell=False)
+        for _ in range(20):
             time.sleep(1)
             sap = _get_sap()
             if sap:
@@ -431,6 +449,35 @@ def session_info(session) -> dict:
     }
 
 
+def validate_session_strictly(session, expected_system: str, expected_client: str = "") -> None:
+    """
+    Valida estritamente se a sessão SAP pertence ao sistema e cliente esperados.
+    Lança RuntimeError de bloqueio imediato de segurança se houver divergência,
+    evitando que comandos sejam enviados para sistemas errados (ex: PRD em vez de CUA).
+    """
+    if not session:
+        raise RuntimeError("[BLOQUEIO DE SEGURANÇA] Sessão SAP nula ou inexistente.")
+
+    sys_name = str(getattr(session.Info, "SystemName", "") or "").strip().upper()
+    client = str(getattr(session.Info, "Client", "") or "").strip()
+    exp_sys = str(expected_system or "").strip().upper()
+    exp_clt = str(expected_client or "").strip()
+
+    if exp_sys and sys_name != exp_sys:
+        raise RuntimeError(
+            f"[BLOQUEIO DE SEGURANÇA] Sistema SAP incorreto detectado! "
+            f"Esperado '{exp_sys}', mas a sessão ativa pertence a '{sys_name}'. "
+            f"Operação abortada imediatamente para evitar alterações no sistema errado!"
+        )
+
+    if exp_clt and client != exp_clt:
+        raise RuntimeError(
+            f"[BLOQUEIO DE SEGURANÇA] Mandante/Cliente SAP incorreto detectado! "
+            f"Esperado mandante '{exp_clt}', mas a sessão está no mandante '{client}'. "
+            f"Operação abortada imediatamente para evitar alterações no sistema errado!"
+        )
+
+
 def ensure_sap_access(target: SapTarget, timeout_s: int = 40):
     _validate_target(target)
 
@@ -448,7 +495,7 @@ def ensure_sap_access(target: SapTarget, timeout_s: int = 40):
         apply_window_mode(already)
         return already
 
-    login_session = _find_login_session(application)
+    login_session = _find_login_session(application, system_name=target.system_name)
     if not login_session:
         connection_string = f"/H/{target.ashost}/S/32{target.sysnr.zfill(2)}"
         connection = application.OpenConnectionByConnectionString(connection_string, True)

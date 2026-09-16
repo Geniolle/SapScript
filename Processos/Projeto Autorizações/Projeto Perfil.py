@@ -3915,22 +3915,11 @@ def sincronizar_departamento_cua_completo(
             print("[EXPIRADO] Operação cancelada pelo utilizador.")
             return False
 
-    import threading
     erro_execucao = []
     execucao_concluida = []
 
     def worker_sync():
         try:
-            import sys
-            if sys.platform.startswith("win"):
-                try:
-                    import win32service
-                    hwinsta = win32service.OpenWindowStation("WinSta0", True, 0x037F)
-                    hwinsta.SetProcessWindowStation()
-                    hdesk = win32service.OpenDesktop("default", 0, True, 0x01FF)
-                    hdesk.SetThreadDesktop()
-                except Exception:
-                    pass
 
             import pythoncom, win32com.client, win32clipboard
             import time
@@ -3939,31 +3928,39 @@ def sincronizar_departamento_cua_completo(
 
             pythoncom.CoInitialize()
 
-            rot = win32com.client.Dispatch("SapROTWr.SapROTWrapper")
-            sap = rot.GetROTEntry("SAPGUI")
-            if not sap:
-                raise RuntimeError("SAP GUI não encontrado no ROT. Certifique-se de que o SAP GUI está aberto e logado.")
+            # -----------------------------------------------------------------
+            # Conexão e Autenticação Automática no SAP CUA (SPA / 001) via .env
+            # -----------------------------------------------------------------
+            import sys
+            sys_root = str(Path(__file__).resolve().parent.parent.parent)
+            if sys_root not in sys.path:
+                sys.path.insert(0, sys_root)
 
-            app = sap.GetScriptingEngine
-            session = None
-            for conn in app.Children:
-                for sess in conn.Children:
-                    try:
-                        if str(sess.Info.SystemName).strip().upper() == "SPA":
-                            session = sess
-                            break
-                    except Exception:
-                        continue
-                if session:
-                    break
+            from sap_session import ensure_sap_access, resolve_sap_target_from_env, load_dotenv_manual, validate_session_strictly
+            load_dotenv_manual()
+
+            target_cua = resolve_sap_target_from_env("SPACLNT001")
+            print(f"  A ligar e autenticar automaticamente no SAP CUA ({target_cua.system_name} / Cliente {target_cua.client}) via .env...", flush=True)
+
+            session = ensure_sap_access(target_cua, timeout_s=40)
             if not session:
-                session = app.Children(0).Children(0)
+                raise RuntimeError(
+                    f"Não foi possível obter uma sessão ativa para o sistema CUA ({target_cua.system_name} / {target_cua.client})."
+                )
+
+            def validar_sessao_estrita_cua(sess):
+                validate_session_strictly(sess, expected_system="SPA", expected_client="001")
+
+            # Validação imediata de segurança no arranque
+            validar_sessao_estrita_cua(session)
+            print(f"  [SEGURANÇA] Sessão CUA confirmada: Sistema={session.Info.SystemName} | Cliente={session.Info.Client} | Utilizador={session.Info.User}", flush=True)
 
             roles_removidas = []
             roles_adicionadas = []
             auditorias_invalidas = []
 
             def salvar_su01():
+                validar_sessao_estrita_cua(session)
                 try:
                     session.findById("wnd[0]/tbar[0]/btn[11]").press()
                 except Exception:
@@ -3982,18 +3979,41 @@ def sincronizar_departamento_cua_completo(
                 u_norm = str(u).strip().upper()
                 print(f"\n  A processar utilizador: {u} (Passagem Única CUA) ...", flush=True)
 
+                # Validação estrita de segurança antes de cada utilizador
+                validar_sessao_estrita_cua(session)
+
+                # Garantir foco exclusivo na janela principal da sessão CUA
+                try:
+                    wnd0 = session.findById("wnd[0]")
+                    wnd0.setFocus()
+                except Exception:
+                    pass
+
                 expected_roles = user_expected_map.get(u_norm, set())
                 if not expected_roles:
                     print(f"     [AVISO] {u}: Nenhuma role encontrada na 'Proposta Ativa'. A saltar utilizador por segurança.", flush=True)
                     continue
 
                 # 1. Abrir SU01 em modo de alteração
+                validar_sessao_estrita_cua(session)
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/nSU01"
                 session.findById("wnd[0]").sendVKey(0)
                 time.sleep(0.3)
                 session.findById("wnd[0]/usr/ctxtSUID_ST_BNAME-BNAME").text = u
                 session.findById("wnd[0]/tbar[1]/btn[18]").press() # Alterar
                 time.sleep(0.4)
+
+                # Verificar se ocorreu erro no acesso ao utilizador
+                try:
+                    sbar = session.findById("wnd[0]/sbar")
+                    if str(getattr(sbar, "MessageType", "") or "").strip().upper() in ("E", "A"):
+                        err_txt = str(getattr(sbar, "Text", "") or "").strip()
+                        print(f"     [ERRO] {u}: Falha ao aceder ao utilizador em SU01: {err_txt}", flush=True)
+                        session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+                        session.findById("wnd[0]").sendVKey(0)
+                        continue
+                except Exception:
+                    pass
 
                 # A. Aba Sistemas: marcar S4DCLNT100 para remoção se existir (SEM SALVAR)
                 s4d_removido = False
@@ -4297,9 +4317,7 @@ def sincronizar_departamento_cua_completo(
             erro_execucao.append(exc)
             print(f"[ERRO] Erro na execução da sincronização CUA: {exc}")
 
-    t = threading.Thread(target=worker_sync)
-    t.start()
-    t.join()
+    worker_sync()
     return bool(execucao_concluida) and not erro_execucao
 
 
