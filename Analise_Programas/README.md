@@ -23,6 +23,7 @@ Analise_Programas/
 | Processo / Programa | Módulo | Objetivo Técnico | Status |
 | :--- | :--- | :--- | :--- |
 | [`FI_BILL_ISSUE_SPLIT_999_LINHAS`](./FI_BILL_ISSUE_SPLIT_999_LINHAS/README.md) | SD / FI | Particionamento contábil de faturas que excedem 999 linhas (`F5 727`), BAdI `FI_BILL_ISSUE_SPLIT` e classe `ZCLFI_BILL_ISSUE_SPLIT`. | Documentado |
+| [`ZBIM_MONITOR_V1`](./ZBIM_MONITOR_V1/README.md) | MM / FI / WF | Monitor de revisão de faturas bloqueadas com workflow de divergências de preço e quantidade (`ZBIM_MONITOR`). | Documentado |
 
 ---
 
