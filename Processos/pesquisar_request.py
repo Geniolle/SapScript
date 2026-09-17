@@ -108,7 +108,7 @@ def _erro_scripting_inativo(e=None):
 
 
 # Mesma convenção usada em SAP Cockpit.py / sap_session.py.
-SISTEMA_PARA_AMBIENTE = {"S4D": "DEV", "S4Q": "QAD", "S4P": "PRD", "SPA": "CUA"}
+SISTEMA_PARA_AMBIENTE = {"S4D": "DEV", "S4Q": "QAD", "S4P": "PRD"}
 
 
 def _listar_requests_via_rfc(system_name, max_rows="5000", tentativas=3):

@@ -44,6 +44,7 @@
     const ASI_CUA_RM_USER_INPUT = 'cua_rm_user';
     const ASI_CUA_RM_ROLE_INPUT = 'cua_rm_role';
     const ASI_CUA_RM_SUB_INPUT = 'cua_rm_sub';
+    const ASI_USER_PASSWORD_CHANGE_USER_INPUT = 'user_password_change_user';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
     let asiObycPollingTimer = null;
@@ -86,6 +87,8 @@
     let asiPfcgTransportSearchPollingInFlight = false;
     let asiPfcgCreateExistsCheckTimer = null;
     let asiPfcgCreateExistsCheckInFlight = false;
+    let asiUserCreatePollingTimer = null;
+    let asiUserCreatePollingInFlight = false;
 
     const ASI_PFCG_ROLE_BACK_ACTION = { id: 'pfcg-role-back', label: '← Voltar', icon: 'analysis' };
     const ASI_PFCG_ROLE_ANALYZE_TRANSACTIONS_ACTION = { id: 'pfcg-role-analyze-transactions', label: 'Analisar por Transação', icon: 'analysis' };
@@ -138,6 +141,15 @@
     const ASI_PFCG_INDIVIDUAL_TCODES_PLACEHOLDER = 'Ex.: FB01, VL03N';
     const ASI_PFCG_INDIVIDUAL_BACK_ACTION = { id: 'pfcg-create-individual-back', label: '← Voltar', icon: 'analysis' };
     const ASI_PFCG_INDIVIDUAL_CONFIRM_ACTION = { id: 'pfcg-create-individual-confirm', label: 'Confirmar criação', icon: 'shield-plus' };
+    // Criar Utilizador individual (cua-add-individual > user-individual-create), via RFC.
+    // Nome/apelido/email vêm sempre de RH (PA0002/PA0105, PRD) por PERNR; username = "S" + PERNR.
+    const ASI_USER_CREATE_PERNR_INPUT = 'user_create_pernr';
+    const ASI_USER_CREATE_ROLES_INPUT = 'user_create_roles';
+    const ASI_USER_CREATE_COPY_USER_INPUT = 'user_create_copy_user';
+    const ASI_USER_CREATE_BACK_ACTION = { id: 'user-create-back', label: '← Voltar', icon: 'analysis' };
+    const ASI_USER_CREATE_CONFIRM_ACTION = { id: 'user-create-confirm', label: 'Confirmar criação', icon: 'shield-plus' };
+    const ASI_USER_CREATE_MODE_INDIVIDUAL_ACTION = { id: 'user-create-mode-individual', label: 'Individual (indicar funções)', icon: 'shield-plus' };
+    const ASI_USER_CREATE_MODE_COPY_ACTION = { id: 'user-create-mode-copy', label: 'Por cópia de utilizador', icon: 'analysis' };
     const ASI_PFCG_TRANSPORT_CREATE_DESCRIPTION_INPUT = 'pfcg_transport_create_description';
     const ASI_PFCG_TRANSPORT_LOCAL_ACTION = { id: 'pfcg-transport-local', label: 'Sem transporte (Local)', icon: 'analysis' };
     const ASI_PFCG_TRANSPORT_CREATE_ACTION = { id: 'pfcg-transport-create', label: 'Criar nova Request', icon: 'shield-plus' };
@@ -180,7 +192,11 @@
         'pfcg-delete-bulk-confirm',
         'pfcg-delete-bulk-transport-local',
         'pfcg-delete-bulk-transport-create',
-        'pfcg-delete-bulk-transport-existing'
+        'pfcg-delete-bulk-transport-existing',
+        'user-create-back',
+        'user-create-confirm',
+        'user-create-mode-individual',
+        'user-create-mode-copy'
     ]);
 
     function asiDefaultConversationState() {
@@ -233,6 +249,16 @@
             pfcgDeleteBulkTransportRequestDescription: '',
             pfcgDeleteBulkPreviewJobId: '',
             pfcgDeleteBulkResultMessageId: '',
+            userCreatePernr: '',
+            userCreateUsername: '',
+            userCreateFirstName: '',
+            userCreateLastName: '',
+            userCreateEmail: '',
+            userCreateRoles: [],
+            userCreateDepartment: '',
+            userCreateFunction: '',
+            userCreatePreviewJobId: '',
+            userCreateMessageId: '',
             isBusy: false
         };
     }
@@ -6495,6 +6521,984 @@
         }
     }
 
+    function asiStartUserCreate() {
+        if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+        asiStopUserCreatePolling();
+
+        asiConversationState = {
+            ...asiConversationState,
+            userCreatePernr: '',
+            userCreateUsername: '',
+            userCreateFirstName: '',
+            userCreateLastName: '',
+            userCreateEmail: '',
+            userCreateRoles: [],
+            userCreateDepartment: '',
+            userCreateFunction: '',
+            userCreatePreviewJobId: '',
+            userCreateMessageId: '',
+            awaitingInput: ASI_USER_CREATE_PERNR_INPUT,
+            isBusy: false
+        };
+        asiAppendMessage(asiCreateMessage('assistant', 'Qual é o número de colaborador (PERNR)? Vou buscar nome, apelido e email nos dados de RH (PRD).'));
+        asiUpdateComposerState();
+        const { input } = asiGetElements();
+        if (input) input.focus();
+    }
+
+    function asiStopUserCreatePolling() {
+        if (asiUserCreatePollingTimer) {
+            clearInterval(asiUserCreatePollingTimer);
+            asiUserCreatePollingTimer = null;
+        }
+        asiUserCreatePollingInFlight = false;
+    }
+
+    function asiBuildUserCreatePreviewHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const roles = Array.isArray(result.roles) ? result.roles : [];
+        const rowFields = [
+            asiBuildPfcgResultField('Ambiente', result.environment || asiPfcgSystem),
+            asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap'),
+            asiBuildPfcgResultField('Nome', `${result.first_name || ''} ${result.last_name || ''}`.trim()),
+            asiBuildPfcgResultField('Email', result.email || '(sem email)'),
+            asiBuildPfcgResultField('Tipo', result.ustyp),
+            asiBuildPfcgResultField('Grupo', result.group || '(vazio)'),
+            asiBuildPfcgResultField('Válido de', result.valid_from),
+            asiBuildPfcgResultField('Válido até', result.valid_to || 'Sem limite'),
+            asiBuildPfcgResultField('Senha inicial', result.password_source),
+            asiBuildPfcgResultField('Departamento', result.department || '-'),
+            asiBuildPfcgResultField('Função', result.function || '-'),
+            asiBuildPfcgResultField('Funções PFCG', roles.length ? roles.join(', ') : '(Nenhuma)', '', true)
+        ].join('');
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#f59e0b;">⚠ Confirme antes de criar em ${asiPfcgSystem}</div>
+                    <span class="asi-pfcg-result-pill asi-pfcg-result-pill--warning">PREVIEW</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">
+                        ${rowFields}
+                    </div>
+                    <div class="asi-pfcg-result-note">Esta ação cria um utilizador real em ${asiPfcgSystem} via RFC (sem SAP GUI, sem CUA). Reveja os dados antes de confirmar.</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildUserCreateResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const ok = result.ok === true;
+        const status = String(result.status || (ok ? 'CREATED' : 'ERROR'));
+        const isPartial = status === 'CREATED_PARTIAL';
+        const accent = ok ? '#16a34a' : (isPartial ? '#f59e0b' : '#dc2626');
+        const heading = ok
+            ? (isPartial ? `⚠ Utilizador criado com ressalvas em ${asiPfcgSystem}` : `✓ Utilizador criado em ${asiPfcgSystem}`)
+            : `✗ Falha na criação em ${asiPfcgSystem}`;
+        const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
+
+        const rolesAssigned = Array.isArray(result.roles_assigned) ? result.roles_assigned : [];
+        const rolesMissing = Array.isArray(result.roles_missing) ? result.roles_missing : [];
+
+        const rowFields = ok
+            ? [
+                asiBuildPfcgResultField('Ambiente', result.environment || asiPfcgSystem),
+                asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Nome', `${result.first_name || ''} ${result.last_name || ''}`.trim()),
+                asiBuildPfcgResultField('Email', result.email || '(sem email)'),
+                asiBuildPfcgResultField('Departamento', result.department || '-'),
+                asiBuildPfcgResultField('Função', result.function || '-'),
+                asiBuildPfcgResultField('Funções atribuídas', rolesAssigned.length ? rolesAssigned.join(', ') : '(Nenhuma)', '', true),
+                asiBuildPfcgResultField('Funções não atribuídas', rolesMissing.length ? rolesMissing.join(', ') : '', '', true)
+            ].join('')
+            : [
+                asiBuildPfcgResultField('Ambiente', result.environment || asiPfcgSystem),
+                asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Tipo de erro', result.error_type, '', true)
+            ].join('');
+
+        const message = result.message
+            ? `<div class="asi-pfcg-result-note">${escapeHtml(String(result.message))}</div>`
+            : '';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${accent};">${heading}</div>
+                    <span class="asi-pfcg-result-pill ${pillClass}">${escapeHtml(status)}</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">
+                        ${rowFields}
+                    </div>
+                    ${message}
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildUserPasswordChangeResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const ok = result.ok === true;
+        const status = String(result.status || (ok ? 'CHANGED' : 'ERROR'));
+        const accent = ok ? '#16a34a' : '#dc2626';
+        const heading = ok
+            ? `✓ Senha alterada em ${asiPfcgSystem}`
+            : `✗ Falha na alteração de senha em ${asiPfcgSystem}`;
+        const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
+
+        const rowFields = ok
+            ? [
+                asiBuildPfcgResultField('Ambiente', result.environment || asiPfcgSystem),
+                asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Origem da senha', result.password_source || '-')
+            ].join('')
+            : [
+                asiBuildPfcgResultField('Ambiente', result.environment || asiPfcgSystem),
+                asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap'),
+                asiBuildPfcgResultField('Tipo de erro', result.error_type, '', true)
+            ].join('');
+
+        const message = result.message
+            ? `<div class="asi-pfcg-result-note">${escapeHtml(String(result.message))}</div>`
+            : '';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${accent};">${heading}</div>
+                    <span class="asi-pfcg-result-pill ${pillClass}">${escapeHtml(status)}</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid">
+                        ${rowFields}
+                    </div>
+                    ${message}
+                </div>
+            </div>
+        `;
+    }
+
+    async function asiPollUserPasswordChange(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopUserCreatePolling();
+        return new Promise((resolve) => {
+            asiUserCreatePollingTimer = setInterval(async () => {
+                if (asiUserCreatePollingInFlight) return;
+                if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: 'A alteração de senha está a demorar mais do que o esperado.',
+                        html: asiBuildPfcgErrorHtml(
+                            'A alteração de senha está a demorar mais do que o esperado.',
+                            'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                    return;
+                }
+
+                asiUserCreatePollingInFlight = true;
+                try {
+                    const response = await fetch(`/api/salsa-it-agent/user/password/change/${encodeURIComponent(jobId)}`, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                    }
+
+                    if (data.state === 'pending' || data.state === 'running') {
+                        return;
+                    }
+
+                    asiStopUserCreatePolling();
+
+                    if (data.state === 'failed') {
+                        asiUpdateMessage(messageId, {
+                            text: `Não foi possível alterar a senha em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgErrorHtml(
+                                `Não foi possível alterar a senha em ${asiPfcgSystem}.`,
+                                data.message || ''
+                            ),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false };
+                        asiUpdateComposerState();
+                        resolve();
+                        return;
+                    }
+
+                    const result = data && typeof data.result === 'object' ? data.result : {};
+                    const ok = result.ok === true;
+
+                    asiUpdateMessage(messageId, {
+                        text: ok
+                            ? `Senha do utilizador ${result.username} alterada com sucesso em ${asiPfcgSystem}.`
+                            : `Não foi possível alterar a senha em ${asiPfcgSystem}.`,
+                        html: asiBuildUserPasswordChangeResultHtml(result),
+                        isProcessing: false,
+                        wide: true
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+                    setTimeout(() => {
+                        asiPresentConfiguracoesMenu();
+                    }, 400);
+                    resolve();
+                } catch (error) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível alterar a senha em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível alterar a senha em ${asiPfcgSystem}.`, error.message || ''),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                } finally {
+                    asiUserCreatePollingInFlight = false;
+                }
+            }, ASI_PFCG_POLL_INTERVAL_MS);
+        });
+    }
+
+    async function asiStartUserPasswordChange(username) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+        if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+
+        const processingMessage = asiCreateMessage('assistant', `A alterar a senha de ${username} em ${asiPfcgSystem} via RFC...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A alterar a senha de ${username} em ${asiPfcgSystem} via RFC...`),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/password/change', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username, system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+            await asiPollUserPasswordChange(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível alterar a senha de ${username} em ${asiPfcgSystem}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível alterar a senha de ${username} em ${asiPfcgSystem}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiStartUserCreateHrLookup(pernr) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+
+        const processingMessage = asiCreateMessage('assistant', `A consultar dados de RH (PRD) para o PERNR ${pernr}...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A consultar dados de RH (PRD) para o PERNR ${pernr}...`),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = {
+            ...asiConversationState,
+            userCreatePernr: pernr,
+            userCreateMessageId: processingMessage.id,
+            isBusy: true
+        };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/create/hr-lookup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ pernr })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = { ...asiConversationState, isBusy: true };
+            asiUpdateComposerState();
+            await asiPollUserCreateHrLookup(jobId, processingMessage.id, pernr);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: 'Não foi possível consultar os dados de RH.',
+                html: asiBuildPfcgErrorHtml('Não foi possível consultar os dados de RH.', error.message || ''),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_PERNR_INPUT };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollUserCreateHrLookup(jobId, messageId, pernr) {
+        const startedAt = Date.now();
+        const { input } = asiGetElements();
+
+        asiStopUserCreatePolling();
+        return new Promise((resolve) => {
+            asiUserCreatePollingTimer = setInterval(async () => {
+                if (asiUserCreatePollingInFlight) return;
+                if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: 'A consulta de RH está a demorar mais do que o esperado.',
+                        html: asiBuildPfcgErrorHtml(
+                            'A consulta de RH está a demorar mais do que o esperado.',
+                            'Verifique se o worker Windows está ativo e tente novamente.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_PERNR_INPUT };
+                    asiUpdateComposerState();
+                    resolve();
+                    return;
+                }
+
+                asiUserCreatePollingInFlight = true;
+                try {
+                    const response = await fetch(`/api/salsa-it-agent/user/create/hr-lookup/${encodeURIComponent(jobId)}`, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                    }
+
+                    if (data.state === 'pending' || data.state === 'running') {
+                        return;
+                    }
+
+                    asiStopUserCreatePolling();
+
+                    if (data.state === 'failed') {
+                        asiUpdateMessage(messageId, {
+                            text: 'Não foi possível concluir a consulta de RH.',
+                            html: asiBuildPfcgErrorHtml('Não foi possível concluir a consulta de RH.', data.message || ''),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_PERNR_INPUT };
+                        asiUpdateComposerState();
+                        resolve();
+                        return;
+                    }
+
+                    const result = data.result || {};
+                    if (!result.ok) {
+                        asiUpdateMessage(messageId, {
+                            text: `Colaborador ${pernr} não encontrado nos dados de RH.`,
+                            html: asiBuildPfcgErrorHtml(
+                                `Colaborador ${pernr} não encontrado nos dados de RH (PRD).`,
+                                result.message || ''
+                            ),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_PERNR_INPUT };
+                        asiUpdateComposerState();
+                        if (input) input.focus();
+                        resolve();
+                        return;
+                    }
+
+                    asiUpdateMessage(messageId, {
+                        text: `Dados de RH encontrados: ${result.first_name} ${result.last_name} (${result.username}).`,
+                        html: '',
+                        isProcessing: false
+                    });
+                    asiConversationState = {
+                        ...asiConversationState,
+                        userCreateUsername: String(result.username || '').trim(),
+                        userCreateFirstName: String(result.first_name || '').trim(),
+                        userCreateLastName: String(result.last_name || '').trim(),
+                        userCreateEmail: String(result.email || '').trim(),
+                        awaitingInput: '',
+                        isBusy: false
+                    };
+                    asiAppendMessage(asiCreateMessage(
+                        'assistant',
+                        `Dados de RH (PRD): ${result.first_name} ${result.last_name}, email ${result.email || '(sem email)'}, utilizador sugerido ${result.username}.\n` +
+                        'Vai atribuir as funções individualmente ou por cópia de outro utilizador?',
+                        {
+                            actions: [ASI_USER_CREATE_MODE_INDIVIDUAL_ACTION, ASI_USER_CREATE_MODE_COPY_ACTION],
+                            actionLevel: 0,
+                            parentActionId: '',
+                            selectionGroupKey: '__user_create_mode__'
+                        }
+                    ));
+                    asiUpdateComposerState();
+                    resolve();
+                } catch (error) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: 'Não foi possível concluir a consulta de RH.',
+                        html: asiBuildPfcgErrorHtml('Não foi possível concluir a consulta de RH.', error.message || ''),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_PERNR_INPUT };
+                    asiUpdateComposerState();
+                    resolve();
+                } finally {
+                    asiUserCreatePollingInFlight = false;
+                }
+            }, ASI_PFCG_POLL_INTERVAL_MS);
+        });
+    }
+
+    async function asiStartUserCreatePreview() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+        const username = String(asiConversationState.userCreateUsername || '').trim();
+
+        const processingMessage = asiCreateMessage('assistant', `A validar os dados em ${asiPfcgSystem}...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A validar utilizador, nome e email em ${asiPfcgSystem}...`),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = {
+            ...asiConversationState,
+            userCreateMessageId: processingMessage.id,
+            isBusy: true
+        };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/create/rfc/preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    system: asiPfcgSystem,
+                    username,
+                    first_name: String(asiConversationState.userCreateFirstName || '').trim(),
+                    last_name: String(asiConversationState.userCreateLastName || '').trim(),
+                    email: String(asiConversationState.userCreateEmail || '').trim(),
+                    roles: Array.isArray(asiConversationState.userCreateRoles) ? asiConversationState.userCreateRoles : [],
+                    department: String(asiConversationState.userCreateDepartment || '').trim(),
+                    function: String(asiConversationState.userCreateFunction || '').trim()
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            asiConversationState = {
+                ...asiConversationState,
+                userCreatePreviewJobId: jobId,
+                isBusy: true
+            };
+            asiUpdateComposerState();
+            await asiPollUserCreatePreview(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível preparar a criação do utilizador em ${asiPfcgSystem}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível preparar a criação do utilizador em ${asiPfcgSystem}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollUserCreatePreview(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopUserCreatePolling();
+        return new Promise((resolve) => {
+            asiUserCreatePollingTimer = setInterval(async () => {
+                if (asiUserCreatePollingInFlight) return;
+                if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: 'A pré-visualização está a demorar mais do que o esperado.',
+                        html: asiBuildPfcgErrorHtml(
+                            'A pré-visualização está a demorar mais do que o esperado.',
+                            'Verifique se o worker Windows está ativo e tente novamente.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+                    resolve();
+                    return;
+                }
+
+                asiUserCreatePollingInFlight = true;
+                try {
+                    const response = await fetch(`/api/salsa-it-agent/user/create/rfc/preview/${encodeURIComponent(jobId)}`, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                    }
+
+                    if (data.state === 'pending' || data.state === 'running') {
+                        return;
+                    }
+
+                    asiStopUserCreatePolling();
+
+                    if (data.state === 'failed') {
+                        asiUpdateMessage(messageId, {
+                            text: `Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgErrorHtml(
+                                `Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`,
+                                data.message || ''
+                            ),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                        asiUpdateComposerState();
+                        resolve();
+                        return;
+                    }
+
+                    const result = data && typeof data.result === 'object' ? data.result : null;
+                    if (!result || result.ok !== true) {
+                        const safeDetail = result && typeof result.message === 'string' ? result.message : '';
+                        asiUpdateMessage(messageId, {
+                            text: `Não foi possível preparar a criação do utilizador em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgErrorHtml(`Não foi possível preparar a criação do utilizador em ${asiPfcgSystem}.`, safeDetail),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                        asiUpdateComposerState();
+                        resolve();
+                        return;
+                    }
+
+                    asiUpdateMessage(messageId, {
+                        text: `Confirme os dados antes de criar o utilizador em ${asiPfcgSystem}.`,
+                        html: asiBuildUserCreatePreviewHtml(result),
+                        isProcessing: false,
+                        wide: true,
+                        actions: [ASI_USER_CREATE_BACK_ACTION, ASI_USER_CREATE_CONFIRM_ACTION],
+                        actionLevel: 0,
+                        parentActionId: '',
+                        selectionGroupKey: '__user_create_preview__'
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                } catch (error) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível concluir a pré-visualização da criação em ${asiPfcgSystem}.`),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+                    resolve();
+                } finally {
+                    asiUserCreatePollingInFlight = false;
+                }
+            }, ASI_PFCG_POLL_INTERVAL_MS);
+        });
+    }
+
+    function asiHandleUserCreateBack() {
+        if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+        asiStopUserCreatePolling();
+        asiAppendMessage(asiCreateMessage('user', 'Quero rever os dados do utilizador a criar.'));
+        asiStartUserCreate();
+    }
+
+    function asiHandleUserCreateModeIndividual() {
+        const { input } = asiGetElements();
+        asiAppendMessage(asiCreateMessage('user', 'Individual (indicar funções).'));
+        asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_CREATE_ROLES_INPUT, isBusy: false };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            'Quais as funções PFCG a atribuir? Se for mais de uma, separe por vírgula (envie "-" para não atribuir agora).'
+        ));
+        asiUpdateComposerState();
+        if (input) input.focus();
+    }
+
+    function asiHandleUserCreateModeCopy() {
+        const { input } = asiGetElements();
+        asiAppendMessage(asiCreateMessage('user', 'Por cópia de utilizador.'));
+        asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_CREATE_COPY_USER_INPUT, isBusy: false };
+        asiAppendMessage(asiCreateMessage(
+            'assistant',
+            `Qual é o utilizador SAP a copiar as funções? (as funções ativas desse utilizador em ${asiPfcgSystem} serão atribuídas ao novo utilizador)`
+        ));
+        asiUpdateComposerState();
+        if (input) input.focus();
+    }
+
+    async function asiFetchCopyUserDepartmentAndFunction(copyUsername) {
+        // Best-effort: Departamento/Função são campos opcionais do BAPIADDR3, por
+        // isso qualquer falha aqui devolve valores vazios sem bloquear o fluxo.
+        const empty = { department: '', function: '' };
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username: copyUsername, kind: 'personal', system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) return empty;
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) return empty;
+
+            const startedAt = Date.now();
+            while ((Date.now() - startedAt) < ASI_PFCG_POLL_TIMEOUT_MS) {
+                await new Promise((resolve) => setTimeout(resolve, ASI_PFCG_POLL_INTERVAL_MS));
+                const p = await fetch(`/api/salsa-it-agent/user/data/${encodeURIComponent(jobId)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pd = await p.json().catch(() => ({}));
+                if (!p.ok) return empty;
+                if (pd.state === 'pending' || pd.state === 'running') continue;
+                const result = pd && typeof pd.result === 'object' ? pd.result : null;
+                if (!result || result.ok !== true) return empty;
+                const fields = Array.isArray(result.fields) ? result.fields : [];
+                const departmentField = fields.find((f) => f && f.label === 'Departamento');
+                const functionField = fields.find((f) => f && f.label === 'Funcao');
+                return {
+                    department: departmentField && typeof departmentField.value === 'string' ? departmentField.value.trim() : '',
+                    function: functionField && typeof functionField.value === 'string' ? functionField.value.trim() : ''
+                };
+            }
+            return empty;
+        } catch (error) {
+            return empty;
+        }
+    }
+
+    async function asiStartUserCreateCopyRoles(copyUsername) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+
+        const processingMessage = asiCreateMessage('assistant', `A procurar as funções de ${copyUsername} em ${asiPfcgSystem}...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A procurar as funções de ${copyUsername} em ${asiPfcgSystem}...`),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/user/roles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username: copyUsername, system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            const startedAt = Date.now();
+            asiStopUserCreatePolling();
+            const success = await new Promise((resolve) => {
+                asiUserCreatePollingTimer = setInterval(async () => {
+                    if (asiUserCreatePollingInFlight) return;
+                    if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                        asiStopUserCreatePolling();
+                        asiUpdateMessage(processingMessage.id, {
+                            text: `Não consegui obter as funções de ${copyUsername} a tempo.`,
+                            html: asiBuildPfcgErrorHtml(`Não consegui obter as funções de ${copyUsername} a tempo.`, 'Verifique se o worker Windows está ativo e tente novamente.'),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_COPY_USER_INPUT };
+                        asiUpdateComposerState();
+                        resolve(false);
+                        return;
+                    }
+
+                    asiUserCreatePollingInFlight = true;
+                    try {
+                        const p = await fetch(`/api/salsa-it-agent/pfcg/user/roles/${encodeURIComponent(jobId)}`, {
+                            method: 'GET',
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        const pd = await p.json().catch(() => ({}));
+                        if (!p.ok) {
+                            throw new Error((pd && pd.detail) || `Erro HTTP ${p.status}`);
+                        }
+                        if (pd.state === 'pending' || pd.state === 'running') return;
+                        asiStopUserCreatePolling();
+
+                        if (pd.state === 'failed' || !pd.result || pd.result.ok !== true) {
+                            const motivo = (pd.result && pd.result.message) || pd.message || 'RFC indisponível';
+                            asiUpdateMessage(processingMessage.id, {
+                                text: `Não consegui obter as funções de ${copyUsername} em ${asiPfcgSystem}.`,
+                                html: asiBuildPfcgErrorHtml(`Não consegui obter as funções de ${copyUsername} em ${asiPfcgSystem}.`, motivo),
+                                isProcessing: false
+                            });
+                            asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_COPY_USER_INPUT };
+                            asiUpdateComposerState();
+                            if (input) input.focus();
+                            resolve(false);
+                            return;
+                        }
+
+                        const allRoles = Array.isArray(pd.result.roles) ? pd.result.roles : [];
+                        const activeRoles = allRoles.filter((r) => r.assignment_status === 'ATIVO').map((r) => r.role);
+                        if (!activeRoles.length) {
+                            asiUpdateMessage(processingMessage.id, {
+                                text: `${copyUsername} não tem funções ativas em ${asiPfcgSystem}.`,
+                                html: asiBuildPfcgErrorHtml(`${copyUsername} não tem funções ativas em ${asiPfcgSystem}.`, 'Indique outro utilizador para copiar, ou volte atrás e escolha "Individual".'),
+                                isProcessing: false
+                            });
+                            asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_COPY_USER_INPUT };
+                            asiUpdateComposerState();
+                            if (input) input.focus();
+                            resolve(false);
+                            return;
+                        }
+
+                        asiUpdateMessage(processingMessage.id, {
+                            text: `${activeRoles.length} função(ões) ativa(s) copiada(s) de ${copyUsername}: ${activeRoles.join(', ')}.`,
+                            html: '',
+                            isProcessing: false
+                        });
+                        asiConversationState = {
+                            ...asiConversationState,
+                            userCreateRoles: activeRoles,
+                            isBusy: false
+                        };
+                        asiUpdateComposerState();
+                        resolve(true);
+                    } catch (error) {
+                        asiStopUserCreatePolling();
+                        asiUpdateMessage(processingMessage.id, {
+                            text: `Não consegui obter as funções de ${copyUsername}.`,
+                            html: asiBuildPfcgErrorHtml(`Não consegui obter as funções de ${copyUsername}.`, error.message || ''),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_COPY_USER_INPUT };
+                        asiUpdateComposerState();
+                        resolve(false);
+                    } finally {
+                        asiUserCreatePollingInFlight = false;
+                    }
+                }, ASI_PFCG_POLL_INTERVAL_MS);
+            });
+            if (!success) return;
+
+            const copyData = await asiFetchCopyUserDepartmentAndFunction(copyUsername);
+            asiConversationState = {
+                ...asiConversationState,
+                userCreateDepartment: copyData.department,
+                userCreateFunction: copyData.function
+            };
+            await asiStartUserCreatePreview();
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não consegui obter as funções de ${copyUsername}.`,
+                html: asiBuildPfcgErrorHtml(`Não consegui obter as funções de ${copyUsername}.`, error.message || ''),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: ASI_USER_CREATE_COPY_USER_INPUT };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiHandleUserCreateConfirm() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+        const previewJobId = String(asiConversationState.userCreatePreviewJobId || '').trim();
+        if (!previewJobId) {
+            asiAppendMessage(asiCreateMessage(
+                'assistant',
+                'Não foi possível localizar a pré-visualização. Repita a preparação da criação do utilizador.'
+            ));
+            return;
+        }
+        if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+
+        asiAppendMessage(asiCreateMessage('user', 'Confirmar criação'));
+        const processingMessage = asiCreateMessage('assistant', `A criar o utilizador em ${asiPfcgSystem} via RFC...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A criar o utilizador em ${asiPfcgSystem} via RFC...`),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/create/rfc/confirm', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ preview_job_id: previewJobId })
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+
+            await asiPollUserCreateConfirm(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível concluir a criação do utilizador em ${asiPfcgSystem}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível concluir a criação do utilizador em ${asiPfcgSystem}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollUserCreateConfirm(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopUserCreatePolling();
+        return new Promise((resolve) => {
+            asiUserCreatePollingTimer = setInterval(async () => {
+                if (asiUserCreatePollingInFlight) return;
+                if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: 'A criação está a demorar mais do que o esperado.',
+                        html: asiBuildPfcgErrorHtml(
+                            'A criação está a demorar mais do que o esperado.',
+                            'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                    return;
+                }
+
+                asiUserCreatePollingInFlight = true;
+                try {
+                    const response = await fetch(`/api/salsa-it-agent/user/create/rfc/confirm/${encodeURIComponent(jobId)}`, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                    }
+
+                    if (data.state === 'pending' || data.state === 'running') {
+                        return;
+                    }
+
+                    asiStopUserCreatePolling();
+
+                    if (data.state === 'failed') {
+                        asiUpdateMessage(messageId, {
+                            text: `Não foi possível concluir a criação do utilizador em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgErrorHtml(
+                                `Não foi possível concluir a criação do utilizador em ${asiPfcgSystem}.`,
+                                data.message || ''
+                            ),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false };
+                        asiUpdateComposerState();
+                        resolve();
+                        return;
+                    }
+
+                    const result = data && typeof data.result === 'object' ? data.result : {};
+                    const ok = result.ok === true;
+
+                    asiUpdateMessage(messageId, {
+                        text: ok
+                            ? `Utilizador ${result.username} criado com sucesso em ${asiPfcgSystem}.`
+                            : `Não foi possível concluir a criação do utilizador em ${asiPfcgSystem}.`,
+                        html: asiBuildUserCreateResultHtml(result),
+                        isProcessing: false,
+                        wide: true
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+                    setTimeout(() => {
+                        asiPresentConfiguracoesMenu();
+                    }, 400);
+                    resolve();
+                } catch (error) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível concluir a criação do utilizador em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível concluir a criação do utilizador em ${asiPfcgSystem}.`),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                } finally {
+                    asiUserCreatePollingInFlight = false;
+                }
+            }, ASI_PFCG_POLL_INTERVAL_MS);
+        });
+    }
+
     let asiPfcgDeletePollingTimer = null;
     let asiPfcgDeletePollingInFlight = false;
 
@@ -7756,6 +8760,22 @@
             asiAskPfcgTransportMode();
             return;
         }
+        if (actionId === 'user-create-back') {
+            asiHandleUserCreateBack();
+            return;
+        }
+        if (actionId === 'user-create-confirm') {
+            asiHandleUserCreateConfirm();
+            return;
+        }
+        if (actionId === 'user-create-mode-individual') {
+            asiHandleUserCreateModeIndividual();
+            return;
+        }
+        if (actionId === 'user-create-mode-copy') {
+            asiHandleUserCreateModeCopy();
+            return;
+        }
     }
 
     async function asiSendMessage(presetText = null, options = {}) {
@@ -7938,6 +8958,65 @@
             }
             const rm = { ...(asiConversationState.cuaRm || {}), subsystem: sub };
             await asiStartCuaRemoverIndividual(rm.username, rm.agr_name, rm.subsystem);
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_USER_PASSWORD_CHANGE_USER_INPUT) {
+            const u = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_USER_PATTERN.test(u)) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Utilizador inválido. Letras, números, "_", "." ou "-" (máx. 12).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_PASSWORD_CHANGE_USER_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            await asiStartUserPasswordChange(u);
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_USER_CREATE_PERNR_INPUT) {
+            const pernr = rawMessage.replace(/\D/g, '');
+            if (!pernr || pernr.length > 8) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Número de colaborador inválido. Indique apenas dígitos (máx. 8).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_CREATE_PERNR_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: false };
+            asiUpdateComposerState();
+            await asiStartUserCreateHrLookup(pernr);
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_USER_CREATE_ROLES_INPUT) {
+            const raw = rawMessage.trim();
+            let roles = [];
+            if (raw !== '-') {
+                roles = raw.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+                const invalid = roles.find((r) => !ASI_PFCG_ROLE_PATTERN.test(r));
+                if (!roles.length || invalid) {
+                    asiAppendMessage(asiCreateMessage('assistant', ASI_PFCG_INVALID_MESSAGE));
+                    asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_CREATE_ROLES_INPUT, isBusy: false };
+                    asiUpdateComposerState(); input.focus(); return;
+                }
+            }
+            asiConversationState = {
+                ...asiConversationState,
+                userCreateRoles: roles,
+                awaitingInput: '',
+                isBusy: false
+            };
+            asiUpdateComposerState();
+            await asiStartUserCreatePreview();
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_USER_CREATE_COPY_USER_INPUT) {
+            const copyUsername = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_USER_PATTERN.test(copyUsername)) {
+                asiAppendMessage(asiCreateMessage(
+                    'assistant',
+                    'Utilizador inválido. Use apenas letras, números, "_", "." ou "-" (máx. 12).'
+                ));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_CREATE_COPY_USER_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: false };
+            asiUpdateComposerState();
+            await asiStartUserCreateCopyRoles(copyUsername);
             return;
         }
 
@@ -9465,6 +10544,17 @@
             return;
         }
 
+        if (action.id === 'user-individual-password') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP a quem quer alterar a senha? (ex.: CLOPES)'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_PASSWORD_CHANGE_USER_INPUT };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
         if (action.id === 'cua-adicionar') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             asiAppendMessage(asiCreateMessage('user', action.prompt));
@@ -9497,6 +10587,13 @@
             }));
             asiConversationState = { ...asiConversationState, awaitingInput: '', cuaAdd: {} };
             asiUpdateComposerState();
+            return;
+        }
+
+        if (action.id === 'user-individual-create') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartUserCreate();
             return;
         }
 

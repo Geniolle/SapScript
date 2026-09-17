@@ -146,7 +146,7 @@ def _derive_system_from_key(key: str) -> str:
 
 
 # Mapa inverso de MAPA_SISTEMA (app/config.py): sistema -> ambiente do .env.
-SISTEMA_PARA_AMBIENTE = {"S4D": "DEV", "S4Q": "QAD", "S4P": "PRD", "SPA": "CUA"}
+SISTEMA_PARA_AMBIENTE = {"S4D": "DEV", "S4Q": "QAD", "S4P": "PRD"}
 
 
 def resolve_sap_target_from_env(key: str | None = None) -> SapTarget:
@@ -453,7 +453,7 @@ def validate_session_strictly(session, expected_system: str, expected_client: st
     """
     Valida estritamente se a sessão SAP pertence ao sistema e cliente esperados.
     Lança RuntimeError de bloqueio imediato de segurança se houver divergência,
-    evitando que comandos sejam enviados para sistemas errados (ex: PRD em vez de CUA).
+    evitando que comandos sejam enviados para sistemas errados (ex: PRD em vez de QAD).
     """
     if not session:
         raise RuntimeError("[BLOQUEIO DE SEGURANÇA] Sessão SAP nula ou inexistente.")

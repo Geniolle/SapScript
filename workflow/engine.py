@@ -178,7 +178,6 @@ def _resolve_sap_runtime_context() -> Dict[str, str]:
             "S4D": "DEV",
             "S4Q": "QAD",
             "S4P": "PRD",
-            "SPA": "CUA",
         }
         ambiente = map_ambiente.get(system_name, "QAD")
 

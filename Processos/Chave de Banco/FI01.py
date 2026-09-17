@@ -30,7 +30,7 @@ from tkinter import filedialog, messagebox
 ###################################################################################
 
 # Se for usado num ambiente controlado, defina o sistema SAP esperado (ex: "S4D", "S4Q", "S4P")
-MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
 
 # Atualizar automaticamente via FI02 quando o banco "já existe" no SAP
 UPDATE_IF_EXISTS = True
@@ -387,7 +387,7 @@ def run_import_bancos(excel_path: str, ambiente_cockpit: Optional[str] = None):
 ###################################################################################
 
 if __name__ == "__main__":
-    AMBIENTE = None # Defina "DEV", "QAD", "PRD" ou "CUA" se precisar de validação
+    AMBIENTE = None # Defina "DEV", "QAD" ou "PRD" se precisar de validação
     
     initial_dir = os.path.dirname(os.path.abspath(__file__))
     excel_path = escolher_ficheiro_excel(initial_dir)

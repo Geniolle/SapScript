@@ -36,7 +36,7 @@ def executar(
     SEARCH_HEADER_IN_FIRST_ROWS = 20
     COLUNAS_MINIMAS = {"AGR_NAME", "STATUS", "MSG"} 
 
-    MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+    MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
     SISTEMA_ESPERADO = MAPA_SISTEMA.get(str(ambiente_cockpit).upper().strip() or "", None)
     
     if not SISTEMA_ESPERADO:

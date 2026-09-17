@@ -20,12 +20,11 @@ AMBIENTES = {
     "1": ("DEV", "DESENVOLVIMENTO (S4H)"),
     "2": ("QAD", "QUALIDADE (S4H)"),
     "3": ("PRD", "PRODUÇÃO (S4H)"),
-    "4": ("CUA", "CUA (PRD)"),
 }
 
-MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
 
-CLIENTES_POR_AMBIENTE = {"DEV": "100", "QAD": "100", "PRD": "100", "CUA": "001"}
+CLIENTES_POR_AMBIENTE = {"DEV": "100", "QAD": "100", "PRD": "100"}
 
 # Sleeps (ajusta se o SAP “se perder” nos inputs)
 SLEEP_UI = 0.25

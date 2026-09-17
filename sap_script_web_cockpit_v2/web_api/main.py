@@ -102,6 +102,16 @@ from web_api.pfcg_common import (
     _safe_pfcg_rfc_bulk_delete_result,
     _safe_pfcg_transport_search_result,
 )
+from web_api.user_create_common import (
+    USER_CREATE_PREVIEWS,
+    _validate_user_create_system_or_400,
+    _validate_username_or_400,
+    _validate_pernr_or_400,
+    _safe_user_create_failed_message,
+    _safe_user_create_result,
+    _safe_hr_lookup_failed_message,
+    _safe_hr_lookup_result,
+)
 import asyncio
 
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "").strip()
@@ -148,6 +158,13 @@ def _prepare_project_imports() -> None:
         sys.path.insert(0, SAP_SCRIPT_PROJECT_DIR)
 
 
+# Preparar sys.path já no arranque do módulo, para que validações que importam
+# `sap_rfc.*` diretamente (ex.: `user_create_common._validate_username_or_400`)
+# funcionem mesmo no primeiro pedido a seguir a um restart do container, sem
+# dependerem de outro endpoint ter chamado `_prepare_project_imports()` antes.
+_prepare_project_imports()
+
+
 def _load_project_config():
     _prepare_project_imports()
     return importlib.import_module("app.config")
@@ -166,21 +183,18 @@ def get_available_environments() -> list[dict[str, str]]:
             "1": ("DEV", "DESENVOLVIMENTO (S4H)"),
             "2": ("QAD", "QUALIDADE (S4H)"),
             "3": ("PRD", "PRODUÇÃO (S4H)"),
-            "4": ("CUA", "CUA (PRD)"),
         }
 
         mapa_sistema = {
             "DEV": "S4D",
             "QAD": "S4Q",
             "PRD": "S4P",
-            "CUA": "SPA",
         }
 
         clientes = {
             "DEV": "100",
             "QAD": "100",
             "PRD": "100",
-            "CUA": "001",
         }
 
     def sort_key(item):
@@ -714,6 +728,35 @@ class SalsaItPfcgCreateRfcPreviewRequest(BaseModel):
 
 class SalsaItPfcgCreateRfcConfirmRequest(BaseModel):
     preview_job_id: str
+
+
+class SalsaItUserCreateRfcPreviewRequest(BaseModel):
+    system: str = "DEV"
+    username: str
+    first_name: str
+    last_name: str
+    email: str = ""
+    ustyp: str = "A"
+    group: str = ""
+    valid_from: str = ""
+    valid_to: str = ""
+    password: str = ""
+    roles: list[str] = []
+    department: str = ""
+    function: str = ""
+
+
+class SalsaItUserCreateRfcConfirmRequest(BaseModel):
+    preview_job_id: str
+
+
+class SalsaItHrLookupRequest(BaseModel):
+    pernr: str
+
+
+class SalsaItUserPasswordChangeRfcRequest(BaseModel):
+    system: str = "PRD"
+    username: str
 
 
 class SalsaItPfcgDeleteRfcPreviewRequest(BaseModel):
@@ -2160,6 +2203,241 @@ def api_salsa_it_pfcg_create_rfc_confirm_job(job_id: str) -> JSONResponse:
         return _json_no_store({"state": "failed", "message": _safe_pfcg_failed_message()})
 
     safe_result = _safe_pfcg_rfc_create_result(result)
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/user/create/rfc/preview")
+def api_salsa_it_user_create_rfc_preview(payload: SalsaItUserCreateRfcPreviewRequest) -> JSONResponse:
+    username = _validate_username_or_400(payload.username)
+    system = _validate_user_create_system_or_400(payload.system)
+    first_name = str(payload.first_name or "").strip()
+    last_name = str(payload.last_name or "").strip()
+    if not first_name or not last_name:
+        raise HTTPException(status_code=400, detail="Informe o nome e o apelido do utilizador.")
+
+    try:
+        job = create_job(
+            "user_create_preview",
+            {
+                "environment": system,
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": str(payload.email or "").strip(),
+                "ustyp": str(payload.ustyp or "A").strip().upper(),
+                "group": str(payload.group or "").strip().upper(),
+                "valid_from": str(payload.valid_from or "").strip(),
+                "valid_to": str(payload.valid_to or "").strip(),
+                "password": str(payload.password or ""),
+                "roles": list(payload.roles or []),
+                "department": str(payload.department or "").strip(),
+                "function": str(payload.function or "").strip(),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "username": username,
+    })
+
+
+@app.get("/api/salsa-it-agent/user/create/rfc/preview/{job_id}")
+def api_salsa_it_user_create_rfc_preview_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "user_create_preview":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à pré-visualização de criação de utilizador.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    safe_result = _safe_user_create_result(result)
+
+    if safe_result.get("ok") and safe_result.get("status") == "PREVIEW_READY":
+        params = dict(job.get("params") or {})
+        USER_CREATE_PREVIEWS[job_id] = {
+            "environment": result.get("environment"),
+            "username": result.get("username"),
+            "first_name": result.get("first_name"),
+            "last_name": result.get("last_name"),
+            "email": params.get("email", ""),
+            "ustyp": result.get("ustyp"),
+            "group": params.get("group", ""),
+            "valid_from": result.get("valid_from"),
+            "valid_to": str(params.get("valid_to") or ""),
+            "password": params.get("password", ""),
+            "roles": list(result.get("roles") or []),
+            "department": result.get("department", ""),
+            "function": result.get("function", ""),
+        }
+
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/user/create/rfc/confirm")
+def api_salsa_it_user_create_rfc_confirm(payload: SalsaItUserCreateRfcConfirmRequest) -> JSONResponse:
+    preview_job_id = str(payload.preview_job_id or "").strip()
+    if not preview_job_id:
+        raise HTTPException(status_code=400, detail="Identificador da pré-visualização em falta.")
+
+    validated = USER_CREATE_PREVIEWS.get(preview_job_id)
+    if not validated:
+        raise HTTPException(
+            status_code=404,
+            detail="Pré-visualização não encontrada ou expirada. Repita a preparação antes de confirmar.",
+        )
+
+    try:
+        job = create_job("user_create_rfc", dict(validated))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "username": validated.get("username"),
+    })
+
+
+@app.get("/api/salsa-it-agent/user/create/rfc/confirm/{job_id}")
+def api_salsa_it_user_create_rfc_confirm_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "user_create_rfc":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à criação de utilizador (RFC).")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    safe_result = _safe_user_create_result(result)
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/user/password/change")
+def api_salsa_it_user_password_change(payload: SalsaItUserPasswordChangeRfcRequest) -> JSONResponse:
+    username = _validate_username_or_400(payload.username)
+    system = _validate_user_create_system_or_400(payload.system)
+
+    try:
+        job = create_job("user_change_password_rfc", {"environment": system, "username": username})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "username": username,
+    })
+
+
+@app.get("/api/salsa-it-agent/user/password/change/{job_id}")
+def api_salsa_it_user_password_change_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "user_change_password_rfc":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à alteração de password de utilizador.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    safe_result = _safe_user_create_result(result)
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/user/create/hr-lookup")
+def api_salsa_it_user_create_hr_lookup(payload: SalsaItHrLookupRequest) -> JSONResponse:
+    pernr = _validate_pernr_or_400(payload.pernr)
+    try:
+        job = create_job("hr_lookup", {"pernr": pernr})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "pernr": pernr})
+
+
+@app.get("/api/salsa-it-agent/user/create/hr-lookup/{job_id}")
+def api_salsa_it_user_create_hr_lookup_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "hr_lookup":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à consulta de dados de RH.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_hr_lookup_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_hr_lookup_failed_message()})
+
+    safe_result = _safe_hr_lookup_result(result)
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 

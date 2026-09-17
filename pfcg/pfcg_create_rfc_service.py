@@ -167,6 +167,116 @@ def create_pfcg_role_rfc(
     return _run_bridge_cli("sap_rfc.pfcg_role_create_cli", args)
 
 
+def _role_args(roles: list[str]) -> list[str]:
+    args: list[str] = []
+    for role in roles:
+        args.extend(["--role", str(role)])
+    return args
+
+
+def preview_user_create_rfc(
+    environment: str,
+    username: str,
+    first_name: str,
+    last_name: str,
+    email: str,
+    ustyp: str,
+    group: str,
+    valid_from: str,
+    valid_to: str,
+    password: str,
+    roles: list[str],
+    department: str = "",
+    function: str = "",
+) -> dict[str, Any]:
+    """Bridge de leitura (preview) para `sap_rfc.user_create_service.preview_user_create`.
+
+    Executa no subprocesso isolado `.venv-rfc`; nunca escreve em SAP.
+    """
+    args = [
+        "--environment", str(environment or "").strip().upper(),
+        "--username", str(username or "").strip(),
+        "--first-name", str(first_name or ""),
+        "--last-name", str(last_name or ""),
+        "--email", str(email or ""),
+        "--ustyp", str(ustyp or "A"),
+        "--group", str(group or ""),
+        "--valid-from", str(valid_from or ""),
+        "--valid-to", str(valid_to or ""),
+        "--password", str(password or ""),
+        *_role_args(roles),
+        "--department", str(department or ""),
+        "--function", str(function or ""),
+    ]
+    return _run_bridge_cli("sap_rfc.user_create_preview_cli", args)
+
+
+def create_user_via_rfc(
+    environment: str,
+    username: str,
+    first_name: str,
+    last_name: str,
+    email: str,
+    ustyp: str,
+    group: str,
+    valid_from: str,
+    valid_to: str,
+    password: str,
+    roles: list[str],
+    department: str = "",
+    function: str = "",
+) -> dict[str, Any]:
+    """Bridge de ESCRITA para `sap_rfc.user_create_service.create_user_rfc`.
+
+    Único ponto de entrada de escrita RFC para a criação de utilizador, usado pelo
+    fluxo Web (worker) do Agente Salsa IT.
+    """
+    args = [
+        "--environment", str(environment or "").strip().upper(),
+        "--username", str(username or "").strip(),
+        "--first-name", str(first_name or ""),
+        "--last-name", str(last_name or ""),
+        "--email", str(email or ""),
+        "--ustyp", str(ustyp or "A"),
+        "--group", str(group or ""),
+        "--valid-from", str(valid_from or ""),
+        "--valid-to", str(valid_to or ""),
+        "--password", str(password or ""),
+        *_role_args(roles),
+        "--department", str(department or ""),
+        "--function", str(function or ""),
+        "--confirm",
+    ]
+    return _run_bridge_cli("sap_rfc.user_create_cli", args)
+
+
+def change_password_via_rfc(environment: str, username: str, password: str = "") -> dict[str, Any]:
+    """Bridge de ESCRITA para `sap_rfc.user_create_service.change_password_rfc`.
+
+    Único ponto de entrada de escrita RFC para redefinir a password de um
+    utilizador SAP já existente (BAPI_USER_CHANGE), usado pelo fluxo Web
+    (worker) do Agente Salsa IT.
+    """
+    args = [
+        "--environment", str(environment or "").strip().upper(),
+        "--username", str(username or "").strip(),
+        "--password", str(password or ""),
+        "--confirm",
+    ]
+    return _run_bridge_cli("sap_rfc.user_password_change_cli", args)
+
+
+def lookup_hr_data_rfc(pernr: str) -> dict[str, Any]:
+    """Bridge de leitura (read-only) para `sap_rfc.hr_lookup_service.lookup_hr_data`.
+
+    Executa no subprocesso isolado `.venv-rfc`; le sempre contra PRD, porque os
+    dados de RH (PA0002/PA0105) so existem la, independentemente do ambiente
+    onde o utilizador SAP vai ser criado.
+    """
+    args = ["--pernr", str(pernr or "").strip()]
+    return _run_bridge_cli("sap_rfc.hr_lookup_cli", args)
+
+
 def search_transport_requests_rfc(environment: str) -> dict[str, Any]:
     """Bridge de leitura para `sap_rfc.pfcg_transport_service.search_open_transport_requests`.
 

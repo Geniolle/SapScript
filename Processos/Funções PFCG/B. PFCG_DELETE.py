@@ -43,7 +43,7 @@ def executar(
     # CONFIG INICIAL E LOGGING
     ###################################################################################
     tempo_inicio = time.time()
-    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
     sistema_desejado = mapa_sistema.get(ambiente_cockpit)
 
     metodo_normalizado = str(metodo or "RFC").strip().upper()

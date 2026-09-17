@@ -189,7 +189,7 @@ def _carregar_dotenv():
 
 def _resolver_prefixo_ambiente(ambiente_cockpit: str, sistema_desejado: str) -> str:
     ambiente = str(ambiente_cockpit or "").strip().upper()
-    if ambiente in {"DEV", "QAD", "PRD", "CUA"}:
+    if ambiente in {"DEV", "QAD", "PRD"}:
         return ambiente
 
     sistema = str(sistema_desejado or "").strip().upper()
@@ -197,7 +197,6 @@ def _resolver_prefixo_ambiente(ambiente_cockpit: str, sistema_desejado: str) -> 
         "S4D": "DEV",
         "S4Q": "QAD",
         "S4P": "PRD",
-        "SPA": "CUA",
     }.get(sistema, ambiente or sistema or "PRD")
 
 
@@ -1190,7 +1189,6 @@ def _obter_nomes_logon_candidatos(ambiente_cockpit: str, sistema_desejado: str, 
         "QAD": ["SAP S4F QAS", "SALSA QAD", "QUALIDADE (S4H)", "QAD", "QAS", "S4Q", "QUALIDADE"],
         "DEV": ["SAP S4F DEV", "DESENVOLVIMENTO (S4H)", "SALSA DEV", "DEV", "S4D", "DESENVOLVIMENTO"],
         "PRD": ["SAP S4F PRD", "PRODUÇÃO (S4H)", "PRODUCAO (S4H)", "SALSA PRD", "PRD", "S4P", "PRODUÇÃO", "PRODUCAO"],
-        "CUA": ["CUA (PRD)", "SPA", "CUA", "SALSA CUA"],
     }
     for alias in mapa_predefinido.get(str(ambiente_cockpit).upper(), []):
         adicionar(alias)

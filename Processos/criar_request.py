@@ -18,8 +18,8 @@ import pywintypes
 # CONFIG
 # =========================
 SAPLOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
-MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
-CLIENTES_POR_AMBIENTE = {"DEV": "100", "QAD": "100", "PRD": "100", "CUA": "001"}
+MAPA_SISTEMA = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
+CLIENTES_POR_AMBIENTE = {"DEV": "100", "QAD": "100", "PRD": "100"}
 
 SLEEP_UI = 0.25
 SLEEP_ACTION = 0.40

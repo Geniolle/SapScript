@@ -1011,7 +1011,7 @@ mostrar_titulo(
 _rfc_validado = _validar_ligacao_rfc(ambiente_cockpit, tentativas=3)
 if _rfc_validado:
     info(
-        "RFC confirmou rede/credenciais em DEV/QAD/PRD/CUA. A abrir a sessão SAP GUI "
+        "RFC confirmou rede/credenciais em DEV/QAD/PRD. A abrir a sessão SAP GUI "
         "de qualquer forma: os Processos deste cockpit automatizam o ecrã "
         "(session.findById) e por isso precisam sempre de uma sessão SAP GUI logada — "
         "o RFC aqui é só uma validação rápida antes de abrir o GUI, não substitui o login GUI."

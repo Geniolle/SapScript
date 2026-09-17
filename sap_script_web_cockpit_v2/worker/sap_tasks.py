@@ -813,7 +813,7 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
         raise SapExecutionError(f"Falha ao carregar modulo pesquisar_request.py: {exc}")
         
     ambiente = str(params.get("ambiente") or "DEV").upper()
-    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P", "CUA": "SPA"}
+    mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
     sistema_desejado = mapa_sistema.get(ambiente, "S4D")
     
     try:
@@ -1796,6 +1796,175 @@ def _run_pfcg_role_create_rfc(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_hr_lookup(params: dict[str, Any]) -> tuple[str, str]:
+    """Read-only via bridge RFC isolada: dados de RH (PA0002/PA0105) por PERNR,
+    sempre lidos contra PRD. Aceita EXCLUSIVAMENTE `pernr` de params."""
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+    pernr = str(params.get("pernr") or "").strip()
+
+    try:
+        from pfcg.pfcg_create_rfc_service import lookup_hr_data_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de dados de RH: {exc}") from exc
+
+    try:
+        payload = lookup_hr_data_rfc(pernr)
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de dados de RH (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Consulta de dados de RH (PA0002/PA0105) via subprocesso isolado, sempre contra PRD.",
+        f"PERNR: {pernr}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_user_create_preview(params: dict[str, Any]) -> tuple[str, str]:
+    """Pré-visualização (read-only) da criação de utilizador SAP via RFC.
+
+    Aceita EXCLUSIVAMENTE environment/username/first_name/last_name/email/ustyp/
+    group/valid_from/valid_to/password/roles vindos de `params`. A função SAP a
+    chamar é decidida apenas dentro de sap_rfc.user_create_service, nunca pelo
+    pedido do frontend.
+    """
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    username = str(params.get("username") or "").strip()
+    raw_roles = params.get("roles") or []
+    roles = [str(r).strip() for r in raw_roles if str(r).strip()] if isinstance(raw_roles, list) else []
+
+    try:
+        from pfcg.pfcg_create_rfc_service import preview_user_create_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de pré-visualização de criação de utilizador: {exc}") from exc
+
+    try:
+        payload = preview_user_create_rfc(
+            environment,
+            username,
+            str(params.get("first_name") or ""),
+            str(params.get("last_name") or ""),
+            str(params.get("email") or ""),
+            str(params.get("ustyp") or "A"),
+            str(params.get("group") or ""),
+            str(params.get("valid_from") or ""),
+            str(params.get("valid_to") or ""),
+            str(params.get("password") or ""),
+            roles,
+            str(params.get("department") or ""),
+            str(params.get("function") or ""),
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de pré-visualização de criação de utilizador (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Pré-visualização de criação de utilizador (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Utilizador: {username}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_user_create_rfc(params: dict[str, Any]) -> tuple[str, str]:
+    """Criação REAL de utilizador SAP via RFC. Aceita EXCLUSIVAMENTE environment/
+    username/first_name/last_name/email/ustyp/group/valid_from/valid_to/password/
+    roles vindos de `params` — o frontend nunca pode enviar function_module/command/
+    script/executable/module/table/shell/python_path; esta função ignora qualquer
+    chave além dessas dez.
+    """
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    username = str(params.get("username") or "").strip()
+    raw_roles = params.get("roles") or []
+    roles = [str(r).strip() for r in raw_roles if str(r).strip()] if isinstance(raw_roles, list) else []
+
+    try:
+        from pfcg.pfcg_create_rfc_service import create_user_via_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de criação de utilizador: {exc}") from exc
+
+    try:
+        payload = create_user_via_rfc(
+            environment,
+            username,
+            str(params.get("first_name") or ""),
+            str(params.get("last_name") or ""),
+            str(params.get("email") or ""),
+            str(params.get("ustyp") or "A"),
+            str(params.get("group") or ""),
+            str(params.get("valid_from") or ""),
+            str(params.get("valid_to") or ""),
+            str(params.get("password") or ""),
+            roles,
+            str(params.get("department") or ""),
+            str(params.get("function") or ""),
+        )
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de criação de utilizador (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Criação de utilizador (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Utilizador: {username}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_user_change_password_rfc(params: dict[str, Any]) -> tuple[str, str]:
+    """Alteração REAL de password de um utilizador SAP já existente via RFC
+    (BAPI_USER_CHANGE). Aceita EXCLUSIVAMENTE environment/username vindos de
+    `params` — a password usada é sempre a de SAP_PASSE_PASSWD (.env), nunca
+    recebida do frontend.
+    """
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    username = str(params.get("username") or "").strip()
+
+    try:
+        from pfcg.pfcg_create_rfc_service import change_password_via_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de alteração de password: {exc}") from exc
+
+    try:
+        payload = change_password_via_rfc(environment, username)
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de alteração de password (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Alteração de password (RFC) executada via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Utilizador: {username}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_pfcg_role_delete_preview(params: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
     project_dir = _get_project_dir()
@@ -2264,6 +2433,10 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_create_excel_analysis": lambda job, params: _run_pfcg_create_excel_analysis(params),
     "pfcg_role_create_preview": lambda job, params: _run_pfcg_role_create_preview(params),
     "pfcg_role_create_rfc": lambda job, params: _run_pfcg_role_create_rfc(params),
+    "user_create_preview": lambda job, params: _run_user_create_preview(params),
+    "user_create_rfc": lambda job, params: _run_user_create_rfc(params),
+    "user_change_password_rfc": lambda job, params: _run_user_change_password_rfc(params),
+    "hr_lookup": lambda job, params: _run_hr_lookup(params),
     "pfcg_composta_create_preview": lambda job, params: _run_pfcg_composta_create_preview(params),
     "pfcg_composta_create": lambda job, params: _run_pfcg_composta_create(params),
     "pfcg_role_delete_preview": lambda job, params: _run_pfcg_role_delete_preview(params),
