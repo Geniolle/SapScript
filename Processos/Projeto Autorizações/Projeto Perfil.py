@@ -76,6 +76,55 @@ def normalizar_nome_coluna(col: Any) -> str:
     return re.sub(r"[^A-Z0-9]", "", normalizar_texto(col))
 
 
+def encontrar_coluna_funcoes_individuais_ws(ws: Any, default_col: int = 11) -> int:
+    """
+    Localiza na linha 1 do cabeçalho de uma folha (openpyxl Worksheet ou win32com Worksheet)
+    a coluna correspondente a 'Funções Individuais'.
+    Devolve o índice da coluna baseado em 1 (ex.: 11 para Coluna K).
+    """
+    try:
+        # Se for win32com (tem atributo Cells e UsedRange)
+        if hasattr(ws, "Cells") and not hasattr(ws, "cell"):
+            max_c = min(ws.UsedRange.Columns.Count + 10, 100) if hasattr(ws, "UsedRange") else 50
+            for c in range(1, max_c + 1):
+                val = str(ws.Cells(1, c).Value or "").strip()
+                norm = normalizar_nome_coluna(val)
+                if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
+                    return c
+        # Se for openpyxl
+        elif hasattr(ws, "cell"):
+            max_c = ws.max_column or 50
+            for c in range(1, max_c + 1):
+                val = str(ws.cell(row=1, column=c).value or "").strip()
+                norm = normalizar_nome_coluna(val)
+                if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
+                    return c
+    except Exception:
+        pass
+    return default_col
+
+
+def encontrar_coluna_funcoes_individuais_df(df: Any, default_idx: int = 10) -> int:
+    """
+    Localiza no DataFrame do pandas (via df.columns ou df.iloc[0])
+    o índice da coluna 'Funções Individuais' baseado em 0 (ex.: 10 para Coluna K).
+    """
+    try:
+        if hasattr(df, "columns"):
+            for idx, col_name in enumerate(df.columns):
+                norm = normalizar_nome_coluna(str(col_name))
+                if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
+                    return idx
+        if hasattr(df, "iloc") and len(df) > 0:
+            for idx in range(len(df.columns)):
+                norm = normalizar_nome_coluna(str(df.iloc[0, idx]))
+                if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
+                    return idx
+    except Exception:
+        pass
+    return default_idx
+
+
 def limpar_tcode(tcode_raw: Any) -> List[str]:
     """Extrai transações limpas sem prefixos (/N, /O, TCODE=)."""
     if not tcode_raw:
@@ -717,6 +766,7 @@ def analisar_departamento_proposta(dados: ProjetoPerfilData, departamento: str =
     usuarios = []
     compostas = set()
     singles_counter = Counter()
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_raw, default_idx=10)
 
     for idx in range(1, len(df_raw)):
         dep_val = str(df_raw.iloc[idx, 7]).strip() if pd.notna(df_raw.iloc[idx, 7]) else ""
@@ -732,7 +782,7 @@ def analisar_departamento_proposta(dados: ProjetoPerfilData, departamento: str =
                 compostas.add(comp)
 
             user_singles = [
-                normalizar_texto(x) for x in df_raw.iloc[idx, 10:].dropna().tolist()
+                normalizar_texto(x) for x in df_raw.iloc[idx, col_fi_idx:].dropna().tolist()
                 if is_role_sap_valida(x)
             ]
             for s in user_singles:
@@ -1708,6 +1758,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
 
     users_em_falta = []
     total_users_avaliados = 0
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa, default_idx=10)
 
     for idx, r in df_ativa.iterrows():
         c_val = str(r.get(col_comp, "")).strip() if pd.notna(r.get(col_comp)) else ""
@@ -1721,11 +1772,11 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
 
         total_users_avaliados += 1
         funcoes_existentes = set()
-        for col_idx in range(9, len(r)):
+        for col_idx in range(col_fi_idx, len(r)):
             val_cell = r.iloc[col_idx]
             if pd.notna(val_cell):
                 v_str = str(val_cell).strip().upper()
-                if v_str and v_str.startswith("Z"):
+                if v_str and v_str.startswith("Z") and v_str != c_val and v_str not in dados.roles_compostas:
                     funcoes_existentes.add(v_str)
 
         dep_norm = dep.strip().upper()
@@ -1790,12 +1841,13 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                     break
             if wb is not None:
                 ws = wb.Worksheets("Proposta Ativa")
+                col_fi = encontrar_coluna_funcoes_individuais_ws(ws, default_col=11)
                 for u_info in users_em_falta:
                     row_idx = u_info["linha"]
-                    last_col = max(10, ws.UsedRange.Columns.Count)
-                    ws.Range(ws.Cells(row_idx, 10), ws.Cells(row_idx, last_col)).ClearContents()
+                    last_col = max(col_fi, ws.UsedRange.Columns.Count)
+                    ws.Range(ws.Cells(row_idx, col_fi), ws.Cells(row_idx, last_col)).ClearContents()
                     for i, role in enumerate(u_info["roles_esperadas"]):
-                        ws.Cells(row_idx, 10 + i).Value = role
+                        ws.Cells(row_idx, col_fi + i).Value = role
                         alteracoes += 1
                 wb.Save()
                 try:
@@ -1804,7 +1856,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
                 except Exception:
                     pass
                 sucesso_com = True
-                print(f"  {alteracoes} função(ões) reescrita(s) via Excel COM.")
+                print(f"  {alteracoes} função(ões) reescrita(s) via Excel COM (a partir da coluna {col_fi}).")
         except Exception:
             pass
 
@@ -1812,12 +1864,13 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
         try:
             wb = openpyxl.load_workbook(caminho_excel)
             ws = wb["Proposta Ativa"]
+            col_fi = encontrar_coluna_funcoes_individuais_ws(ws, default_col=11)
             for u_info in users_em_falta:
                 row_idx = u_info["linha"]
-                for c in range(10, ws.max_column + 1):
-                    ws.cell(row_idx, c).value = None
+                for c in range(col_fi, ws.max_column + 1):
+                    ws.cell(row=row_idx, column=c).value = None
                 for i, role in enumerate(u_info["roles_esperadas"]):
-                    ws.cell(row=row_idx, column=10 + i, value=role)
+                    ws.cell(row=row_idx, column=col_fi + i, value=role)
                     alteracoes += 1
             wb.save(caminho_excel)
             wb.close()
@@ -1860,16 +1913,17 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
     col_comp = [c for c in df_ativa.columns if "COMPOSITE" in str(c).upper()][0]
     composta_roles = defaultdict(set)
     composta_textos = {}
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa, default_idx=10)
 
     for _, r in df_ativa.iterrows():
         comp = str(r.get(col_comp, "")).strip() if pd.notna(r.get(col_comp)) else ""
         if not comp or comp.lower() in ("nan", "none", "-"):
             continue
-        for col_idx in range(9, len(r)):
+        for col_idx in range(col_fi_idx, len(r)):
             val = r.iloc[col_idx]
             if pd.notna(val):
                 v_str = str(val).strip().upper()
-                if v_str and v_str.startswith("Z"):
+                if v_str and v_str.startswith("Z") and v_str != comp and v_str not in dados.roles_compostas:
                     composta_roles[comp].add(v_str)
 
     df_comp = pd.read_excel(excel_file, sheet_name="PFCG_COMPOSTA")
@@ -2211,6 +2265,7 @@ def executar_atualizacao_integrada_excel(
     users_em_falta_matriz = {}
     total_users_avaliados = 0
     roles_por_user_finais = {}
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa, default_idx=10)
 
     for idx, r in df_ativa.iterrows():
         c_val = str(r.get(col_comp, "")).strip() if pd.notna(r.get(col_comp)) else ""
@@ -2224,12 +2279,15 @@ def executar_atualizacao_integrada_excel(
 
         total_users_avaliados += 1
         funcoes_existentes = set()
-        for col_idx in range(9, len(r)):
+        celulas_originais = set()
+        for col_idx in range(col_fi_idx, len(r)):
             val_cell = r.iloc[col_idx]
             if pd.notna(val_cell):
                 v_str = str(val_cell).strip().upper()
                 if v_str and v_str.startswith("Z"):
-                    funcoes_existentes.add(v_str)
+                    celulas_originais.add(v_str)
+                    if v_str != c_val and v_str not in dados.roles_compostas:
+                        funcoes_existentes.add(v_str)
 
         dep_norm = dep.strip().upper()
         sheet_nome = mapa_dep_sheet.get(dep_norm)
@@ -2260,7 +2318,8 @@ def executar_atualizacao_integrada_excel(
                 roles_esperadas.add(mr)
 
         roles_faltam_matriz = roles_esperadas - funcoes_existentes
-        if roles_faltam_matriz:
+        precisa_limpar_celulas = (celulas_originais != funcoes_existentes)
+        if roles_faltam_matriz or precisa_limpar_celulas:
             roles_unificadas = funcoes_existentes.union(roles_esperadas)
             users_em_falta_matriz[u_val] = {
                 "linha": idx + 2,
@@ -2329,11 +2388,12 @@ def executar_atualizacao_integrada_excel(
                         inicio = int(f_d) if f_d.isdigit() else 0
                         fim = int(t_d) if t_d.isdigit() else 99991231
                         if inicio <= hoje_int <= fim and role and un in roles_por_user_finais:
-                            if not dados.is_excluida(role) and role in catalogo_oficial_set:
-                                _, _, roles_atuais = roles_por_user_finais[un]
-                                if role not in roles_atuais:
-                                    funcoes_vivas_a_adicionar[un].add(role)
-                                    roles_atuais.add(role)
+                            row_num, c_role, roles_atuais = roles_por_user_finais[un]
+                            if role != c_role and role not in dados.roles_compostas:
+                                if not dados.is_excluida(role) and role in catalogo_oficial_set:
+                                    if role not in roles_atuais:
+                                        funcoes_vivas_a_adicionar[un].add(role)
+                                        roles_atuais.add(role)
             conn.close()
         except Exception as e_rfc:
             print(f"  [AVISO] Não foi possível consultar funções vivas no PRD via RFC: {e_rfc}")
@@ -2461,13 +2521,14 @@ def executar_atualizacao_integrada_excel(
             # Etapa 2 & 3: Proposta Ativa
             if users_em_falta_matriz or funcoes_vivas_a_adicionar:
                 ws_a = wb_com.Worksheets("Proposta Ativa")
+                col_fi = encontrar_coluna_funcoes_individuais_ws(ws_a, default_col=11)
                 users_a_reescrever = set(users_em_falta_matriz.keys()).union(funcoes_vivas_a_adicionar.keys())
                 for u in users_a_reescrever:
                     row_idx, _, roles_finais = roles_por_user_finais[u]
-                    last_col = max(10, ws_a.UsedRange.Columns.Count)
-                    ws_a.Range(ws_a.Cells(row_idx, 10), ws_a.Cells(row_idx, last_col)).ClearContents()
+                    last_col = max(col_fi, ws_a.UsedRange.Columns.Count)
+                    ws_a.Range(ws_a.Cells(row_idx, col_fi), ws_a.Cells(row_idx, last_col)).ClearContents()
                     for i, role in enumerate(sorted(roles_finais)):
-                        ws_a.Cells(row_idx, 10 + i).Value = role
+                        ws_a.Cells(row_idx, col_fi + i).Value = role
 
             # Etapa 4: PFCG_COMPOSTA
             if linhas_obsoletas_comp or novas_linhas_comp:
@@ -2505,13 +2566,14 @@ def executar_atualizacao_integrada_excel(
         # Etapa 2 & 3: Proposta Ativa
         if users_em_falta_matriz or funcoes_vivas_a_adicionar:
             ws_a = wb_ox["Proposta Ativa"]
+            col_fi = encontrar_coluna_funcoes_individuais_ws(ws_a, default_col=11)
             users_a_reescrever = set(users_em_falta_matriz.keys()).union(funcoes_vivas_a_adicionar.keys())
             for u in users_a_reescrever:
                 row_idx, _, roles_finais = roles_por_user_finais[u]
-                for c in range(10, ws_a.max_column + 1):
+                for c in range(col_fi, ws_a.max_column + 1):
                     ws_a.cell(row=row_idx, column=c).value = None
                 for i, role in enumerate(sorted(roles_finais)):
-                    ws_a.cell(row=row_idx, column=10 + i, value=role)
+                    ws_a.cell(row=row_idx, column=col_fi + i, value=role)
 
         # Etapa 4: PFCG_COMPOSTA
         if linhas_obsoletas_comp or novas_linhas_comp:
@@ -3021,8 +3083,9 @@ def adicionar_funcao_proposta_ativa(
                     if val_u == u_norm:
                         linha_afetada = r
                         max_c = ws.UsedRange.Columns.Count
+                        col_fi = encontrar_coluna_funcoes_individuais_ws(ws, default_col=11)
                         col_livre = None
-                        for c in range(10, max_c + 3):
+                        for c in range(col_fi, max_c + 3):
                             v_cel = str(ws.Cells(r, c).Value or "").strip().upper()
                             if v_cel == r_norm:
                                 return {
@@ -3067,8 +3130,9 @@ def adicionar_funcao_proposta_ativa(
                 if cell_val == u_norm:
                     found_user = True
                     linha_afetada = r
+                    col_fi = encontrar_coluna_funcoes_individuais_ws(ws, default_col=11)
                     col_livre = None
-                    for c in range(10, ws.max_column + 5):
+                    for c in range(col_fi, ws.max_column + 5):
                         v_cel = str(ws.cell(row=r, column=c).value or "").strip().upper()
                         if v_cel == r_norm:
                             wb.close()
@@ -3335,11 +3399,12 @@ def auditar_utilizador(dados: ProjetoPerfilData, utilizador: str) -> Dict[str, A
             import pandas as pd
             fonte = abrir_excel_seguro(dados.caminho)
             df_raw = pd.read_excel(fonte, sheet_name=sheet_proposta, header=None)
+            col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_raw, default_idx=10)
             for idx in range(1, len(df_raw)):
                 u_id = str(df_raw.iloc[idx, 0]).strip() if pd.notna(df_raw.iloc[idx, 0]) else ""
                 if normalizar_texto(u_id) == user_norm:
                     singles = [
-                        str(x).strip().upper() for x in df_raw.iloc[idx, 10:].dropna().tolist()
+                        str(x).strip().upper() for x in df_raw.iloc[idx, col_fi_idx:].dropna().tolist()
                         if is_role_sap_valida(x)
                     ]
                     comp = str(df_raw.iloc[idx, 8]).strip() if pd.notna(df_raw.iloc[idx, 8]) else ""
@@ -4821,10 +4886,11 @@ def executar_fluxo_pesquisa_atribuir_transacao(
     print(f"  ✓ Utilizador: {user_alvo} ({user_nome}) localizado na Linha {user_row}")
     print(f"  ✓ Departamento: '{dep_nome}' | Composite Role: '{comp_role}'")
 
+    col_fi = encontrar_coluna_funcoes_individuais_ws(ws_pa, default_col=11)
     col_livre = None
     roles_existentes_user = []
     col_ja_atribuida = None
-    for c in range(10, ws_pa.max_column + 10):
+    for c in range(col_fi, ws_pa.max_column + 10):
         val = str(ws_pa.cell(user_row, c).value or "").strip()
         if val:
             roles_existentes_user.append(val)
