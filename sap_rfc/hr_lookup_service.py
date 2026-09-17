@@ -31,6 +31,9 @@ from sap_rfc._rfc_common import (
 ALLOWED_TABLES = ("PA0002", "PA0105")
 HR_SOURCE_ENV = "PRD"
 _EMAIL_SUBTYPE = "0010"
+# PA0105/0010 pode ter mais do que uma linha (email pessoal e email da empresa).
+# Preferir sempre o email do dominio da empresa quando existir mais do que um.
+_COMPANY_EMAIL_DOMAIN = "@SALSAJEANS.COM"
 
 _PERNR_RE = re.compile(r"^\d{1,8}$")
 
@@ -123,10 +126,15 @@ def lookup_hr_data(raw_pernr: str) -> dict[str, Any]:
                 fields=["PERNR", "SUBTY", "USRID_LONG"],
                 options=make_option_eq("PERNR", pernr), rowcount=20,
             )
-            for row in comm_rows:
-                if row[1].strip() == _EMAIL_SUBTYPE and row[2].strip():
-                    email = row[2].strip()
-                    break
+            candidate_emails = [
+                row[2].strip() for row in comm_rows
+                if row[1].strip() == _EMAIL_SUBTYPE and row[2].strip()
+            ]
+            company_email = next(
+                (addr for addr in candidate_emails if addr.upper().endswith(_COMPANY_EMAIL_DOMAIN)),
+                None,
+            )
+            email = company_email or (candidate_emails[0] if candidate_emails else "")
         except Exception as exc:
             if not is_authorization_error(exc):
                 raise
