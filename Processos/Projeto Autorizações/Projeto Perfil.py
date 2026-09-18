@@ -1763,6 +1763,8 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
         "HEALTH & SAFETY": ("Health & Safety", "Health & Safety"),
         "H&S": ("Health & Safety", "Health & Safety"),
         "DIGITAL": ("Digital", "Digital"),
+        "IT": ("IT", "IT"),
+        "TI": ("IT", "IT"),
         "LEGAL": ("Legal", "Legal"),
     }
 
@@ -1775,7 +1777,7 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
 
     sheet_dfs = {}
     for s in excel_file.sheet_names:
-        if s in ["Construction & Maintenance", "Purchase & Services", "Client Services", "Industry Services", "People & Talent", "Health & Safety", "Digital", "Legal"]:
+        if s in ["Construction & Maintenance", "Purchase & Services", "Client Services", "Industry Services", "People & Talent", "Health & Safety", "Digital", "IT", "Legal"]:
             sheet_dfs[s] = pd.read_excel(excel_file, sheet_name=s, header=None)
 
     users_em_falta = []
@@ -2269,6 +2271,8 @@ def executar_atualizacao_integrada_excel(
         "HEALTH & SAFETY": "Health & Safety",
         "H&S": "Health & Safety",
         "DIGITAL": "Digital",
+        "IT": "IT",
+        "TI": "IT",
         "LEGAL": "Legal",
     }
 
@@ -2280,7 +2284,7 @@ def executar_atualizacao_integrada_excel(
 
     sheet_dfs = {}
     for s in excel_file.sheet_names:
-        if s in ["Construction & Maintenance", "Purchase & Services", "Client Services", "Industry Services", "People & Talent", "Health & Safety", "Digital", "Legal"]:
+        if s in ["Construction & Maintenance", "Purchase & Services", "Client Services", "Industry Services", "People & Talent", "Health & Safety", "Digital", "IT", "Legal"]:
             sheet_dfs[s] = pd.read_excel(excel_file, sheet_name=s, header=None)
 
     users_em_falta_matriz = {}
@@ -5620,9 +5624,10 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
         print("  [3] Utilizador     - Auditoria e Pesquisa Individual de Utilizador")
         print("  [4] Pesquisa       - Pesquisar Transação do Projeto e Atribuir a Utilizador")
         print("  [5] Corrigir       - Corrigir Sincronização Posterior (Utilizadores Pendentes)")
+        print("  [6] SU53           - Diagnóstico SU53 via RFC e Atribuição de Funções")
         print("  [0] Sair")
         print("-" * 78)
-        op = input("Selecione uma opção [1-5, 0]: ").strip().upper()
+        op = input("Selecione uma opção [1-6, 0]: ").strip().upper()
 
         if op == "1" or op in ("EXECUCAO", "EXECUÇÃO"):
             print("\n" + "=" * 78)
@@ -5669,12 +5674,21 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
             if novo_dados:
                 dados = novo_dados
 
+        elif op == "6" or op in ("SU53", "ERROS"):
+            import runpy
+            script_su53 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Pesquisa_Erros_SU53.py")
+            if os.path.exists(script_su53):
+                runpy.run_path(script_su53, run_name="__main__")
+                dados = carregar_projeto_perfil(caminho)
+            else:
+                print(f"[ERRO] Script não encontrado: {script_su53}")
+
         elif op in ("0", "S", "SAIR", "Q", "QUIT", ""):
             print("\nEncerrando. Até logo!")
             break
 
         else:
-            print("[AVISO] Opção inválida. Por favor escolha 1, 2, 3, 4, 5 ou 0.")
+            print("[AVISO] Opção inválida. Por favor escolha 1, 2, 3, 4, 5, 6 ou 0.")
 
 
 # =====================================================================
