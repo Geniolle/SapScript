@@ -4235,8 +4235,10 @@ def sincronizar_departamento_prd_qad_rfc(
         for f in c_info.get("roles_filhas", []):
             todas_filhas_compostas.add(normalizar_texto(f))
 
-    # Filtrar funções de definições para manter apenas atribuições diretas de topo (compostas e singles de base)
-    definicoes_dep_diretas = {r for r in definicoes_dep if r not in todas_filhas_compostas}
+    # Regra oficial: a sheet DEFINIÇÕES é mandatória por departamento.
+    # Tudo que está na linha do departamento deve ser atribuído diretamente,
+    # mesmo que a role também exista como filha de uma função composta.
+    definicoes_dep_diretas = set(definicoes_dep)
 
     # Mapa de roles esperadas da Proposta Ativa e DEFINIÇÕES para cada utilizador:
     # REGRA DE OURO:
@@ -5462,7 +5464,10 @@ def obter_discrepancias_sincronizacao(dados: ProjetoPerfilData, caminho_excel: O
                 "ZORG_BP_Z001_GENERALPARTNERS", "ZORG_BP_Z003_RELATEDPARTNERS",
                 "Z_BR_TYPE_BP_GERAL", "Z_MY_HOME"
             }
-        definicoes_diretas = {r for r in definicoes_dep if r not in todas_filhas_compostas}
+        # Regra oficial: a sheet DEFINIÇÕES é mandatória por departamento.
+        # Tudo que está na linha do departamento deve ser atribuído diretamente,
+        # mesmo que a role também exista como filha de uma função composta.
+        definicoes_diretas = set(definicoes_dep)
 
         for u_item in analise.get("usuarios", []):
             u_id = normalizar_texto(u_item.get("usuario"))
