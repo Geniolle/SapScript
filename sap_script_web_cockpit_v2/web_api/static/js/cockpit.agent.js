@@ -45,6 +45,7 @@
     const ASI_CUA_RM_ROLE_INPUT = 'cua_rm_role';
     const ASI_CUA_RM_SUB_INPUT = 'cua_rm_sub';
     const ASI_USER_PASSWORD_CHANGE_USER_INPUT = 'user_password_change_user';
+    const ASI_USER_UNLOCK_USER_INPUT = 'user_unlock_user';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
     let asiObycPollingTimer = null;
@@ -68,6 +69,7 @@
         { id: 'pfcg-system-prd', label: 'PRD', icon: 'analysis' },
         { id: 'pfcg-system-cua', label: 'CUA', icon: 'analysis' }
     ];
+    const ASI_USER_SYSTEM_ACTIONS = ASI_PFCG_SYSTEM_ACTIONS.filter((action) => action.id !== 'pfcg-system-cua');
     const ASI_PFCG_POLL_INTERVAL_MS = 1000;
     const ASI_PFCG_POLL_TIMEOUT_MS = 60000;
     const ASI_PFCG_INVALID_MESSAGE = 'O nome do Perfil de Autorização contém caracteres inválidos.\nUtilize apenas letras, números, "_", "-", "/" ou ":".';
@@ -850,6 +852,26 @@
             icon: 'analysis',
             prompt: 'Quero fazer uma análise geral.',
             children: []
+        },
+        {
+            id: 'projeto',
+            label: 'Projeto',
+            icon: 'settings',
+            prompt: 'Quero trabalhar com Projeto.',
+            followupText: 'Escolha uma opção de Projeto:',
+            followupActionsSource: 'children',
+            children: [
+                {
+                    id: 'projeto-perfil-autorizacao',
+                    label: 'Projeto Perfil de Autorização',
+                    icon: 'authorization',
+                    processo: 'Projeto Autorizações',
+                    subprocesso: 'Projeto Perfil.py',
+                    prompt: 'Quero trabalhar com Projeto Perfil de Autorização.',
+                    children: []
+                },
+                { ...ASI_MAIN_MENU_ACTION, prompt: 'Quero voltar ao menu principal.' }
+            ]
         },
         {
             id: 'tickets',
@@ -6639,22 +6661,42 @@
         `;
     }
 
-    function asiBuildUserPasswordChangeResultHtml(result) {
+    function asiBuildUserLockActionResultHtml(result, options = {}) {
         asiEnsurePfcgResultStyles();
         const ok = result.ok === true;
         const status = String(result.status || (ok ? 'CHANGED' : 'ERROR'));
         const accent = ok ? '#16a34a' : '#dc2626';
+        const successTitle = options.successTitle || `Senha alterada em ${asiPfcgSystem}`;
+        const failureTitle = options.failureTitle || `Falha na alteração de senha em ${asiPfcgSystem}`;
         const heading = ok
-            ? `✓ Senha alterada em ${asiPfcgSystem}`
-            : `✗ Falha na alteração de senha em ${asiPfcgSystem}`;
+            ? `✓ ${successTitle}`
+            : `✗ ${failureTitle}`;
         const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
 
-        const rowFields = ok
-            ? [
+        const successFields = [
                 asiBuildPfcgResultField('Ambiente', result.environment || asiPfcgSystem),
-                asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap'),
-                asiBuildPfcgResultField('Origem da senha', result.password_source || '-')
-            ].join('')
+                asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap')
+            ];
+        if (Object.prototype.hasOwnProperty.call(result, 'password_source')) {
+            successFields.push(asiBuildPfcgResultField('Origem da senha', result.password_source || '-'));
+        }
+        if (Object.prototype.hasOwnProperty.call(result, 'lock_status')) {
+            successFields.push(asiBuildPfcgResultField('Estado do bloqueio', result.lock_status || '-'));
+        }
+        if (Object.prototype.hasOwnProperty.call(result, 'failed_logon_count')) {
+            successFields.push(asiBuildPfcgResultField(
+                'Tentativas incorretas',
+                result.failed_logon_count === null || typeof result.failed_logon_count === 'undefined'
+                    ? '-'
+                    : String(result.failed_logon_count)
+            ));
+        }
+        if (Object.prototype.hasOwnProperty.call(result, 'uflag')) {
+            successFields.push(asiBuildPfcgResultField('UFLAG', result.uflag || '0', 'asi-pfcg-result-value--nowrap'));
+        }
+
+        const rowFields = ok
+            ? successFields.join('')
             : [
                 asiBuildPfcgResultField('Ambiente', result.environment || asiPfcgSystem),
                 asiBuildPfcgResultField('Utilizador', result.username, 'asi-pfcg-result-value--nowrap'),
@@ -6679,6 +6721,23 @@
                 </div>
             </div>
         `;
+    }
+
+    function asiBuildUserPasswordChangeResultHtml(result) {
+        const isUnlocked = result && result.status === 'PASSWORD_CHANGED_AND_UNLOCKED';
+        return asiBuildUserLockActionResultHtml(result, {
+            successTitle: isUnlocked
+                ? `Senha alterada e utilizador desbloqueado em ${asiPfcgSystem}`
+                : `Senha alterada em ${asiPfcgSystem}`,
+            failureTitle: `Falha na alteração de senha em ${asiPfcgSystem}`
+        });
+    }
+
+    function asiBuildUserUnlockResultHtml(result) {
+        return asiBuildUserLockActionResultHtml(result, {
+            successTitle: `Utilizador desbloqueado em ${asiPfcgSystem}`,
+            failureTitle: `Falha no desbloqueio em ${asiPfcgSystem}`
+        });
     }
 
     async function asiPollUserPasswordChange(jobId, messageId) {
@@ -6740,9 +6799,13 @@
                     const result = data && typeof data.result === 'object' ? data.result : {};
                     const ok = result.ok === true;
 
+                    const isUnlocked = result && result.status === 'PASSWORD_CHANGED_AND_UNLOCKED';
+
                     asiUpdateMessage(messageId, {
                         text: ok
-                            ? `Senha do utilizador ${result.username} alterada com sucesso em ${asiPfcgSystem}.`
+                            ? (isUnlocked
+                                ? `Senha alterada e utilizador ${result.username} desbloqueado com sucesso em ${asiPfcgSystem}.`
+                                : `Senha do utilizador ${result.username} alterada com sucesso em ${asiPfcgSystem}.`)
                             : `Não foi possível alterar a senha em ${asiPfcgSystem}.`,
                         html: asiBuildUserPasswordChangeResultHtml(result),
                         isProcessing: false,
@@ -6804,6 +6867,139 @@
                 text: `Não foi possível alterar a senha de ${username} em ${asiPfcgSystem}.`,
                 html: asiBuildPfcgErrorHtml(
                     `Não foi possível alterar a senha de ${username} em ${asiPfcgSystem}.`,
+                    error.message || ''
+                ),
+                isProcessing: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
+    async function asiPollUserUnlock(jobId, messageId) {
+        const startedAt = Date.now();
+
+        asiStopUserCreatePolling();
+        return new Promise((resolve) => {
+            asiUserCreatePollingTimer = setInterval(async () => {
+                if (asiUserCreatePollingInFlight) return;
+                if ((Date.now() - startedAt) >= ASI_PFCG_POLL_TIMEOUT_MS) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: 'O desbloqueio está a demorar mais do que o esperado.',
+                        html: asiBuildPfcgErrorHtml(
+                            'O desbloqueio está a demorar mais do que o esperado.',
+                            'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                        ),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                    return;
+                }
+
+                asiUserCreatePollingInFlight = true;
+                try {
+                    const response = await fetch(`/api/salsa-it-agent/user/unlock/${encodeURIComponent(jobId)}`, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                    }
+
+                    if (data.state === 'pending' || data.state === 'running') {
+                        return;
+                    }
+
+                    asiStopUserCreatePolling();
+
+                    if (data.state === 'failed') {
+                        asiUpdateMessage(messageId, {
+                            text: `Não foi possível desbloquear o utilizador em ${asiPfcgSystem}.`,
+                            html: asiBuildPfcgErrorHtml(
+                                `Não foi possível desbloquear o utilizador em ${asiPfcgSystem}.`,
+                                data.message || ''
+                            ),
+                            isProcessing: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false };
+                        asiUpdateComposerState();
+                        resolve();
+                        return;
+                    }
+
+                    const result = data && typeof data.result === 'object' ? data.result : {};
+                    const ok = result.ok === true;
+
+                    asiUpdateMessage(messageId, {
+                        text: ok
+                            ? `Utilizador ${result.username} desbloqueado em ${asiPfcgSystem}.`
+                            : `Não foi possível desbloquear o utilizador em ${asiPfcgSystem}.`,
+                        html: asiBuildUserUnlockResultHtml(result),
+                        isProcessing: false,
+                        wide: true
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+                    setTimeout(() => {
+                        asiPresentConfiguracoesMenu();
+                    }, 400);
+                    resolve();
+                } catch (error) {
+                    asiStopUserCreatePolling();
+                    asiUpdateMessage(messageId, {
+                        text: `Não foi possível desbloquear o utilizador em ${asiPfcgSystem}.`,
+                        html: asiBuildPfcgErrorHtml(`Não foi possível desbloquear o utilizador em ${asiPfcgSystem}.`, error.message || ''),
+                        isProcessing: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                } finally {
+                    asiUserCreatePollingInFlight = false;
+                }
+            }, ASI_PFCG_POLL_INTERVAL_MS);
+        });
+    }
+
+    async function asiStartUserUnlock(username) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+        if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+
+        const processingMessage = asiCreateMessage('assistant', `A desbloquear ${username} em ${asiPfcgSystem} via RFC...`, {
+            html: asiBuildPfcgGenericProcessingHtml(`A desbloquear ${username} em ${asiPfcgSystem} via RFC...`),
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/user/unlock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username, system: asiPfcgSystem })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+            await asiPollUserUnlock(jobId, processingMessage.id);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível desbloquear ${username} em ${asiPfcgSystem}.`,
+                html: asiBuildPfcgErrorHtml(
+                    `Não foi possível desbloquear ${username} em ${asiPfcgSystem}.`,
                     error.message || ''
                 ),
                 isProcessing: false
@@ -8970,6 +9166,16 @@
             await asiStartUserPasswordChange(u);
             return;
         }
+        if (asiConversationState.awaitingInput === ASI_USER_UNLOCK_USER_INPUT) {
+            const u = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_USER_PATTERN.test(u)) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Utilizador inválido. Letras, números, "_", "." ou "-" (máx. 12).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_UNLOCK_USER_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            await asiStartUserUnlock(u);
+            return;
+        }
         if (asiConversationState.awaitingInput === ASI_USER_CREATE_PERNR_INPUT) {
             const pernr = rawMessage.replace(/\D/g, '');
             if (!pernr || pernr.length > 8) {
@@ -10336,7 +10542,7 @@
             asiAppendMessage(asiCreateMessage('user', node && node.prompt ? node.prompt : ''));
             asiAppendMessage(asiCreateMessage('assistant', 'Em que sistema quer trabalhar?', {
                 breadcrumb: asiBuildQuickActionBreadcrumb(actionId),
-                actions: ASI_PFCG_SYSTEM_ACTIONS,
+                actions: actionId === 'utilizador' ? ASI_USER_SYSTEM_ACTIONS : ASI_PFCG_SYSTEM_ACTIONS,
                 actionLevel: 2,
                 parentActionId: actionId,
                 selectionGroupKey: '__pfcg_system__'
@@ -10549,6 +10755,17 @@
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP a quem quer alterar a senha? (ex.: CLOPES)'));
             asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_PASSWORD_CHANGE_USER_INPUT };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'user-individual-unlock') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP a desbloquear? (ex.: CLOPES)'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_UNLOCK_USER_INPUT };
             asiUpdateComposerState();
             const { input } = asiGetElements();
             if (input) input.focus();

@@ -63,11 +63,25 @@ WRITE_ALLOWED_TABLES = ("USR02", "AGR_USERS", "AGR_DEFINE")
 # BAPI_USER_ACTGROUPS_ASSIGN (não fazem sentido neste fluxo de reset de password).
 CHANGE_PASSWORD_ALLOWED_FUNCTIONS = (
     "RFC_PING",
+    "RFC_READ_TABLE",
     "BAPI_USER_EXISTENCE_CHECK",
     "BAPI_USER_CHANGE",
     "BAPI_TRANSACTION_COMMIT",
     "BAPI_TRANSACTION_ROLLBACK",
 )
+CHANGE_PASSWORD_ALLOWED_TABLES = ("USR02",)
+
+# BAPI_USER_UNLOCK: fluxo de escrita separado do reset de password. Mantem a
+# mesma leitura pos-escrita de USR02 para confirmar se o bloqueio ficou removido.
+USER_UNLOCK_ALLOWED_FUNCTIONS = (
+    "RFC_PING",
+    "RFC_READ_TABLE",
+    "BAPI_USER_EXISTENCE_CHECK",
+    "BAPI_USER_UNLOCK",
+    "BAPI_TRANSACTION_COMMIT",
+    "BAPI_TRANSACTION_ROLLBACK",
+)
+USER_UNLOCK_ALLOWED_TABLES = ("USR02",)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _DATE_DIGITS_RE = re.compile(r"^\d{8}$")
@@ -259,6 +273,62 @@ def _user_exists(connection: Any, guard: Any, username: str) -> bool:
     # (independente do idioma de logon, ao contrário do texto em MESSAGE).
     ret = result.get("RETURN") or {}
     return str(ret.get("NUMBER") or "").strip() == "088"
+
+
+def _decode_user_lock_status(raw_uflag: Any, raw_locnt: Any = "") -> dict[str, Any]:
+    raw_uflag_text = str(raw_uflag or "").strip()
+    try:
+        uflag = int(raw_uflag_text or "0")
+    except ValueError:
+        uflag = 0
+
+    raw_locnt_text = str(raw_locnt or "").strip()
+    try:
+        failed_logon_count = int(raw_locnt_text or "0")
+    except ValueError:
+        failed_logon_count = None
+
+    reasons: list[str] = []
+    if uflag & 32:
+        reasons.append("Bloqueado globalmente por administrador")
+    if uflag & 64:
+        reasons.append("Bloqueado localmente por administrador")
+    if uflag & 128:
+        reasons.append("Bloqueado por tentativas excessivas de logon incorreto")
+
+    if uflag and not reasons:
+        reasons.append("Bloqueado (motivo SAP não mapeado)")
+
+    return {
+        "uflag": raw_uflag_text or "0",
+        "failed_logon_count": failed_logon_count,
+        "locked": bool(uflag),
+        "login_failed_locked": bool(uflag & 128),
+        "lock_reasons": reasons,
+        "lock_status": "; ".join(reasons) if reasons else "Ativo",
+    }
+
+
+def _read_user_lock_status(connection: Any, guard: Any, username: str) -> dict[str, Any]:
+    rows = read_table(
+        connection,
+        guard,
+        table_name="USR02",
+        fields=["BNAME", "UFLAG", "LOCNT"],
+        options=make_option_eq("BNAME", username),
+        rowcount=1,
+    )
+    if not rows:
+        return {
+            "lock_status": "Utilizador não encontrado na verificação pós-alteração",
+            "locked": None,
+            "login_failed_locked": None,
+            "uflag": None,
+            "failed_logon_count": None,
+            "lock_reasons": [],
+        }
+    row = rows[0]
+    return _decode_user_lock_status(row[1] if len(row) > 1 else "", row[2] if len(row) > 2 else "")
 
 
 def preview_user_create(
@@ -583,16 +653,20 @@ def create_user_rfc(
 
 def change_password_rfc(environment: str, username: str, password: Any = "") -> dict[str, Any]:
     """Redefine a password de um utilizador SAP já existente via BAPI_USER_CHANGE.
+def unlock_user_rfc(environment: str, username: str) -> dict[str, Any]:
+    """Desbloqueia um utilizador SAP existente via BAPI_USER_UNLOCK.
 
     Ao contrário de BAPI_USER_CREATE1 (cujo PASSWORD-BAPIPWD é suficiente sozinho,
     confirmado por introspeção real), BAPI_USER_CHANGE exige também PASSWORDX-BAPIPWD='X'
     para sinalizar que o campo PASSWORD deve mesmo ser aplicado — sem isso a chamada
     é aceite mas a password não muda. Único ponto de entrada de escrita RFC para este
     fluxo; usado quando a password inicial definida na criação não ficou operacional."""
+    Este fluxo nunca altera a password. Depois da BAPI e do commit, abre uma
+    ligacao nova para validar o estado final em USR02-UFLAG/LOCNT.
+    """
     try:
         env = _assert_create_environment_allowed(environment)
         norm_user = validate_username(username)
-        pwd = validate_password(password)
     except ValueError as exc:
         raw_user_upper = str(username or "").strip().upper()
         return _error_result(str(environment or "").strip().upper(), raw_user_upper, "INVALID_INPUT", str(exc))
@@ -605,12 +679,18 @@ def change_password_rfc(environment: str, username: str, password: Any = "") -> 
         return _error_result(env, norm_user, "CONFIG_ERROR", str(exc), details=format_exception(exc))
 
     try:
+        pwd = validate_password(password)
+    except ValueError as exc:
+        return _error_result(env, norm_user, "INVALID_INPUT", str(exc))
+
+    try:
         from pyrfc import Connection
     except Exception as exc:
         error_type, message = classify_import_error(exc)
         return _error_result(env, norm_user, error_type, message, details=format_exception(exc))
 
-    guard = make_write_guard(CHANGE_PASSWORD_ALLOWED_FUNCTIONS, ())
+    guard = make_write_guard(CHANGE_PASSWORD_ALLOWED_FUNCTIONS, CHANGE_PASSWORD_ALLOWED_TABLES)
+    guard = make_write_guard(USER_UNLOCK_ALLOWED_FUNCTIONS, USER_UNLOCK_ALLOWED_TABLES)
     connection = None
     try:
         connection = Connection(**params)
@@ -631,16 +711,20 @@ def change_password_rfc(environment: str, username: str, password: Any = "") -> 
             return _error_result(
                 env, norm_user, "USER_NOT_FOUND",
                 f"O utilizador {norm_user} não existe em {env}. Não é possível alterar a password.",
+                f"O utilizador {norm_user} não existe em {env}. Não é possível desbloquear.",
             )
 
         guard.assert_function_allowed("BAPI_USER_CHANGE")
+        guard.assert_function_allowed("BAPI_USER_UNLOCK")
         try:
             change_result = connection.call(
                 "BAPI_USER_CHANGE",
                 USERNAME=norm_user,
                 PASSWORD={"BAPIPWD": pwd},
                 PASSWORDX={"BAPIPWD": "X"},
+                PRODUCTIVE_PWD=pwd,
             )
+            unlock_result = connection.call("BAPI_USER_UNLOCK", USERNAME=norm_user)
         except Exception as exc:
             error_type, message = classify_rfc_error(exc)
             try:
@@ -649,8 +733,10 @@ def change_password_rfc(environment: str, username: str, password: Any = "") -> 
             except Exception:
                 pass
             return _error_result(env, norm_user, f"BAPI_USER_CHANGE_{error_type}", message, details=format_exception(exc))
+            return _error_result(env, norm_user, f"BAPI_USER_UNLOCK_{error_type}", message, details=format_exception(exc))
 
         return_rows = change_result.get("RETURN") or []
+        return_rows = unlock_result.get("RETURN") or []
         error_messages = [
             str(row.get("MESSAGE") or "").strip()
             for row in return_rows
@@ -665,10 +751,12 @@ def change_password_rfc(environment: str, username: str, password: Any = "") -> 
             return {
                 "ok": False,
                 "status": "CHANGE_FAILED",
+                "status": "UNLOCK_FAILED",
                 "environment": env,
                 "username": norm_user,
                 "sap_return_messages": error_messages,
                 "message": "Não foi possível alterar a password (BAPI_USER_CHANGE devolveu erro).",
+                "message": "Não foi possível desbloquear o utilizador (BAPI_USER_UNLOCK devolveu erro).",
             }
 
         guard.assert_function_allowed("BAPI_TRANSACTION_COMMIT")
@@ -679,6 +767,7 @@ def change_password_rfc(environment: str, username: str, password: Any = "") -> 
             return _error_result(
                 env, norm_user, "COMMIT_FAILED",
                 f"BAPI_USER_CHANGE não devolveu erro, mas o COMMIT falhou: {commit_error_message}",
+                f"BAPI_USER_UNLOCK não devolveu erro, mas o COMMIT falhou: {commit_error_message}",
             )
     finally:
         try:
@@ -686,10 +775,259 @@ def change_password_rfc(environment: str, username: str, password: Any = "") -> 
         except Exception:
             pass
 
-    return {
+    payload: dict[str, Any] = {
         "ok": True,
         "status": "PASSWORD_CHANGED",
         "environment": env,
         "username": norm_user,
         "password_source": "Excel/pedido" if str(password or "").strip() else "SAP_PASSE_PASSWD (.env)",
     }
+
+    verify_connection = None
+    try:
+        verify_connection = Connection(**params)
+        verify_guard = make_write_guard(CHANGE_PASSWORD_ALLOWED_FUNCTIONS, CHANGE_PASSWORD_ALLOWED_TABLES)
+        verify_guard = make_write_guard(USER_UNLOCK_ALLOWED_FUNCTIONS, USER_UNLOCK_ALLOWED_TABLES)
+        payload.update(_read_user_lock_status(verify_connection, verify_guard, norm_user))
+    except Exception as exc:
+        error_type, message = classify_rfc_error(exc)
+        payload["lock_status"] = "Não foi possível verificar o bloqueio após alterar a password."
+        payload["lock_status"] = "Não foi possível verificar o bloqueio após desbloquear o utilizador."
+        payload["lock_check_error_type"] = error_type
+        payload["lock_check_message"] = message
+    finally:
+        try:
+            if verify_connection is not None:
+                verify_connection.close()
+        except Exception:
+            pass
+
+    if payload.get("login_failed_locked") is True:
+        payload["message"] = (
+            "Password alterada, mas o utilizador continua bloqueado por tentativas "
+            "excessivas de logon incorreto."
+        )
+    if payload.get("locked") is False:
+        payload["ok"] = True
+        payload["status"] = "USER_UNLOCKED"
+        payload["message"] = "Utilizador desbloqueado e sem bloqueio ativo em USR02."
+    elif payload.get("locked") is True:
+        payload["message"] = f"Password alterada, mas o utilizador continua bloqueado: {payload.get('lock_status')}."
+    elif payload.get("locked") is False:
+        payload["message"] = "Password alterada e utilizador sem bloqueio ativo em USR02."
+        payload["ok"] = False
+        payload["status"] = "UNLOCK_NOT_CONFIRMED"
+        payload["message"] = f"Desbloqueio executado, mas o utilizador continua bloqueado: {payload.get('lock_status')}."
+    else:
+        payload["ok"] = False
+        payload["status"] = "UNLOCK_CHECK_FAILED"
+        payload["message"] = "Desbloqueio executado, mas não foi possível verificar o estado em USR02."
+
+    return payload
+
+
+def unlock_user_rfc(environment: str, username: str) -> dict[str, Any]:
+    """Desbloqueia um utilizador SAP existente via BAPI_USER_UNLOCK.
+def change_password_rfc(environment: str, username: str, password: Any = "") -> dict[str, Any]:
+    """Redefine a password de um utilizador SAP já existente via BAPI_USER_CHANGE.
+
+    Este fluxo nunca altera a password. Depois da BAPI e do commit, abre uma
+    ligacao nova para validar o estado final em USR02-UFLAG/LOCNT.
+    """
+    Ao contrário de BAPI_USER_CREATE1 (cujo PASSWORD-BAPIPWD é suficiente sozinho,
+    confirmado por introspeção real), BAPI_USER_CHANGE exige também PASSWORDX-BAPIPWD='X'
+    para sinalizar que o campo PASSWORD deve mesmo ser aplicado — sem isso a chamada
+    é aceite mas a password não muda. Único ponto de entrada de escrita RFC para este
+    fluxo; usado quando a password inicial definida na criação não ficou operacional."""
+    try:
+        env = _assert_create_environment_allowed(environment)
+        norm_user = validate_username(username)
+    except ValueError as exc:
+        raw_user_upper = str(username or "").strip().upper()
+        return _error_result(str(environment or "").strip().upper(), raw_user_upper, "INVALID_INPUT", str(exc))
+
+    try:
+        project_root = find_project_root()
+        load_project_env(project_root)
+        params = build_connection_params_for_env(env)
+    except Exception as exc:
+        return _error_result(env, norm_user, "CONFIG_ERROR", str(exc), details=format_exception(exc))
+
+    try:
+        pwd = validate_password(password)
+    except ValueError as exc:
+        return _error_result(env, norm_user, "INVALID_INPUT", str(exc))
+
+    try:
+        from pyrfc import Connection
+    except Exception as exc:
+        error_type, message = classify_import_error(exc)
+        return _error_result(env, norm_user, error_type, message, details=format_exception(exc))
+
+    guard = make_write_guard(USER_UNLOCK_ALLOWED_FUNCTIONS, USER_UNLOCK_ALLOWED_TABLES)
+    guard = make_write_guard(CHANGE_PASSWORD_ALLOWED_FUNCTIONS, CHANGE_PASSWORD_ALLOWED_TABLES)
+    connection = None
+    try:
+        connection = Connection(**params)
+        guard.assert_function_allowed("RFC_PING")
+        connection.call("RFC_PING")
+    except Exception as exc:
+        error_type, message = classify_rfc_error(exc)
+        return _error_result(env, norm_user, error_type, message, details=format_exception(exc))
+
+    try:
+        try:
+            exists = _user_exists(connection, guard, norm_user)
+        except Exception as exc:
+            error_type, message = classify_rfc_error(exc)
+            return _error_result(env, norm_user, f"EXISTENCE_CHECK_{error_type}", message, details=format_exception(exc))
+
+        if not exists:
+            return _error_result(
+                env, norm_user, "USER_NOT_FOUND",
+                f"O utilizador {norm_user} não existe em {env}. Não é possível desbloquear.",
+                f"O utilizador {norm_user} não existe em {env}. Não é possível alterar a password.",
+            )
+
+        guard.assert_function_allowed("BAPI_USER_UNLOCK")
+        guard.assert_function_allowed("BAPI_USER_CHANGE")
+        try:
+            unlock_result = connection.call("BAPI_USER_UNLOCK", USERNAME=norm_user)
+            change_result = connection.call(
+                "BAPI_USER_CHANGE",
+                USERNAME=norm_user,
+                PASSWORD={"BAPIPWD": pwd},
+                PASSWORDX={"BAPIPWD": "X"},
+                PRODUCTIVE_PWD=pwd,
+            )
+        except Exception as exc:
+            error_type, message = classify_rfc_error(exc)
+            try:
+                guard.assert_function_allowed("BAPI_TRANSACTION_ROLLBACK")
+                connection.call("BAPI_TRANSACTION_ROLLBACK")
+            except Exception:
+                pass
+            return _error_result(env, norm_user, f"BAPI_USER_UNLOCK_{error_type}", message, details=format_exception(exc))
+            return _error_result(env, norm_user, f"BAPI_USER_CHANGE_{error_type}", message, details=format_exception(exc))
+
+        return_rows = unlock_result.get("RETURN") or []
+        return_rows = change_result.get("RETURN") or []
+        error_messages = [
+            str(row.get("MESSAGE") or "").strip()
+            for row in return_rows
+            if str(row.get("TYPE") or "").strip().upper() in {"E", "A"} and str(row.get("MESSAGE") or "").strip()
+        ]
+        if error_messages:
+            try:
+                guard.assert_function_allowed("BAPI_TRANSACTION_ROLLBACK")
+                connection.call("BAPI_TRANSACTION_ROLLBACK")
+            except Exception:
+                pass
+            return {
+                "ok": False,
+                "status": "UNLOCK_FAILED",
+                "status": "CHANGE_FAILED",
+                "environment": env,
+                "username": norm_user,
+                "sap_return_messages": error_messages,
+                "message": "Não foi possível desbloquear o utilizador (BAPI_USER_UNLOCK devolveu erro).",
+                "message": "Não foi possível alterar a password (BAPI_USER_CHANGE devolveu erro).",
+            }
+
+        guard.assert_function_allowed("BAPI_TRANSACTION_COMMIT")
+        try:
+            connection.call("BAPI_TRANSACTION_COMMIT", WAIT="X")
+        except Exception as exc:
+            _, commit_error_message = classify_rfc_error(exc)
+            return _error_result(
+                env, norm_user, "COMMIT_FAILED",
+                f"BAPI_USER_UNLOCK não devolveu erro, mas o COMMIT falhou: {commit_error_message}",
+                f"BAPI_USER_CHANGE não devolveu erro, mas o COMMIT falhou: {commit_error_message}",
+            )
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "status": "USER_UNLOCKED",
+        "status": "PASSWORD_CHANGED",
+        "environment": env,
+        "username": norm_user,
+        "password_source": "Excel/pedido" if str(password or "").strip() else "SAP_PASSE_PASSWD (.env)",
+    }
+
+    verify_connection = None
+    try:
+        verify_connection = Connection(**params)
+        verify_guard = make_write_guard(USER_UNLOCK_ALLOWED_FUNCTIONS, USER_UNLOCK_ALLOWED_TABLES)
+        verify_guard = make_write_guard(CHANGE_PASSWORD_ALLOWED_FUNCTIONS, CHANGE_PASSWORD_ALLOWED_TABLES)
+        payload.update(_read_user_lock_status(verify_connection, verify_guard, norm_user))
+    except Exception as exc:
+        error_type, message = classify_rfc_error(exc)
+        payload["lock_status"] = "Não foi possível verificar o bloqueio após desbloquear o utilizador."
+        payload["lock_status"] = "Não foi possível verificar o bloqueio após alterar a password."
+        payload["lock_check_error_type"] = error_type
+        payload["lock_check_message"] = message
+    finally:
+        try:
+            if verify_connection is not None:
+                verify_connection.close()
+        except Exception:
+            pass
+
+    if payload.get("locked") is False:
+        payload["message"] = "Utilizador desbloqueado e sem bloqueio ativo em USR02."
+    elif payload.get("locked") is True:
+        payload["message"] = f"Desbloqueio executado, mas o utilizador continua bloqueado: {payload.get('lock_status')}."
+    if payload.get("locked") is True:
+        unlock_result = unlock_user_rfc(env, norm_user)
+
+        for lock_key in (
+            "uflag",
+            "failed_logon_count",
+            "locked",
+            "login_failed_locked",
+            "lock_reasons",
+            "lock_status",
+            "lock_check_error_type",
+            "lock_check_message",
+        ):
+            if lock_key in unlock_result:
+                payload[lock_key] = unlock_result[lock_key]
+
+        if unlock_result.get("ok") is True and unlock_result.get("locked") is False:
+            payload["status"] = "PASSWORD_CHANGED_AND_UNLOCKED"
+            payload["unlocked"] = True
+            payload["message"] = (
+                "Password alterada e utilizador desbloqueado com sucesso (USR02 sem bloqueio ativo)."
+            )
+        elif unlock_result.get("locked") is True:
+            payload["status"] = "PASSWORD_CHANGED"
+            payload["unlocked"] = False
+            payload["message"] = (
+                f"Password alterada, mas o utilizador continua bloqueado: {payload.get('lock_status')}."
+            )
+        else:
+            payload["status"] = "PASSWORD_CHANGED"
+            payload["unlocked"] = False
+            if unlock_result.get("message"):
+                payload["unlock_message"] = unlock_result["message"]
+            if unlock_result.get("sap_return_messages"):
+                payload["unlock_sap_return_messages"] = unlock_result["sap_return_messages"]
+            payload["message"] = (
+                f"Password alterada, mas não foi possível desbloquear o utilizador: "
+                f"{unlock_result.get('message') or 'falha na operação de desbloqueio'}."
+            )
+    elif payload.get("locked") is False:
+        payload["status"] = "PASSWORD_CHANGED"
+        payload["unlocked"] = False
+        payload["message"] = "Password alterada e utilizador sem bloqueio ativo em USR02."
+    else:
+        payload["status"] = "PASSWORD_CHANGED"
+        payload["unlocked"] = False
+        payload["message"] = "Password alterada, mas não foi possível verificar o bloqueio após alterar a password."
+
+    return payload

@@ -266,6 +266,20 @@ def change_password_via_rfc(environment: str, username: str, password: str = "")
     return _run_bridge_cli("sap_rfc.user_password_change_cli", args)
 
 
+def unlock_user_via_rfc(environment: str, username: str) -> dict[str, Any]:
+    """Bridge de ESCRITA para `sap_rfc.user_create_service.unlock_user_rfc`.
+
+    Único ponto de entrada de escrita RFC para desbloquear um utilizador SAP,
+    usado pelo fluxo Web (worker) do Agente Salsa IT.
+    """
+    args = [
+        "--environment", str(environment or "").strip().upper(),
+        "--username", str(username or "").strip(),
+        "--confirm",
+    ]
+    return _run_bridge_cli("sap_rfc.user_unlock_cli", args)
+
+
 def lookup_hr_data_rfc(pernr: str) -> dict[str, Any]:
     """Bridge de leitura (read-only) para `sap_rfc.hr_lookup_service.lookup_hr_data`.
 

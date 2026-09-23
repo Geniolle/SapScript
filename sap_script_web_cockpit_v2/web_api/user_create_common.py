@@ -98,6 +98,21 @@ def _safe_user_create_result(result: dict[str, Any]) -> dict[str, Any]:
             safe_result["missing_roles"] = result.get("missing_roles")
         if result.get("sap_return_messages"):
             safe_result["sap_return_messages"] = result.get("sap_return_messages")
+        for field in (
+            "uflag",
+            "failed_logon_count",
+            "locked",
+            "login_failed_locked",
+            "lock_reasons",
+            "lock_status",
+            "lock_check_error_type",
+            "lock_check_message",
+            "unlocked",
+            "unlock_message",
+            "unlock_sap_return_messages",
+        ):
+            if field in result:
+                safe_result[field] = result.get(field)
         return safe_result
 
     # Campos apenas do fluxo de sucesso (preview e/ou criação real). A senha nunca
@@ -118,6 +133,17 @@ def _safe_user_create_result(result: dict[str, Any]) -> dict[str, Any]:
         "roles_missing",
         "role_assignment_messages",
         "password_source",
+        "uflag",
+        "failed_logon_count",
+        "locked",
+        "login_failed_locked",
+        "lock_reasons",
+        "lock_status",
+        "lock_check_error_type",
+        "lock_check_message",
+        "unlocked",
+        "unlock_message",
+        "unlock_sap_return_messages",
         "message",
     ):
         if field in result:

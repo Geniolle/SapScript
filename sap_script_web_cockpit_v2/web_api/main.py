@@ -759,6 +759,11 @@ class SalsaItUserPasswordChangeRfcRequest(BaseModel):
     username: str
 
 
+class SalsaItUserUnlockRfcRequest(BaseModel):
+    system: str = "PRD"
+    username: str
+
+
 class SalsaItPfcgDeleteRfcPreviewRequest(BaseModel):
     role_name: str
     system: str = "DEV"
@@ -2380,6 +2385,55 @@ def api_salsa_it_user_password_change_job(job_id: str) -> JSONResponse:
         raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
     if job.get("task") != "user_change_password_rfc":
         raise HTTPException(status_code=400, detail="O job indicado não pertence à alteração de password de utilizador.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+
+    safe_result = _safe_user_create_result(result)
+    return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+@app.post("/api/salsa-it-agent/user/unlock")
+def api_salsa_it_user_unlock(payload: SalsaItUserUnlockRfcRequest) -> JSONResponse:
+    username = _validate_username_or_400(payload.username)
+    system = _validate_user_create_system_or_400(payload.system)
+
+    try:
+        job = create_job("user_unlock_rfc", {"environment": system, "username": username})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "username": username,
+    })
+
+
+@app.get("/api/salsa-it-agent/user/unlock/{job_id}")
+def api_salsa_it_user_unlock_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "user_unlock_rfc":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence ao desbloqueio de utilizador.")
 
     state = str(job.get("state") or "pending")
     if state in {"pending", "running"}:

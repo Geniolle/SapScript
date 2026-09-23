@@ -1965,6 +1965,40 @@ def _run_user_change_password_rfc(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def _run_user_unlock_rfc(params: dict[str, Any]) -> tuple[str, str]:
+    """Desbloqueio REAL de um utilizador SAP já existente via RFC
+    (BAPI_USER_UNLOCK). Aceita EXCLUSIVAMENTE environment/username vindos de
+    `params`; nunca altera password.
+    """
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+
+    environment = str(params.get("environment") or "").strip().upper()
+    username = str(params.get("username") or "").strip()
+
+    try:
+        from pfcg.pfcg_create_rfc_service import unlock_user_via_rfc
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o serviço de desbloqueio de utilizador: {exc}") from exc
+
+    try:
+        payload = unlock_user_via_rfc(environment, username)
+    except Exception as exc:
+        raise SapExecutionError(f"Bridge de desbloqueio de utilizador (RFC) falhou: {exc}") from exc
+
+    log_lines = [
+        "Desbloqueio de utilizador (RFC) executado via subprocesso isolado.",
+        f"Ambiente: {environment}",
+        f"Utilizador: {username}",
+        f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
+        f"Status: {payload.get('status', '-')}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_pfcg_role_delete_preview(params: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
     project_dir = _get_project_dir()
@@ -2436,6 +2470,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "user_create_preview": lambda job, params: _run_user_create_preview(params),
     "user_create_rfc": lambda job, params: _run_user_create_rfc(params),
     "user_change_password_rfc": lambda job, params: _run_user_change_password_rfc(params),
+    "user_unlock_rfc": lambda job, params: _run_user_unlock_rfc(params),
     "hr_lookup": lambda job, params: _run_hr_lookup(params),
     "pfcg_composta_create_preview": lambda job, params: _run_pfcg_composta_create_preview(params),
     "pfcg_composta_create": lambda job, params: _run_pfcg_composta_create(params),
