@@ -108,6 +108,8 @@ from web_api.user_create_common import (
     _validate_username_or_400,
     _validate_pernr_or_400,
     _safe_user_create_failed_message,
+    _safe_user_password_change_failed_message,
+    _safe_user_unlock_failed_message,
     _safe_user_create_result,
     _safe_hr_lookup_failed_message,
     _safe_hr_lookup_result,
@@ -2391,7 +2393,7 @@ def api_salsa_it_user_password_change_job(job_id: str) -> JSONResponse:
         return _json_no_store({"state": state})
 
     if state != "succeeded":
-        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+        return _json_no_store({"state": "failed", "message": _safe_user_password_change_failed_message()})
 
     status_raw = str(job.get("status") or "").strip()
     try:
@@ -2400,7 +2402,7 @@ def api_salsa_it_user_password_change_job(job_id: str) -> JSONResponse:
         result = None
 
     if not isinstance(result, dict):
-        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+        return _json_no_store({"state": "failed", "message": _safe_user_password_change_failed_message()})
 
     safe_result = _safe_user_create_result(result)
     return _json_no_store({"state": "succeeded", "result": safe_result})
@@ -2440,7 +2442,7 @@ def api_salsa_it_user_unlock_job(job_id: str) -> JSONResponse:
         return _json_no_store({"state": state})
 
     if state != "succeeded":
-        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+        return _json_no_store({"state": "failed", "message": _safe_user_unlock_failed_message()})
 
     status_raw = str(job.get("status") or "").strip()
     try:
@@ -2449,7 +2451,7 @@ def api_salsa_it_user_unlock_job(job_id: str) -> JSONResponse:
         result = None
 
     if not isinstance(result, dict):
-        return _json_no_store({"state": "failed", "message": _safe_user_create_failed_message()})
+        return _json_no_store({"state": "failed", "message": _safe_user_unlock_failed_message()})
 
     safe_result = _safe_user_create_result(result)
     return _json_no_store({"state": "succeeded", "result": safe_result})

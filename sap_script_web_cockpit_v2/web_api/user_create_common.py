@@ -45,6 +45,14 @@ def _safe_user_create_failed_message() -> str:
     return "Não foi possível concluir a criação do utilizador."
 
 
+def _safe_user_password_change_failed_message() -> str:
+    return "Não foi possível concluir a alteração de senha do utilizador."
+
+
+def _safe_user_unlock_failed_message() -> str:
+    return "Não foi possível concluir o desbloqueio do utilizador."
+
+
 def _validate_pernr_or_400(pernr: str) -> str:
     try:
         from sap_rfc.hr_lookup_service import validate_pernr
