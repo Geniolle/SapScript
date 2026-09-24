@@ -46,6 +46,11 @@
     const ASI_CUA_RM_SUB_INPUT = 'cua_rm_sub';
     const ASI_USER_PASSWORD_CHANGE_USER_INPUT = 'user_password_change_user';
     const ASI_USER_UNLOCK_USER_INPUT = 'user_unlock_user';
+    const ASI_PROJETO_PERFIL_UTILIZADOR_INPUT = 'projeto_perfil_utilizador_input';
+    const ASI_PROJETO_PERFIL_PESQUISA_TCODE_INPUT = 'projeto_perfil_pesquisa_tcode_input';
+    const ASI_PROJETO_PERFIL_PESQUISA_USER_INPUT = 'projeto_perfil_pesquisa_user_input';
+    const ASI_PROJETO_PERFIL_DEPTO_INPUT = 'projeto_perfil_depto_input';
+    const ASI_PROJETO_PERFIL_SU53_USER_INPUT = 'projeto_perfil_su53_user_input';
     // Sistema SAP escolhido para os procedimentos PFCG (DEV/QAD/PRD/CUA).
     let asiPfcgSystem = 'PRD';
     let asiObycPollingTimer = null;
@@ -261,6 +266,8 @@
             userCreateFunction: '',
             userCreatePreviewJobId: '',
             userCreateMessageId: '',
+            projetoPerfilPendingTcode: '',
+            projetoPerfilPendingDepto: '',
             isBusy: false
         };
     }
@@ -868,7 +875,59 @@
                     processo: 'Projeto Autorizações',
                     subprocesso: 'Projeto Perfil.py',
                     prompt: 'Quero trabalhar com Projeto Perfil de Autorização.',
-                    children: []
+                    followupText: 'Escolha uma opção de Projeto Perfil de Autorização:',
+                    followupActionsSource: 'children',
+                    children: [
+                        {
+                            id: 'projeto-perfil-execucao',
+                            label: 'Execução',
+                            icon: 'play',
+                            description: 'Executar o Processo Completo',
+                            prompt: 'Quero executar o processo completo de Projeto Perfil.',
+                            children: []
+                        },
+                        {
+                            id: 'projeto-perfil-departamento',
+                            label: 'Departamento',
+                            icon: 'folder',
+                            description: 'Fluxo Departamental de Autorizações (Matrizes)',
+                            prompt: 'Quero trabalhar com o fluxo departamental de autorizações.',
+                            children: []
+                        },
+                        {
+                            id: 'projeto-perfil-utilizador',
+                            label: 'Utilizador',
+                            icon: 'user',
+                            description: 'Auditoria e Pesquisa Individual de Utilizador',
+                            prompt: 'Quero auditar um utilizador do Projeto Perfil.',
+                            children: []
+                        },
+                        {
+                            id: 'projeto-perfil-pesquisa',
+                            label: 'Pesquisa',
+                            icon: 'search',
+                            description: 'Pesquisar Transação do Projeto e Atribuir a Utilizador',
+                            prompt: 'Quero pesquisar transação do projeto e atribuir a utilizador.',
+                            children: []
+                        },
+                        {
+                            id: 'projeto-perfil-corrigir',
+                            label: 'Corrigir',
+                            icon: 'refresh',
+                            description: 'Corrigir Sincronização Posterior (Utilizadores Pendentes)',
+                            prompt: 'Quero corrigir a sincronização posterior de utilizadores pendentes.',
+                            children: []
+                        },
+                        {
+                            id: 'projeto-perfil-su53',
+                            label: 'SU53',
+                            icon: 'shield-alert',
+                            description: 'Diagnóstico SU53 via RFC e Atribuição de Funções',
+                            prompt: 'Quero realizar diagnóstico SU53 via RFC.',
+                            children: []
+                        },
+                        { ...ASI_MAIN_MENU_ACTION, prompt: 'Quero voltar ao menu principal.' }
+                    ]
                 },
                 { ...ASI_MAIN_MENU_ACTION, prompt: 'Quero voltar ao menu principal.' }
             ]
@@ -2899,6 +2958,24 @@
                 ? 'chat-msg-bubble chat-msg-user'
                 : `chat-msg-bubble chat-msg-bot${msg.wide ? ' chat-msg-bubble--pfcg' : ''}${msg.bubbleClassName ? ` ${msg.bubbleClassName}` : ''}`;
             const label = isUser ? 'Utilizador' : 'Assistente';
+            const breadcrumbHtml = !isUser && Array.isArray(msg.breadcrumb) && msg.breadcrumb.length > 0
+                ? `<p class="agent-salsa-message-breadcrumb">${escapeHtml(msg.breadcrumb.join(' > '))}</p>`
+                : '';
+
+            if (!isUser && (msg.isThinkingOnly || msg.isThinking)) {
+                return `
+                    <div class="${wrapperClass}">
+                        ${breadcrumbHtml}
+                        <p class="agent-salsa-message-label">${label}</p>
+                        <div class="agent-salsa-thinking-indicator" role="status" aria-label="A processar" style="margin-top: 6px; margin-left: 6px;">
+                            <span class="agent-salsa-thinking-dot"></span>
+                            <span class="agent-salsa-thinking-dot"></span>
+                            <span class="agent-salsa-thinking-dot"></span>
+                        </div>
+                    </div>
+                `;
+            }
+
             const bubbleContent = msg.html
                 ? msg.html
                 : escapeHtml(msg.text).replace(/\n/g, '<br>');
@@ -2907,9 +2984,6 @@
                 : '';
             const actionsHtml = !isUser && Array.isArray(msg.actions) && msg.actions.length > 0
                 ? `<div class="agent-salsa-quick-actions-stack">${asiRenderQuickActionButtons(msg.actions, msg.actionLevel || 0, msg.parentActionId || '', msg.selectionGroupKey || '__root__')}</div>`
-                : '';
-            const breadcrumbHtml = !isUser && Array.isArray(msg.breadcrumb) && msg.breadcrumb.length > 0
-                ? `<p class="agent-salsa-message-breadcrumb">${escapeHtml(msg.breadcrumb.join(' > '))}</p>`
                 : '';
 
             return `
@@ -7010,6 +7084,305 @@
         }
     }
 
+    function asiBuildProjetoPerfilResultHtml(actionName, result, label) {
+        if (!result) {
+            return '<div class="pfcg-result-card"><p>Processo concluído sem dados adicionais.</p></div>';
+        }
+
+        if (actionName === 'departamento' && result.subacao === 'listar') {
+            const deps = Array.isArray(result.departamentos) ? result.departamentos : [];
+            if (!deps.length) {
+                return '<div class="pfcg-result-card" style="padding: 12px;"><p style="margin: 0; color: #64748b;">Nenhum departamento encontrado na folha CONTROLO.</p></div>';
+            }
+            const items = deps.map(d => {
+                const depName = escapeHtml(d.departamento || '');
+                const status = escapeHtml(d.status || '');
+                const isPending = d.pendente || status.toUpperCase() === 'PENDENTE';
+                const statusBadge = status ? `<span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; ${isPending ? 'background:#fef3c7; color:#b45309;' : 'background:#ecfdf5; color:#047857;'}">${status}</span>` : '';
+                return `
+                    <div data-agent-action-id="projeto-perfil-depto:${depName}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#ffffff'">
+                        <span style="font-weight: 600; color: #1e293b; font-size: 13px;">${depName}</span>
+                        ${statusBadge}
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="pfcg-result-card" style="padding: 12px; display: flex; flex-direction: column; gap: 6px;">
+                    ${items}
+                </div>
+            `;
+        }
+
+        const isOk = result.ok !== false && result.status !== 'ERRO' && result.status !== 'FALHA';
+        const badgeClass = isOk ? 'badge-success' : 'badge-warning';
+        const statusText = escapeHtml(result.status || (isOk ? 'SUCESSO' : 'ATENÇÃO'));
+        const message = escapeHtml(result.message || '');
+
+        let detailsHtml = '';
+
+        if (actionName === 'execucao') {
+            const total = result.total_departamentos_processados || 0;
+            const fila = Array.isArray(result.fila_processada) ? result.fila_processada : [];
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Departamentos Processados:</strong> ${total}</div>`;
+            if (fila.length > 0) {
+                detailsHtml += '<div style="margin-top: 8px;"><strong>Fila:</strong><ul>' +
+                    fila.map(f => `<li>${escapeHtml(f)}</li>`).join('') +
+                    '</ul></div>';
+            }
+        } else if (actionName === 'departamento') {
+            if (result.subacao === 'analisar') {
+                const dep = escapeHtml(result.departamento || '');
+                const totalUsers = result.total_usuarios !== undefined ? result.total_usuarios : (result.proposta ? result.proposta.total_utilizadores : 0);
+                const totalCompostas = result.total_compostas !== undefined ? result.total_compostas : (result.proposta ? result.proposta.total_roles : 0);
+                const totalSingles = result.total_singles || 0;
+                detailsHtml += `<div class="pfcg-meta-row"><strong>Departamento:</strong> ${dep}</div>`;
+                detailsHtml += `<div class="pfcg-meta-row"><strong>Total Utilizadores:</strong> ${totalUsers} | <strong>Funções Compostas:</strong> ${totalCompostas}${totalSingles ? ` | <strong>Singles:</strong> ${totalSingles}` : ''}</div>`;
+                const users = Array.isArray(result.usuarios) ? result.usuarios : [];
+                if (users.length > 0) {
+                    detailsHtml += '<div style="margin-top: 8px;"><strong>Utilizadores:</strong><ul style="max-height: 180px; overflow-y: auto; margin-top: 4px;">' +
+                        users.map(u => `<li><strong>${escapeHtml(u.usuario || '')}</strong> - ${escapeHtml(u.nome || '')} (${escapeHtml(u.cargo || 'N/A')})</li>`).join('') +
+                        '</ul></div>';
+                }
+            } else {
+                detailsHtml += `<div class="pfcg-meta-row"><strong>Departamento:</strong> ${escapeHtml(result.departamento || '')}</div>`;
+            }
+        } else if (actionName === 'utilizador') {
+            const u = escapeHtml(result.username || '');
+            const depto = escapeHtml(result.departamento || 'Não atribuído');
+            const totalRoles = result.total_roles || (Array.isArray(result.roles) ? result.roles.length : 0);
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Utilizador:</strong> ${u}</div>`;
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Departamento:</strong> ${depto}</div>`;
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Total de Roles:</strong> ${totalRoles}</div>`;
+            if (Array.isArray(result.roles) && result.roles.length > 0) {
+                detailsHtml += '<div style="margin-top: 8px;"><strong>Funções Atribuídas:</strong><div style="max-height: 180px; overflow-y: auto; margin-top: 4px;"><ul>' +
+                    result.roles.map(r => `<li><code>${escapeHtml(typeof r === 'string' ? r : (r.role || JSON.stringify(r)))}</code></li>`).join('') +
+                    '</ul></div></div>';
+            }
+            if (result.detalhes_prd) {
+                const prd = result.detalhes_prd;
+                const statusPrd = prd.existe ? (prd.bloqueado ? '<span style="color:red;">Bloqueado</span>' : '<span style="color:green;">Ativo</span>') : 'Inexistente em PRD';
+                detailsHtml += `<div class="pfcg-meta-row" style="margin-top: 6px;"><strong>Estado em PRD:</strong> ${statusPrd}</div>`;
+            }
+        } else if (actionName === 'pesquisa') {
+            const tc = escapeHtml(result.tcode || '');
+            const roles = Array.isArray(result.roles) ? result.roles : [];
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Transação:</strong> <code>${tc}</code></div>`;
+            if (result.encontrado === false) {
+                detailsHtml += '<div style="color: #c00; margin-top: 6px;">Não foram encontradas funções no catálogo oficial para esta transação.</div>';
+            } else {
+                detailsHtml += `<div style="margin-top: 8px;"><strong>Funções do Projeto (${roles.length}):</strong><ul style="margin-top: 4px;">` +
+                    roles.map(r => `<li><code>${escapeHtml(r.role || r)}</code>${r.descricao ? ` - ${escapeHtml(r.descricao)}` : ''}</li>`).join('') +
+                    '</ul></div>';
+            }
+            if (result.subacao === 'atribuir' && result.username) {
+                detailsHtml += `<div class="pfcg-meta-row" style="margin-top: 8px;"><strong>Atribuição ao Utilizador:</strong> ${escapeHtml(result.username)}: ${result.sucesso_atribuicao ? '<span style="color:green;">Sucesso</span>' : '<span style="color:red;">Falha</span>'}</div>`;
+            }
+        } else if (actionName === 'corrigir') {
+            const disc = result.total_discrepancias !== undefined ? result.total_discrepancias : 0;
+            const deps = Array.isArray(result.departamentos_corrigidos) ? result.departamentos_corrigidos : [];
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Utilizadores com Discrepâncias:</strong> ${disc}</div>`;
+            if (deps.length > 0) {
+                detailsHtml += `<div class="pfcg-meta-row"><strong>Departamentos:</strong> ${escapeHtml(deps.join(', '))}</div>`;
+            }
+        } else if (actionName === 'su53') {
+            const u = escapeHtml(result.usuario || '');
+            const env = escapeHtml(result.target_env || 'PRD');
+            const totalErros = result.total_erros_buffer || 0;
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Utilizador:</strong> ${u} | <strong>Ambiente:</strong> ${env}</div>`;
+            detailsHtml += `<div class="pfcg-meta-row"><strong>Erros no Buffer:</strong> ${totalErros}</div>`;
+            if (Array.isArray(result.transacoes_bloqueadas) && result.transacoes_bloqueadas.length > 0) {
+                detailsHtml += '<div style="margin-top: 8px;"><strong>Transações Bloqueadas:</strong><ul style="margin-top: 4px;">' +
+                    result.transacoes_bloqueadas.map(t => `<li><code>${escapeHtml(t.tcode || '')}</code> (RC=${escapeHtml(String(t.rc || ''))})${t.sugestao_role ? ` &rarr; Sugestão: <code>${escapeHtml(t.sugestao_role)}</code>` : ''}</li>`).join('') +
+                    '</ul></div>';
+            }
+            if (Array.isArray(result.objetos_em_falta) && result.objetos_em_falta.length > 0) {
+                detailsHtml += '<div style="margin-top: 8px;"><strong>Objetos em Falta:</strong><ul style="margin-top: 4px;">' +
+                    result.objetos_em_falta.map(o => `<li><code>${escapeHtml(o.objeto || '')}</code> - ${escapeHtml(o.descricao || '')}</li>`).join('') +
+                    '</ul></div>';
+            }
+        }
+
+        return `
+            <div class="pfcg-result-card">
+                <div class="pfcg-result-header">
+                    <h4>${escapeHtml(label)}</h4>
+                    <span class="pfcg-badge ${badgeClass}">${statusText}</span>
+                </div>
+                ${message ? `<p class="pfcg-result-message">${message}</p>` : ''}
+                ${detailsHtml}
+            </div>
+        `;
+    }
+
+    let asiProjetoPerfilPollingTimer = null;
+    let asiProjetoPerfilPollingInFlight = false;
+
+    function asiStopProjetoPerfilPolling() {
+        if (asiProjetoPerfilPollingTimer) {
+            clearInterval(asiProjetoPerfilPollingTimer);
+            asiProjetoPerfilPollingTimer = null;
+        }
+        asiProjetoPerfilPollingInFlight = false;
+    }
+
+    async function asiPollProjetoPerfilJob(actionName, jobId, messageId, label) {
+        const startedAt = Date.now();
+        asiStopProjetoPerfilPolling();
+
+        return new Promise((resolve) => {
+            asiProjetoPerfilPollingTimer = setInterval(async () => {
+                if (asiProjetoPerfilPollingInFlight) return;
+                if ((Date.now() - startedAt) >= 300000) {
+                    asiStopProjetoPerfilPolling();
+                    asiUpdateMessage(messageId, {
+                        text: `O processo ${label} está a demorar mais do que o esperado.`,
+                        html: asiBuildPfcgErrorHtml(
+                            `O processo ${label} está a demorar mais do que o esperado.`,
+                            'Verifique se o worker Windows está ativo antes de repetir a operação.'
+                        ),
+                        isProcessing: false,
+                        isThinkingOnly: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                    return;
+                }
+
+                asiProjetoPerfilPollingInFlight = true;
+                try {
+                    const response = await fetch(`/api/salsa-it-agent/projeto-perfil/${encodeURIComponent(actionName)}/${encodeURIComponent(jobId)}`, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+                    }
+
+                    if (data.state === 'pending' || data.state === 'running') {
+                        return;
+                    }
+
+                    asiStopProjetoPerfilPolling();
+
+                    if (data.state === 'failed') {
+                        asiUpdateMessage(messageId, {
+                            text: `Erro ao executar ${label}.`,
+                            html: asiBuildPfcgErrorHtml(`Erro ao executar ${label}.`, data.message || ''),
+                            isProcessing: false,
+                            isThinkingOnly: false
+                        });
+                        asiConversationState = { ...asiConversationState, isBusy: false };
+                        asiUpdateComposerState();
+                        resolve();
+                        return;
+                    }
+
+                    const result = data.result || {};
+                    const resultHtml = asiBuildProjetoPerfilResultHtml(actionName, result, label);
+
+                    const followActions = [
+                        {
+                            id: 'projeto-perfil-autorizacao',
+                            label: 'Voltar ao Projeto Perfil',
+                            icon: 'authorization',
+                            prompt: 'Quero voltar ao menu Projeto Perfil de Autorização.',
+                            followupText: 'Escolha uma opção de Projeto Perfil de Autorização:',
+                            followupActionsSource: 'children'
+                        },
+                        { ...ASI_MAIN_MENU_ACTION, prompt: 'Quero voltar ao menu principal.' }
+                    ];
+
+                    let messageText = result.message || `Processo ${label} concluído.`;
+                    if (actionName === 'departamento' && result.subacao === 'listar') {
+                        messageText = '';
+                    }
+
+                    asiUpdateMessage(messageId, {
+                        text: messageText,
+                        html: resultHtml,
+                        isProcessing: false,
+                        isThinkingOnly: false,
+                        wide: true,
+                        actions: followActions,
+                        actionLevel: 1
+                    });
+
+                    asiConversationState = { ...asiConversationState, isBusy: false, awaitingInput: '' };
+                    asiUpdateComposerState();
+
+                    if (actionName === 'departamento' && result.subacao === 'listar') {
+                        setTimeout(() => {
+                            asiAppendMessage(asiCreateMessage('assistant', 'Qual o departamento que quer processar? (Pode clicar numa opção acima ou escrever o nome do departamento):'));
+                            asiConversationState = { ...asiConversationState, awaitingInput: ASI_PROJETO_PERFIL_DEPTO_INPUT, isBusy: false };
+                            asiUpdateComposerState();
+                            const { input } = asiGetElements();
+                            if (input) input.focus();
+                        }, 200);
+                    }
+
+                    resolve();
+                } catch (error) {
+                    asiStopProjetoPerfilPolling();
+                    asiUpdateMessage(messageId, {
+                        text: `Erro ao consultar estado de ${label}.`,
+                        html: asiBuildPfcgErrorHtml(`Erro ao consultar estado de ${label}.`, error.message || ''),
+                        isProcessing: false,
+                        isThinkingOnly: false
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    resolve();
+                } finally {
+                    asiProjetoPerfilPollingInFlight = false;
+                }
+            }, 1000);
+        });
+    }
+
+    async function asiStartProjetoPerfilJob(actionName, label, payload = {}) {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const { input } = asiGetElements();
+        if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+
+        const processingMessage = asiCreateMessage('assistant', '', {
+            isThinkingOnly: true,
+            isProcessing: true
+        });
+        asiAppendMessage(processingMessage);
+        asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch(`/api/salsa-it-agent/projeto-perfil/${encodeURIComponent(actionName)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+            }
+            const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
+            if (!jobId) {
+                throw new Error('Resposta do backend sem job_id.');
+            }
+            await asiPollProjetoPerfilJob(actionName, jobId, processingMessage.id, label);
+        } catch (error) {
+            asiUpdateMessage(processingMessage.id, {
+                text: `Não foi possível iniciar ${label}.`,
+                html: asiBuildPfcgErrorHtml(`Não foi possível iniciar ${label}.`, error.message || ''),
+                isProcessing: false,
+                isThinkingOnly: false
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+            if (input) input.focus();
+        }
+    }
+
     async function asiStartUserCreateHrLookup(pernr) {
         if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
@@ -9176,6 +9549,66 @@
             await asiStartUserUnlock(u);
             return;
         }
+        if (asiConversationState.awaitingInput === ASI_PROJETO_PERFIL_UTILIZADOR_INPUT) {
+            const u = rawMessage.toUpperCase().trim();
+            if (!u) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Por favor, indique um ID de utilizador válido (ex.: JDOE).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_PROJETO_PERFIL_UTILIZADOR_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            await asiStartProjetoPerfilJob('utilizador', `Auditoria de Utilizador: ${u}`, { username: u });
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_PROJETO_PERFIL_PESQUISA_TCODE_INPUT) {
+            const parts = rawMessage.toUpperCase().trim().split(/\s+/);
+            const tc = parts[0] || '';
+            const u = parts.length > 1 ? parts[1] : '';
+            if (!tc) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Por favor, indique um código de transação (ex.: ME23N).'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_PROJETO_PERFIL_PESQUISA_TCODE_INPUT, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            if (u) {
+                await asiStartProjetoPerfilJob('pesquisa', `Pesquisa e Atribuição: ${tc} -> ${u}`, { tcode: tc, username: u, subacao: 'atribuir' });
+                return;
+            }
+            asiConversationState = {
+                ...asiConversationState,
+                projetoPerfilPendingTcode: tc
+            };
+            await asiStartProjetoPerfilJob('pesquisa', `Pesquisa da Transação: ${tc}`, { tcode: tc, subacao: 'pesquisar' });
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_PROJETO_PERFIL_PESQUISA_USER_INPUT) {
+            const val = rawMessage.toUpperCase().trim();
+            if (val === 'NAO' || val === 'NÃO' || val === 'CANCELAR' || val === 'VOLTAR' || val === 'SAIR') {
+                asiConversationState = { ...asiConversationState, awaitingInput: '', isBusy: false, projetoPerfilPendingTcode: '' };
+                asiAppendMessage(asiCreateMessage('assistant', 'Operação de atribuição cancelada.'));
+                asiUpdateComposerState();
+                return;
+            }
+            const tc = asiConversationState.projetoPerfilPendingTcode;
+            await asiStartProjetoPerfilJob('pesquisa', `Atribuição da Transação: ${tc} -> ${val}`, { tcode: tc, username: val, subacao: 'atribuir' });
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_PROJETO_PERFIL_DEPTO_INPUT) {
+            const val = rawMessage.trim();
+            if (val.toUpperCase() === 'LISTAR') {
+                await asiStartProjetoPerfilJob('departamento', 'Departamentos do Projeto Perfil', { subacao: 'listar' });
+                return;
+            }
+            await asiStartProjetoPerfilJob('departamento', `Análise de Departamento: ${val}`, { departamento: val, subacao: 'analisar' });
+            return;
+        }
+        if (asiConversationState.awaitingInput === ASI_PROJETO_PERFIL_SU53_USER_INPUT) {
+            const u = rawMessage.toUpperCase().trim();
+            if (!u || u === '*' || u === 'TODOS') {
+                await asiStartProjetoPerfilJob('su53', 'Diagnóstico SU53 Geral', { username: '*' });
+                return;
+            }
+            await asiStartProjetoPerfilJob('su53', `Diagnóstico SU53: ${u}`, { username: u });
+            return;
+        }
         if (asiConversationState.awaitingInput === ASI_USER_CREATE_PERNR_INPUT) {
             const pernr = rawMessage.replace(/\D/g, '');
             if (!pernr || pernr.length > 8) {
@@ -10564,6 +10997,14 @@
             return;
         }
 
+        if (typeof actionId === 'string' && actionId.indexOf('projeto-perfil-depto:') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            const dep = actionId.replace('projeto-perfil-depto:', '').trim();
+            asiAppendMessage(asiCreateMessage('user', dep));
+            await asiStartProjetoPerfilJob('departamento', `Análise de Departamento: ${dep}`, { departamento: dep, subacao: 'analisar' });
+            return;
+        }
+
         if (typeof actionId === 'string' && actionId.indexOf('pfcg-system-') === 0) {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             try {
@@ -10905,6 +11346,60 @@
 
             asiAppendMessage(asiCreateMessage('user', action.prompt));
             asiStartPfcgIndividualDelete();
+            return;
+        }
+
+        if (action.id === 'projeto-perfil-execucao') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartProjetoPerfilJob('execucao', 'Execução Completa do Projeto Perfil', { assumir_sim: true });
+            return;
+        }
+
+        if (action.id === 'projeto-perfil-departamento') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartProjetoPerfilJob('departamento', 'Departamentos do Projeto Perfil', { subacao: 'listar' });
+            return;
+        }
+
+        if (action.id === 'projeto-perfil-utilizador') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Por favor, indique o ID SAP do utilizador a auditar (ex.: JDOE):'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_PROJETO_PERFIL_UTILIZADOR_INPUT, isBusy: false };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'projeto-perfil-pesquisa') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Indique o código da transação a pesquisar no projeto (ex.: ME23N, FB01):'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_PROJETO_PERFIL_PESQUISA_TCODE_INPUT, isBusy: false };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
+        if (action.id === 'projeto-perfil-corrigir') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiStartProjetoPerfilJob('corrigir', 'Correção de Sincronização Posterior', { assumir_sim: true });
+            return;
+        }
+
+        if (action.id === 'projeto-perfil-su53') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt));
+            asiAppendMessage(asiCreateMessage('assistant', 'Indique o utilizador para diagnóstico SU53 (deixe em branco ou digite * para todos os erros SU53 registados hoje):'));
+            asiConversationState = { ...asiConversationState, awaitingInput: ASI_PROJETO_PERFIL_SU53_USER_INPUT, isBusy: false };
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
             return;
         }
 

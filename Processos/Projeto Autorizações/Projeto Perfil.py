@@ -4005,7 +4005,7 @@ def executar_processos_pendentes(caminho_excel: str, pendencias: Dict[str, int])
         modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
 
 
-def verificar_e_perguntar_pendencias(caminho_excel: str) -> bool:
+def verificar_e_perguntar_pendencias(caminho_excel: str, assumir_sim: bool = False) -> bool:
     """Mostra as filas pendentes e pede uma única confirmação para executá-las."""
     pendencias = obter_pendencias_status(caminho_excel)
     print("\n" + "=" * 78)
@@ -4016,8 +4016,8 @@ def verificar_e_perguntar_pendencias(caminho_excel: str) -> bool:
         return False
     for folha, quantidade in pendencias.items():
         print(f"  ⚠️  {folha}: {quantidade} linha(s)")
-    resposta = input("\nExecutar os processos pendentes? (S/N): ").strip().upper()
-    if resposta not in ("S", "SIM", "Y", "YES"):
+    resposta = "" if assumir_sim else input("\nExecutar os processos pendentes? (S/N): ").strip().upper()
+    if not assumir_sim and resposta not in ("S", "SIM", "Y", "YES"):
         print("Processos pendentes não executados.")
         return False
     executar_processos_pendentes(caminho_excel, pendencias)
@@ -4565,7 +4565,7 @@ def obter_departamentos_pendentes(dados: ProjetoPerfilData) -> List[Dict[str, An
     )
 
 
-def processar_departamentos_pendentes_em_sequencia(dados: ProjetoPerfilData) -> bool:
+def processar_departamentos_pendentes_em_sequencia(dados: ProjetoPerfilData, assumir_sim: bool = False) -> bool:
     """
     Processa, pela ordem da CONTROLO, todos os departamentos cujo STATUS está vazio.
 
@@ -4582,11 +4582,11 @@ def processar_departamentos_pendentes_em_sequencia(dados: ProjetoPerfilData) -> 
     for posicao, item in enumerate(fila, 1):
         print(f"  {posicao}. Linha {item.get('linha')}: {item.get('departamento')}")
 
-    resposta = input(
+    resposta = "" if assumir_sim else input(
         f"Executar agora a sequência CUA completa dos {len(fila)} departamento(s), "
         "pela ordem apresentada? (S/N): "
     ).strip().upper()
-    if resposta not in ("S", "SIM", "Y", "YES"):
+    if not assumir_sim and resposta not in ("S", "SIM", "Y", "YES"):
         print("Fila departamental não executada.")
         return False
 

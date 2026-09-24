@@ -2449,6 +2449,109 @@ def _obyc_validation_query_fields(row: dict[str, Any]) -> list[str]:
     return fields
 
 
+def _run_projeto_perfil_task(action: str, params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+    rfc_python = (project_dir / RFC_VENV_RELATIVE_PYTHON).resolve()
+    if not rfc_python.exists():
+        raise SapExecutionError(f"Python RFC não encontrado: {rfc_python}")
+
+    env = _build_rfc_bridge_env(project_dir)
+    cmd = [
+        str(rfc_python),
+        "-m",
+        "sap_rfc.projeto_perfil_cli",
+        "--action",
+        action,
+    ]
+
+    departamento = str(params.get("departamento") or "").strip()
+    if departamento:
+        cmd.extend(["--departamento", departamento])
+
+    subacao = str(params.get("subacao") or "").strip()
+    if subacao:
+        cmd.extend(["--subacao", subacao])
+
+    username = str(params.get("username") or params.get("user") or "").strip()
+    if username:
+        cmd.extend(["--user", username])
+
+    tcode = str(params.get("tcode") or "").strip()
+    if tcode:
+        cmd.extend(["--tcode", tcode])
+
+    environment = str(params.get("environment") or params.get("env") or "").strip()
+    if environment:
+        cmd.extend(["--env", environment])
+
+    tcode_atribuir = str(params.get("tcode_atribuir") or "").strip()
+    if tcode_atribuir:
+        cmd.extend(["--tcode-atribuir", tcode_atribuir])
+
+    if params.get("simular"):
+        cmd.append("--simular")
+
+    caminho_excel = str(params.get("caminho_excel") or params.get("excel") or "").strip()
+    if caminho_excel:
+        cmd.extend(["--excel", caminho_excel])
+
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+    try:
+        run = subprocess.run(
+            cmd,
+            cwd=str(project_dir),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300,
+            check=False,
+            shell=False,
+            creationflags=creationflags,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SapExecutionError(f"Tempo limite excedido ao executar operação {action} do Projeto Perfil.") from exc
+    except Exception as exc:
+        raise SapExecutionError(f"Falha ao executar subprocesso do Projeto Perfil: {exc}") from exc
+
+    stdout_raw = (run.stdout or "").strip()
+    stderr_raw = (run.stderr or "").strip()
+
+    payload: dict[str, Any] = {}
+    if stdout_raw:
+        for line in reversed(stdout_raw.splitlines()):
+            line_str = line.strip()
+            if line_str.startswith("{") and line_str.endswith("}"):
+                try:
+                    payload = json.loads(line_str)
+                    break
+                except Exception:
+                    pass
+
+    if not payload:
+        if run.returncode != 0:
+            err_msg = stderr_raw or stdout_raw or f"Código de saída: {run.returncode}"
+            raise SapExecutionError(f"Operação {action} do Projeto Perfil falhou: {err_msg}")
+        payload = {"ok": True, "raw_output": stdout_raw}
+
+    status_tag = payload.get("status") or ("OK" if payload.get("ok") else "ERRO")
+    log_lines = [
+        f"Operação Projeto Perfil ({action}) executada via subprocesso isolado.",
+        f"Python RFC: {rfc_python}",
+        f"Status: {status_tag}",
+    ]
+    if payload.get("message"):
+        log_lines.append(f"Mensagem: {payload['message']}")
+
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 # Dispatch das tasks simples: task -> callable(job, params) -> (status, log).
 # `sap_cockpit` fica FORA (streaming/threads/documentacao proprios em run_sap_task).
 TASK_HANDLERS: dict[str, "Any"] = {
@@ -2493,6 +2596,12 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "f110_proposal": _run_f110_proposal,
     "f110_payment": _run_f110_payment,
     "gl_account_create_by_model": lambda job, params: _run_gl_account_create_by_model(params),
+    "projeto_perfil_execucao": lambda job, params: _run_projeto_perfil_task("execucao", params),
+    "projeto_perfil_departamento": lambda job, params: _run_projeto_perfil_task("departamento", params),
+    "projeto_perfil_utilizador": lambda job, params: _run_projeto_perfil_task("utilizador", params),
+    "projeto_perfil_pesquisa": lambda job, params: _run_projeto_perfil_task("pesquisa", params),
+    "projeto_perfil_corrigir": lambda job, params: _run_projeto_perfil_task("corrigir", params),
+    "projeto_perfil_su53": lambda job, params: _run_projeto_perfil_task("su53", params),
 }
 
 
