@@ -1,0 +1,291 @@
+{
+  "environment": "PRD",
+  "read_only": true,
+  "timestamp": "2026-09-29T18:05:40",
+  "functions": {
+    "/SBXC/ZCKP_VALIDA_PROCESSO": {
+      "response_keys": [
+        "CHANGING_PARAMETER",
+        "DOCUMENTATION",
+        "EXCEPTION_CLASSES",
+        "EXCEPTION_LIST",
+        "EXPORT_PARAMETER",
+        "FUNCTION_POOL",
+        "GLOBAL_FLAG",
+        "IMPORT_PARAMETER",
+        "REMOTE_BASXML_SUPPORTED",
+        "REMOTE_CALL",
+        "SHORT_TEXT",
+        "SOURCE",
+        "TABLES_PARAMETER",
+        "UPDATE_TASK"
+      ],
+      "source": [
+        "FUNCTION /sbxc/zckp_valida_processo.",
+        "*\"----------------------------------------------------------------------",
+        "*\"*\"Interface local:",
+        "*\"  IMPORTING",
+        "*\"     REFERENCE(PROCESSO) TYPE  /SBXC/ZCKP_PROCESSO",
+        "*\"  EXPORTING",
+        "*\"     REFERENCE(STR_PROC) LIKE  /SBXC/ZCKP_TAB00 STRUCTURE",
+        "*\"       /SBXC/ZCKP_TAB00",
+        "*\"  EXCEPTIONS",
+        "*\"      SEM_AUTORIZACAO",
+        "*\"      NAO_EXISTE",
+        "*\"----------------------------------------------------------------------",
+        "*  SELECT SINGLE * FROM /sbxc/zckp_tab00",
+        "*   INTO CORRESPONDING FIELDS OF str_proc",
+        "*          WHERE processo = processo.",
+        "*",
+        "*  IF sy-subrc NE 0.",
+        "*    RAISE nao_existe.",
+        "*  ELSE.",
+        "",
+        "    AUTHORITY-CHECK OBJECT 'ZCKP:PROCS'",
+        "             ID '/SBXC/CPRO' FIELD processo",
+        "             ID '/SBXC/CAUT' DUMMY.",
+        "",
+        "    IF sy-subrc NE 0.",
+        "      RAISE sem_autorizacao.",
+        "    ENDIF.",
+        "",
+        "*  ENDIF.",
+        "",
+        "ENDFUNCTION."
+      ],
+      "interface": {
+        "EXCEPTION_CLASSES": "",
+        "FUNCTION_POOL": "/SBXC/ZCKP_F",
+        "GLOBAL_FLAG": "",
+        "REMOTE_BASXML_SUPPORTED": "",
+        "REMOTE_CALL": "",
+        "SHORT_TEXT": "Validaçao para processo",
+        "UPDATE_TASK": "",
+        "CHANGING_PARAMETER": [],
+        "DOCUMENTATION": [
+          {
+            "PARAMETER": "PROCESSO",
+            "KIND": "P",
+            "STEXT": "Processo",
+            "INDEX": " 001"
+          },
+          {
+            "PARAMETER": "STR_PROC",
+            "KIND": "P",
+            "STEXT": "Processos",
+            "INDEX": " 002"
+          },
+          {
+            "PARAMETER": "SEM_AUTORIZACAO",
+            "KIND": "X",
+            "STEXT": "Sem autorização",
+            "INDEX": " 003"
+          },
+          {
+            "PARAMETER": "NAO_EXISTE",
+            "KIND": "X",
+            "STEXT": "Não existente",
+            "INDEX": " 004"
+          }
+        ],
+        "EXCEPTION_LIST": [
+          {
+            "EXCEPTION": "SEM_AUTORIZACAO",
+            "IS_RESUMABLE": ""
+          },
+          {
+            "EXCEPTION": "NAO_EXISTE",
+            "IS_RESUMABLE": ""
+          }
+        ],
+        "EXPORT_PARAMETER": [
+          {
+            "PARAMETER": "STR_PROC",
+            "DBFIELD": "/SBXC/ZCKP_TAB00",
+            "TYPES": "",
+            "REFERENCE": "X",
+            "TYP": "",
+            "CLASS": "",
+            "REF_CLASS": "",
+            "LINE_OF": "",
+            "TABLE_OF": ""
+          }
+        ],
+        "IMPORT_PARAMETER": [
+          {
+            "PARAMETER": "PROCESSO",
+            "DBFIELD": "",
+            "DEFAULT": "",
+            "TYPES": "",
+            "OPTIONAL": "",
+            "REFERENCE": "X",
+            "CHANGING": "",
+            "TYP": "/SBXC/ZCKP_PROCESSO",
+            "CLASS": "",
+            "REF_CLASS": "",
+            "LINE_OF": "",
+            "TABLE_OF": ""
+          }
+        ],
+        "TABLES_PARAMETER": []
+      }
+    },
+    "/SBXC/ZCKP_LOAD_DD03L": {
+      "response_keys": [
+        "CHANGING_PARAMETER",
+        "DOCUMENTATION",
+        "EXCEPTION_CLASSES",
+        "EXCEPTION_LIST",
+        "EXPORT_PARAMETER",
+        "FUNCTION_POOL",
+        "GLOBAL_FLAG",
+        "IMPORT_PARAMETER",
+        "REMOTE_BASXML_SUPPORTED",
+        "REMOTE_CALL",
+        "SHORT_TEXT",
+        "SOURCE",
+        "TABLES_PARAMETER",
+        "UPDATE_TASK"
+      ],
+      "source": [
+        "FUNCTION /SBXC/ZCKP_LOAD_DD03L.",
+        "*\"----------------------------------------------------------------------",
+        "*\"*\"Interface local:",
+        "*\"  TABLES",
+        "*\"      LT_DD03L STRUCTURE  DD03L",
+        "*\"----------------------------------------------------------------------",
+        "",
+        "gt_dd03l[] = lt_dd03l[].",
+        "",
+        "",
+        "ENDFUNCTION."
+      ],
+      "interface": {
+        "EXCEPTION_CLASSES": "",
+        "FUNCTION_POOL": "/SBXC/ZCKP_F",
+        "GLOBAL_FLAG": "",
+        "REMOTE_BASXML_SUPPORTED": "",
+        "REMOTE_CALL": "",
+        "SHORT_TEXT": "Carrega DD03L",
+        "UPDATE_TASK": "",
+        "CHANGING_PARAMETER": [],
+        "DOCUMENTATION": [
+          {
+            "PARAMETER": "LT_DD03L",
+            "KIND": "P",
+            "STEXT": "Campos tabela",
+            "INDEX": " 001"
+          }
+        ],
+        "EXCEPTION_LIST": [],
+        "EXPORT_PARAMETER": [],
+        "IMPORT_PARAMETER": [],
+        "TABLES_PARAMETER": [
+          {
+            "PARAMETER": "LT_DD03L",
+            "DBSTRUCT": "DD03L",
+            "TYPES": "",
+            "OPTIONAL": "",
+            "TYP": "",
+            "CLASS": "",
+            "REF_CLASS": "",
+            "LINE_OF": "",
+            "TABLE_OF": ""
+          }
+        ]
+      }
+    },
+    "/SBXC/ZCKP_LOAD_TAB10": {
+      "response_keys": [
+        "CHANGING_PARAMETER",
+        "DOCUMENTATION",
+        "EXCEPTION_CLASSES",
+        "EXCEPTION_LIST",
+        "EXPORT_PARAMETER",
+        "FUNCTION_POOL",
+        "GLOBAL_FLAG",
+        "IMPORT_PARAMETER",
+        "REMOTE_BASXML_SUPPORTED",
+        "REMOTE_CALL",
+        "SHORT_TEXT",
+        "SOURCE",
+        "TABLES_PARAMETER",
+        "UPDATE_TASK"
+      ],
+      "source": [
+        "FUNCTION /SBXC/ZCKP_LOAD_TAB10.",
+        "*\"----------------------------------------------------------------------",
+        "*\"*\"Interface local:",
+        "*\"  TABLES",
+        "*\"      LT_TAB10 STRUCTURE  /SBXC/ZCKP_TAB10",
+        "*\"----------------------------------------------------------------------",
+        "",
+        "",
+        "gt_tab10[] = lt_tab10[].",
+        "",
+        "",
+        "ENDFUNCTION."
+      ],
+      "interface": {
+        "EXCEPTION_CLASSES": "",
+        "FUNCTION_POOL": "/SBXC/ZCKP_F",
+        "GLOBAL_FLAG": "",
+        "REMOTE_BASXML_SUPPORTED": "",
+        "REMOTE_CALL": "",
+        "SHORT_TEXT": "Carrega tab10",
+        "UPDATE_TASK": "",
+        "CHANGING_PARAMETER": [],
+        "DOCUMENTATION": [
+          {
+            "PARAMETER": "LT_TAB10",
+            "KIND": "P",
+            "STEXT": "CKP :: Customização de cores",
+            "INDEX": " 001"
+          }
+        ],
+        "EXCEPTION_LIST": [],
+        "EXPORT_PARAMETER": [],
+        "IMPORT_PARAMETER": [],
+        "TABLES_PARAMETER": [
+          {
+            "PARAMETER": "LT_TAB10",
+            "DBSTRUCT": "/SBXC/ZCKP_TAB10",
+            "TYPES": "",
+            "OPTIONAL": "",
+            "TYP": "",
+            "CLASS": "",
+            "REF_CLASS": "",
+            "LINE_OF": "",
+            "TABLE_OF": ""
+          }
+        ]
+      }
+    }
+  },
+  "errors": [
+    {
+      "function": "/SBXC/ZCKP_CAB_FAT",
+      "error": "ABAPApplicationError('ID:FL Type:E Number:180 Origem mais de 72 caracteres')"
+    },
+    {
+      "function": "/SBXC/ZCKP_ITEM_FAT",
+      "error": "ABAPApplicationError('ID:FL Type:E Number:180 Origem mais de 72 caracteres')"
+    },
+    {
+      "function": "/SBXC/ZCKP_DBL_CLK",
+      "error": "ABAPApplicationError('ID:FL Type:E Number:180 Origem mais de 72 caracteres')"
+    },
+    {
+      "function": "/SBXC/ZCKP_GUARDA_ALT_FAT",
+      "error": "ABAPApplicationError('ID:FL Type:E Number:180 Origem mais de 72 caracteres')"
+    },
+    {
+      "function": "/SBXC/ZCKP_BASELINE_DATE",
+      "error": "ABAPApplicationError('ID:FL Type:E Number:180 Origem mais de 72 caracteres')"
+    },
+    {
+      "function": "/SBXC/ZCKP_DBL_CLK_LIN",
+      "error": "ABAPApplicationError('ID:FL Type:E Number:180 Origem mais de 72 caracteres')"
+    }
+  ]
+}

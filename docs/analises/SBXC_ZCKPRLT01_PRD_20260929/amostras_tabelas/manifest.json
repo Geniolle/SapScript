@@ -1,0 +1,6197 @@
+{
+  "environment": "PRD",
+  "read_only": true,
+  "started_at": "2026-09-29T19:58:27",
+  "namespace": "/SBXC/%",
+  "sample_size_per_table": 20,
+  "tables": {
+    "/SBXC/ENVIA_DOCS": {
+      "catalog": {
+        "TABNAME": "/SBXC/ENVIA_DOCS",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ENVIA_DOCS__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "COMP_CODE",
+            "BELNR",
+            "GJAHR",
+            "TIPO_OP",
+            "ENVIADO_SAPHETY",
+            "REF_DOC_NO",
+            "VENDOR",
+            "DOC_DATE",
+            "DOC_PAGAMENTO",
+            "DATA_PAGAMENTO",
+            "PRE_EDITADO",
+            "UUID"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COMP_CODE",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BELNR",
+          "POSITION": "0003",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "GJAHR",
+          "POSITION": "0004",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TIPO_OP",
+          "POSITION": "0005",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENVIADO_SAPHETY",
+          "POSITION": "0006",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO",
+          "POSITION": "0007",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "VENDOR",
+          "POSITION": "0008",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_DATE",
+          "POSITION": "0009",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_PAGAMENTO",
+          "POSITION": "0010",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_PAGAMENTO",
+          "POSITION": "0011",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PRE_EDITADO",
+          "POSITION": "0012",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UUID",
+          "POSITION": "0013",
+          "LENG": "000051",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/SIGLA_APP": {
+      "catalog": {
+        "TABNAME": "/SBXC/SIGLA_APP",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_SIGLA_APP__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "BUKRS",
+            "KOSTL",
+            "SIGLA_APP",
+            "DESCRITIVO"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUKRS",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "KOSTL",
+          "POSITION": "0003",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SIGLA_APP",
+          "POSITION": "0004",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DESCRITIVO",
+          "POSITION": "0005",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/WSCFG": {
+      "catalog": {
+        "TABNAME": "/SBXC/WSCFG",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_WSCFG__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESS",
+            "DESTINATION"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_WSCFG__part002.jsonl",
+          "fields": [
+            "URL"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_WSCFG__part003.jsonl",
+          "fields": [
+            "[REDACTED: sensitive value omitted from public export]",
+            "SENDER",
+            "RECEIVER"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_WSCFG__part004.jsonl",
+          "fields": [
+            "ACTION",
+            "WS_TO",
+            "TRANSFORMATION",
+            "TABNAME"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESS",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DESTINATION",
+          "POSITION": "0003",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "URL",
+          "POSITION": "0004",
+          "LENG": "000511",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "[REDACTED: sensitive value omitted from public export]",
+          "POSITION": "0005",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SENDER",
+          "POSITION": "0006",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RECEIVER",
+          "POSITION": "0007",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ACTION",
+          "POSITION": "0008",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "WS_TO",
+          "POSITION": "0009",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TRANSFORMATION",
+          "POSITION": "0010",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TABNAME",
+          "POSITION": "0011",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/WS_LOG": {
+      "catalog": {
+        "TABNAME": "/SBXC/WS_LOG",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_WS_LOG__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "TIMESTPL",
+            "UUID_SAP",
+            "UUID_ORIG",
+            "CHAVE",
+            "UTILIZADOR",
+            "RETORNO",
+            "INFORM"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TIMESTPL",
+          "POSITION": "0003",
+          "LENG": "000021",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "UUID_SAP",
+          "POSITION": "0004",
+          "LENG": "000032",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "UUID_ORIG",
+          "POSITION": "0005",
+          "LENG": "000051",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "CHAVE",
+          "POSITION": "0006",
+          "LENG": "000132",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UTILIZADOR",
+          "POSITION": "0007",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RETORNO",
+          "POSITION": "0008",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "INFORM",
+          "POSITION": "0009",
+          "LENG": "000080",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKPTAB10T": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKPTAB10T",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKPTAB10T__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "SPRAS",
+            "STATUS",
+            "TEXT_STATUS"
+          ],
+          "rows": 8
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SPRAS",
+          "POSITION": "0002",
+          "LENG": "000001",
+          "DATATYPE": "LANG",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "STATUS",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TEXT_STATUS",
+          "POSITION": "0004",
+          "LENG": "000060",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 8,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_ADNT": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_ADNT",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_ADNT__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "COMP_CODE",
+            "DOC_TYPE",
+            "REF_1",
+            "REF_DOC_NO",
+            "NUM_DOC_SAPHETY",
+            "CURRENCY",
+            "VENDOR",
+            "DOC_DATE",
+            "PSTNG_DATE",
+            "AMT_DOCCUR",
+            "USERNAME",
+            "BLINE_DATE",
+            "DOC_FI",
+            "ANO_LANC",
+            "ENVIADO_SAPHETY",
+            "DATA_CRIACAO",
+            "ENV_PAGA_SAPHETY",
+            "DOC_PAGAMENTO",
+            "DOC_ESTORNO"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COMP_CODE",
+          "POSITION": "0005",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_TYPE",
+          "POSITION": "0006",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_1",
+          "POSITION": "0007",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO",
+          "POSITION": "0008",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "NUM_DOC_SAPHETY",
+          "POSITION": "0009",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CURRENCY",
+          "POSITION": "0010",
+          "LENG": "000005",
+          "DATATYPE": "CUKY",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "VENDOR",
+          "POSITION": "0011",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_DATE",
+          "POSITION": "0012",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PSTNG_DATE",
+          "POSITION": "0013",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "AMT_DOCCUR",
+          "POSITION": "0014",
+          "LENG": "000023",
+          "DATATYPE": "DEC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "USERNAME",
+          "POSITION": "0015",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BLINE_DATE",
+          "POSITION": "0016",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_FI",
+          "POSITION": "0017",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANO_LANC",
+          "POSITION": "0018",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENVIADO_SAPHETY",
+          "POSITION": "0019",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_CRIACAO",
+          "POSITION": "0020",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENV_PAGA_SAPHETY",
+          "POSITION": "0021",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_PAGAMENTO",
+          "POSITION": "0022",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_ESTORNO",
+          "POSITION": "0023",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_CTRL": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_CTRL",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_CTRL__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "DATA_IN",
+            "HORA_IN",
+            "USER_IN",
+            "ICON_STATUS",
+            "STATUS1",
+            "DATA_CHG_ST1",
+            "HORA_CHG_ST1",
+            "USER_CHG_ST1",
+            "STATUS2",
+            "DATA_CHG_ST2",
+            "HORA_CHG_ST2",
+            "USER_CHG_ST2",
+            "STATUS3",
+            "DATA_CHG_ST3",
+            "HORA_CHG_ST3",
+            "USER_CHG_ST3",
+            "AUT_MAN",
+            "ID_EXTERNO",
+            "PROCESSO_ANT",
+            "ANO_ANT",
+            "SEQNO_ANT",
+            "PROCESSO_POST",
+            "ANO_POST",
+            "SEQNO_POST",
+            "REGRA_ENTRADA",
+            "PROCESSO_INICIAL",
+            "DATA_INICIAL"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DATA_IN",
+          "POSITION": "0005",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA_IN",
+          "POSITION": "0006",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "USER_IN",
+          "POSITION": "0007",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ICON_STATUS",
+          "POSITION": "0008",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STATUS1",
+          "POSITION": "0009",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_CHG_ST1",
+          "POSITION": "0010",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA_CHG_ST1",
+          "POSITION": "0011",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "USER_CHG_ST1",
+          "POSITION": "0012",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STATUS2",
+          "POSITION": "0013",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_CHG_ST2",
+          "POSITION": "0014",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA_CHG_ST2",
+          "POSITION": "0015",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "USER_CHG_ST2",
+          "POSITION": "0016",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STATUS3",
+          "POSITION": "0017",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_CHG_ST3",
+          "POSITION": "0018",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA_CHG_ST3",
+          "POSITION": "0019",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "USER_CHG_ST3",
+          "POSITION": "0020",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "AUT_MAN",
+          "POSITION": "0021",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ID_EXTERNO",
+          "POSITION": "0022",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PROCESSO_ANT",
+          "POSITION": "0023",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANO_ANT",
+          "POSITION": "0024",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SEQNO_ANT",
+          "POSITION": "0025",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PROCESSO_POST",
+          "POSITION": "0026",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANO_POST",
+          "POSITION": "0027",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SEQNO_POST",
+          "POSITION": "0028",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REGRA_ENTRADA",
+          "POSITION": "0029",
+          "LENG": "000100",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PROCESSO_INICIAL",
+          "POSITION": "0030",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_INICIAL",
+          "POSITION": "0031",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_EKKN": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_EKKN",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_EKKN__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "EBELN",
+            "EBELP",
+            "ZEKKN",
+            "WRBTR",
+            "MENGE",
+            "SAKTO",
+            "KOSTL",
+            "PS_PSP_PNR",
+            "AUFNR",
+            "ANLN1",
+            "ANLN2"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EBELN",
+          "POSITION": "0005",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EBELP",
+          "POSITION": "0006",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ZEKKN",
+          "POSITION": "0007",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "WRBTR",
+          "POSITION": "0008",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MENGE",
+          "POSITION": "0009",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SAKTO",
+          "POSITION": "0010",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "KOSTL",
+          "POSITION": "0011",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PS_PSP_PNR",
+          "POSITION": "0012",
+          "LENG": "000008",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "AUFNR",
+          "POSITION": "0013",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANLN1",
+          "POSITION": "0014",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANLN2",
+          "POSITION": "0015",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_EVENT": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_EVENT",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_EVENT__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROJECT",
+            "EVENT",
+            "TCODE",
+            "CONTEXT",
+            "WEBPAGE",
+            "OBJECT"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROJECT",
+          "POSITION": "0002",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EVENT",
+          "POSITION": "0003",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TCODE",
+          "POSITION": "0004",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CONTEXT",
+          "POSITION": "0005",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "WEBPAGE",
+          "POSITION": "0006",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "OBJECT",
+          "POSITION": "0007",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_HINVH": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_HINVH",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_HINVH__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "COMP_CODE",
+            "DOC_TYPE",
+            "INVOICE_IND",
+            "REF_DOC_NO",
+            "REF_DOC_NO_ORIG",
+            "VENDOR",
+            "CURRENCY",
+            "STCD1",
+            "DIFF_INV",
+            "DOC_DATE",
+            "PSTNG_DATE",
+            "BASELINE_DATE",
+            "PMNT_BLOCK",
+            "GROSS_AMOUNT",
+            "UMSKZ",
+            "APROV_SAPHETY",
+            "DOC_FI",
+            "ANO_LANC",
+            "DOC_LO",
+            "DOC_ESTORNO",
+            "ENV_EST_SAPHETY",
+            "ENVIADO_SAPHETY",
+            "DATA_CRIACAO",
+            "ENV_PAGA_SAPHETY",
+            "DOC_PAGAMENTO",
+            "MOTIVO_BLOQ",
+            "ZTERM",
+            "NAME1",
+            "DATA_IN",
+            "HORA_IN",
+            "IRF",
+            "EM_TRATAMENTO",
+            "USER_TRATAMENTO",
+            "DATA_TRATAMENTO",
+            "ALLOC_NMBR",
+            "PMTMTHSUPL",
+            "CONTA_FORN",
+            "ANBWA"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_HINVH__part002.jsonl",
+          "fields": [
+            "URL"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_HINVH__part003.jsonl",
+          "fields": [
+            "DOCTYPESAPHETY",
+            "HEADER_TXT",
+            "ITEM_TEXT",
+            "EXCH_RATE",
+            "GSBER",
+            "MWSKZ",
+            "VALOR_CONTROLO",
+            "RECEP_LINHA",
+            "UUID",
+            "COMP_VAT",
+            "COUNTRY_CODE",
+            "MAT_DOC",
+            "DOC_YEAR",
+            "MENSAGEM"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_HINVH__part004.jsonl",
+          "fields": [
+            "DEL_COSTS",
+            "BARCODE",
+            "ERRO",
+            "ICON_EMAIL",
+            "XWARE_BNK",
+            "PO_NUMBER",
+            "MOT_N_CONTAB",
+            "DOCNUM",
+            "REF_DOC_NO_OCR",
+            "COD_IRF",
+            "CAT_IRF",
+            "MONT_IRF"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_HINVH__part005.jsonl",
+          "fields": [
+            "NOTAS",
+            "BARCODE_ORIG",
+            "WI_ID"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COMP_CODE",
+          "POSITION": "0006",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_TYPE",
+          "POSITION": "0007",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "INVOICE_IND",
+          "POSITION": "0008",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO",
+          "POSITION": "0009",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO_ORIG",
+          "POSITION": "0010",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "VENDOR",
+          "POSITION": "0011",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CURRENCY",
+          "POSITION": "0012",
+          "LENG": "000005",
+          "DATATYPE": "CUKY",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STCD1",
+          "POSITION": "0013",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DIFF_INV",
+          "POSITION": "0014",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_DATE",
+          "POSITION": "0015",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PSTNG_DATE",
+          "POSITION": "0016",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BASELINE_DATE",
+          "POSITION": "0017",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PMNT_BLOCK",
+          "POSITION": "0018",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GROSS_AMOUNT",
+          "POSITION": "0019",
+          "LENG": "000023",
+          "DATATYPE": "DEC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UMSKZ",
+          "POSITION": "0020",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "APROV_SAPHETY",
+          "POSITION": "0021",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_FI",
+          "POSITION": "0022",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANO_LANC",
+          "POSITION": "0023",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_LO",
+          "POSITION": "0024",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_ESTORNO",
+          "POSITION": "0025",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENV_EST_SAPHETY",
+          "POSITION": "0026",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENVIADO_SAPHETY",
+          "POSITION": "0027",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_CRIACAO",
+          "POSITION": "0028",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENV_PAGA_SAPHETY",
+          "POSITION": "0029",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_PAGAMENTO",
+          "POSITION": "0030",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MOTIVO_BLOQ",
+          "POSITION": "0031",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ZTERM",
+          "POSITION": "0032",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "NAME1",
+          "POSITION": "0033",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_IN",
+          "POSITION": "0034",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA_IN",
+          "POSITION": "0035",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "IRF",
+          "POSITION": "0036",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EM_TRATAMENTO",
+          "POSITION": "0037",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "USER_TRATAMENTO",
+          "POSITION": "0038",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_TRATAMENTO",
+          "POSITION": "0039",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ALLOC_NMBR",
+          "POSITION": "0040",
+          "LENG": "000018",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PMTMTHSUPL",
+          "POSITION": "0041",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CONTA_FORN",
+          "POSITION": "0042",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANBWA",
+          "POSITION": "0043",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "URL",
+          "POSITION": "0044",
+          "LENG": "000511",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOCTYPESAPHETY",
+          "POSITION": "0045",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HEADER_TXT",
+          "POSITION": "0046",
+          "LENG": "000025",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_TEXT",
+          "POSITION": "0047",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EXCH_RATE",
+          "POSITION": "0048",
+          "LENG": "000009",
+          "DATATYPE": "DEC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GSBER",
+          "POSITION": "0049",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MWSKZ",
+          "POSITION": "0050",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "VALOR_CONTROLO",
+          "POSITION": "0051",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RECEP_LINHA",
+          "POSITION": "0052",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UUID",
+          "POSITION": "0053",
+          "LENG": "000051",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COMP_VAT",
+          "POSITION": "0054",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COUNTRY_CODE",
+          "POSITION": "0055",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MAT_DOC",
+          "POSITION": "0056",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_YEAR",
+          "POSITION": "0057",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MENSAGEM",
+          "POSITION": "0058",
+          "LENG": "000200",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DEL_COSTS",
+          "POSITION": "0059",
+          "LENG": "000023",
+          "DATATYPE": "DEC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BARCODE",
+          "POSITION": "0060",
+          "LENG": "000023",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ERRO",
+          "POSITION": "0061",
+          "LENG": "000220",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ICON_EMAIL",
+          "POSITION": "0062",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XWARE_BNK",
+          "POSITION": "0063",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PO_NUMBER",
+          "POSITION": "0064",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MOT_N_CONTAB",
+          "POSITION": "0065",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOCNUM",
+          "POSITION": "0066",
+          "LENG": "000016",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO_OCR",
+          "POSITION": "0067",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COD_IRF",
+          "POSITION": "0068",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CAT_IRF",
+          "POSITION": "0069",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MONT_IRF",
+          "POSITION": "0070",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "NOTAS",
+          "POSITION": "0071",
+          "LENG": "000255",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BARCODE_ORIG",
+          "POSITION": "0072",
+          "LENG": "000023",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "WI_ID",
+          "POSITION": "0073",
+          "LENG": "000012",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_HINVI": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_HINVI",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_HINVI__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "INVOICE_DOC_ITEM",
+            "PO_NUMBER",
+            "PO_ITEM",
+            "MATNR",
+            "EAN11",
+            "ACCTASSCAT",
+            "ITEM_TEXT",
+            "ITEM_AMOUNT",
+            "QUANT_FACT",
+            "PO_UNIT",
+            "TAX_IMPOSTO_FORN",
+            "TAX_CODE_SAP",
+            "TAX_IMPOSTO_SAP",
+            "TAX_AMOUNT",
+            "GL_ACCOUNT",
+            "DB_CR_IND",
+            "COSTCENTER",
+            "STGE_LOC",
+            "FACT_FINAL",
+            "REF_1",
+            "TRACKINGNO",
+            "QUANTITY",
+            "DC_POSTERIOR",
+            "CLAS_MULT",
+            "REF_DOC",
+            "REF_DOC_YEAR",
+            "REF_DOC_ITEM",
+            "WBS_ELEM",
+            "ORDERID",
+            "LINHA_NOVA",
+            "ITEM_AMOUNT_CCM",
+            "QUANTITY_CCM",
+            "XREF1",
+            "ZUONR"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_HINVI__part002.jsonl",
+          "fields": [
+            "ITEM_AMOUNT_FORN",
+            "GSBER",
+            "MRMOK",
+            "IDNLF",
+            "ITEM_SAPHETY",
+            "COND_TYPE",
+            "BPMNG",
+            "BPRME",
+            "ELIKZ",
+            "EREKZ",
+            "ANLN1",
+            "ANLN2"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "INVOICE_DOC_ITEM",
+          "POSITION": "0005",
+          "LENG": "000006",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PO_NUMBER",
+          "POSITION": "0007",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PO_ITEM",
+          "POSITION": "0008",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MATNR",
+          "POSITION": "0009",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EAN11",
+          "POSITION": "0010",
+          "LENG": "000018",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ACCTASSCAT",
+          "POSITION": "0011",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_TEXT",
+          "POSITION": "0012",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_AMOUNT",
+          "POSITION": "0013",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "QUANT_FACT",
+          "POSITION": "0014",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PO_UNIT",
+          "POSITION": "0015",
+          "LENG": "000003",
+          "DATATYPE": "UNIT",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_IMPOSTO_FORN",
+          "POSITION": "0016",
+          "LENG": "000008",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_CODE_SAP",
+          "POSITION": "0017",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_IMPOSTO_SAP",
+          "POSITION": "0018",
+          "LENG": "000008",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_AMOUNT",
+          "POSITION": "0019",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GL_ACCOUNT",
+          "POSITION": "0020",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DB_CR_IND",
+          "POSITION": "0021",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COSTCENTER",
+          "POSITION": "0022",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STGE_LOC",
+          "POSITION": "0023",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FACT_FINAL",
+          "POSITION": "0024",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_1",
+          "POSITION": "0025",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TRACKINGNO",
+          "POSITION": "0026",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "QUANTITY",
+          "POSITION": "0027",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DC_POSTERIOR",
+          "POSITION": "0028",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CLAS_MULT",
+          "POSITION": "0029",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC",
+          "POSITION": "0030",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_YEAR",
+          "POSITION": "0031",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_ITEM",
+          "POSITION": "0032",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "WBS_ELEM",
+          "POSITION": "0033",
+          "LENG": "000008",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ORDERID",
+          "POSITION": "0034",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "LINHA_NOVA",
+          "POSITION": "0035",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_AMOUNT_CCM",
+          "POSITION": "0036",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "QUANTITY_CCM",
+          "POSITION": "0037",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XREF1",
+          "POSITION": "0038",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ZUONR",
+          "POSITION": "0039",
+          "LENG": "000018",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_AMOUNT_FORN",
+          "POSITION": "0040",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GSBER",
+          "POSITION": "0041",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MRMOK",
+          "POSITION": "0042",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "IDNLF",
+          "POSITION": "0043",
+          "LENG": "000035",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_SAPHETY",
+          "POSITION": "0044",
+          "LENG": "000006",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COND_TYPE",
+          "POSITION": "0045",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BPMNG",
+          "POSITION": "0046",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BPRME",
+          "POSITION": "0047",
+          "LENG": "000003",
+          "DATATYPE": "UNIT",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ELIKZ",
+          "POSITION": "0048",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EREKZ",
+          "POSITION": "0049",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANLN1",
+          "POSITION": "0050",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANLN2",
+          "POSITION": "0051",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_HMAIL": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_HMAIL",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_HMAIL__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "NUM_MESS",
+            "SENDER",
+            "RECIP",
+            "DATA_ENVIO",
+            "TEXTO"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_HMAIL__part002.jsonl",
+          "fields": [
+            "SMTP_ADDR"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "NUM_MESS",
+          "POSITION": "0005",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SENDER",
+          "POSITION": "0006",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RECIP",
+          "POSITION": "0007",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_ENVIO",
+          "POSITION": "0008",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TEXTO",
+          "POSITION": "0009",
+          "LENG": "000255",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SMTP_ADDR",
+          "POSITION": "0010",
+          "LENG": "000241",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_IMG": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_IMG",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_IMG__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "ARCHIV_ID",
+            "ARC_DOC_ID"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ARCHIV_ID",
+          "POSITION": "0005",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ARC_DOC_ID",
+          "POSITION": "0006",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_INC": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_INC",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_INC__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "INCO1"
+          ],
+          "rows": 1
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "INCO1",
+          "POSITION": "0002",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        }
+      ],
+      "row_count": 1,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_INVH": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_INVH",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_INVH__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "COMP_CODE",
+            "DOC_TYPE",
+            "INVOICE_IND",
+            "REF_DOC_NO",
+            "REF_DOC_NO_ORIG",
+            "VENDOR",
+            "CURRENCY",
+            "STCD1",
+            "DIFF_INV",
+            "DOC_DATE",
+            "PSTNG_DATE",
+            "BASELINE_DATE",
+            "PMNT_BLOCK",
+            "GROSS_AMOUNT",
+            "UMSKZ",
+            "APROV_SAPHETY",
+            "DOC_FI",
+            "ANO_LANC",
+            "DOC_LO",
+            "DOC_ESTORNO",
+            "ENV_EST_SAPHETY",
+            "ENVIADO_SAPHETY",
+            "DATA_CRIACAO",
+            "ENV_PAGA_SAPHETY",
+            "DOC_PAGAMENTO",
+            "MOTIVO_BLOQ",
+            "ZTERM",
+            "NAME1",
+            "DATA_IN",
+            "HORA_IN",
+            "IRF",
+            "EM_TRATAMENTO",
+            "USER_TRATAMENTO",
+            "DATA_TRATAMENTO",
+            "ALLOC_NMBR",
+            "PMTMTHSUPL",
+            "CONTA_FORN",
+            "ANBWA"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_INVH__part002.jsonl",
+          "fields": [
+            "URL"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_INVH__part003.jsonl",
+          "fields": [
+            "DOCTYPESAPHETY",
+            "HEADER_TXT",
+            "ITEM_TEXT",
+            "EXCH_RATE",
+            "GSBER",
+            "MWSKZ",
+            "VALOR_CONTROLO",
+            "RECEP_LINHA",
+            "UUID",
+            "COMP_VAT",
+            "COUNTRY_CODE",
+            "MAT_DOC",
+            "DOC_YEAR",
+            "MENSAGEM"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_INVH__part004.jsonl",
+          "fields": [
+            "DEL_COSTS",
+            "BARCODE",
+            "ERRO",
+            "ICON_EMAIL",
+            "XWARE_BNK",
+            "PO_NUMBER",
+            "MOT_N_CONTAB",
+            "DOCNUM",
+            "REF_DOC_NO_OCR",
+            "COD_IRF",
+            "CAT_IRF",
+            "MONT_IRF"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_INVH__part005.jsonl",
+          "fields": [
+            "NOTAS",
+            "BARCODE_ORIG",
+            "WI_ID"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COMP_CODE",
+          "POSITION": "0006",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_TYPE",
+          "POSITION": "0007",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "INVOICE_IND",
+          "POSITION": "0008",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO",
+          "POSITION": "0009",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO_ORIG",
+          "POSITION": "0010",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "VENDOR",
+          "POSITION": "0011",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CURRENCY",
+          "POSITION": "0012",
+          "LENG": "000005",
+          "DATATYPE": "CUKY",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STCD1",
+          "POSITION": "0013",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DIFF_INV",
+          "POSITION": "0014",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_DATE",
+          "POSITION": "0015",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PSTNG_DATE",
+          "POSITION": "0016",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BASELINE_DATE",
+          "POSITION": "0017",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PMNT_BLOCK",
+          "POSITION": "0018",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GROSS_AMOUNT",
+          "POSITION": "0019",
+          "LENG": "000023",
+          "DATATYPE": "DEC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UMSKZ",
+          "POSITION": "0020",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "APROV_SAPHETY",
+          "POSITION": "0021",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_FI",
+          "POSITION": "0022",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANO_LANC",
+          "POSITION": "0023",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_LO",
+          "POSITION": "0024",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_ESTORNO",
+          "POSITION": "0025",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENV_EST_SAPHETY",
+          "POSITION": "0026",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENVIADO_SAPHETY",
+          "POSITION": "0027",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_CRIACAO",
+          "POSITION": "0028",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENV_PAGA_SAPHETY",
+          "POSITION": "0029",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_PAGAMENTO",
+          "POSITION": "0030",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MOTIVO_BLOQ",
+          "POSITION": "0031",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ZTERM",
+          "POSITION": "0032",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "NAME1",
+          "POSITION": "0033",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_IN",
+          "POSITION": "0034",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA_IN",
+          "POSITION": "0035",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "IRF",
+          "POSITION": "0036",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EM_TRATAMENTO",
+          "POSITION": "0037",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "USER_TRATAMENTO",
+          "POSITION": "0038",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA_TRATAMENTO",
+          "POSITION": "0039",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ALLOC_NMBR",
+          "POSITION": "0040",
+          "LENG": "000018",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PMTMTHSUPL",
+          "POSITION": "0041",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CONTA_FORN",
+          "POSITION": "0042",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANBWA",
+          "POSITION": "0043",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "URL",
+          "POSITION": "0044",
+          "LENG": "000511",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOCTYPESAPHETY",
+          "POSITION": "0045",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HEADER_TXT",
+          "POSITION": "0046",
+          "LENG": "000025",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_TEXT",
+          "POSITION": "0047",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EXCH_RATE",
+          "POSITION": "0048",
+          "LENG": "000009",
+          "DATATYPE": "DEC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GSBER",
+          "POSITION": "0049",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MWSKZ",
+          "POSITION": "0050",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "VALOR_CONTROLO",
+          "POSITION": "0051",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RECEP_LINHA",
+          "POSITION": "0052",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UUID",
+          "POSITION": "0053",
+          "LENG": "000051",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COMP_VAT",
+          "POSITION": "0054",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COUNTRY_CODE",
+          "POSITION": "0055",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MAT_DOC",
+          "POSITION": "0056",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOC_YEAR",
+          "POSITION": "0057",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MENSAGEM",
+          "POSITION": "0058",
+          "LENG": "000200",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DEL_COSTS",
+          "POSITION": "0059",
+          "LENG": "000023",
+          "DATATYPE": "DEC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BARCODE",
+          "POSITION": "0060",
+          "LENG": "000023",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ERRO",
+          "POSITION": "0061",
+          "LENG": "000220",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ICON_EMAIL",
+          "POSITION": "0062",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XWARE_BNK",
+          "POSITION": "0063",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PO_NUMBER",
+          "POSITION": "0064",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MOT_N_CONTAB",
+          "POSITION": "0065",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DOCNUM",
+          "POSITION": "0066",
+          "LENG": "000016",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_NO_OCR",
+          "POSITION": "0067",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COD_IRF",
+          "POSITION": "0068",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CAT_IRF",
+          "POSITION": "0069",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MONT_IRF",
+          "POSITION": "0070",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "NOTAS",
+          "POSITION": "0071",
+          "LENG": "000255",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BARCODE_ORIG",
+          "POSITION": "0072",
+          "LENG": "000023",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "WI_ID",
+          "POSITION": "0073",
+          "LENG": "000012",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_INVI": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_INVI",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_INVI__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "INVOICE_DOC_ITEM",
+            "PO_NUMBER",
+            "PO_ITEM",
+            "MATNR",
+            "EAN11",
+            "ACCTASSCAT",
+            "ITEM_TEXT",
+            "ITEM_AMOUNT",
+            "QUANT_FACT",
+            "PO_UNIT",
+            "TAX_IMPOSTO_FORN",
+            "TAX_CODE_SAP",
+            "TAX_IMPOSTO_SAP",
+            "TAX_AMOUNT",
+            "GL_ACCOUNT",
+            "DB_CR_IND",
+            "COSTCENTER",
+            "STGE_LOC",
+            "FACT_FINAL",
+            "REF_1",
+            "TRACKINGNO",
+            "QUANTITY",
+            "DC_POSTERIOR",
+            "CLAS_MULT",
+            "REF_DOC",
+            "REF_DOC_YEAR",
+            "REF_DOC_ITEM",
+            "WBS_ELEM",
+            "ORDERID",
+            "LINHA_NOVA",
+            "ITEM_AMOUNT_CCM",
+            "QUANTITY_CCM",
+            "XREF1",
+            "ZUONR"
+          ],
+          "rows": 20
+        },
+        {
+          "file": "tables/SBXC_ZCKP_INVI__part002.jsonl",
+          "fields": [
+            "ITEM_AMOUNT_FORN",
+            "GSBER",
+            "MRMOK",
+            "IDNLF",
+            "ITEM_SAPHETY",
+            "COND_TYPE",
+            "BPMNG",
+            "BPRME",
+            "ELIKZ",
+            "EREKZ",
+            "ANLN1",
+            "ANLN2"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "INVOICE_DOC_ITEM",
+          "POSITION": "0005",
+          "LENG": "000006",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PO_NUMBER",
+          "POSITION": "0007",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PO_ITEM",
+          "POSITION": "0008",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MATNR",
+          "POSITION": "0009",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EAN11",
+          "POSITION": "0010",
+          "LENG": "000018",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ACCTASSCAT",
+          "POSITION": "0011",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_TEXT",
+          "POSITION": "0012",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_AMOUNT",
+          "POSITION": "0013",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "QUANT_FACT",
+          "POSITION": "0014",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PO_UNIT",
+          "POSITION": "0015",
+          "LENG": "000003",
+          "DATATYPE": "UNIT",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_IMPOSTO_FORN",
+          "POSITION": "0016",
+          "LENG": "000008",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_CODE_SAP",
+          "POSITION": "0017",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_IMPOSTO_SAP",
+          "POSITION": "0018",
+          "LENG": "000008",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TAX_AMOUNT",
+          "POSITION": "0019",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GL_ACCOUNT",
+          "POSITION": "0020",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DB_CR_IND",
+          "POSITION": "0021",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COSTCENTER",
+          "POSITION": "0022",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STGE_LOC",
+          "POSITION": "0023",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FACT_FINAL",
+          "POSITION": "0024",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_1",
+          "POSITION": "0025",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TRACKINGNO",
+          "POSITION": "0026",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "QUANTITY",
+          "POSITION": "0027",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DC_POSTERIOR",
+          "POSITION": "0028",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CLAS_MULT",
+          "POSITION": "0029",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC",
+          "POSITION": "0030",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_YEAR",
+          "POSITION": "0031",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "REF_DOC_ITEM",
+          "POSITION": "0032",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "WBS_ELEM",
+          "POSITION": "0033",
+          "LENG": "000008",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ORDERID",
+          "POSITION": "0034",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "LINHA_NOVA",
+          "POSITION": "0035",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_AMOUNT_CCM",
+          "POSITION": "0036",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "QUANTITY_CCM",
+          "POSITION": "0037",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XREF1",
+          "POSITION": "0038",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ZUONR",
+          "POSITION": "0039",
+          "LENG": "000018",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_AMOUNT_FORN",
+          "POSITION": "0040",
+          "LENG": "000023",
+          "DATATYPE": "CURR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "GSBER",
+          "POSITION": "0041",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MRMOK",
+          "POSITION": "0042",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "IDNLF",
+          "POSITION": "0043",
+          "LENG": "000035",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ITEM_SAPHETY",
+          "POSITION": "0044",
+          "LENG": "000006",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COND_TYPE",
+          "POSITION": "0045",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BPMNG",
+          "POSITION": "0046",
+          "LENG": "000013",
+          "DATATYPE": "QUAN",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BPRME",
+          "POSITION": "0047",
+          "LENG": "000003",
+          "DATATYPE": "UNIT",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ELIKZ",
+          "POSITION": "0048",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EREKZ",
+          "POSITION": "0049",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANLN1",
+          "POSITION": "0050",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ANLN2",
+          "POSITION": "0051",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_MAILS": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_MAILS",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_MAILS__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "SEQPROCESSO",
+            "ENDERECO"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQPROCESSO",
+          "POSITION": "0003",
+          "LENG": "000002",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ENDERECO",
+          "POSITION": "0004",
+          "LENG": "000241",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_MESS": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_MESS",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_MESS__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "NUM_MESS",
+            "COD_MES",
+            "MSGTY",
+            "DESCR",
+            "DESTINO",
+            "UNAME",
+            "DATA",
+            "HORA"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "NUM_MESS",
+          "POSITION": "0005",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COD_MES",
+          "POSITION": "0006",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MSGTY",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DESCR",
+          "POSITION": "0008",
+          "LENG": "000250",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DESTINO",
+          "POSITION": "0009",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UNAME",
+          "POSITION": "0010",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA",
+          "POSITION": "0011",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA",
+          "POSITION": "0012",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_MFI": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_MFI",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_MFI__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "TIPO_OP",
+            "BUKRS",
+            "BLART",
+            "SKANR_D",
+            "SKANR_C"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TIPO_OP",
+          "POSITION": "0002",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUKRS",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BLART",
+          "POSITION": "0004",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SKANR_D",
+          "POSITION": "0005",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SKANR_C",
+          "POSITION": "0006",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_MIAS": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_MIAS",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_MIAS__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "HKONT",
+            "CONTA_IAS",
+            "CONTA_OFFSET_BAL",
+            "COSTCENTER"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "HKONT",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "CONTA_IAS",
+          "POSITION": "0003",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CONTA_OFFSET_BAL",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COSTCENTER",
+          "POSITION": "0005",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_MIVA": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_MIVA",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_MIVA__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "COMP_CODE",
+            "STGE_LOC",
+            "SERV_SAPHETY",
+            "IVA_FATURA",
+            "IVA_NC"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COMP_CODE",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "STGE_LOC",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SERV_SAPHETY",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "IVA_FATURA",
+          "POSITION": "0005",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "IVA_NC",
+          "POSITION": "0006",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_MPED": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_MPED",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_MPED__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "DOC_TYPE",
+            "BUKRS",
+            "ACCTASSCAT",
+            "PUR_GROUP",
+            "ASSET_NO",
+            "STGE_LOC"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DOC_TYPE",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUKRS",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ACCTASSCAT",
+          "POSITION": "0004",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PUR_GROUP",
+          "POSITION": "0005",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ASSET_NO",
+          "POSITION": "0006",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STGE_LOC",
+          "POSITION": "0007",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_PARAM": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_PARAM",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_PARAM__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROG",
+            "STRUCT",
+            "FIELD",
+            "SIGN",
+            "OPER",
+            "LOW",
+            "HIGH"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROG",
+          "POSITION": "0002",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "STRUCT",
+          "POSITION": "0003",
+          "LENG": "000016",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "FIELD",
+          "POSITION": "0004",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SIGN",
+          "POSITION": "0005",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "OPER",
+          "POSITION": "0006",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "LOW",
+          "POSITION": "0007",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "HIGH",
+          "POSITION": "0008",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_PJOB": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_PJOB",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_PJOB__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "FLAG"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "FLAG",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_POMIG": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_POMIG",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_POMIG__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PO_MIGRADA"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PO_MIGRADA",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB00": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB00",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB00__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "TEXT",
+            "EST_CAB",
+            "EST_LIN",
+            "EST_BOTAO",
+            "EST_MENSAGEM",
+            "FM_CAB_DISP",
+            "FM_LIN_DISP",
+            "FM_DBLCLK",
+            "FM_ALTERACAO",
+            "PROCTYPE",
+            "AUTO",
+            "JOB",
+            "RECECAO",
+            "TIPO_DOC_SAP"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TEXT",
+          "POSITION": "0003",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EST_CAB",
+          "POSITION": "0004",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EST_LIN",
+          "POSITION": "0005",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EST_BOTAO",
+          "POSITION": "0006",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EST_MENSAGEM",
+          "POSITION": "0007",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FM_CAB_DISP",
+          "POSITION": "0008",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FM_LIN_DISP",
+          "POSITION": "0009",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FM_DBLCLK",
+          "POSITION": "0010",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FM_ALTERACAO",
+          "POSITION": "0011",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PROCTYPE",
+          "POSITION": "0012",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "AUTO",
+          "POSITION": "0013",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "JOB",
+          "POSITION": "0014",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RECECAO",
+          "POSITION": "0015",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TIPO_DOC_SAP",
+          "POSITION": "0016",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB01": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB01",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB01__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "TCODE"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TCODE",
+          "POSITION": "0003",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB02": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB02",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB02__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "TCODE",
+            "LINHA",
+            "PROG",
+            "DYNPRO",
+            "DYNBEGIN",
+            "FNAM",
+            "FVAL"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TCODE",
+          "POSITION": "0003",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "LINHA",
+          "POSITION": "0004",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PROG",
+          "POSITION": "0005",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DYNPRO",
+          "POSITION": "0006",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DYNBEGIN",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FNAM",
+          "POSITION": "0008",
+          "LENG": "000132",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FVAL",
+          "POSITION": "0009",
+          "LENG": "000132",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB03": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB03",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB03__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "EST_BOTAO",
+            "ALVHL",
+            "NUM",
+            "FUNCTION",
+            "ICON",
+            "STATUS_FINAL",
+            "BUTN_TYPE",
+            "DISABLED",
+            "FM",
+            "NUM_PAI",
+            "AUTH"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EST_BOTAO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ALVHL",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "NUM",
+          "POSITION": "0004",
+          "LENG": "000003",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "FUNCTION",
+          "POSITION": "0005",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ICON",
+          "POSITION": "0006",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STATUS_FINAL",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "BUTN_TYPE",
+          "POSITION": "0008",
+          "LENG": "000010",
+          "DATATYPE": "INT4",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DISABLED",
+          "POSITION": "0009",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FM",
+          "POSITION": "0010",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "NUM_PAI",
+          "POSITION": "0011",
+          "LENG": "000003",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "AUTH",
+          "POSITION": "0012",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB04": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB04",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB04__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ESTRUTURA",
+            "CAMPO"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ESTRUTURA",
+          "POSITION": "0003",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "CAMPO",
+          "POSITION": "0004",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB05": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB05",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB05__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "UNAME",
+            "ESTRUTURA",
+            "CAMPO"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "UNAME",
+          "POSITION": "0003",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ESTRUTURA",
+          "POSITION": "0004",
+          "LENG": "000003",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "CAMPO",
+          "POSITION": "0005",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB06": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB06",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB06__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "EST_MENSAGEM",
+            "COD_MES",
+            "PREFIXO",
+            "DESTINO",
+            "FUNCTION",
+            "SEND_MAIL",
+            "TDNAME"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EST_MENSAGEM",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COD_MES",
+          "POSITION": "0003",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PREFIXO",
+          "POSITION": "0004",
+          "LENG": "000005",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DESTINO",
+          "POSITION": "0005",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "FUNCTION",
+          "POSITION": "0006",
+          "LENG": "000070",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SEND_MAIL",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TDNAME",
+          "POSITION": "0008",
+          "LENG": "000070",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB07": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB07",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB07__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "EST_MENSAGEM",
+            "COD_MES",
+            "SPRAS",
+            "MENSAGEM"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EST_MENSAGEM",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COD_MES",
+          "POSITION": "0003",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SPRAS",
+          "POSITION": "0004",
+          "LENG": "000001",
+          "DATATYPE": "LANG",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "MENSAGEM",
+          "POSITION": "0005",
+          "LENG": "000200",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB08": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB08",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB08__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "NUM",
+            "MSGID",
+            "MSGTY",
+            "MSGNO",
+            "MSGV1",
+            "MSGV2",
+            "MSGV3",
+            "MSGV4",
+            "UNAME",
+            "DATA",
+            "HORA"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "NUM",
+          "POSITION": "0005",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "MSGID",
+          "POSITION": "0006",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MSGTY",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MSGNO",
+          "POSITION": "0008",
+          "LENG": "000003",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MSGV1",
+          "POSITION": "0009",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MSGV2",
+          "POSITION": "0010",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MSGV3",
+          "POSITION": "0011",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MSGV4",
+          "POSITION": "0012",
+          "LENG": "000050",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UNAME",
+          "POSITION": "0013",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "DATA",
+          "POSITION": "0014",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "HORA",
+          "POSITION": "0015",
+          "LENG": "000006",
+          "DATATYPE": "TIMS",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB09": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB09",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB09__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "EST_MENSAGEM",
+            "COD_MES",
+            "MENSAGEM",
+            "PROCESSO_SEG",
+            "ENVIADO_SAPHETY"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EST_MENSAGEM",
+          "POSITION": "0005",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "COD_MES",
+          "POSITION": "0006",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "MENSAGEM",
+          "POSITION": "0007",
+          "LENG": "000200",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PROCESSO_SEG",
+          "POSITION": "0008",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ENVIADO_SAPHETY",
+          "POSITION": "0009",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB10": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB10",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB10__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "STATUS",
+            "COR",
+            "ICON_STATUS",
+            "EDIT",
+            "STATUS_OUT"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "STATUS",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COR",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "INT4",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ICON_STATUS",
+          "POSITION": "0005",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "EDIT",
+          "POSITION": "0006",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "STATUS_OUT",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB11": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB11",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB11__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "STATUS",
+            "STATUS_DEP",
+            "DISABLED"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "STATUS",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "STATUS_DEP",
+          "POSITION": "0004",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DISABLED",
+          "POSITION": "0005",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB12": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB12",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB12__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "BUKRS",
+            "BSART",
+            "BUSAB",
+            "KNTTP",
+            "POREF",
+            "PROCESSO"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUKRS",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BSART",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUSAB",
+          "POSITION": "0004",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "KNTTP",
+          "POSITION": "0005",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "POREF",
+          "POSITION": "0006",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0007",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB13": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB13",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB13__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "BUKRS",
+            "XBUKRS",
+            "XBSART",
+            "XBUSAB",
+            "XKNTTP",
+            "XPOREF"
+          ],
+          "rows": 12
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUKRS",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "XBUKRS",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XBSART",
+          "POSITION": "0004",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XBUSAB",
+          "POSITION": "0005",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XKNTTP",
+          "POSITION": "0006",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "XPOREF",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 12,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB14": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB14",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB14__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "ANO",
+            "SEQNO",
+            "COMP_CODE",
+            "DOC_FI",
+            "ANO_LANC",
+            "DOC_LO",
+            "CPUDT"
+          ],
+          "rows": 10
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SEQNO",
+          "POSITION": "0004",
+          "LENG": "000010",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "COMP_CODE",
+          "POSITION": "0005",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DOC_FI",
+          "POSITION": "0006",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ANO_LANC",
+          "POSITION": "0007",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DOC_LO",
+          "POSITION": "0008",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "CPUDT",
+          "POSITION": "0009",
+          "LENG": "000008",
+          "DATATYPE": "DATS",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 10,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB15": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB15",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB15__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "MOT_N_CONTAB",
+            "SPRAS",
+            "MENSAGEM"
+          ],
+          "rows": 3
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "MOT_N_CONTAB",
+          "POSITION": "0002",
+          "LENG": "000005",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SPRAS",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "LANG",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "MENSAGEM",
+          "POSITION": "0004",
+          "LENG": "000200",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 3,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB18": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB18",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB18__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "BUKRS",
+            "SMTP_ADDR1"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_ZCKP_TAB18__part002.jsonl",
+          "fields": [
+            "SMTP_ADDR2"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_ZCKP_TAB18__part003.jsonl",
+          "fields": [
+            "SMTP_ADDR3"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUKRS",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SMTP_ADDR1",
+          "POSITION": "0003",
+          "LENG": "000241",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SMTP_ADDR2",
+          "POSITION": "0004",
+          "LENG": "000241",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SMTP_ADDR3",
+          "POSITION": "0005",
+          "LENG": "000241",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB30": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB30",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB30__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "USERNAME",
+            "[REDACTED: sensitive value omitted from public export]"
+          ],
+          "rows": 1
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "USERNAME",
+          "POSITION": "0002",
+          "LENG": "000020",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "[REDACTED: sensitive value omitted from public export]",
+          "POSITION": "0003",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 1,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB31": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB31",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB31__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "BUKRS",
+            "PROCESSO"
+          ],
+          "rows": 12
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "BUKRS",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0003",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 12,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB32": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB32",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB32__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "EKORG",
+            "CORE",
+            "NALTDATA"
+          ],
+          "rows": 13
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EKORG",
+          "POSITION": "0002",
+          "LENG": "000004",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "CORE",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "NALTDATA",
+          "POSITION": "0004",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 13,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_TAB3T": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_TAB3T",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_TAB3T__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "SPRAS",
+            "EST_BOTAO",
+            "ALVHL",
+            "NUM",
+            "QUICKINFO",
+            "TEXT"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SPRAS",
+          "POSITION": "0002",
+          "LENG": "000001",
+          "DATATYPE": "LANG",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "EST_BOTAO",
+          "POSITION": "0003",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ALVHL",
+          "POSITION": "0004",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "NUM",
+          "POSITION": "0005",
+          "LENG": "000003",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "QUICKINFO",
+          "POSITION": "0006",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TEXT",
+          "POSITION": "0007",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_WSCFG": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_WSCFG",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_WSCFG__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESS",
+            "DESTINATION"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_ZCKP_WSCFG__part002.jsonl",
+          "fields": [
+            "URL"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_ZCKP_WSCFG__part003.jsonl",
+          "fields": [
+            "[REDACTED: sensitive value omitted from public export]",
+            "SENDER",
+            "RECEIVER"
+          ],
+          "rows": 0
+        },
+        {
+          "file": "tables/SBXC_ZCKP_WSCFG__part004.jsonl",
+          "fields": [
+            "ACTION",
+            "WS_TO",
+            "TRANSFORMATION",
+            "TABNAME"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESS",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "DESTINATION",
+          "POSITION": "0003",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "URL",
+          "POSITION": "0004",
+          "LENG": "000511",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "[REDACTED: sensitive value omitted from public export]",
+          "POSITION": "0005",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SENDER",
+          "POSITION": "0006",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RECEIVER",
+          "POSITION": "0007",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "ACTION",
+          "POSITION": "0008",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "WS_TO",
+          "POSITION": "0009",
+          "LENG": "000120",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TRANSFORMATION",
+          "POSITION": "0010",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "TABNAME",
+          "POSITION": "0011",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZCKP_WSLOG": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZCKP_WSLOG",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZCKP_WSLOG__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PROCESSO",
+            "TIMESTPL",
+            "UUID_SAP",
+            "UUID_ORIG",
+            "KEYFIELD",
+            "UNAME",
+            "RETURN_CODE",
+            "INFORM"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PROCESSO",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "TIMESTPL",
+          "POSITION": "0003",
+          "LENG": "000021",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "UUID_SAP",
+          "POSITION": "0004",
+          "LENG": "000032",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "UUID_ORIG",
+          "POSITION": "0005",
+          "LENG": "000051",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "KEYFIELD",
+          "POSITION": "0006",
+          "LENG": "000132",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "UNAME",
+          "POSITION": "0007",
+          "LENG": "000012",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "RETURN_CODE",
+          "POSITION": "0008",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "INFORM",
+          "POSITION": "0009",
+          "LENG": "000080",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ZMENU": {
+      "catalog": {
+        "TABNAME": "/SBXC/ZMENU",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ZMENU__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "SPRAS",
+            "REPID",
+            "OBJNAME",
+            "POS",
+            "OBJTYPE",
+            "SKIPFIRST",
+            "OBJDESC",
+            "OBJTEXT"
+          ],
+          "rows": 0
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SPRAS",
+          "POSITION": "0002",
+          "LENG": "000001",
+          "DATATYPE": "LANG",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "REPID",
+          "POSITION": "0003",
+          "LENG": "000040",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "OBJNAME",
+          "POSITION": "0004",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "POS",
+          "POSITION": "0005",
+          "LENG": "000010",
+          "DATATYPE": "INT4",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "OBJTYPE",
+          "POSITION": "0006",
+          "LENG": "000002",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "SKIPFIRST",
+          "POSITION": "0007",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "OBJDESC",
+          "POSITION": "0008",
+          "LENG": "000080",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "OBJTEXT",
+          "POSITION": "0009",
+          "LENG": "000255",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 0,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/Z_ENDPOINT": {
+      "catalog": {
+        "TABNAME": "/SBXC/Z_ENDPOINT",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_Z_ENDPOINT__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "SYSTEM_ID",
+            "SERVICE",
+            "HOST"
+          ],
+          "rows": 3
+        },
+        {
+          "file": "tables/SBXC_Z_ENDPOINT__part002.jsonl",
+          "fields": [
+            "PATH"
+          ],
+          "rows": 3
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SYSTEM_ID",
+          "POSITION": "0002",
+          "LENG": "000008",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "SERVICE",
+          "POSITION": "0003",
+          "LENG": "000030",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "HOST",
+          "POSITION": "0004",
+          "LENG": "000255",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        },
+        {
+          "FIELDNAME": "PATH",
+          "POSITION": "0005",
+          "LENG": "000255",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 3,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ENVIA_GM": {
+      "catalog": {
+        "TABNAME": "/SBXC/ENVIA_GM",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ENVIA_GM__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "MBLNR",
+            "MJAHR",
+            "ENVIADO_SAPHETY"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "MBLNR",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "MJAHR",
+          "POSITION": "0003",
+          "LENG": "000004",
+          "DATATYPE": "NUMC",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ENVIADO_SAPHETY",
+          "POSITION": "0004",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    },
+    "/SBXC/ENVIA_PED": {
+      "catalog": {
+        "TABNAME": "/SBXC/ENVIA_PED",
+        "TABCLASS": "TRANSP",
+        "AS4LOCAL": "A",
+        "AS4VERS": "0000"
+      },
+      "status": "exported",
+      "chunks": [
+        {
+          "file": "tables/SBXC_ENVIA_PED__part001.jsonl",
+          "fields": [
+            "MANDT",
+            "PO_NUMBER",
+            "ENVIADO_SAPHETY"
+          ],
+          "rows": 20
+        }
+      ],
+      "fields": [
+        {
+          "FIELDNAME": "MANDT",
+          "POSITION": "0001",
+          "LENG": "000003",
+          "DATATYPE": "CLNT",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "PO_NUMBER",
+          "POSITION": "0002",
+          "LENG": "000010",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": "X"
+        },
+        {
+          "FIELDNAME": "ENVIADO_SAPHETY",
+          "POSITION": "0003",
+          "LENG": "000001",
+          "DATATYPE": "CHAR",
+          "KEYFLAG": ""
+        }
+      ],
+      "row_count": 20,
+      "consistent_chunk_counts": true
+    }
+  },
+  "errors": [],
+  "finished_at": "2026-09-29T19:58:43",
+  "summary": {
+    "catalog_objects": 52,
+    "exported": 52,
+    "errors": 0,
+    "total_rows": 503
+  }
+}

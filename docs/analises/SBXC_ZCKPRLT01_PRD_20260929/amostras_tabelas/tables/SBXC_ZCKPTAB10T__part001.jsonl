@@ -1,0 +1,8 @@
+{"MANDT": "100", "SPRAS": "P", "STATUS": "0", "TEXT_STATUS": "Inicial"}
+{"MANDT": "100", "SPRAS": "P", "STATUS": "1", "TEXT_STATUS": "Avisos"}
+{"MANDT": "100", "SPRAS": "P", "STATUS": "2", "TEXT_STATUS": "Erros"}
+{"MANDT": "100", "SPRAS": "P", "STATUS": "3", "TEXT_STATUS": "Integrada LOG"}
+{"MANDT": "100", "SPRAS": "P", "STATUS": "4", "TEXT_STATUS": "Integrada FI"}
+{"MANDT": "100", "SPRAS": "P", "STATUS": "5", "TEXT_STATUS": "Estornada"}
+{"MANDT": "100", "SPRAS": "P", "STATUS": "6", "TEXT_STATUS": "Rejeitado"}
+{"MANDT": "100", "SPRAS": "P", "STATUS": "9", "TEXT_STATUS": "Pré-Editado"}

@@ -1,0 +1,3 @@
+{"MANDT": "100", "SYSTEM_ID": "S4P", "SERVICE": "AUTH", "HOST": "doc-server.saphety.com:443"}
+{"MANDT": "100", "SYSTEM_ID": "S4P", "SERVICE": "ID", "HOST": "doc-server.saphety.com:443"}
+{"MANDT": "100", "SYSTEM_ID": "S4P", "SERVICE": "SEARCH", "HOST": "doc-server.saphety.com:443"}

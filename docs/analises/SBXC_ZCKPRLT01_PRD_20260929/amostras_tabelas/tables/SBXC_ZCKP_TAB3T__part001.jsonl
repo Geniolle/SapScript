@@ -1,0 +1,20 @@
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "001", "QUICKINFO": "Associar Pedido de Compra", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "002", "QUICKINFO": "Atualizar", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "003", "QUICKINFO": "Desmarcar \"em tratamento\"", "TEXT": "Desmarcar \"Em tratamento\""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "004", "QUICKINFO": "doc. Logístico (Via MIRO)", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "005", "QUICKINFO": "Enviar email", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "006", "QUICKINFO": "Estornar", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "007", "QUICKINFO": "Integrar Doc.Fin. c/Modelo", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "008", "QUICKINFO": "Integrar Doc.Financeiro", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "009", "QUICKINFO": "Integrar Doc.Financeiro (BAPI)", "TEXT": "Integrar Doc.Financeiro (BAPI)"}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "010", "QUICKINFO": "Integrar Doc.Financeiro (F-41)", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "012", "QUICKINFO": "Integrar Doc.Financeiro (F-43)", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "013", "QUICKINFO": "Integrar Doc.Financeiro (FB01)", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "014", "QUICKINFO": "Integrar documento logistico", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "015", "QUICKINFO": "Marcar \"em tratamento\"", "TEXT": "Marcar \"em tratamento\""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "017", "QUICKINFO": "Marcar c/o Integ. - Varios Doc", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "020", "QUICKINFO": "Marcar como integrado", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "021", "QUICKINFO": "Rejeitar", "TEXT": "Marcar como rejeitado"}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "022", "QUICKINFO": "Mensagens", "TEXT": ""}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "023", "QUICKINFO": "Transferir", "TEXT": "Transferir"}
+{"MANDT": "100", "SPRAS": "P", "EST_BOTAO": "GERAL", "ALVHL": "H", "NUM": "025", "QUICKINFO": "Desmarcar como Integrado", "TEXT": ""}

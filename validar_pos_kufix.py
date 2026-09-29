@@ -13,16 +13,32 @@ import re
 import sys
 import msvcrt
 import ctypes
+import threading
 from ctypes import wintypes
 from pathlib import Path
 from datetime import datetime
 
 import openpyxl
-from dotenv import load_dotenv
-
 # Configuração Tkinter para interface gráfica
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
+from sap_rfc._rfc_common import (
+    build_connection_params,
+    find_project_root,
+    load_project_env,
+    make_write_guard,
+)
+
+
+WRITE_FUNCTIONS = (
+    "RFC_READ_TABLE",
+    "BAPI_PO_CHANGE",
+    "BAPI_TRANSACTION_COMMIT",
+    "BAPI_TRANSACTION_ROLLBACK",
+)
+WRITE_GUARD = make_write_guard(WRITE_FUNCTIONS, ("EKKO",))
+ERROR_MESSAGE_TYPES = {"E", "A", "X"}
 
 
 # ----------------------------------------------------------------------
@@ -103,20 +119,132 @@ def extract_pos_from_excel(filepath: str) -> list[dict]:
 def connect_sap_prd():
     from pyrfc import Connection
 
-    env_path = Path("C:/workspace/SapScript/.env")
-    if not env_path.exists():
-        env_path = Path(__file__).resolve().parent / ".env"
-    load_dotenv(env_path)
+    load_project_env(find_project_root())
+    return Connection(**build_connection_params())
 
-    params = {
-        "user": os.environ["SAP_PRD_USER"],
-        "passwd": os.environ["SAP_PRD_PASSWD"],
-        "ashost": os.environ["SAP_PRD_ASHOST"],
-        "sysnr": os.environ["SAP_PRD_SYSNR"],
-        "client": os.environ["SAP_PRD_CLIENT"],
-        "lang": os.getenv("SAP_PRD_LANG", "PT").strip() or "PT",
+
+def read_po_from_sap(conn, ebeln: str) -> dict:
+    """Relê um único cabeçalho EKKO imediatamente, sem qualquer escrita."""
+    WRITE_GUARD.assert_table_allowed("EKKO")
+    WRITE_GUARD.assert_function_allowed("RFC_READ_TABLE")
+    response = conn.call(
+        "RFC_READ_TABLE",
+        QUERY_TABLE="EKKO",
+        DELIMITER="|",
+        FIELDS=[{"FIELDNAME": field} for field in ["EBELN", "BUKRS", "WAERS", "WKURS", "KUFIX", "LOEKZ", "BEDAT"]],
+        OPTIONS=[{"TEXT": f"EBELN = '{ebeln}'"}],
+        ROWCOUNT=1,
+    )
+    rows = response.get("DATA", []) or []
+    if not rows:
+        return {"found": False, "ebeln": ebeln, "bukrs": "", "waers": "", "wkurs": "", "kufix": "", "loekz": "", "bedat": ""}
+    parts = [part.strip() for part in rows[0].get("WA", "").split("|")]
+    parts += [""] * (7 - len(parts))
+    return {
+        "found": True,
+        "ebeln": parts[0],
+        "bukrs": parts[1],
+        "waers": parts[2],
+        "wkurs": parts[3],
+        "kufix": parts[4],
+        "loekz": parts[5],
+        "bedat": parts[6],
     }
-    return Connection(**params)
+
+
+def validate_bapi_po_change_metadata(conn) -> None:
+    """Falha em segurança se a assinatura real não expuser os campos esperados."""
+    description = conn.get_function_description("BAPI_PO_CHANGE")
+    parameters = {parameter["name"]: parameter for parameter in description.parameters}
+    expected = {"POHEADER": "BAPIMEPOHEADER", "POHEADERX": "BAPIMEPOHEADERX"}
+    for parameter_name, type_name in expected.items():
+        parameter = parameters.get(parameter_name)
+        type_description = (parameter or {}).get("type_description")
+        actual_type = getattr(type_description, "name", None)
+        fields = {field["name"] for field in type_description.fields} if type_description else set()
+        if actual_type != type_name or "EX_RATE_FX" not in fields:
+            raise RuntimeError(
+                f"Assinatura RFC insegura: {parameter_name} não corresponde a {type_name}.EX_RATE_FX."
+            )
+
+
+def format_return_messages(messages: list[dict]) -> str:
+    formatted = []
+    for message in messages or []:
+        text = str(message.get("MESSAGE", "") or "").strip()
+        identity = "".join(
+            [str(message.get("TYPE", "") or "").strip(), " ", str(message.get("ID", "") or "").strip(), str(message.get("NUMBER", "") or "").strip()]
+        ).strip()
+        formatted.append(f"{identity}: {text}" if text else identity)
+    return " | ".join(part for part in formatted if part)
+
+
+def process_kufix_updates(
+    pos_list: list[str],
+    progress_callback=None,
+    connection_factory=connect_sap_prd,
+    metadata_validator=validate_bapi_po_change_metadata,
+) -> dict[str, dict]:
+    """Marca KUFIX de forma idempotente, PO a PO, com transação isolada."""
+    conn = connection_factory()
+    unique_pos = list(dict.fromkeys(pos_list))
+    results = {}
+    try:
+        metadata_validator(conn)
+        total = len(unique_pos)
+        for index, ebeln in enumerate(unique_pos, start=1):
+            before = {}
+            try:
+                before = read_po_from_sap(conn, ebeln)
+                base = {**before, "kufix_before": before.get("kufix", ""), "kufix_after": before.get("kufix", ""), "sap_message": ""}
+                if not before.get("found"):
+                    results[ebeln] = {**base, "result": "Não encontrado"}
+                elif before.get("loekz"):
+                    results[ebeln] = {**base, "result": "Ignorado", "sap_message": f"PO eliminada ({before['loekz']})"}
+                elif before.get("kufix") == "X":
+                    results[ebeln] = {**base, "result": "Já estava marcado"}
+                else:
+                    WRITE_GUARD.assert_function_allowed("BAPI_PO_CHANGE")
+                    response = conn.call(
+                        "BAPI_PO_CHANGE",
+                        PURCHASEORDER=ebeln,
+                        POHEADER={"EX_RATE_FX": "X"},
+                        POHEADERX={"EX_RATE_FX": "X"},
+                    )
+                    messages = response.get("RETURN", []) or []
+                    message_text = format_return_messages(messages)
+                    if any(str(message.get("TYPE", "")).strip().upper() in ERROR_MESSAGE_TYPES for message in messages):
+                        WRITE_GUARD.assert_function_allowed("BAPI_TRANSACTION_ROLLBACK")
+                        conn.call("BAPI_TRANSACTION_ROLLBACK")
+                        results[ebeln] = {**base, "result": "Erro SAP", "sap_message": message_text}
+                    else:
+                        WRITE_GUARD.assert_function_allowed("BAPI_TRANSACTION_COMMIT")
+                        conn.call("BAPI_TRANSACTION_COMMIT", WAIT="X")
+                        after = read_po_from_sap(conn, ebeln)
+                        updated = {**base, **after, "kufix_before": before.get("kufix", ""), "kufix_after": after.get("kufix", ""), "sap_message": message_text}
+                        if after.get("found") and after.get("kufix") == "X":
+                            results[ebeln] = {**updated, "result": "Marcado com sucesso"}
+                        else:
+                            results[ebeln] = {**updated, "result": "Erro de validação pós-commit"}
+            except Exception as exc:
+                try:
+                    WRITE_GUARD.assert_function_allowed("BAPI_TRANSACTION_ROLLBACK")
+                    conn.call("BAPI_TRANSACTION_ROLLBACK")
+                except Exception:
+                    pass
+                results[ebeln] = {
+                    **before,
+                    "found": before.get("found", False),
+                    "kufix_before": before.get("kufix", ""),
+                    "kufix_after": before.get("kufix", ""),
+                    "result": "Erro SAP",
+                    "sap_message": str(exc),
+                }
+            if progress_callback:
+                progress_callback(index, total)
+    finally:
+        conn.close()
+    return results
 
 
 def validate_pos_in_sap(pos_list: list[str], progress_callback=None) -> dict[str, dict]:
@@ -195,6 +323,7 @@ class POValidatorApp:
         self.file_path = None
         self.pos_data = []
         self.sap_data = {}
+        self.execution_data = {}
 
         self._build_ui()
         self.root.after(200, self.prompt_file_selection)
@@ -260,7 +389,7 @@ class POValidatorApp:
         tree_frame = tk.Frame(self.root)
         tree_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
-        columns = ("pos", "ebeln", "bukrs", "waers", "wkurs", "kufix", "status", "action")
+        columns = ("pos", "ebeln", "bukrs", "waers", "wkurs", "kufix_before", "kufix_after", "result", "message")
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=12)
 
         self.tree.heading("pos", text="# Linha")
@@ -268,18 +397,20 @@ class POValidatorApp:
         self.tree.heading("bukrs", text="Empresa")
         self.tree.heading("waers", text="Moeda")
         self.tree.heading("wkurs", text="Taxa Câmbio")
-        self.tree.heading("kufix", text="Flag KUFIX")
-        self.tree.heading("status", text="Estado no SAP")
-        self.tree.heading("action", text="Ação Necessária")
+        self.tree.heading("kufix_before", text="KUFIX antes")
+        self.tree.heading("kufix_after", text="KUFIX depois")
+        self.tree.heading("result", text="Resultado")
+        self.tree.heading("message", text="Mensagem SAP")
 
         self.tree.column("pos", width=60, anchor="center")
         self.tree.column("ebeln", width=120, anchor="center")
         self.tree.column("bukrs", width=70, anchor="center")
         self.tree.column("waers", width=70, anchor="center")
         self.tree.column("wkurs", width=110, anchor="center")
-        self.tree.column("kufix", width=90, anchor="center")
-        self.tree.column("status", width=180, anchor="w")
-        self.tree.column("action", width=140, anchor="center")
+        self.tree.column("kufix_before", width=85, anchor="center")
+        self.tree.column("kufix_after", width=85, anchor="center")
+        self.tree.column("result", width=190, anchor="w")
+        self.tree.column("message", width=300, anchor="w")
 
         # Scrollbars
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
@@ -308,6 +439,21 @@ class POValidatorApp:
             command=self.export_report,
         )
         btn_export.pack(side="left")
+
+        self.btn_mark = tk.Button(
+            bottom_frame,
+            text="Marcar KUFIX no SAP",
+            font=("Segoe UI", 9, "bold"),
+            bg="#DC2626",
+            fg="white",
+            disabledforeground="#E5E7EB",
+            relief="flat",
+            padx=12,
+            pady=6,
+            state="disabled",
+            command=self.confirm_and_mark_kufix,
+        )
+        self.btn_mark.pack(side="left", padx=10)
 
         btn_close = tk.Button(
             bottom_frame,
@@ -359,6 +505,8 @@ class POValidatorApp:
         self.process_file_and_validate()
 
     def process_file_and_validate(self):
+        self.btn_mark.config(state="disabled")
+        self.execution_data = {}
         self.status_lbl.config(text="A extrair pedidos da 1ª coluna do ficheiro Excel...")
         self.root.update()
 
@@ -393,6 +541,13 @@ class POValidatorApp:
 
         self._populate_results()
 
+    def _eligible_pos(self) -> list[str]:
+        return sorted({
+            ebeln
+            for ebeln, info in self.sap_data.items()
+            if info.get("found") and not info.get("loekz") and info.get("kufix") != "X"
+        })
+
     def _populate_results(self):
         # Limpar tabela
         for item in self.tree.get_children():
@@ -411,7 +566,22 @@ class POValidatorApp:
             ebeln = item["ebeln"]
             sap_info = self.sap_data.get(ebeln, {})
 
-            if not sap_info.get("found"):
+            execution = self.execution_data.get(ebeln)
+            if execution:
+                result = execution.get("result", "")
+                message = execution.get("sap_message", "")
+                kufix_before = execution.get("kufix_before", "") or " "
+                kufix_after = execution.get("kufix_after", "") or " "
+                bukrs = execution.get("bukrs", sap_info.get("bukrs", "-")) or "-"
+                waers = execution.get("waers", sap_info.get("waers", "-")) or "-"
+                wkurs = execution.get("wkurs", sap_info.get("wkurs", "-")) or "-"
+                if result in {"Marcado com sucesso", "Já estava marcado"}:
+                    tag = "marked"
+                elif result == "Ignorado":
+                    tag = "error"
+                else:
+                    tag = "error"
+            elif not sap_info.get("found"):
                 status = "Não encontrado em PRD"
                 action = "Verificar / Erro"
                 tag = "error"
@@ -420,6 +590,10 @@ class POValidatorApp:
                 bukrs = "-"
                 waers = "-"
                 wkurs = "-"
+                result = "Não encontrado"
+                message = ""
+                kufix_before = "-"
+                kufix_after = "-"
             elif sap_info.get("loekz"):
                 status = f"Eliminado no SAP ({sap_info.get('loekz')})"
                 action = "Ignorar (Eliminado)"
@@ -429,6 +603,10 @@ class POValidatorApp:
                 bukrs = sap_info.get("bukrs")
                 waers = sap_info.get("waers")
                 wkurs = sap_info.get("wkurs")
+                result = "Ignorado"
+                message = status
+                kufix_before = kufix_val
+                kufix_after = kufix_val
             elif sap_info.get("kufix") == "X":
                 status = "Já Marcada no SAP (Fixada)"
                 action = "Ignorar (Já OK)"
@@ -438,6 +616,10 @@ class POValidatorApp:
                 bukrs = sap_info.get("bukrs")
                 waers = sap_info.get("waers")
                 wkurs = sap_info.get("wkurs")
+                result = "Já estava marcado"
+                message = ""
+                kufix_before = kufix_val
+                kufix_after = kufix_val
             else:
                 status = "Desmarcada no SAP"
                 action = "A Marcar"
@@ -447,6 +629,10 @@ class POValidatorApp:
                 bukrs = sap_info.get("bukrs")
                 waers = sap_info.get("waers")
                 wkurs = sap_info.get("wkurs")
+                result = "A Marcar"
+                message = ""
+                kufix_before = kufix_val
+                kufix_after = kufix_val
 
             self.tree.insert(
                 "",
@@ -457,14 +643,23 @@ class POValidatorApp:
                     bukrs,
                     waers,
                     wkurs,
-                    f"'{kufix_val}'",
-                    status,
-                    action,
+                    f"'{kufix_before}'",
+                    f"'{kufix_after}'",
+                    result,
+                    message,
                 ),
                 tags=(tag,),
             )
 
         # Atualizar Cards
+        unique_infos = list(self.sap_data.values())
+        unmarked_count = sum(
+            1 for info in unique_infos if info.get("found") and not info.get("loekz") and info.get("kufix") != "X"
+        )
+        marked_count = sum(
+            1 for info in unique_infos if info.get("found") and not info.get("loekz") and info.get("kufix") == "X"
+        )
+        error_count = sum(1 for info in unique_infos if not info.get("found") or info.get("loekz"))
         self.card_unmarked.config(text=str(unmarked_count))
         self.card_marked.config(text=str(marked_count))
         self.card_errors.config(text=str(error_count))
@@ -473,6 +668,84 @@ class POValidatorApp:
             text=f"Validação concluída: {unmarked_count} desmarcadas (a marcar), {marked_count} já marcadas, {error_count} com aviso/erro."
         )
         self.progress_var.set(100)
+        self.btn_mark.config(state="normal" if self._eligible_pos() else "disabled")
+
+    def _confirm_prd_change(self, count: int) -> bool:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Confirmação obrigatória — SAP PRD")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        answer = {"confirmed": False}
+        text = (
+            "ATENÇÃO — SAP PRD\n\n"
+            f"Serão atualizadas {count} POs no ambiente PRD.\n\n"
+            "A alteração marcará exclusivamente o indicador de fixação da taxa de câmbio (KUFIX).\n\n"
+            "Deseja continuar?"
+        )
+        tk.Label(dialog, text=text, justify="left", padx=24, pady=20, font=("Segoe UI", 10)).pack()
+        buttons = tk.Frame(dialog, padx=20, pady=12)
+        buttons.pack(fill="x")
+        tk.Button(buttons, text="Cancelar", command=dialog.destroy, padx=14, pady=6).pack(side="left")
+
+        def confirm():
+            answer["confirmed"] = True
+            dialog.destroy()
+
+        tk.Button(
+            buttons,
+            text="Confirmar alteração",
+            command=confirm,
+            bg="#DC2626",
+            fg="white",
+            padx=14,
+            pady=6,
+        ).pack(side="right")
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.wait_window()
+        return answer["confirmed"]
+
+    def confirm_and_mark_kufix(self):
+        eligible = self._eligible_pos()
+        if not eligible or not self._confirm_prd_change(len(eligible)):
+            return
+        self.btn_mark.config(state="disabled")
+        self.status_lbl.config(text=f"A processar {len(eligible)} POs no SAP PRD...")
+        self.progress_var.set(0)
+
+        def progress(current, total):
+            self.root.after(0, lambda: self._update_write_progress(current, total))
+
+        def worker():
+            try:
+                results = process_kufix_updates(eligible, progress_callback=progress)
+                self.root.after(0, lambda: self._finish_kufix_update(results))
+            except Exception as exc:
+                self.root.after(0, lambda error=exc: self._fail_kufix_update(error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_write_progress(self, current: int, total: int):
+        self.progress_var.set((current / total) * 100)
+        self.status_lbl.config(text=f"A processar SAP PRD: {current}/{total} POs...")
+
+    def _finish_kufix_update(self, results: dict[str, dict]):
+        self.execution_data.update(results)
+        for ebeln, result in results.items():
+            self.sap_data[ebeln] = {
+                **self.sap_data.get(ebeln, {}),
+                **result,
+                "kufix": result.get("kufix_after", result.get("kufix", "")),
+            }
+        self._populate_results()
+        successes = sum(1 for item in results.values() if item.get("result") == "Marcado com sucesso")
+        errors = sum(1 for item in results.values() if item.get("result") in {"Erro SAP", "Erro de validação pós-commit"})
+        messagebox.showinfo("Processamento concluído", f"Marcadas com sucesso: {successes}\nErros: {errors}")
+
+    def _fail_kufix_update(self, exc: Exception):
+        self.status_lbl.config(text="Processamento interrompido antes ou durante a ligação RFC.")
+        self.btn_mark.config(state="normal" if self._eligible_pos() else "disabled")
+        messagebox.showerror("Erro RFC SAP", str(exc))
 
     def export_report(self):
         if not self.tree.get_children():
@@ -505,9 +778,10 @@ class POValidatorApp:
             "Empresa",
             "Moeda",
             "Taxa Câmbio (WKURS)",
-            "Flag KUFIX",
-            "Estado no SAP",
-            "Ação Necessária",
+            "KUFIX antes",
+            "KUFIX depois",
+            "Resultado",
+            "Mensagem SAP",
         ]
         ws.append(headers)
 

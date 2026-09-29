@@ -1,0 +1,20 @@
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00001", "SPRAS": "E", "MENSAGEM": "Invoiced to the wrong company - invoice to ..."}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00001", "SPRAS": "P", "MENSAGEM": "Faturado à empresa errada - faturar a …"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00101", "SPRAS": "E", "MENSAGEM": "Invalid invoice - Activity ceased"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00101", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Atividade cessada"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00102", "SPRAS": "E", "MENSAGEM": "Invalid invoice - Incorrect social name"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00102", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Designação social incorreta"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00103", "SPRAS": "E", "MENSAGEM": "Invalid invoice - Supplier-requested return"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00103", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Devolução solicitada pelo fornecedor"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00104", "SPRAS": "E", "MENSAGEM": "Invalid invoice - Invalid document (copy or duplicate)"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00104", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Documento inválido (cópia ou duplicado)"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00105", "SPRAS": "E", "MENSAGEM": "Invalid invoice - Missing complete receipt of material"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00105", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Falta receção total de material"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00106", "SPRAS": "E", "MENSAGEM": "Invalid invoice - Item missing VAT exemption reference"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00106", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Falta referência ao artigo de isenção IVA"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00107", "SPRAS": "E", "MENSAGEM": "Invalid invoice - VAT reference missing"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00107", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Falta referência ao IVA"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00108", "SPRAS": "E", "MENSAGEM": "Invalid invoice - No reference to Purchase Order number"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00108", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Falta referência do nº de Ordem de Compra"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00109", "SPRAS": "E", "MENSAGEM": "Invalid invoice - No Contract number reference"}
+{"MANDT": "100", "EST_MENSAGEM": "EST_MSG", "COD_MES": "00109", "SPRAS": "P", "MENSAGEM": "Fatura não válida – Falta referência do nº de Contrato"}
