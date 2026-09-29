@@ -60,6 +60,17 @@ EXPECTED_TASKS = {
     "f110_proposal",
     "f110_payment",
     "gl_account_create_by_model",
+    "user_create_preview",
+    "user_create_rfc",
+    "user_change_password_rfc",
+    "user_unlock_rfc",
+    "hr_lookup",
+    "projeto_perfil_execucao",
+    "projeto_perfil_departamento",
+    "projeto_perfil_utilizador",
+    "projeto_perfil_pesquisa",
+    "projeto_perfil_corrigir",
+    "projeto_perfil_su53",
     "sap_cockpit",
 }
 # sap_cockpit fica como ramo explicito (streaming/threads/documentacao proprios).

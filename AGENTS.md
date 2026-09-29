@@ -20,3 +20,34 @@ As validações SAP devem ser feitas em modo somente leitura. Nunca alterar fun�
 
 Sempre que uma sessão SAP GUI for aberta ou trazida para primeiro plano, restaurar a
 janela e posicioná-la na metade esquerda do ecrã, salvo indicação diferente do utilizador.
+
+## Consulta de Processos em Estrutura.md
+
+Antes de pesquisar a implementação de um processo no repositório:
+
+1. Consultar primeiro `Estrutura.md` (na raiz do projeto `SapScript`).
+2. Procurar o processo funcional solicitado.
+3. Se existir, utilizar os caminhos, ficheiros e funções documentados como ponto inicial.
+4. Confirmar essas referências no código atual.
+5. Fazer pesquisa global apenas se o processo não estiver documentado, a referência estiver desatualizada ou forem necessárias dependências adicionais.
+6. Não assumir que `Estrutura.md` contém todo o projeto: o documento é incremental.
+
+O fluxo de trabalho esperado é:
+`Pedido do utilizador → Estrutura.md → processo → ficheiros/funções → validação no código → análise`
+
+## Regra "atualizar Estrutura.md"
+
+Sempre que o utilizador solicitar **"atualiza o Estrutura.md"**, interpretar como:
+
+1. Identificar o processo em que estamos atualmente a trabalhar.
+2. Analisar a implementação REAL e atual desse processo no repositório.
+3. Localizar frontend, API, worker/orquestração, serviços, SAP/RFC, scripts e testes relevantes.
+4. Comparar com o que já existe em `Estrutura.md`.
+5. Atualizar somente a área correspondente.
+6. Adicionar caminhos/funções novos.
+7. Corrigir referências alteradas.
+8. Remover referências obsoletas daquela área.
+9. Preservar integralmente as restantes áreas já documentadas.
+10. Não tentar mapear processos não relacionados apenas para completar o documento.
+
+`Estrutura.md` deve permanecer um índice técnico conciso e navegável, e não transformar-se numa documentação extensa da implementação.
