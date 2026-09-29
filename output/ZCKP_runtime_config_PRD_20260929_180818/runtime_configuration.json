@@ -1,0 +1,870 @@
+{
+  "read_only": true,
+  "environment": "PRD",
+  "timestamp": "2026-09-29T18:08:18",
+  "tables": {
+    "/SBXC/ZCKP_TAB00": {
+      "fields": [
+        {
+          "FIELDNAME": "PROCESSO"
+        },
+        {
+          "FIELDNAME": "EST_CAB"
+        },
+        {
+          "FIELDNAME": "EST_LIN"
+        },
+        {
+          "FIELDNAME": "FM_CAB_DISP"
+        },
+        {
+          "FIELDNAME": "FM_LIN_DISP"
+        },
+        {
+          "FIELDNAME": "FM_DBLCLK"
+        },
+        {
+          "FIELDNAME": "FM_ALTERACAO"
+        }
+      ],
+      "rows": [
+        {
+          "PROCESSO": "ARQUIVO",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "BP_CORE",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "AVEN_C_REF",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "AV_C_REFRE",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "ERRO",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "ATIVOS",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "FSE_C_PO",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "FSE_PO_VIA",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "INVENTARIO",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "MERRO",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PO_CORE",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PO_NONCORE",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "SAPHETY",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "SERRO",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "ZERRO",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PEND_CORE",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PEND_NCORE",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PO_ATIVOS",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "FI_C_IMP",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "INTEG_MOZY",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "FI_FSMOZY",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PO_C_IMP",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "BP_NONCORE",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PEND_CODF",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "PEND_C_IMP",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "FILA_225",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "FI_SALSA",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        },
+        {
+          "PROCESSO": "FI_LOSAN",
+          "EST_CAB": "/SBXC/ZCKP_INVH",
+          "EST_LIN": "/SBXC/ZCKP_INVI",
+          "FM_CAB_DISP": "/SBXC/ZCKP_CAB_FAT",
+          "FM_LIN_DISP": "/SBXC/ZCKP_ITEM_FAT",
+          "FM_DBLCLK": "/SBXC/ZCKP_DBL_CLK",
+          "FM_ALTERACAO": "/SBXC/ZCKP_GUARDA_ALT_FAT"
+        }
+      ]
+    },
+    "/SBXC/ZCKP_TAB03": {
+      "fields": [
+        {
+          "FIELDNAME": "EST_BOTAO"
+        },
+        {
+          "FIELDNAME": "ALVHL"
+        },
+        {
+          "FIELDNAME": "NUM"
+        },
+        {
+          "FIELDNAME": "FUNCTION"
+        },
+        {
+          "FIELDNAME": "ICON"
+        },
+        {
+          "FIELDNAME": "BUTN_TYPE"
+        },
+        {
+          "FIELDNAME": "DISABLED"
+        },
+        {
+          "FIELDNAME": "FM"
+        },
+        {
+          "FIELDNAME": "NUM_PAI"
+        }
+      ],
+      "rows": [
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "001",
+          "FUNCTION": "PEDIDO",
+          "ICON": "ICON_ENTER_MORE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_ASSOCIA_PED_M",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "002",
+          "FUNCTION": "REFR",
+          "ICON": "ICON_REFRESH",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_REFRESH",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "003",
+          "FUNCTION": "TRAT_D",
+          "ICON": "",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_GUARDA_ALT_TRAT",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "004",
+          "FUNCTION": "INT2",
+          "ICON": "ICON_DETAIL",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_MM_REGISTA_FAC_CKP",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "005",
+          "FUNCTION": "EMAIL",
+          "ICON": "ICON_MAIL_SAP_UNREAD",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_SEND_EMAIL",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "006",
+          "FUNCTION": "EST",
+          "ICON": "ICON_STORNO",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_CANCEL",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "007",
+          "FUNCTION": "FBR2",
+          "ICON": "ICON_COPY_OBJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_FBR2",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "008",
+          "FUNCTION": "",
+          "ICON": "ICON_STATUS_OK",
+          "BUTN_TYPE": "2",
+          "DISABLED": "",
+          "FM": "",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "009",
+          "FUNCTION": "BAPI",
+          "ICON": "",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_BAPI_INVOICE",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "010",
+          "FUNCTION": "F-41",
+          "ICON": "",
+          "BUTN_TYPE": "6",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_RFBIBL00",
+          "NUM_PAI": "008"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "012",
+          "FUNCTION": "F-43",
+          "ICON": "",
+          "BUTN_TYPE": "6",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_RFBIBL00",
+          "NUM_PAI": "008"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "013",
+          "FUNCTION": "FB01",
+          "ICON": "ICON_DETAIL",
+          "BUTN_TYPE": "6",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_RFBIBL00",
+          "NUM_PAI": "008"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "014",
+          "FUNCTION": "INT",
+          "ICON": "ICON_EXECUTE_OBJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_MM_REGISTA_FAC_CKP",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "015",
+          "FUNCTION": "TRAT_A",
+          "ICON": "",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_GUARDA_ALT_TRAT",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "017",
+          "FUNCTION": "IV",
+          "ICON": "ICON_BOOKING_OK",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_MM_LIGA_ULT_VARIOS",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "020",
+          "FUNCTION": "APR",
+          "ICON": "ICON_ALLOW",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_MM_LIGA_ULTERIOR",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "021",
+          "FUNCTION": "REJ",
+          "ICON": "ICON_REJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_REJ",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "022",
+          "FUNCTION": "MESS",
+          "ICON": "ICON_SHORT_MESSAGE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_LOG_MESS",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "023",
+          "FUNCTION": "REJ2",
+          "ICON": "ICON_REJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_REJ",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "025",
+          "FUNCTION": "DES_APR",
+          "ICON": "ICON_CANCEL",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_CANC_LIGA_ULTERIOR",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "026",
+          "FUNCTION": "SIMULA",
+          "ICON": "ICON_SIMULATE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_MM_REGISTA_FAC_CKP",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "027",
+          "FUNCTION": "VDOC",
+          "ICON": "ICON_CONTENT_OBJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_VER_DOC_FI",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "028",
+          "FUNCTION": "HEMAIL",
+          "ICON": "ICON_MAIL_SAP_READ",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_READ_EMAIL",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "029",
+          "FUNCTION": "VIMG",
+          "ICON": "ICON_VIEWER_OPTICAL_ARCHIVE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_IMG",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "030",
+          "FUNCTION": "MAIL_F",
+          "ICON": "ICON_MAIL_SAP_UNREAD",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_SEND_EMAIL_LIFNR",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "031",
+          "FUNCTION": "REENVIO",
+          "ICON": "ICON_NEXT_OBJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_SENDSAPHETY",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "H",
+          "NUM": "035",
+          "FUNCTION": "ALTERAC",
+          "ICON": "ICON_MASS_CHANGE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_ALT_MASSA_C",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "L",
+          "NUM": "016",
+          "FUNCTION": "ALTERA",
+          "ICON": "ICON_MASS_CHANGE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_ALTERA_MASSA",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "L",
+          "NUM": "023",
+          "FUNCTION": "APP",
+          "ICON": "ICON_INSERT_ROW",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_ITEM_NEW",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "L",
+          "NUM": "024",
+          "FUNCTION": "COPY",
+          "ICON": "ICON_COPY_OBJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_ITEM_COPY",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "L",
+          "NUM": "030",
+          "FUNCTION": "DEL",
+          "ICON": "ICON_DELETE_ROW",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_ITEM_DEL",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "S",
+          "NUM": "001",
+          "FUNCTION": "MT",
+          "ICON": "ICON_SELECT_ALL",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_M_TUDO",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "S",
+          "NUM": "002",
+          "FUNCTION": "DMT",
+          "ICON": "ICON_DESELECT_ALL",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_DM_TUDO",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "GERAL",
+          "ALVHL": "S",
+          "NUM": "003",
+          "FUNCTION": "INV",
+          "ICON": "ICON_INTERCHANGE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_INVERTER",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "H",
+          "NUM": "004",
+          "FUNCTION": "MESS",
+          "ICON": "ICON_SHORT_MESSAGE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_LOG_MESS",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "H",
+          "NUM": "005",
+          "FUNCTION": "VDOC",
+          "ICON": "ICON_CONTENT_OBJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_VER_DOC_FI",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "H",
+          "NUM": "006",
+          "FUNCTION": "VIMG",
+          "ICON": "ICON_VIEWER_OPTICAL_ARCHIVE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_IMG",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "H",
+          "NUM": "007",
+          "FUNCTION": "REFR",
+          "ICON": "ICON_REFRESH",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_REFRESH",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "H",
+          "NUM": "008",
+          "FUNCTION": "SIMULA",
+          "ICON": "ICON_SIMULATE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_MM_REGISTA_FAC_CKP",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "H",
+          "NUM": "009",
+          "FUNCTION": "EMAIL",
+          "ICON": "ICON_MAIL_SAP_UNREAD",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_SEND_EMAIL",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "H",
+          "NUM": "010",
+          "FUNCTION": "HEMAIL",
+          "ICON": "ICON_MAIL_SAP_READ",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_READ_EMAIL",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "S",
+          "NUM": "001",
+          "FUNCTION": "MT",
+          "ICON": "ICON_SELECT_ALL",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_M_TUDO",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "S",
+          "NUM": "002",
+          "FUNCTION": "DMT",
+          "ICON": "ICON_DESELECT_ALL",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_DM_TUDO",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "SAPHETY",
+          "ALVHL": "S",
+          "NUM": "003",
+          "FUNCTION": "INV",
+          "ICON": "ICON_INTERCHANGE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_INVERTER",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "ERRO",
+          "ALVHL": "H",
+          "NUM": "001",
+          "FUNCTION": "REJ",
+          "ICON": "ICON_REJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_REJ",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "ERRO",
+          "ALVHL": "H",
+          "NUM": "002",
+          "FUNCTION": "VIMG",
+          "ICON": "ICON_VIEWER_OPTICAL_ARCHIVE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_IMG",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "ERRO",
+          "ALVHL": "H",
+          "NUM": "003",
+          "FUNCTION": "REFR",
+          "ICON": "ICON_REFRESH",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_REFRESH",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "ERRO",
+          "ALVHL": "H",
+          "NUM": "004",
+          "FUNCTION": "EMAIL",
+          "ICON": "ICON_MAIL_SAP_UNREAD",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_SEND_EMAIL",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "ERRO",
+          "ALVHL": "H",
+          "NUM": "005",
+          "FUNCTION": "PEDIDO",
+          "ICON": "ICON_ENTER_MORE",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_ASSOCIA_PED_M",
+          "NUM_PAI": "000"
+        },
+        {
+          "EST_BOTAO": "ERRO",
+          "ALVHL": "H",
+          "NUM": "023",
+          "FUNCTION": "REJ2",
+          "ICON": "ICON_REJECT",
+          "BUTN_TYPE": "0",
+          "DISABLED": "",
+          "FM": "/SBXC/ZCKP_REJ",
+          "NUM_PAI": "000"
+        }
+      ]
+    }
+  },
+  "errors": []
+}
