@@ -203,7 +203,11 @@
         'user-create-back',
         'user-create-confirm',
         'user-create-mode-individual',
-        'user-create-mode-copy'
+        'user-create-mode-copy',
+        'condicao-pagamento',
+        'condicao-pagamento-pesquisar-intervalo',
+        'condicao-pagamento-criar-copia',
+        'condicao-pagamento-criar-individual'
     ]);
 
     function asiDefaultConversationState() {
@@ -8875,6 +8879,163 @@
         asiStartPfcgIndividualDelete();
     }
 
+    async function asiStartZtermIntervalResearch(system) {
+        const message = asiCreateMessage('assistant', `A pesquisar intervalo de Condições de Pagamento em ${system} via RFC...`, { isProcessing: true });
+        asiAppendMessage(message);
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/configuracoes/zterm/interval', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ system: system, prefix: 'Z' })
+            });
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Erro na chamada da API de intervalo.');
+            }
+
+            const data = await response.json();
+            const jobId = data.job_id;
+
+            const startTime = Date.now();
+            while (Date.now() - startTime < 30000) {
+                await new Promise(r => setTimeout(r, 1000));
+                const pollRes = await fetch(`/api/jobs/${jobId}`);
+                if (!pollRes.ok) continue;
+                const jobData = await pollRes.json();
+                if (jobData.state === 'succeeded') {
+                    const result = typeof jobData.result === 'string' ? JSON.parse(jobData.result) : (jobData.result || {});
+                    const nextCode = result.next_available_code || 'Z031';
+                    const lastCode = result.last_used_code || 'Nenhum';
+                    const total = result.total_existing || 0;
+                    const matched = result.matched_count || 0;
+
+                    const html = `
+                        <div style="padding: 12px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px;">
+                            <h4 style="margin: 0 0 8px 0; color: #3b82f6;">📊 Resultado da Pesquisa de Intervalo (${escapeHtml(system)})</h4>
+                            <p style="margin: 4px 0;"><strong>Total de Condições no Sistema:</strong> ${total}</p>
+                            <p style="margin: 4px 0;"><strong>Condições com Prefixo Z*:</strong> ${matched}</p>
+                            <p style="margin: 4px 0;"><strong>Último Código Z* Usado:</strong> <code>${escapeHtml(lastCode)}</code></p>
+                            <p style="margin: 8px 0 4px 0; font-size: 1.05rem; color: #10b981;">
+                                ✨ <strong>Próximo Código Disponível:</strong> <span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">${escapeHtml(nextCode)}</span>
+                            </p>
+                        </div>
+                    `;
+
+                    asiUpdateMessage(message.id, {
+                        text: 'Pesquisa de intervalo de Condições de Pagamento concluída com sucesso.',
+                        html: html,
+                        isProcessing: false,
+                        actions: [
+                            { id: `zterm-copy-preset:${nextCode}`, label: `Criar por Cópia (${nextCode})`, icon: 'copy' },
+                            { id: 'condicao-pagamento-criar-copia', label: 'Criar por Cópia (Outro)', icon: 'copy' },
+                            ASI_MAIN_MENU_ACTION
+                        ],
+                        selectionGroupKey: 'zterm-interval-result'
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                } else if (jobData.state === 'failed') {
+                    throw new Error(jobData.error || 'Falha no job de pesquisa de intervalo.');
+                }
+            }
+            throw new Error('Timeout ao aguardar resposta da pesquisa de intervalo.');
+        } catch (err) {
+            asiUpdateMessage(message.id, {
+                text: 'Falha ao pesquisar intervalo de Condições de Pagamento.',
+                html: asiBuildPfcgErrorHtml('Erro na Pesquisa RFC', err.message || 'Erro desconhecido.'),
+                isProcessing: false,
+                actions: [ASI_MAIN_MENU_ACTION]
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
+    async function asiPromptZtermCopyDetails(system, defaultTargetCode = 'Z031') {
+        const sourceCode = window.prompt('Informe o Código da Condição de Pagamento de ORIGEM (ex.: 0001 ou Z030):', '0001');
+        if (!sourceCode) return;
+
+        const targetCode = window.prompt('Informe o NOVO Código da Condição de Pagamento (ex.: Z031):', defaultTargetCode);
+        if (!targetCode) return;
+
+        const targetName = window.prompt('Informe a DESCRIÇÃO da nova Condição (ex.: Pagamento 30 dias):', 'Pagamento 30 dias');
+        if (!targetName) return;
+
+        const reqDesc = `${targetCode} - ${targetName}`.substring(0, 60);
+
+        const message = asiCreateMessage('assistant', `A iniciar criação por cópia na OBB8 (${system})...<br>• Origem: <b>${escapeHtml(sourceCode)}</b><br>• Novo Código: <b>${escapeHtml(targetCode)}</b><br>• Nome: <b>${escapeHtml(targetName)}</b><br>• Customizing Request (SE10): <b>${escapeHtml(reqDesc)}</b>`, { isProcessing: true });
+        asiAppendMessage(message);
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/configuracoes/zterm/copy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    system: system,
+                    zterm_source: sourceCode,
+                    zterm_target: targetCode,
+                    zterm_name: targetName
+                })
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Erro ao iniciar job de cópia.');
+            }
+
+            const data = await response.json();
+            const jobId = data.job_id;
+
+            const startTime = Date.now();
+            while (Date.now() - startTime < 45000) {
+                await new Promise(r => setTimeout(r, 1500));
+                const pollRes = await fetch(`/api/jobs/${jobId}`);
+                if (!pollRes.ok) continue;
+                const jobData = await pollRes.json();
+                if (jobData.state === 'succeeded') {
+                    const result = typeof jobData.result === 'string' ? JSON.parse(jobData.result) : (jobData.result || {});
+                    const reqNum = result.request_number || 'N/A';
+                    const msgSap = result.message || 'Cópia efetuada com sucesso.';
+
+                    const html = `
+                        <div style="padding: 12px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px;">
+                            <h4 style="margin: 0 0 8px 0; color: #10b981;">✅ Condição de Pagamento Criada com Sucesso</h4>
+                            <p style="margin: 4px 0;"><strong>Código Criado:</strong> <code>${escapeHtml(targetCode)}</code></p>
+                            <p style="margin: 4px 0;"><strong>Descrição:</strong> ${escapeHtml(targetName)}</p>
+                            <p style="margin: 4px 0;"><strong>Copiado de:</strong> <code>${escapeHtml(sourceCode)}</code></p>
+                            <p style="margin: 4px 0;"><strong>Customizing Request:</strong> <code style="background: #065f46; color: white; padding: 2px 6px; border-radius: 4px;">${escapeHtml(reqNum)}</code></p>
+                            <p style="margin: 4px 0; color: #6b7280; font-style: italic;">Mensagem SAP: ${escapeHtml(msgSap)}</p>
+                        </div>
+                    `;
+
+                    asiUpdateMessage(message.id, {
+                        text: `Condição de Pagamento ${targetCode} criada com sucesso via OBB8 SAP GUI!`,
+                        html: html,
+                        isProcessing: false,
+                        actions: [ASI_MAIN_MENU_ACTION]
+                    });
+                    asiConversationState = { ...asiConversationState, isBusy: false };
+                    asiUpdateComposerState();
+                    return;
+                } else if (jobData.state === 'failed') {
+                    throw new Error(jobData.error || 'Falha ao executar cópia via SAP GUI.');
+                }
+            }
+            throw new Error('Timeout ao aguardar conclusão da cópia OBB8.');
+        } catch (err) {
+            asiUpdateMessage(message.id, {
+                text: 'Falha na criação por cópia da Condição de Pagamento.',
+                html: asiBuildPfcgErrorHtml('Erro SAP GUI / OBB8', err.message || 'Erro inesperado.'),
+                isProcessing: false,
+                actions: [ASI_MAIN_MENU_ACTION]
+            });
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateComposerState();
+        }
+    }
+
     // ── Eliminação em massa: Eliminar Perfil > Pesquisar por Texto > marcar funções > "Eliminar Funções" ──
     function asiStartPfcgBulkDelete() {
         const messageId = asiConversationState.pfcgDeleteBulkResultMessageId;
@@ -10901,6 +11062,14 @@
                             asiUpdateComposerState();
                         }
                     }, 0);
+                } else if (asiConfigContext === 'condicao-pagamento-pesquisar-intervalo') {
+                    asiConfigContext = 'perfil';
+                    await asiStartZtermIntervalResearch(asiPfcgSystem);
+                    return;
+                } else if (asiConfigContext === 'condicao-pagamento-criar-copia') {
+                    asiConfigContext = 'perfil';
+                    await asiPromptZtermCopyDetails(asiPfcgSystem);
+                    return;
                 } else if (asiConfigContext === 'utilizador') {
                     const uNode = asiFindQuickAction('utilizador', salsaAgentActions);
                     asiAppendMessage(asiCreateMessage('assistant', 'Como deseja importar os utilizadores?', {
@@ -10979,6 +11148,69 @@
                     selectionGroupKey: 'obyc-system',
                 }));
             asiUpdateComposerState();
+            return true;
+        }
+
+        if (actionId === 'condicao-pagamento') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiConfigContext = 'condicao-pagamento';
+            const node = asiFindQuickAction('condicao-pagamento', salsaAgentActions);
+            asiAppendMessage(asiCreateMessage('user', action.prompt || 'Quero trabalhar com Condição de pagamento.'));
+            asiAppendMessage(asiCreateMessage('assistant', 'O que deseja fazer em Condição de pagamento?', {
+                breadcrumb: asiBuildQuickActionBreadcrumb('condicao-pagamento'),
+                actions: (node && Array.isArray(node.children)) ? node.children : [],
+                parentActionId: 'condicao-pagamento',
+                selectionGroupKey: 'condicao-pagamento',
+            }));
+            asiUpdateComposerState();
+            return true;
+        }
+
+        if (actionId === 'condicao-pagamento-pesquisar-intervalo') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiConfigContext = 'condicao-pagamento-pesquisar-intervalo';
+            asiAppendMessage(asiCreateMessage('user', action.prompt || 'Quero pesquisar o próximo código de condição de pagamento disponível via RFC.'));
+            asiAppendMessage(asiCreateMessage('assistant', 'Em que sistema quer pesquisar o intervalo?', {
+                breadcrumb: asiBuildQuickActionBreadcrumb('condicao-pagamento-pesquisar-intervalo'),
+                actions: ASI_PFCG_SYSTEM_ACTIONS,
+                selectionGroupKey: 'condicao-pagamento-system-interval',
+            }));
+            asiUpdateComposerState();
+            return true;
+        }
+
+        if (actionId === 'condicao-pagamento-criar-copia') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiConfigContext = 'condicao-pagamento-criar-copia';
+            asiAppendMessage(asiCreateMessage('user', action.prompt || 'Quero criar uma nova condição de pagamento por cópia.'));
+            asiAppendMessage(asiCreateMessage('assistant', 'Em que sistema quer criar a condição por cópia?', {
+                breadcrumb: asiBuildQuickActionBreadcrumb('condicao-pagamento-criar-copia'),
+                actions: ASI_PFCG_SYSTEM_ACTIONS,
+                selectionGroupKey: 'condicao-pagamento-system-copy',
+            }));
+            asiUpdateComposerState();
+            return true;
+        }
+
+        if (actionId === 'condicao-pagamento-criar-individual') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            asiAppendMessage(asiCreateMessage('user', action.prompt || 'Quero criar uma condição de pagamento individualmente.'));
+            asiAppendMessage(asiCreateMessage('assistant', 'ℹ️ A funcionalidade "Criar Individualmente" está em desenvolvimento. Utilize a opção "Criar por Cópia" para efetuar novas condições com base num modelo.', {
+                breadcrumb: asiBuildQuickActionBreadcrumb('condicao-pagamento-criar-individual'),
+                actions: [
+                    { id: 'condicao-pagamento-criar-copia', label: 'Criar por Cópia', icon: 'copy' },
+                    ASI_MAIN_MENU_ACTION
+                ],
+                selectionGroupKey: 'condicao-pagamento-individual-notice'
+            }));
+            asiUpdateComposerState();
+            return true;
+        }
+
+        if (typeof actionId === 'string' && actionId.indexOf('zterm-copy-preset:') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            const presetCode = actionId.replace('zterm-copy-preset:', '').trim();
+            await asiPromptZtermCopyDetails(asiPfcgSystem, presetCode);
             return true;
         }
 
