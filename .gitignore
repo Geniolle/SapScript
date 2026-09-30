@@ -38,6 +38,10 @@ _store_job_state_*
 
 # Scratch analysis dumps and temporary investigation probes
 scratch/
+# Exception: Include ABAP source code for ZFI_PURCH_DOC_EX_RATE investigation
+!scratch/ZFI_PURCH_DOC_EX_RATE_LCL.abap
+!scratch/ZFI_PURCH_DOC_EX_RATE_SRC.abap
+!scratch/ZFI_PURCH_DOC_EX_RATE_TOP.abap
 
 # Office / Excel temporary lock files
 ~$*
