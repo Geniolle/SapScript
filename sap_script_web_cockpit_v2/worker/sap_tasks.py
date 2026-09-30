@@ -592,6 +592,41 @@ def _open_transaction(params: dict[str, Any]) -> tuple[str, str]:
     return status or f"Transacao {transaction} aberta; STATUS vazio em wnd[0]/sbar", log
 
 
+def _run_zterm_interval_analysis(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    from sap_rfc.zterm_service import get_zterm_interval_analysis
+
+    environment = str(params.get("environment") or "DEV").strip().upper()
+    prefix = str(params.get("prefix") or "Z").strip().upper()
+
+    res = get_zterm_interval_analysis(environment=environment, prefix=prefix)
+    log = f"Análise de Intervalo ZTERM concluída em {environment}.\nPróximo disponível: {res.get('next_available_code')}"
+    return json.dumps(res, ensure_ascii=False), log
+
+
+def _run_zterm_copy_gui(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    from Processos.zterm_copy_gui import copy_zterm_gui
+
+    system = str(params.get("system") or "S4D").strip().upper()
+    client = str(params.get("client") or "100").strip()
+    zterm_source = str(params.get("zterm_source") or "0001").strip().upper()
+    zterm_target = str(params.get("zterm_target") or "Z031").strip().upper()
+    zterm_name = str(params.get("zterm_name") or "Pagamento 30 dias").strip()
+    req = params.get("request_number")
+
+    res = copy_zterm_gui(
+        system_name=system,
+        client=client,
+        zterm_source=zterm_source,
+        zterm_target=zterm_target,
+        zterm_name=zterm_name,
+        request_number=req,
+    )
+    log = f"Cópia da Condição de Pagamento {zterm_target} finalizada.\nRequest: {res.get('request_number')}\nMensagem SAP: {res.get('message')}"
+    return json.dumps(res, ensure_ascii=False), log
+
+
 OBYC_ALLOWED_TABLES = ("T030", "T030K", "T030R", "T030B", "T030H")
 
 
@@ -2584,6 +2619,8 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_transport_search": lambda job, params: _run_pfcg_transport_search(params),
     "sap_search_requests": lambda job, params: _run_sap_search_requests(params),
     "obyc_rfc_read_table": lambda job, params: _run_obyc_rfc_read_table(params),
+    "zterm_interval_analysis": lambda job, params: _run_zterm_interval_analysis(params),
+    "zterm_copy_gui": lambda job, params: _run_zterm_copy_gui(params),
     "sap_fm_exists_check": lambda job, params: _run_sap_fm_exists_check(params),
     "sap_object_inspect": lambda job, params: _run_sap_object_inspect(params),
     "obyc_excel_preview": lambda job, params: _run_obyc_excel_preview(params),

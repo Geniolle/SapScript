@@ -573,6 +573,37 @@
                     ]
                 },
                 {
+                    id: 'condicao-pagamento',
+                    label: 'Condição de pagamento',
+                    icon: 'settings',
+                    prompt: 'Quero trabalhar com Condição de pagamento.',
+                    followupText: 'O que deseja fazer em Condição de pagamento?',
+                    followupActionsSource: 'children',
+                    children: [
+                        {
+                            id: 'condicao-pagamento-pesquisar-intervalo',
+                            label: 'Pesquisa intervalo (RFC)',
+                            icon: 'analysis',
+                            prompt: 'Quero pesquisar o próximo código de condição de pagamento disponível via RFC.',
+                            children: []
+                        },
+                        {
+                            id: 'condicao-pagamento-criar-copia',
+                            label: 'Criar por Cópia',
+                            icon: 'copy',
+                            prompt: 'Quero criar uma nova condição de pagamento por cópia.',
+                            children: []
+                        },
+                        {
+                            id: 'condicao-pagamento-criar-individual',
+                            label: 'Criar Individualmente',
+                            icon: 'shield-plus',
+                            prompt: 'Quero criar uma condição de pagamento individualmente.',
+                            children: []
+                        }
+                    ]
+                },
+                {
                     id: 'gl-account',
                     label: 'Conta Razão',
                     icon: 'settings',

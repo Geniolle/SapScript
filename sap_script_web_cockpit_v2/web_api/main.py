@@ -1521,6 +1521,62 @@ def api_salsa_it_configuracoes_obyc_analisar(payload: dict[str, Any] | None = No
     return _obyc_analisar_criar_job(payload)
 
 
+@app.post("/api/salsa-it-agent/configuracoes/zterm/interval")
+def api_salsa_it_configuracoes_zterm_interval(payload: dict[str, Any] | None = None) -> JSONResponse:
+    payload = payload or {}
+    system = _validate_pfcg_system_or_400(str(payload.get("system") or "DEV"))
+    prefix = str(payload.get("prefix") or "Z").strip().upper()
+    try:
+        job = create_job(
+            "zterm_interval_analysis",
+            {
+                "environment": system,
+                "prefix": prefix,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "system": system, "prefix": prefix})
+
+
+@app.post("/api/salsa-it-agent/configuracoes/zterm/copy")
+def api_salsa_it_configuracoes_zterm_copy(payload: dict[str, Any] | None = None) -> JSONResponse:
+    payload = payload or {}
+    system = _validate_pfcg_system_or_400(str(payload.get("system") or "DEV"))
+    zterm_source = str(payload.get("zterm_source") or "").strip().upper()
+    zterm_target = str(payload.get("zterm_target") or "").strip().upper()
+    zterm_name = str(payload.get("zterm_name") or "").strip()
+    request_number = str(payload.get("request_number") or "").strip().upper() or None
+
+    if not zterm_source or not zterm_target or not zterm_name:
+        raise HTTPException(status_code=400, detail="Informe zterm_source, zterm_target e zterm_name.")
+
+    try:
+        job = create_job(
+            "zterm_copy_gui",
+            {
+                "system": system,
+                "client": "100",
+                "zterm_source": zterm_source,
+                "zterm_target": zterm_target,
+                "zterm_name": zterm_name,
+                "request_number": request_number,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "system": system,
+        "zterm_source": zterm_source,
+        "zterm_target": zterm_target,
+    })
+
+
+
 @app.post("/api/salsa-it-agent/configuracoes/obyc/excel/preview")
 def api_salsa_it_configuracoes_obyc_excel_preview() -> JSONResponse:
     try:

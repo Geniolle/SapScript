@@ -97,6 +97,14 @@
   - **Worker:** `worker/sap_tasks.py` (`gl_account_create_by_model` -> `_run_gl_account_create_by_model`)
   - **Serviço RFC:** `sap_rfc/gl_account_service.py`, `sap_rfc/gl_account_cli.py`
 
+#### 1.5 Condição de Pagamento (OBB8 / ZTERM)
+- **Pesquisa de Intervalo (RFC) & Criação por Cópia (SAP GUI Scripting):**
+  - **Frontend:** `cockpit.agent.js` (`condicao-pagamento`, `condicao-pagamento-pesquisar-intervalo`, `condicao-pagamento-criar-copia`, `condicao-pagamento-criar-individual`)
+  - **API:** `POST /api/salsa-it-agent/configuracoes/zterm/interval`, `POST /api/salsa-it-agent/configuracoes/zterm/copy`
+  - **Worker:** `worker/sap_tasks.py` (`zterm_interval_analysis`, `zterm_copy_gui`)
+  - **Serviço RFC & Automação GUI:** `sap_rfc/zterm_service.py` (`get_zterm_interval_analysis`), `Processos/zterm_copy_gui.py` (`copy_zterm_gui`), `Processos/criar_request.py` (`criar_nova_request_auto`)
+  - **Documentação Técnica:** `docs/RELATORIO_TECNICO_OBB8_ZTERM.md`
+
 ---
 
 ### 2. Projetos
