@@ -51,3 +51,10 @@ Sempre que o utilizador solicitar **"atualiza o Estrutura.md"**, interpretar com
 10. Não tentar mapear processos não relacionados apenas para completar o documento.
 
 `Estrutura.md` deve permanecer um índice técnico conciso e navegável, e não transformar-se numa documentação extensa da implementação.
+
+## Extração de Dados SAP & Ficheiros Temporários
+
+1. **Filtragem Local de Estruturas (`INTTAB`):** Em scripts de extração de tabelas via RFC (ex.: `RFC_READ_TABLE`), filtrar sempre por `TABCLASS = 'TRANSP'`, ignorando estruturas de memória (`INTTAB`) localmente. Elas não contêm registos persistidos e a sua tentativa de leitura gera falsos erros nos inventários.
+2. **Isolamento de Artefactos Temporários (`output/.tmp/`):** Leituras temporárias, logs brutos e varreduras de teste devem ser guardados dentro de diretórios temporários (ex.: `SapScript/output/.tmp/` ou `tests/.tmp/`), evitando acumular ficheiros não estruturados na raiz.
+3. **Garantia de Segurança SAP:** Qualquer eliminação ou limpeza é estritamente LOCAL nos inventários/manifestos da máquina. Nunca executar alterações ou eliminações no ambiente SAP.
+
