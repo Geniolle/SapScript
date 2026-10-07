@@ -192,16 +192,76 @@ except ImportError:
 
 
 # =====================================================================
-# LOCALIZAÇÃO DO FICHEIRO EXCEL
+# LOCALIZAÇÃO E SINCRONIZAÇÃO DO FICHEIRO EXCEL (SHAREPOINT / ONEDRIVE)
 # =====================================================================
 
 CAMINHO_EXCEL_LOCAL = str(Path(__file__).resolve().parents[2] / "S4H_Perfis de autorização_v1.xlsx")
 CAMINHO_EXCEL_BACKUP_LOCAL = str(Path(__file__).resolve().parents[2] / "output" / "S4H_Perfis de autorização_v1_backup_automatico.xlsx")
 
 
+def sincronizar_copia_sharepoint() -> bool:
+    """
+    Localiza o ficheiro sincronizado do SharePoint na pasta do OneDrive da Salsa
+    e atualiza a cópia de trabalho local em C:\\workspace\\SapScript\\S4H_Perfis de autorização_v1.xlsx.
+    Faz backup automático antes de sobrescrever.
+    """
+    import shutil
+    try:
+        user_profile = os.environ.get("USERPROFILE", "")
+        if not user_profile:
+            return False
+
+        # Procurar a pasta de atalhos sincronizados do SharePoint
+        padrao_onedrive = os.path.join(user_profile, "OneDrive - Salsajeans", "Shortcuts", "*", "S4H_Perfis de autorização_v1.xlsx")
+        candidatos = glob.glob(padrao_onedrive)
+        
+        if not candidatos:
+            # Fallback para qualquer ficheiro v1 na estrutura do OneDrive corporativo
+            padrao_fallback = os.path.join(user_profile, "OneDrive - Salsajeans", "**", "S4H_Perfis de autorização_v1.xlsx")
+            candidatos = glob.glob(padrao_fallback, recursive=True)
+
+        if not candidatos:
+            return False
+
+        origem_sp = candidatos[0]
+        if not os.path.exists(origem_sp):
+            return False
+
+        # Se já existe o local e a origem for mais recente (ou se o local não existir), efetuar a cópia
+        precisa_atualizar = True
+        if os.path.exists(CAMINHO_EXCEL_LOCAL):
+            mtime_origem = os.path.getmtime(origem_sp)
+            mtime_local = os.path.getmtime(CAMINHO_EXCEL_LOCAL)
+            if mtime_local >= mtime_origem:
+                precisa_atualizar = False
+
+        if precisa_atualizar:
+            # Criar pasta de output se necessário
+            dir_output = os.path.dirname(CAMINHO_EXCEL_BACKUP_LOCAL)
+            os.makedirs(dir_output, exist_ok=True)
+
+            # Backup com timestamp se o local já existir
+            if os.path.exists(CAMINHO_EXCEL_LOCAL):
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_ts = os.path.join(dir_output, f"S4H_Perfis_v1_backup_{timestamp}.xlsx")
+                shutil.copy2(CAMINHO_EXCEL_LOCAL, backup_ts)
+
+            # Copiar da origem sincronizada para o ficheiro local
+            shutil.copy2(origem_sp, CAMINHO_EXCEL_LOCAL)
+            print(f"[SINCRONIZAÇÃO] Cópia atualizada com sucesso a partir do SharePoint/OneDrive:")
+            print(f"               Origem: {origem_sp}")
+            print(f"               Destino: {CAMINHO_EXCEL_LOCAL}")
+            return True
+
+    except Exception as err:
+        print(f"[AVISO] Não foi possível sincronizar automaticamente do SharePoint/OneDrive: {err}")
+    return False
+
+
 def encontrar_excel_padrao(diretorio_base: Optional[str] = None) -> Optional[str]:
-    """Devolve exclusivamente o ficheiro mestre local definido para o projeto."""
+    """Devolve o ficheiro mestre local, sincronizando antes com a origem se disponível."""
     del diretorio_base  # compatibilidade com chamadas antigas; não é usado.
+    sincronizar_copia_sharepoint()
     return CAMINHO_EXCEL_LOCAL if os.path.isfile(CAMINHO_EXCEL_LOCAL) else None
 
 
