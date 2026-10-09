@@ -21,6 +21,10 @@ def get_zterm_interval_analysis(environment: str = "DEV", prefix: str = "Z") -> 
     Pesquisa as Condições de Pagamento existentes na tabela T052/T052U via RFC
     e identifica o próximo código disponível no intervalo (ex: prefixo 'Z').
     """
+    from sap_rfc._rfc_common import find_project_root, load_project_env
+    root = find_project_root()
+    load_project_env(root)
+
     params = build_connection_params_for_env(environment)
     from pyrfc import Connection
 

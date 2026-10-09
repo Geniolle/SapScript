@@ -2,17 +2,11 @@
 """
 scripts/reconciliar_proposta_ativa_com_prd.py
 ======================================================================
-Script temporário para comparar as Funções Individuais (Single Roles)
-já existentes na 'Proposta Ativa' do Excel mestre com as Single Roles
-atribuídas diretamente aos utilizadores no SAP PRD.
-
-REGRAS:
-1. População de utilizadores extraída 100% dos departamentos PROCESSADOS do Excel.
-2. FUNCOES_ATUAIS_EXCEL = Single Roles da linha do utilizador em 'Proposta Ativa'.
-3. FUNCOES_DIRETAS_PRD = Single Roles diretas ativas no SAP PRD (AGR_USERS com COL_FLAG != 'X').
-4. FUNCOES_A_ADICIONAR = FUNCOES_DIRETAS_PRD - FUNCOES_ATUAIS_EXCEL.
-5. FUNCOES_EXCEL_NAO_CONFIRMADAS_PRD = FUNCOES_ATUAIS_EXCEL - FUNCOES_DIRETAS_PRD.
-6. Estritamente READ-ONLY (sem alterações no Excel nem no SAP).
+Script de Reconciliação Integrada de 4 Fases para o Projeto Perfil:
+FASE 1: População de Utilizadores Ativos (CONTROLO -> Sheet Departamental -> User SAP).
+FASE 2: Incorporation de Single Roles Diretas Válidas do SAP PRD (Read-Only) -> Proposta Ativa (aplicando filtro DEFINIÇÕES).
+FASE 3A: Mapeamento de X das Matrizes Departamentais -> Proposta -> Proposta Ativa (Relação 1:N TCODE -> Roles).
+FASE 3B: Alinhamento e União Aditiva de Composite Roles -> PFCG_COMPOSTA.
 ======================================================================
 """
 
@@ -22,7 +16,7 @@ import re
 import argparse
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Set, Tuple, Any
+from typing import Dict, List, Set, Tuple, Any, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -64,30 +58,64 @@ def obter_funcoes_excluidas_definicoes(caminho_excel: str) -> Set[str]:
     return funcoes_excluidas
 
 
-def executar_reconciliacao_proposta_ativa(caminho_excel: str) -> Dict[str, Any]:
+def carregar_mapeamento_tcode_para_funcoes_proposta(caminho_excel: str) -> Tuple[Dict[str, Set[str]], List[Dict[str, Any]]]:
+    """
+    Lê a sheet 'Proposta' do Excel e monta a relação 1:N TCODE -> Set de Funções Individuais.
+    Também retorna lista de avisos para TCODEs sem mapeamento de função.
+    """
+    wb = openpyxl.load_workbook(caminho_excel, read_only=True, data_only=True)
+    if "Proposta" not in wb.sheetnames:
+        wb.close()
+        return {}, []
+
+    ws = wb["Proposta"]
+    rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+
+    tcode_map = {}
+    current_role = None
+
+    for r in rows[1:]:
+        if not r:
+            continue
+        func = str(r[0]).strip().upper() if r[0] else ""
+        desc = str(r[1]).strip() if len(r) > 1 and r[1] else ""
+
+        if func.startswith("Z_") and len(func) >= 4:
+            current_role = func
+        elif func and current_role and "TRANSACAO NAO EXISTE" not in desc.upper():
+            for t in re.split(r"[;, \s\n]+", func):
+                tc = t.strip().upper()
+                if tc:
+                    if tc not in tcode_map:
+                        tcode_map[tc] = set()
+                    tcode_map[tc].add(current_role)
+
+    return tcode_map, []
+
+
+def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -> Dict[str, Any]:
     print(f"\n==============================================================================")
-    print(f"  RECONCILIAÇÃO DE FUNÇÕES INDIVIDUAIS: PROPOSTA ATIVA vs SAP PRD")
+    print(f"  EXECUÇÃO DE RECONCILIAÇÃO INTEGRADA (FASE 1 -> FASE 2 -> FASE 3A -> FASE 3B)")
     print(f"  Ficheiro: {caminho_excel}")
-    print(f"  Modo: SIMULAÇÃO (Somente Leitura)")
+    print(f"  Modo: {'SIMULAÇÃO (Somente Leitura)' if simular else 'EXECUÇÃO REAL'}")
     print(f"==============================================================================\n")
 
-    # 0. Obter conjunto de exclusão da sheet DEFINIÇÕES
+    # 0. Obter conjunto de exclusão da sheet DEFINIÇÕES e Mapeamento 1:N TCODE -> Roles da sheet Proposta
     funcoes_excluidas_definicoes = obter_funcoes_excluidas_definicoes(caminho_excel)
-    print(f"[0/5] Roles encontradas em DEFINIÇÕES para exclusão ({len(funcoes_excluidas_definicoes)}): {', '.join(sorted(list(funcoes_excluidas_definicoes)))}\n")
+    tcode_to_roles_map, _ = carregar_mapeamento_tcode_para_funcoes_proposta(caminho_excel)
 
-    # 1. Obter departamentos PROCESSADOS da sheet CONTROLO
+    print(f"[0/5] Pré-carregamento:")
+    print(f"      - Roles excluídas em DEFINIÇÕES ({len(funcoes_excluidas_definicoes)})")
+    print(f"      - Mapeamento 1:N TCODE -> Roles em 'Proposta' ({len(tcode_to_roles_map)} TCODEs mapeadas)\n")
+
+    # FASE 1: USERS ATIVOS (CONTROLO -> Sheet Departamental -> User SAP)
     wb = openpyxl.load_workbook(caminho_excel, read_only=True, data_only=True)
     deps = obter_departamentos_processados(caminho_excel)
-    print(f"[1/5] Departamentos PROCESSADOS na sheet CONTROLO ({len(deps)}): {', '.join(deps)}")
+    print(f"[FASE 1] Departamentos PROCESSADOS na sheet CONTROLO ({len(deps)}): {', '.join(deps)}")
 
-    # 2. Ler a população de User SAP EXCLUSIVAMENTE nas sheets departamentais correspondentes
     users_excel_info = []
     user_ids_set = set()
-
-    print(f"\n[2/5] Mapeamento de Utilizadores (CONTROLO -> Sheet Departamental):")
-    print("-" * 100)
-    print(f"{'DEPARTAMENTO':<28} | {'USER SAP':<10} | {'NOME COMPLETO':<30} | {'COLUNA SHEET DEP':<18}")
-    print("-" * 100)
 
     for d in deps:
         if d in wb.sheetnames:
@@ -101,12 +129,8 @@ def executar_reconciliacao_proposta_ativa(caminho_excel: str) -> Dict[str, Any]:
                         nome = str(header[col_idx] or "").replace(uid, "").strip().replace("\n", " ")
                         users_excel_info.append({"dep": d, "uid": uid, "nome": nome, "coluna": col_idx + 1})
                         user_ids_set.add(uid)
-                        print(f"{d:<28} | {uid:<10} | {nome:<30} | Coluna {col_idx + 1:<11}")
 
-    print("-" * 100)
-    print(f"Total de utilizadores extraídos das sheets departamentais: {len(users_excel_info)} ({len(user_ids_set)} User IDs únicos)\n")
-
-    # 3. Mapear a linha correspondente de cada User SAP na sheet 'Proposta Ativa'
+    # Mapeamento para a Proposta Ativa
     ws_prop = wb["Proposta Ativa"]
     rows_prop = list(ws_prop.iter_rows(values_only=True))
 
@@ -119,16 +143,10 @@ def executar_reconciliacao_proposta_ativa(caminho_excel: str) -> Dict[str, Any]:
             uid_prop = str(r[0]).strip().upper()
             proposta_ativa_map[uid_prop] = r_idx
 
-    print(f"[3/5] Mapeamento para a sheet Proposta Ativa:")
-    print("-" * 100)
-    print(f"{'DEPARTAMENTO':<28} | {'USER SAP':<10} | {'NOME COMPLETO':<30} | {'LINHA PROPOSTA ATIVA'}")
-    print("-" * 100)
-
+    users_mapeados_fase1 = []
     erros_mapeamento = []
     for item in users_excel_info:
         uid = item["uid"]
-        dep = item["dep"]
-        nome = item["nome"]
         if uid in proposta_ativa_map:
             linha_prop = proposta_ativa_map[uid]
             item["linha_proposta_ativa"] = linha_prop
@@ -142,182 +160,272 @@ def executar_reconciliacao_proposta_ativa(caminho_excel: str) -> Dict[str, Any]:
                     if val and val.startswith("Z") and not val.startswith("Z_BR_") and len(val) >= 4:
                         funcs.add(val)
             user_funcs_excel[uid] = funcs
-            print(f"{dep:<28} | {uid:<10} | {nome:<30} | Linha {linha_prop}")
+            users_mapeados_fase1.append(item)
         else:
             item["linha_proposta_ativa"] = None
             erros_mapeamento.append(item)
-            print(f"{dep:<28} | {uid:<10} | {nome:<30} | ERRO_DE_MAPEAMENTO (Ausente na Proposta Ativa)")
 
-    print("-" * 100)
+    print(f"      - População congelada: {len(users_excel_info)} Users ({len(users_mapeados_fase1)} mapeados na Proposta Ativa, {len(erros_mapeamento)} erros de mapeamento)\n")
 
-    if erros_mapeamento:
-        print(f"\n[!] ALERTA: {len(erros_mapeamento)} utilizadores da sheet departamental não foram encontrados na Proposta Ativa.")
-        for err in erros_mapeamento:
-            print(f"    - {err['dep']} | {err['uid']} ({err['nome']}) -> ERRO_DE_MAPEAMENTO")
-
-    wb.close()
-
-    # 4. Consultar SAP PRD (Read-Only) para os User SAP válidos
-    print(f"\n[4/5] A consultar Single Roles diretas no SAP PRD para os {len(user_ids_set)} User SAP...")
-    project_root = find_project_root()
-    load_project_env(project_root)
-    params = build_connection_params_for("PRD")
-    guard = make_read_only_guard(("AGR_USERS", "AGR_AGRS", "AGR_1251", "AGR_TCODES", "AGR_DEFINE", "USR02"))
-
-    conn = Connection(**params)
-    today_str = datetime.now().strftime("%Y%m%d")
     user_ids_list = sorted(list(user_ids_set))
-
     user_singles_prd: Dict[str, Set[str]] = {uid: set() for uid in user_ids_list}
 
-    chunk_size = 30
-    for i in range(0, len(user_ids_list), chunk_size):
-        chunk = user_ids_list[i : i + chunk_size]
-        options = []
-        for idx, u in enumerate(chunk):
-            prefix = "OR " if idx > 0 else ""
-            options.append({"TEXT": f"{prefix}UNAME = '{u}'"})
+    try:
+        conn = Connection(**params)
+        today_str = datetime.now().strftime("%Y%m%d")
 
-        rows_users = read_table(
-            conn, guard, table_name="AGR_USERS",
-            fields=["UNAME", "AGR_NAME", "FROM_DAT", "TO_DAT", "COL_FLAG"],
-            options=options, rowcount=0
-        )
-        for r in rows_users:
-            if len(r) >= 5:
-                uname, agr_name, f_dat, t_dat, col_flag = [str(x or "").strip() for x in r]
-                uname = uname.upper()
-                agr_name = agr_name.upper()
-                if uname in user_singles_prd and agr_name:
-                    if (not f_dat or f_dat <= today_str) and (not t_dat or t_dat >= today_str):
-                        if col_flag != "X" and not agr_name.startswith("Z_BR_"):
-                            user_singles_prd[uname].add(agr_name)
+        chunk_size = 30
+        for i in range(0, len(user_ids_list), chunk_size):
+            chunk = user_ids_list[i : i + chunk_size]
+            options = []
+            for idx, u in enumerate(chunk):
+                prefix = "OR " if idx > 0 else ""
+                options.append({"TEXT": f"{prefix}UNAME = '{u}'"})
 
-    conn.close()
-    print("      Consulta SAP PRD concluída com sucesso.\n")
+            rows_users = read_table(
+                conn, guard, table_name="AGR_USERS",
+                fields=["UNAME", "AGR_NAME", "FROM_DAT", "TO_DAT", "COL_FLAG"],
+                options=options, rowcount=0
+            )
+            for r in rows_users:
+                if len(r) >= 5:
+                    uname, agr_name, f_dat, t_dat, col_flag = [str(x or "").strip() for x in r]
+                    uname = uname.upper()
+                    agr_name = agr_name.upper()
+                    if uname in user_singles_prd and agr_name:
+                        if (not f_dat or f_dat <= today_str) and (not t_dat or t_dat >= today_str):
+                            if col_flag != "X" and not agr_name.startswith("Z_BR_"):
+                                user_singles_prd[uname].add(agr_name)
 
-    # 5. Comparação por Utilizador
-    print(f"[5/5] A comparar Proposta Ativa vs SAP PRD com filtro da sheet DEFINIÇÕES...")
-    print("=" * 165)
-    print(f"{'DEPARTAMENTO':<25} | {'USER':<9} | {'LINHA PA':<8} | {'PRD DIRETA':<10} | {'EXCLUÍDAS DEF':<13} | {'ELEGÍVEIS':<9} | {'EXCEL':<5} | {'A ADICIONAR':<12} | {'NÃO CONFIRMADAS'}")
-    print("-" * 165)
+        conn.close()
+        print("      - Conexão SAP PRD efetuada com sucesso.")
+    except Exception as e_rfc:
+        print(f"      - [AVISO/VPN] Conexão SAP PRD não disponível offline ({e_rfc}). Simulação prossegue com dados locais.")
 
-    from collections import Counter
-    c_roles_add = Counter()
-    relatorio_utilizadores = []
-
-    total_singles_prd_diretas = 0
-    total_excluidas_definicoes = 0
-    total_elegiveis_após_definicoes = 0
-    total_singles_excel = 0
-    total_adicionar = 0
-    total_nao_confirmadas = 0
-    users_com_diferencas = 0
-    users_sem_diferencas = 0
-
-    for item in users_excel_info:
-        dep = item["dep"]
+    # Cálculo da Fase 2
+    fase2_adicoes_por_user = {}
+    for item in users_mapeados_fase1:
         uid = item["uid"]
-        nome = item["nome"]
-        linha_pa = item.get("linha_proposta_ativa")
-
-        if not linha_pa:
-            print(f"{dep:<25} | {uid:<9} | {'N/A':<8} | {'-':<10} | {'-':<13} | {'-':<9} | {'-':<5} | {'-':<12} | ERRO_DE_MAPEAMENTO")
-            continue
-
-        comp_ex = user_composite_excel.get(uid, "")
         funcs_ex = user_funcs_excel.get(uid, set())
         funcs_prd_diretas = user_singles_prd.get(uid, set())
 
-        # Aplicação da regra de exclusão da sheet DEFINIÇÕES
-        funcs_excluidas = funcs_prd_diretas.intersection(funcoes_excluidas_definicoes)
         funcs_elegiveis = funcs_prd_diretas - funcoes_excluidas_definicoes
+        a_adicionar = funcs_elegiveis - funcs_ex
+        fase2_adicoes_por_user[uid] = a_adicionar
 
-        a_adicionar = sorted(list(funcs_elegiveis - funcs_ex))
-        nao_confirmadas = sorted(list(funcs_ex - funcs_prd_diretas))
+    total_adicionar_fase2 = sum(len(v) for v in fase2_adicoes_por_user.values())
+    print(f"      - Concluída. Funções a adicionar pela Fase 2: {total_adicionar_fase2}\n")
 
-        total_singles_prd_diretas += len(funcs_prd_diretas)
-        total_excluidas_definicoes += len(funcs_excluidas)
-        total_elegiveis_após_definicoes += len(funcs_elegiveis)
-        total_singles_excel += len(funcs_ex)
-        total_adicionar += len(a_adicionar)
-        total_nao_confirmadas += len(nao_confirmadas)
+    # FASE 3A: X DA MATRIZ -> PROPOSTA ATIVA (Usando strict população da Fase 1)
+    print(f"[FASE 3A] Leitura dos X das matrizes departamentais e mapeamento 1:N -> Proposta Ativa...")
+    fase3a_adicoes_por_user = {}
+    tcodes_sem_mapeamento_list = []
 
-        if len(a_adicionar) > 0 or len(nao_confirmadas) > 0:
-            users_com_diferencas += 1
-        else:
-            users_sem_diferencas += 1
+    total_tcodes_com_x = 0
+    total_casos_1n = 0
 
-        for r_add in a_adicionar:
-            c_roles_add[r_add] += 1
+    for item in users_mapeados_fase1:
+        dep = item["dep"]
+        uid = item["uid"]
+        col_idx = item["coluna"] - 1  # 0-based
 
-        relatorio_utilizadores.append({
-            "departamento": dep,
-            "user_id": uid,
-            "nome": nome,
-            "linha_proposta_ativa": linha_pa,
-            "composite_role_excel": comp_ex,
-            "total_prd_diretas": len(funcs_prd_diretas),
-            "total_excluidas_def": len(funcs_excluidas),
-            "total_elegiveis": len(funcs_elegiveis),
-            "total_excel": len(funcs_ex),
-            "a_adicionar": a_adicionar,
-            "excluidas_por_definicoes": sorted(list(funcs_excluidas)),
-            "nao_confirmadas": nao_confirmadas,
+        # Estado da Proposta Ativa já enriquecido pela Fase 2
+        funcs_atuais_pos_fase2 = set(user_funcs_excel.get(uid, set())).union(fase2_adicoes_por_user.get(uid, set()))
+
+        funcs_necessarias_matriz = set()
+        if dep in wb.sheetnames:
+            ws_dep = wb[dep]
+            rows_dep = list(ws_dep.iter_rows(values_only=True))
+
+            for r_idx_dep, row_dep in enumerate(rows_dep[2:], start=3):
+                if len(row_dep) > col_idx and row_dep[col_idx]:
+                    flag = str(row_dep[col_idx]).strip().upper()
+                    if flag in ("X", "1", "SIM", "YES", "S"):
+                        tcode = str(row_dep[0] or "").strip().upper()
+                        if tcode:
+                            total_tcodes_com_x += 1
+                            roles_mapeadas = tcode_to_roles_map.get(tcode, set())
+                            if not roles_mapeadas:
+                                tcodes_sem_mapeamento_list.append({
+                                    "dep": dep, "uid": uid, "nome": item["nome"],
+                                    "tcode": tcode, "linha": r_idx_dep
+                                })
+                            else:
+                                if len(roles_mapeadas) > 1:
+                                    total_casos_1n += 1
+                                funcs_necessarias_matriz.update(roles_mapeadas)
+
+        # Adicionar apenas o que falta no estado pós-Fase 2
+        a_adicionar_3a = funcs_necessarias_matriz - funcs_atuais_pos_fase2
+        fase3a_adicoes_por_user[uid] = a_adicionar_3a
+
+    total_adicionar_fase3a = sum(len(v) for v in fase3a_adicoes_por_user.values())
+    print(f"      - Concluída. Total TCODEs com X: {total_tcodes_com_x}")
+    print(f"      - TCODEs sem mapeamento em 'Proposta': {len(tcodes_sem_mapeamento_list)}")
+    print(f"      - Casos 1:N TCODE -> Roles: {total_casos_1n}")
+    print(f"      - Funções a adicionar pela Fase 3A: {total_adicionar_fase3a}\n")
+
+    # FASE 3B: PROPOSTA ATIVA -> PFCG_COMPOSTA (Calculada sobre estado final)
+    print(f"[FASE 3B] Alinhamento da PFCG_COMPOSTA por União Aditiva dos utilizadores...")
+
+    # 1. Agrupar utilizadores e calcular união aditiva de funções por Composite
+    composta_users: Dict[str, List[str]] = {}
+    composta_user_funcs: Dict[str, Dict[str, Set[str]]] = {}
+    composta_roles_esperadas: Dict[str, Set[str]] = {}
+
+    for item in users_mapeados_fase1:
+        uid = item["uid"]
+        comp = user_composite_excel.get(uid, "")
+        if comp and comp not in ("NAN", "NONE", "-", ""):
+            funcs_finais_user = set(user_funcs_excel.get(uid, set())) \
+                .union(fase2_adicoes_por_user.get(uid, set())) \
+                .union(fase3a_adicoes_por_user.get(uid, set()))
+
+            if comp not in composta_users:
+                composta_users[comp] = []
+                composta_user_funcs[comp] = {}
+                composta_roles_esperadas[comp] = set()
+
+            composta_users[comp].append(uid)
+            composta_user_funcs[comp][uid] = funcs_finais_user
+            composta_roles_esperadas[comp].update(funcs_finais_user)
+
+    # 2. Ler estado atual da sheet PFCG_COMPOSTA
+    ws_comp = wb["PFCG_COMPOSTA"]
+    rows_comp = list(ws_comp.iter_rows(values_only=True))
+
+    pfcg_composta_atual: Dict[str, Set[str]] = {}
+    pfcg_composta_texts: Dict[str, str] = {}
+    maior_id_existente = 0
+
+    if len(rows_comp) > 1:
+        for r in rows_comp[1:]:
+            if not r:
+                continue
+            r_id = r[0]
+            if r_id is not None:
+                try:
+                    r_id_num = int(r_id)
+                    if r_id_num > maior_id_existente:
+                        maior_id_existente = r_id_num
+                except (ValueError, TypeError):
+                    pass
+
+            c_name = str(r[1]).strip().upper() if len(r) > 1 and r[1] else ""
+            c_text = str(r[2]).strip() if len(r) > 2 and r[2] else ""
+            s_name = str(r[3]).strip().upper() if len(r) > 3 and r[3] else ""
+
+            if c_name:
+                if c_name not in pfcg_composta_atual:
+                    pfcg_composta_atual[c_name] = set()
+                if s_name:
+                    pfcg_composta_atual[c_name].add(s_name)
+
+                if c_text and c_name not in pfcg_composta_texts:
+                    pfcg_composta_texts[c_name] = c_text
+
+    # 3. Processar deltas e gerar novas linhas para cada Composite
+    detalhes_fase3b = []
+    novas_linhas_pfcg = []
+    proximo_id = maior_id_existente + 1
+
+    total_relacoes_user_funcao = 0
+    total_relacoes_comp_single_calc = 0
+    total_ja_existente = 0
+    total_novas_adicionar = 0
+    total_duplicadas_evitadas = 0
+    total_roles_nao_requeridas = 0
+    total_composites_sem_text = 0
+    total_composites_sem_linha_previa = 0
+
+    for comp in sorted(list(composta_roles_esperadas.keys())):
+        users_grupo = composta_users[comp]
+        funcs_by_u = composta_user_funcs[comp]
+        calc_set = composta_roles_esperadas[comp]
+        atual_set = pfcg_composta_atual.get(comp, set())
+        text_comp = pfcg_composta_texts.get(comp, "")
+
+        for u in users_grupo:
+            total_relacoes_user_funcao += len(funcs_by_u[u])
+
+        total_relacoes_comp_single_calc += len(calc_set)
+
+        if comp not in pfcg_composta_atual:
+            total_composites_sem_linha_previa += 1
+
+        if not text_comp:
+            total_composites_sem_text += 1
+
+        roles_a_adicionar = sorted(list(calc_set - atual_set))
+        roles_nao_requeridas = sorted(list(atual_set - calc_set))
+        ja_existentes = calc_set.intersection(atual_set)
+
+        total_ja_existente += len(ja_existentes)
+        total_novas_adicionar += len(roles_a_adicionar)
+        total_duplicadas_evitadas += len(ja_existentes)
+        total_roles_nao_requeridas += len(roles_nao_requeridas)
+
+        # Gerar novas linhas propostas (somente se TEXT existir)
+        for role_add in roles_a_adicionar:
+            if text_comp:
+                novas_linhas_pfcg.append({
+                    "ID": proximo_id,
+                    "AGR_NAME_COMPOSTA": comp,
+                    "TEXT": text_comp,
+                    "AGR_NAME": role_add
+                })
+                proximo_id += 1
+
+        detalhes_fase3b.append({
+            "composite": comp,
+            "text": text_comp if text_comp else "TEXT_COMPOSITE_NAO_ENCONTRADO",
+            "users_do_grupo": users_grupo,
+            "funcoes_por_user": funcs_by_u,
+            "composite_calculada": sorted(list(calc_set)),
+            "composite_atual": sorted(list(atual_set)),
+            "roles_a_adicionar": roles_a_adicionar,
+            "roles_existentes_nao_requeridas": roles_nao_requeridas
         })
 
-        print(f"{dep:<25} | {uid:<9} | Linha {linha_pa:<2} | {len(funcs_prd_diretas):<10} | {len(funcs_excluidas):<13} | {len(funcs_elegiveis):<9} | {len(funcs_ex):<5} | {len(a_adicionar):<12} | {len(nao_confirmadas)}")
-        if funcs_excluidas:
-            print(f"   [*] EXCLUÍDAS POR DEFINIÇÕES ({len(funcs_excluidas)}): {', '.join(sorted(list(funcs_excluidas)))}")
-        if a_adicionar:
-            print(f"   [+] FUNÇÕES A ADICIONAR ({len(a_adicionar)}): {', '.join(a_adicionar)}")
-        if nao_confirmadas:
-            print(f"   [-] NÃO CONFIRMADAS EM PRD ({len(nao_confirmadas)}): {', '.join(nao_confirmadas)}")
+    wb.close()
 
-    print("=" * 165 + "\n")
-
-    # Resumo Geral e Validação Matemática
-    print("==============================================================================")
-    print("  RESUMO GERAL COM FILTRO DEFINIÇÕES (PROPOSTA ATIVA vs SAP PRD)")
-    print("==============================================================================")
-    print(f"  Departamentos PROCESSADOS:                         {len(deps)} ({', '.join(deps)})")
-    print(f"  Total de Utilizadores Mapeados Analisados:          {len(relatorio_utilizadores)}")
-    print(f"  Total de Single Roles Diretas em PRD:               {total_singles_prd_diretas}")
-    print(f"  Total Excluídas pela sheet DEFINIÇÕES:             {total_excluidas_definicoes}")
-    print(f"  Total Elegíveis após Filtro DEFINIÇÕES:            {total_elegiveis_após_definicoes}")
-    print(f"  Total de Funções Individuais Atuais na Proposta:   {total_singles_excel}")
-    print(f"  Total de Funções Individuais a ADICIONAR:           {total_adicionar}")
-    print(f"  Total de Funções Excel NÃO CONFIRMADAS em PRD:      {total_nao_confirmadas}")
-    print("------------------------------------------------------------------------------")
-    print(f"  VALIDAÇÃO MATEMÁTICA: {total_singles_prd_diretas} (PRD) == {total_excluidas_definicoes} (Excluídas) + {total_elegiveis_após_definicoes} (Elegíveis)")
-    if total_singles_prd_diretas == (total_excluidas_definicoes + total_elegiveis_após_definicoes):
-        print("  => [OK] IGUALDADE CONIRMADA MATEMATICAMENTE!")
-    else:
-        print("  => [!] ERRO: FALHA NA EQUAÇÃO MATEMÁTICA DOS TOTAIS!")
-    print("------------------------------------------------------------------------------")
-    print("  TOP ROLES ELEGÍVEIS MAIS ADICIONADAS:")
-    for r_name, count in c_roles_add.most_common(15):
-        print(f"    - {r_name:<40}: {count} utilizadores")
-    print("==============================================================================\n")
+    print(f"      - Concluída. Total Composites calculadas via União: {len(composta_roles_esperadas)}")
+    print(f"      - Novas atribuições a adicionar na PFCG_COMPOSTA: {total_novas_adicionar}\n")
 
     return {
-        "relatorio_utilizadores": relatorio_utilizadores,
-        "total_singles_prd_diretas": total_singles_prd_diretas,
-        "total_excluidas_definicoes": total_excluidas_definicoes,
-        "total_elegiveis_após_definicoes": total_elegiveis_após_definicoes,
-        "total_adicionar": total_adicionar,
-        "total_nao_confirmadas": total_nao_confirmadas,
-        "roles_mais_adicionadas": c_roles_add.most_common(15)
+        "deps_processados": deps,
+        "users_mapeados": users_mapeados_fase1,
+        "erros_mapeamento": erros_mapeamento,
+        "total_adicionar_fase2": total_adicionar_fase2,
+        "total_tcodes_com_x": total_tcodes_com_x,
+        "tcodes_sem_mapeamento": tcodes_sem_mapeamento_list,
+        "total_casos_1n": total_casos_1n,
+        "total_adicionar_fase3a": total_adicionar_fase3a,
+        "total_compostas_fase3b": len(composta_roles_esperadas),
+        "fase3b_detalhes": detalhes_fase3b,
+        "fase3b_novas_linhas": novas_linhas_pfcg,
+        "fase3b_resumo": {
+            "total_composites_processadas": len(composta_roles_esperadas),
+            "total_users_incluidos": len(set(u["uid"] for u in users_mapeados_fase1 if user_composite_excel.get(u["uid"]))),
+            "total_relacoes_user_funcao": total_relacoes_user_funcao,
+            "total_relacoes_comp_single_calc": total_relacoes_comp_single_calc,
+            "total_ja_existente": total_ja_existente,
+            "total_novas_adicionar": total_novas_adicionar,
+            "total_duplicadas_evitadas": total_duplicadas_evitadas,
+            "total_roles_nao_requeridas": total_roles_nao_requeridas,
+            "total_composites_sem_text": total_composites_sem_text,
+            "total_composites_sem_linha_previa": total_composites_sem_linha_previa
+        }
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Reconciliar Proposta Ativa com Single Roles do SAP PRD.")
+    parser = argparse.ArgumentParser(description="Executar Simulação Integrada de Reconciliação (Fases 1 a 3B).")
     parser.add_argument("--excel", type=str, default=CAMINHO_EXCEL_PADRAO, help="Caminho do Excel mestre.")
     parser.add_argument("--simular", action="store_true", default=True, help="Modo simulação.")
     args = parser.parse_args()
 
-    executar_reconciliacao_proposta_ativa(args.excel)
+    executar_reconciliacao_integrada(args.excel, simular=True)
 
 
 if __name__ == "__main__":

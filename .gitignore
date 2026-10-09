@@ -3,6 +3,8 @@ dist/
 build/
 .venv/
 __pycache__/
+.pytest_cache/
+tests/.tmp/
 .DS_Store
 *.pyc
 cache/workflow_state*.json

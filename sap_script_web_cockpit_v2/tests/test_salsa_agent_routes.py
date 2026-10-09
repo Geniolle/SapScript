@@ -52,6 +52,10 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         store.DB_PATH = store.DATA_DIR / "sap_script_jobs.sqlite3"
         store.init_db()
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(_TMPDIR, ignore_errors=True)
+
     def _mark_running(self, job_id: str, worker_name: str = "ROUTE_TEST") -> None:
         with store.get_connection() as conn:
             conn.execute(

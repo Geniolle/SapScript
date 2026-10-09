@@ -29,7 +29,7 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict, Counter
-from typing import Optional, Dict, Any, List, Set, Iterable
+from typing import Optional, Dict, Any, List, Set, Iterable, Tuple
 
 # Garantir raiz do projeto no sys.path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -123,25 +123,23 @@ def encontrar_coluna_funcoes_individuais_ws(ws: Any, default_col: int = 11) -> i
     return default_col
 
 
-def encontrar_coluna_funcoes_individuais_df(df: Any, default_idx: int = 10) -> int:
+def encontrar_coluna_funcoes_individuais_df(df: Any) -> int:
     """
     Localiza no DataFrame do pandas (via df.columns ou df.iloc[0])
-    o índice da coluna 'Funções Individuais' baseado em 0 (ex.: 10 para Coluna K).
+    o índice da coluna 'Funções Individuais' baseado em 0.
+    Se o cabeçalho não existir na linha 1, lança ValueError sem fallback silencioso.
     """
-    try:
-        if hasattr(df, "columns"):
-            for idx, col_name in enumerate(df.columns):
-                norm = normalizar_nome_coluna(str(col_name))
-                if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
-                    return idx
-        if hasattr(df, "iloc") and len(df) > 0:
-            for idx in range(len(df.columns)):
-                norm = normalizar_nome_coluna(str(df.iloc[0, idx]))
-                if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
-                    return idx
-    except Exception:
-        pass
-    return default_idx
+    if hasattr(df, "columns"):
+        for idx, col_name in enumerate(df.columns):
+            norm = normalizar_nome_coluna(str(col_name))
+            if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
+                return idx
+    if hasattr(df, "iloc") and len(df) > 0:
+        for idx in range(len(df.columns)):
+            norm = normalizar_nome_coluna(str(df.iloc[0, idx]))
+            if "FUNCOESINDIVIDUAIS" in norm or "FUNCAOINDIVIDUAL" in norm:
+                return idx
+    raise ValueError("CABECALHO_FUNCOES_INDIVIDUAIS_NAO_ENCONTRADO: O cabeçalho 'Funções Individuais' não foi encontrado na linha 1 da folha Proposta Ativa.")
 
 
 def limpar_tcode(tcode_raw: Any) -> List[str]:
@@ -259,9 +257,8 @@ def sincronizar_copia_sharepoint() -> bool:
 
 
 def encontrar_excel_padrao(diretorio_base: Optional[str] = None) -> Optional[str]:
-    """Devolve o ficheiro mestre local, sincronizando antes com a origem se disponível."""
+    """Devolve exclusivamente o ficheiro mestre local definido para o projeto."""
     del diretorio_base  # compatibilidade com chamadas antigas; não é usado.
-    sincronizar_copia_sharepoint()
     return CAMINHO_EXCEL_LOCAL if os.path.isfile(CAMINHO_EXCEL_LOCAL) else None
 
 
@@ -848,17 +845,17 @@ def analisar_departamento_proposta(dados: ProjetoPerfilData, departamento: str =
     usuarios = []
     compostas = set()
     singles_counter = Counter()
-    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_raw, default_idx=10)
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_raw)
 
     for idx in range(1, len(df_raw)):
-        dep_val = str(df_raw.iloc[idx, 7]).strip() if pd.notna(df_raw.iloc[idx, 7]) else ""
+        dep_val = str(df_raw.iloc[idx, 6]).strip() if pd.notna(df_raw.iloc[idx, 6]) else ""
         if not dep_val or dep_val.upper() in ("NAN", "NONE", ""):
-            dep_val = str(df_raw.iloc[idx, 5]).strip() if pd.notna(df_raw.iloc[idx, 5]) else ""
+            dep_val = str(df_raw.iloc[idx, 4]).strip() if pd.notna(df_raw.iloc[idx, 4]) else ""
         if normalizar_texto(dep_val) == dep_norm or (dep_norm and dep_norm in normalizar_texto(dep_val)):
             user_id = str(df_raw.iloc[idx, 0]).strip() if pd.notna(df_raw.iloc[idx, 0]) else ""
             nome = str(df_raw.iloc[idx, 2]).strip() if pd.notna(df_raw.iloc[idx, 2]) else ""
-            cargo = str(df_raw.iloc[idx, 6]).strip() if pd.notna(df_raw.iloc[idx, 6]) else ""
-            comp_raw = str(df_raw.iloc[idx, 8]).strip() if pd.notna(df_raw.iloc[idx, 8]) else ""
+            cargo = str(df_raw.iloc[idx, 5]).strip() if pd.notna(df_raw.iloc[idx, 5]) else ""
+            comp_raw = str(df_raw.iloc[idx, 7]).strip() if pd.notna(df_raw.iloc[idx, 7]) else ""
             comp = comp_raw if comp_raw.upper() not in ("NAN", "NONE", "") else None
             if comp:
                 compostas.add(comp)
@@ -1997,7 +1994,7 @@ def sincronizar_proposta_ativa_pfcg_composta(dados: ProjetoPerfilData, caminho_e
     col_comp = [c for c in df_ativa.columns if "COMPOSITE" in str(c).upper()][0]
     composta_roles = defaultdict(set)
     composta_textos = {}
-    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa, default_idx=10)
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa)
 
     for _, r in df_ativa.iterrows():
         comp = str(r.get(col_comp, "")).strip() if pd.notna(r.get(col_comp)) else ""
@@ -2350,7 +2347,7 @@ def executar_atualizacao_integrada_excel(
     users_em_falta_matriz = {}
     total_users_avaliados = 0
     roles_por_user_finais = {}
-    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa, default_idx=10)
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa)
 
     for idx, r in df_ativa.iterrows():
         c_val = str(r.get(col_comp, "")).strip() if pd.notna(r.get(col_comp)) else ""
@@ -2384,7 +2381,7 @@ def executar_atualizacao_integrada_excel(
             for r_idx in range(min(5, len(df_matriz))):
                 for c_idx in range(len(df_matriz.columns)):
                     cell_v = str(df_matriz.iloc[r_idx, c_idx]).strip().upper()
-                    if u_val and u_val in cell_v:
+                    if u_val and (re.search(r'\b' + re.escape(u_val) + r'\b', cell_v) or cell_v == u_val):
                         col_u_idx = c_idx
                         hdr_r_idx = r_idx
                         break
@@ -2521,16 +2518,12 @@ def executar_atualizacao_integrada_excel(
         for r in r_set
     }
 
-    for idx, row in df_comp.iterrows():
-        par = (
-            str(row.get("AGR_NAME_COMPOSTA", "")).strip().upper(),
-            str(row.get("AGR_NAME", "")).strip().upper(),
-        )
-        if par not in pares_esperados_comp:
-            linhas_obsoletas_comp.append(idx + 2)
+    # Regra 12/26: NÃO REMOVER automaticamente funções existentes da Composite Role.
+    # As funções existentes que não aparecem na união calculada devem ser mantidas
+    # e podem ser registradas apenas para revisão futura se necessário.
+    linhas_obsoletas_comp = []
 
     novas_linhas_comp = []
-    ts_agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for comp, r_set in sorted(composta_roles_esperadas.items()):
         desc = composta_textos.get(comp, "")
         for r in sorted(r_set):
@@ -2541,10 +2534,6 @@ def executar_atualizacao_integrada_excel(
                     "AGR_NAME_COMPOSTA": comp,
                     "TEXT": desc,
                     "AGR_NAME": r,
-                    "STATUS": "Criado",
-                    "MSG": "Atribuído em SAP DEV, PRD e QAD",
-                    "TIMESTEMP": ts_agora,
-                    "PRD": "Validado"
                 })
 
     if novas_linhas_comp or linhas_obsoletas_comp:
@@ -2740,7 +2729,7 @@ def executar_atualizacao_integrada_excel(
                     for i, role in enumerate(sorted(roles_finais)):
                         ws_a.Cells(row_idx, col_fi + i).Value = role
 
-            # Etapa 4: PFCG_COMPOSTA
+            # Etapa 4: PFCG_COMPOSTA (Apenas colunas 1 a 4)
             if linhas_obsoletas_comp or novas_linhas_comp:
                 ws_c = wb_com.Worksheets("PFCG_COMPOSTA")
                 for r_idx in reversed(linhas_obsoletas_comp):
@@ -2754,10 +2743,6 @@ def executar_atualizacao_integrada_excel(
                     ws_c.Cells(curr, 2).Value = row["AGR_NAME_COMPOSTA"]
                     ws_c.Cells(curr, 3).Value = row["TEXT"]
                     ws_c.Cells(curr, 4).Value = row["AGR_NAME"]
-                    ws_c.Cells(curr, 5).Value = row["STATUS"]
-                    ws_c.Cells(curr, 6).Value = row["MSG"]
-                    ws_c.Cells(curr, 7).Value = row["TIMESTEMP"]
-                    ws_c.Cells(curr, 8).Value = row["PRD"]
 
             wb_com.Save()
             print("  Ficheiro Excel gravado via Excel.Application (COM) sem cintilação de ecrã!")
@@ -2785,29 +2770,21 @@ def executar_atualizacao_integrada_excel(
                 for i, role in enumerate(sorted(roles_finais)):
                     ws_a.cell(row=row_idx, column=col_fi + i, value=role)
 
-        # Etapa 4: PFCG_COMPOSTA
+        # Etapa 4: PFCG_COMPOSTA (Apenas colunas 1 a 4)
         if linhas_obsoletas_comp or novas_linhas_comp:
             ws_c = wb_ox["PFCG_COMPOSTA"]
             for r_idx in reversed(linhas_obsoletas_comp):
                 ws_c.delete_rows(r_idx, 1)
             for row in novas_linhas_comp:
-                ws_c.append([
-                    row["ID"], row["AGR_NAME_COMPOSTA"], row["TEXT"], row["AGR_NAME"],
-                    row["STATUS"], row["MSG"], row["TIMESTEMP"], row["PRD"]
-                ])
+                next_r = ws_c.max_row + 1
+                ws_c.cell(row=next_r, column=1, value=row["ID"])
+                ws_c.cell(row=next_r, column=2, value=row["AGR_NAME_COMPOSTA"])
+                ws_c.cell(row=next_r, column=3, value=row["TEXT"])
+                ws_c.cell(row=next_r, column=4, value=row["AGR_NAME"])
 
         wb_ox.save(caminho_excel)
         wb_ox.close()
         print("  Ficheiro Excel gravado via openpyxl com sucesso!")
-
-    # Cópia para o Desktop
-    try:
-        desktop_f = Path(r"C:\Users\clayton.silva\OneDrive - Salsajeans\Desktop\S4H_Perfis de autorização_v1.xlsx")
-        if desktop_f.exists():
-            shutil.copy2(caminho_excel, desktop_f)
-            print("  Cópia sincronizada na Área de Trabalho (Desktop)!")
-    except Exception as e_dsk:
-        print(f"  [AVISO] Falha ao sincronizar Desktop: {e_dsk}")
 
     print("  A recarregar dados estruturados do Excel atualizado...")
     dados = carregar_projeto_perfil(caminho_excel)
@@ -3286,6 +3263,913 @@ def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purc
         }
 
 
+# =====================================================================
+# AUDITORIA DEPARTAMENTAL PÓS-PROCESSAMENTO (100% READ-ONLY)
+# =====================================================================
+
+def comparar_utilizador_ambientes(
+    usuario: str,
+    nome: str,
+    excel_esp: Dict[str, Any],
+    prd_dados: Dict[str, Any],
+    qas_dados: Dict[str, Any],
+    padroes_exclusao: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Compara o desenho esperado pelo Excel com o estado real retornado por PRD e QAS.
+    Gera uma classificação minuciosa sem alterar dados ou esconder exclusões.
+    """
+    import fnmatch
+
+    padroes = [str(p).strip().upper() for p in (padroes_exclusao or []) if str(p).strip()]
+
+    def is_excl(r_name: str) -> bool:
+        r_up = str(r_name).strip().upper()
+        return any(fnmatch.fnmatchcase(r_up, p) for p in padroes)
+
+    comp_esp = excel_esp.get("composta")
+    roles_dir_esp = set(excel_esp.get("roles_diretas", set()))
+    roles_her_esp = set(excel_esp.get("roles_herdadas", set()))
+    roles_tot_esp = set(excel_esp.get("roles_totais", set()))
+
+    # PRD
+    status_conta_prd = prd_dados.get("status_conta", "ATIVA")
+    roles_dir_prd = set(prd_dados.get("roles_diretas", set()))
+    roles_her_prd = set(prd_dados.get("roles_herdadas", set()))
+    roles_tot_prd = set(prd_dados.get("roles_totais", set()))
+
+    # QAS
+    status_conta_qas = qas_dados.get("status_conta", "ATIVA")
+    roles_dir_qas = set(qas_dados.get("roles_diretas", set()))
+    roles_her_qas = set(qas_dados.get("roles_herdadas", set()))
+    roles_tot_qas = set(qas_dados.get("roles_totais", set()))
+
+    # 1. Analisar PRD
+    faltam_prd = []
+    if status_conta_prd != "NAO_ENCONTRADO":
+        for r in sorted(roles_dir_esp):
+            if r in roles_dir_prd:
+                continue
+            if r == comp_esp:
+                faltam_prd.append(r)
+            elif r in roles_her_prd:
+                continue
+            else:
+                faltam_prd.append(r)
+
+    extras_prd_brutas = sorted(roles_dir_prd - roles_dir_esp) if status_conta_prd != "NAO_ENCONTRADO" else []
+    protegidas_exclusao_prd = [r for r in extras_prd_brutas if is_excl(r)]
+    extras_prd = [r for r in extras_prd_brutas if not is_excl(r)]
+
+    # 2. Analisar QAS
+    faltam_qas = []
+    if status_conta_qas != "NAO_ENCONTRADO":
+        for r in sorted(roles_dir_esp):
+            if r in roles_dir_qas:
+                continue
+            if r == comp_esp:
+                faltam_qas.append(r)
+            elif r in roles_her_qas:
+                continue
+            else:
+                faltam_qas.append(r)
+
+    extras_qas_brutas = sorted(roles_dir_qas - roles_dir_esp) if status_conta_qas != "NAO_ENCONTRADO" else []
+    protegidas_exclusao_qas = [r for r in extras_qas_brutas if is_excl(r)]
+    extras_qas = [r for r in extras_qas_brutas if not is_excl(r)]
+
+    # 3. Diferenças PRD vs QAS
+    prd_nao_qas = sorted(roles_tot_prd - roles_tot_qas) if (status_conta_prd != "NAO_ENCONTRADO" and status_conta_qas != "NAO_ENCONTRADO") else []
+    qas_nao_prd = sorted(roles_tot_qas - roles_tot_prd) if (status_conta_prd != "NAO_ENCONTRADO" and status_conta_qas != "NAO_ENCONTRADO") else []
+
+    # 4. Classificações
+    classificacoes = set()
+
+    if status_conta_prd == "NAO_ENCONTRADO" or status_conta_qas == "NAO_ENCONTRADO":
+        classificacoes.add("UTILIZADOR_NAO_ENCONTRADO")
+
+    if status_conta_prd in ("INATIVA", "EXPIRADA", "BLOQUEADA") or status_conta_qas in ("INATIVA", "EXPIRADA", "BLOQUEADA"):
+        classificacoes.add("CONTA_INATIVA")
+
+    if comp_esp:
+        comp_em_prd = comp_esp in roles_dir_prd
+        comp_em_qas = comp_esp in roles_dir_qas
+        if not comp_em_prd or not comp_em_qas:
+            classificacoes.add("COMPOSITE_DIVERGENTE")
+
+    if faltam_prd or faltam_qas:
+        classificacoes.add("ROLE_EM_FALTA")
+
+    if extras_prd or extras_qas:
+        classificacoes.add("ROLE_EXTRA")
+
+    if protegidas_exclusao_prd or protegidas_exclusao_qas:
+        classificacoes.add("PROTEGIDA_POR_EXCLUSAO")
+
+    status_prd = "OK" if (status_conta_prd != "NAO_ENCONTRADO" and not faltam_prd and not extras_prd and (not comp_esp or comp_esp in roles_dir_prd)) else "DIVERGENTE"
+    status_qas = "OK" if (status_conta_qas != "NAO_ENCONTRADO" and not faltam_qas and not extras_qas and (not comp_esp or comp_esp in roles_dir_qas)) else "DIVERGENTE"
+
+    if status_prd == "DIVERGENTE":
+        classificacoes.add("DIVERGENTE_PRD")
+    if status_qas == "DIVERGENTE":
+        classificacoes.add("DIVERGENTE_QAS")
+
+    if prd_nao_qas or qas_nao_prd or (status_prd != status_qas):
+        classificacoes.add("PRD_QAS_DIVERGENTE")
+
+    if not classificacoes - {"PROTEGIDA_POR_EXCLUSAO"} and status_prd == "OK" and status_qas == "OK":
+        classificacoes.add("OK")
+
+    status_geral = "OK" if ("OK" in classificacoes and status_prd == "OK" and status_qas == "OK") else "DIVERGENTE"
+
+    return {
+        "usuario": usuario,
+        "nome": nome,
+        "composite_esperada": comp_esp,
+        "roles_diretas_esperadas": sorted(roles_dir_esp),
+        "roles_totais_esperadas": sorted(roles_tot_esp),
+        "status_conta_prd": status_conta_prd,
+        "status_conta_qas": status_conta_qas,
+        "status_prd": status_prd,
+        "status_qas": status_qas,
+        "status_geral": status_geral,
+        "classificacoes": sorted(list(classificacoes)),
+        "faltam_prd": faltam_prd,
+        "extras_prd": extras_prd,
+        "protegidas_exclusao_prd": protegidas_exclusao_prd,
+        "faltam_qas": faltam_qas,
+        "extras_qas": extras_qas,
+        "protegidas_exclusao_qas": protegidas_exclusao_qas,
+        "prd_nao_qas": prd_nao_qas,
+        "qas_nao_prd": qas_nao_prd,
+        "roles_prd": sorted(roles_dir_prd),
+        "roles_qas": sorted(roles_dir_qas),
+    }
+
+
+def consultar_utilizadores_ambiente_rfc(
+    usuarios_lista: List[str],
+    ambiente: str = "PRD"
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Consulta via RFC read-only (AGR_USERS e USR02) o estado real de uma lista de utilizadores num ambiente (PRD ou QAD).
+    Retorna mapeamento {utilizador: {'roles_diretas': set, 'roles_herdadas': set, 'roles_totais': set, 'status_conta': str}}.
+    """
+    from datetime import date
+    if not usuarios_lista:
+        return {}
+
+    env_upper = str(ambiente).strip().upper()
+    resultado_map: Dict[str, Dict[str, Any]] = {
+        u: {
+            "usuario": u,
+            "roles_diretas": set(),
+            "roles_herdadas": set(),
+            "roles_totais": set(),
+            "status_conta": "DESCONHECIDO",
+        }
+        for u in usuarios_lista
+    }
+
+    try:
+        from sap_rfc._rfc_common import (
+            build_connection_params_for, load_project_env, find_project_root,
+            make_read_only_guard, read_table, make_option_in
+        )
+        from pyrfc import Connection
+
+        load_project_env(find_project_root())
+        params = build_connection_params_for(env_upper)
+        conn = Connection(**params)
+        guard = make_read_only_guard(["AGR_USERS", "USR02"])
+
+        hoje_int = int(date.today().strftime("%Y%m%d"))
+
+        # 1. Leitura USR02 (Estado da conta)
+        users_existentes = set()
+        chunk_size = 25
+        for i in range(0, len(usuarios_lista), chunk_size):
+            chunk = usuarios_lista[i:i + chunk_size]
+            opts_usr = make_option_in("BNAME", chunk)
+            rows_usr = read_table(conn, guard, table_name="USR02", fields=["BNAME", "GLTGV", "GLTGB", "UFLAG"], options=opts_usr, rowcount=0)
+            for r in rows_usr:
+                if len(r) >= 3:
+                    bn = str(r[0]).strip().upper()
+                    users_existentes.add(bn)
+                    g_fim = str(r[2]).strip()
+                    uflag = str(r[3]).strip() if len(r) > 3 else "0"
+                    fim_int = int(g_fim) if g_fim.isdigit() and int(g_fim) > 0 else 99991231
+                    
+                    if uflag != "0":
+                        st = "BLOQUEADA"
+                    elif hoje_int > fim_int:
+                        st = "EXPIRADA"
+                    else:
+                        st = "ATIVA"
+
+                    if bn in resultado_map:
+                        resultado_map[bn]["status_conta"] = st
+
+        for u in usuarios_lista:
+            if u not in users_existentes:
+                resultado_map[u]["status_conta"] = "NAO_ENCONTRADO"
+
+        # 2. Leitura AGR_USERS (Roles ativas)
+        for i in range(0, len(usuarios_lista), chunk_size):
+            chunk = [u for u in usuarios_lista[i:i + chunk_size] if u in users_existentes]
+            if not chunk:
+                continue
+            opts_agr = make_option_in("UNAME", chunk)
+            rows_agr = read_table(conn, guard, table_name="AGR_USERS", fields=["AGR_NAME", "UNAME", "FROM_DAT", "TO_DAT", "COL_FLAG"], options=opts_agr, rowcount=0)
+            for r in rows_agr:
+                if len(r) >= 4:
+                    role = str(r[0]).strip().upper()
+                    un = str(r[1]).strip().upper()
+                    f_d = str(r[2]).strip()
+                    t_d = str(r[3]).strip()
+                    col_flag = str(r[4]).strip().upper() if len(r) > 4 else ""
+
+                    inicio = int(f_d) if f_d.isdigit() else 0
+                    fim = int(t_d) if t_d.isdigit() else 99991231
+
+                    if inicio <= hoje_int <= fim and role and un in resultado_map:
+                        resultado_map[un]["roles_totais"].add(role)
+                        if col_flag == "X":
+                            resultado_map[un]["roles_herdadas"].add(role)
+                        else:
+                            resultado_map[un]["roles_diretas"].add(role)
+
+        conn.close()
+    except Exception as err:
+        print(f"[AVISO] Não foi possível consultar o ambiente SAP {env_upper} via RFC: {err}")
+
+    return resultado_map
+
+
+def auditar_departamentos_processados(
+    dados: ProjetoPerfilData,
+    ambientes: Iterable[str] = ("PRD", "QAD"),
+    filtro_departamento: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Executa a Auditoria Departamental Pós-Processamento 100% READ-ONLY.
+    Seleciona dinamicamente departamentos da sheet CONTROLO cujo STATUS = PROCESSADO.
+    """
+    deps_processados = []
+    for c in dados.controlo:
+        st = str(c.get("status", "")).strip().upper()
+        d_nome = str(c.get("departamento", "")).strip()
+        if st == "PROCESSADO":
+            if filtro_departamento:
+                norm_filtro = normalizar_texto(filtro_departamento)
+                norm_d = normalizar_texto(d_nome)
+                if norm_filtro == norm_d or norm_filtro in norm_d:
+                    deps_processados.append(d_nome)
+            else:
+                deps_processados.append(d_nome)
+
+    if not deps_processados:
+        return {
+            "ok": True,
+            "mensagem": "Nenhum departamento com STATUS = PROCESSADO encontrado na folha CONTROLO.",
+            "total_departamentos": 0,
+            "total_utilizadores": 0,
+            "total_ok": 0,
+            "total_divergentes": 0,
+            "departamentos": {},
+        }
+
+    resultado_geral = {
+        "ok": True,
+        "total_departamentos": len(deps_processados),
+        "total_utilizadores": 0,
+        "total_ok": 0,
+        "total_divergentes": 0,
+        "total_prd_divergente": 0,
+        "total_qas_divergente": 0,
+        "total_prd_qas_divergente": 0,
+        "total_roles_falta": 0,
+        "total_roles_extra": 0,
+        "departamentos": {},
+    }
+
+    env_lista = [str(a).strip().upper() for a in ambientes]
+    env_prd = "PRD" if "PRD" in env_lista else env_lista[0]
+    env_qas = "QAD" if "QAD" in env_lista or "QAS" in env_lista else (env_lista[1] if len(env_lista) > 1 else "QAD")
+
+    for dep_nome in deps_processados:
+        cruzamento = cruzar_fontes_departamento(dados, dep_nome)
+        if not cruzamento.get("encontrado"):
+            continue
+
+        users_excel = cruzamento.get("usuarios", [])
+        if not users_excel:
+            continue
+
+        users_ids = [u["usuario"] for u in users_excel]
+
+        # Consultar PRD e QAS em batch
+        mapa_prd = consultar_utilizadores_ambiente_rfc(users_ids, ambiente=env_prd)
+        mapa_qas = consultar_utilizadores_ambiente_rfc(users_ids, ambiente=env_qas)
+
+        users_auditados = []
+        dep_ok = 0
+        dep_div = 0
+        dep_prd_div = 0
+        dep_qas_div = 0
+        dep_roles_falta = 0
+        dep_roles_extra = 0
+
+        for u_info in users_excel:
+            uid = u_info["usuario"]
+            nome = u_info["nome"]
+
+            excel_esp = {
+                "composta": u_info.get("composta"),
+                "roles_diretas": set(u_info.get("diretas_esperadas", [])),
+                "roles_herdadas": set(u_info.get("membros_composta", [])),
+                "roles_totais": set(u_info.get("todas_autorizacoes_roles", [])),
+            }
+
+            prd_dados = mapa_prd.get(uid, {"status_conta": "DESCONHECIDO", "roles_diretas": set(), "roles_herdadas": set(), "roles_totais": set()})
+            qas_dados = mapa_qas.get(uid, {"status_conta": "DESCONHECIDO", "roles_diretas": set(), "roles_herdadas": set(), "roles_totais": set()})
+
+            comp_res = comparar_utilizador_ambientes(
+                usuario=uid,
+                nome=nome,
+                excel_esp=excel_esp,
+                prd_dados=prd_dados,
+                qas_dados=qas_dados,
+                padroes_exclusao=dados.padroes_exclusao,
+            )
+
+            if comp_res["status_geral"] == "OK":
+                dep_ok += 1
+            else:
+                dep_div += 1
+
+            if comp_res["status_prd"] == "DIVERGENTE":
+                dep_prd_div += 1
+            if comp_res["status_qas"] == "DIVERGENTE":
+                dep_qas_div += 1
+
+            if "ROLE_EM_FALTA" in comp_res["classificacoes"]:
+                dep_roles_falta += 1
+            if "ROLE_EXTRA" in comp_res["classificacoes"]:
+                dep_roles_extra += 1
+
+            users_auditados.append(comp_res)
+
+        resultado_geral["total_utilizadores"] += len(users_auditados)
+        resultado_geral["total_ok"] += dep_ok
+        resultado_geral["total_divergentes"] += dep_div
+        resultado_geral["total_prd_divergente"] += dep_prd_div
+        resultado_geral["total_qas_divergente"] += dep_qas_div
+        resultado_geral["total_roles_falta"] += dep_roles_falta
+        resultado_geral["total_roles_extra"] += dep_roles_extra
+
+        resultado_geral["departamentos"][dep_nome] = {
+            "departamento": dep_nome,
+            "status_controlo": "PROCESSADO",
+            "total_utilizadores": len(users_auditados),
+            "ok": dep_ok,
+            "divergentes": dep_div,
+            "prd_divergente": dep_prd_div,
+            "qas_divergente": dep_qas_div,
+            "roles_falta": dep_roles_falta,
+            "roles_extra": dep_roles_extra,
+            "utilizadores": users_auditados,
+        }
+
+    return resultado_geral
+
+
+def imprimir_auditoria_departamental(resultado: Dict[str, Any]):
+    """Imprime no terminal o relatório completo e estruturado da auditoria departamental."""
+    print("\n" + "=" * 78)
+    print(" AUDITORIA DEPARTAMENTAL PÓS-PROCESSAMENTO")
+    print(" MODO: 100% READ-ONLY")
+    print("=" * 78)
+
+    if not resultado.get("ok") or resultado.get("total_departamentos", 0) == 0:
+        print(f"\n  [AVISO] {resultado.get('mensagem', 'Nenhum departamento auditado.')}")
+        return
+
+    deps_map = resultado.get("departamentos", {})
+    idx_dep = 1
+    total_deps = len(deps_map)
+
+    for dep_nome, d_info in deps_map.items():
+        print(f"\n[{idx_dep}/{total_deps}] {dep_nome.upper()}")
+        print(f"CONTROLO: {d_info.get('status_controlo')}")
+        print(f"Utilizadores: {d_info.get('total_utilizadores')}")
+        print("-" * 78)
+
+        for u in d_info.get("utilizadores", []):
+            comp_str = u.get("composite_esperada") or "Nenhuma"
+            n_exp = len(u.get("roles_diretas_esperadas", []))
+            n_prd = len(u.get("roles_prd", []))
+            n_qas = len(u.get("roles_qas", []))
+
+            print(f"\n{u['usuario']} | {u['nome']}")
+            print(f"Composite Esperada: {comp_str}")
+            print(f"Excel:  {n_exp} roles diretas")
+            print(f"PRD:    {n_prd} roles diretas")
+            print(f"QAS:    {n_qas} roles diretas")
+            print(f"\nPRD:  {u['status_prd']}")
+            print(f"QAS:  {u['status_qas']}")
+
+            if u.get("faltam_prd"):
+                print("Falta no PRD:")
+                for r in u["faltam_prd"]:
+                    print(f"  - {r}")
+
+            if u.get("extras_prd"):
+                print("Extra no PRD:")
+                for r in u["extras_prd"]:
+                    print(f"  + {r}")
+
+            if u.get("faltam_qas"):
+                print("Falta no QAS:")
+                for r in u["faltam_qas"]:
+                    print(f"  - {r}")
+
+            if u.get("extras_qas"):
+                print("Extra no QAS:")
+                for r in u["extras_qas"]:
+                    print(f"  + {r}")
+
+            if u.get("protegidas_exclusao_prd") or u.get("protegidas_exclusao_qas"):
+                prot = sorted(list(set(u.get("protegidas_exclusao_prd", []) + u.get("protegidas_exclusao_qas", []))))
+                print("Protegidas por Exclusão:")
+                for r in prot:
+                    print(f"  ~ {r}")
+
+            res_class = ", ".join(u.get("classificacoes", ["OK"]))
+            print(f"\nResultado: {res_class}")
+            print("-" * 70)
+
+        print(f"\nRESUMO - {dep_nome.upper()}")
+        print(f"Utilizadores analisados: {d_info.get('total_utilizadores')}")
+        print(f"OK:                     {d_info.get('ok')}")
+        print(f"Divergentes:             {d_info.get('divergentes')}")
+        print(f"PRD divergente:           {d_info.get('prd_divergente')}")
+        print(f"QAS divergente:           {d_info.get('qas_divergente')}")
+        print(f"Roles em falta:           {d_info.get('roles_falta')}")
+        print(f"Roles extra:              {d_info.get('roles_extra')}")
+        print("=" * 78)
+        idx_dep += 1
+
+    print("\n" + "=" * 78)
+    print(" RESUMO GERAL DO SISTEMA")
+    print("=" * 78)
+    print(f"Departamentos auditados: {resultado.get('total_departamentos')}")
+    print(f"Utilizadores analisados: {resultado.get('total_utilizadores')}")
+    print(f"OK:                     {resultado.get('total_ok')}")
+    print(f"Divergentes:             {resultado.get('total_divergentes')}")
+    print(f"PRD divergente:           {resultado.get('total_prd_divergente')}")
+    print(f"QAS divergente:           {resultado.get('total_qas_divergente')}")
+    print("=" * 78)
+
+
+# =====================================================================
+# RECONSTRUÇÃO DE FUNÇÕES INDIVIDUAIS NA PROPOSTA ATIVA
+# =====================================================================
+
+def mapear_tcodes_sheet_proposta(dados: ProjetoPerfilData) -> Dict[str, List[str]]:
+    """
+    Lê dinamicamente a folha 'Proposta' e constrói um mapa exato:
+    TCODE -> LISTA_DE_FUNÇÕES_INDIVIDUAIS (Dict[str, List[str]])
+    Uma mesma transação pode estar associada a mais de uma Função Individual (ex: VK13 -> Z_SALES_PRICECOND_CREATE e Z_SALES_PRICECOND_REPORT).
+    Nenhuma relação válida é sobrescrita ou desconsiderada.
+    """
+    sheet_prop = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) == "PROPOSTA"), None)
+    if not sheet_prop:
+        return {}
+
+    import pandas as pd
+    fonte = abrir_excel_seguro(dados.caminho)
+    df = pd.read_excel(fonte, sheet_name=sheet_prop, header=None)
+
+    tcode_para_funcoes: Dict[str, List[str]] = {}
+    current_role: Optional[str] = None
+
+    for r in range(len(df)):
+        f_val = str(df.iloc[r, 0]).strip() if pd.notna(df.iloc[r, 0]) else ""
+        d_val = str(df.iloc[r, 1]).strip() if pd.notna(df.iloc[r, 1]) else ""
+
+        if is_nome_funcao_proposta(f_val, d_val):
+            current_role = f_val.upper()
+        elif f_val and current_role and not is_tcode_marcado_inexistente(d_val):
+            for tc in limpar_tcode(f_val):
+                tc_clean = tc.upper()
+                if tc_clean and not tc_clean.startswith("Z_"):
+                    if tc_clean not in tcode_para_funcoes:
+                        tcode_para_funcoes[tc_clean] = []
+                    if current_role not in tcode_para_funcoes[tc_clean]:
+                        tcode_para_funcoes[tc_clean].append(current_role)
+
+    return tcode_para_funcoes
+
+
+def obter_transacoes_usuario_departamento(
+    dados: ProjetoPerfilData,
+    nome_sheet_dep: str,
+    user_id: str
+) -> Tuple[List[str], Optional[int]]:
+    """
+    Lê a sheet do departamento e extrai todas as transações marcadas com X para o utilizador.
+    Retorna (lista_tcodes, indice_coluna_usuario).
+    """
+    import pandas as pd
+    fonte = abrir_excel_seguro(dados.caminho)
+    df_dep = pd.read_excel(fonte, sheet_name=nome_sheet_dep, header=None)
+
+    if len(df_dep) < 2:
+        return ([], None)
+
+    user_norm = normalizar_texto(user_id)
+    col_u_idx: Optional[int] = None
+
+    for col in range(2, df_dep.shape[1]):
+        val_hdr = str(df_dep.iloc[1, col]).strip() if pd.notna(df_dep.iloc[1, col]) else ""
+        if user_norm in normalizar_texto(val_hdr):
+            col_u_idx = col
+            break
+
+    if col_u_idx is None:
+        return ([], None)
+
+    transacoes_x: List[str] = []
+    for r in range(2, len(df_dep)):
+        tc_val = str(df_dep.iloc[r, 0]).strip() if pd.notna(df_dep.iloc[r, 0]) else ""
+        flag_val = str(df_dep.iloc[r, col_u_idx]).strip().upper() if pd.notna(df_dep.iloc[r, col_u_idx]) else ""
+
+        if flag_val in ("X", "1", "SIM", "YES", "S") and tc_val and tc_val.lower() != "nan":
+            transacoes_x.append(tc_val.upper())
+
+    return (transacoes_x, col_u_idx)
+
+
+def mapeamento_tcodes_para_funcoes_individuais(
+    tcodes_usuario: List[str],
+    tcode_para_funcao_map: Dict[str, List[str]]
+) -> Tuple[List[str], List[str]]:
+    """
+    Recebe a lista de transações X de um utilizador e o mapa TCODE -> Lista de Funções.
+    Para cada TCODE:
+      1. Consulta TODAS as funções associadas à TCODE;
+      2. Acrescenta TODAS as funções à lista final;
+      3. Deduplica os NOMES DAS FUNÇÕES INDIVIDUAIS preservando a ordem de descoberta.
+    Retorna (funcoes_individuais_unicas, transacoes_sem_funcao).
+    """
+    funcoes_unicas: List[str] = []
+    sem_funcao: List[str] = []
+
+    for tc in tcodes_usuario:
+        tc_upper = tc.upper()
+        roles_mapped = tcode_para_funcao_map.get(tc_upper, [])
+        if roles_mapped:
+            for r_map in roles_mapped:
+                if r_map not in funcoes_unicas:
+                    funcoes_unicas.append(r_map)
+        else:
+            if tc_upper not in sem_funcao:
+                sem_funcao.append(tc_upper)
+
+    return (funcoes_unicas, sem_funcao)
+
+
+def reconstruir_funcoes_individuais_departamento(
+    dados: ProjetoPerfilData,
+    nome_departamento: str,
+    simular: bool = True,
+    caminho_excel: Optional[str] = None,
+    filtro_utilizador: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Executa a reconstrução completa das Funções Individuais da Proposta Ativa
+    para todos os utilizadores de um departamento específico ou para um único utilizador (se filtro_utilizador for especificado).
+    """
+    import pandas as pd
+    caminho = caminho_excel or dados.caminho
+
+    # 1. Localizar sheet do departamento
+    sheet_dep = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) == normalizar_nome_coluna(nome_departamento)), None)
+    if not sheet_dep:
+        return {
+            "ok": False,
+            "departamento": nome_departamento,
+            "motivo": "SHEET_NAO_ENCONTRADA",
+            "mensagem": f"[WARNING] Sheet para o departamento '{nome_departamento}' não encontrada no Excel."
+        }
+
+    # 2. Mapeamento TCODE -> Funções na folha Proposta
+    tcode_map = mapear_tcodes_sheet_proposta(dados)
+
+    # 3. Ler utilizadores do cabeçalho da sheet do departamento (linha 2)
+    fonte = abrir_excel_seguro(caminho)
+    df_dep = pd.read_excel(fonte, sheet_name=sheet_dep, header=None)
+
+    colunas_users: Dict[str, Dict[str, Any]] = {}
+    for col in range(2, df_dep.shape[1]):
+        raw_hdr = str(df_dep.iloc[1, col]).strip() if pd.notna(df_dep.iloc[1, col]) else ""
+        if raw_hdr and raw_hdr.lower() != "nan":
+            partes = raw_hdr.replace("\r", "\n").split("\n")
+            p0 = partes[0].strip()
+            tokens = p0.split()
+            if tokens and (tokens[0].upper().startswith("S") or tokens[0].isdigit()):
+                uid = normalizar_texto(tokens[0])
+                nome_hdr = " ".join(tokens[1:]).strip() if len(tokens) > 1 else (partes[1].strip() if len(partes) > 1 else uid)
+            else:
+                uid = normalizar_texto(p0)
+                nome_hdr = partes[1].strip() if len(partes) > 1 else uid
+            if uid:
+                colunas_users[uid] = {"col_idx": col, "nome": nome_hdr, "raw_hdr": raw_hdr}
+
+    if not colunas_users:
+        return {
+            "ok": True,
+            "departamento": nome_departamento,
+            "utilizadores_processados": 0,
+            "mensagem": "Nenhum utilizador encontrado no cabeçalho da sheet do departamento."
+        }
+
+    if filtro_utilizador:
+        norm_u_filtro = normalizar_texto(filtro_utilizador)
+        if norm_u_filtro not in colunas_users:
+            return {
+                "ok": False,
+                "departamento": nome_departamento,
+                "motivo": "UTILIZADOR_NAO_ENCONTRADO_NA_SHEET_DEPARTAMENTO",
+                "mensagem": f"[ERRO] Utilizador '{filtro_utilizador}' não foi encontrado no cabeçalho da sheet '{nome_departamento}'."
+            }
+        colunas_users = {norm_u_filtro: colunas_users[norm_u_filtro]}
+
+    # 4. Ler Proposta Ativa e encontrar obrigatoriamente o cabeçalho 'Funções Individuais' sem fallback
+    df_pa = pd.read_excel(fonte, sheet_name="Proposta Ativa")
+    col_user_pa = [c for c in df_pa.columns if "USER" in str(c).upper() or "UTILIZADOR" in str(c).upper() or "USU" in str(c).upper()][0]
+    col_dep_pa = [c for c in df_pa.columns if str(c).strip().upper() == "DEPARTAMENTO"][0]
+    col_comp_pa = [c for c in df_pa.columns if "COMPOSITE" in str(c).upper()][0]
+    col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_pa)
+
+    relatorio_utilizadores = []
+    celulas_para_pintar_vermelho: List[Tuple[int, int]] = []  # (linha_1based, col_1based)
+
+    for uid, u_meta in colunas_users.items():
+        col_idx = u_meta["col_idx"]
+        nome_user = u_meta["nome"]
+
+        # 4.1 Validar existência na Proposta Ativa
+        rows_match = df_pa[df_pa.iloc[:, 0].astype(str).str.strip().str.upper() == uid]
+        if rows_match.empty:
+            relatorio_utilizadores.append({
+                "usuario": uid,
+                "nome": nome_user,
+                "status": "UTILIZADOR_NAO_ENCONTRADO_PROPOSTA_ATIVA",
+                "mensagem": f"Utilizador '{uid}' não foi encontrado na folha Proposta Ativa."
+            })
+            continue
+
+        pa_row_idx = rows_match.index[0]
+        pa_row = df_pa.iloc[pa_row_idx]
+        dep_pa_val = str(pa_row.get(col_dep_pa, "")).strip()
+        comp_pa_val = str(pa_row.get(col_comp_pa, "")).strip()
+
+        # 4.2 Validar correspondência de Departamento
+        if normalizar_texto(dep_pa_val) != normalizar_texto(nome_departamento):
+            relatorio_utilizadores.append({
+                "usuario": uid,
+                "nome": nome_user,
+                "status": "DEPARTAMENTO_DIVERGENTE",
+                "departamento_sheet": nome_departamento,
+                "departamento_proposta": dep_pa_val,
+                "mensagem": f"Departamento na Proposta Ativa ('{dep_pa_val}') diverge da sheet ('{nome_departamento}')."
+            })
+            continue
+
+        # 4.3 Ler transações X na sheet do departamento
+        tcodes_user, _ = obter_transacoes_usuario_departamento(dados, sheet_dep, uid)
+
+        # 4.4 Mapear TCODEs -> Funções Individuais
+        funcoes_calc, sem_funcao = mapeamento_tcodes_para_funcoes_individuais(tcodes_user, tcode_map)
+
+        # Se houver transações sem função, registar células a pintar de vermelho
+        if sem_funcao:
+            for r in range(2, len(df_dep)):
+                tc_val = str(df_dep.iloc[r, 0]).strip().upper() if pd.notna(df_dep.iloc[r, 0]) else ""
+                flag_val = str(df_dep.iloc[r, col_idx]).strip().upper() if pd.notna(df_dep.iloc[r, col_idx]) else ""
+                if tc_val in sem_funcao and flag_val in ("X", "1", "SIM", "YES", "S"):
+                    celulas_para_pintar_vermelho.append((r + 1, col_idx + 1))
+
+        # 4.5 Obter funções atuais na Proposta Ativa
+        roles_atuais = [
+            str(x).strip().upper() for x in pa_row.iloc[col_fi_idx:].dropna().tolist()
+            if is_role_sap_valida(x)
+        ]
+
+        set_calc = set(funcoes_calc)
+        set_atual = set(roles_atuais)
+
+        adicionadas = [r for r in funcoes_calc if r not in set_atual]
+        mantidas = [r for r in funcoes_calc if r in set_atual]
+        removidas = [r for r in roles_atuais if r not in set_calc]
+
+        tem_alteracao = (funcoes_calc != roles_atuais)
+
+        relatorio_utilizadores.append({
+            "usuario": uid,
+            "nome": nome_user,
+            "linha_proposta_ativa": pa_row_idx + 2,
+            "composite_atual": comp_pa_val,
+            "status": "ALTERADO" if tem_alteracao else "SEM_ALTERACAO",
+            "total_transacoes_x": len(tcodes_user),
+            "total_funcoes_unicas": len(funcoes_calc),
+            "funcoes_calculadas": funcoes_calc,
+            "funcoes_atuais": roles_atuais,
+            "sem_funcao": sem_funcao,
+            "adicionadas": adicionadas,
+            "mantidas": mantidas,
+            "removidas": removidas,
+        })
+
+    # 5. Se NÃO for simulação, criar backup e realizar a escrita real
+    if not simular:
+        backup_dir = Path("C:/workspace/SapScript/output/backups")
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        prefixo_u = f"PRE_{filtro_utilizador}_" if filtro_utilizador else "PRE_"
+        backup_caminho = backup_dir / f"S4H_Perfis_de_autorizacao_{prefixo_u}{timestamp}.xlsx"
+
+        try:
+            import shutil
+            shutil.copy2(caminho, str(backup_caminho))
+            print(f"  [BACKUP] Cópia de segurança criada com sucesso em: {backup_caminho}")
+        except Exception as exc:
+            raise RuntimeError(f"ABORTADO: Não foi possível criar a cópia de segurança antes da escrita: {exc}")
+
+        # Executar a atualização via openpyxl
+        import openpyxl
+        wb = openpyxl.load_workbook(caminho)
+        ws_pa = wb["Proposta Ativa"]
+        ws_dep_op = wb[sheet_dep]
+
+        col_fi_1based = col_fi_idx + 1
+
+        for item in relatorio_utilizadores:
+            if item.get("status") in ("ALTERADO", "SEM_ALTERACAO"):
+                linha_excel = item["linha_proposta_ativa"]
+                funcoes_escrever = item["funcoes_calculadas"]
+
+                # Limpar células antigas de funções individuais
+                max_col = max(ws_pa.max_column, col_fi_1based + 50)
+                for c in range(col_fi_1based, max_col + 1):
+                    ws_pa.cell(row=linha_excel, column=c).value = None
+
+                # Escrever novas funções calculadas
+                for idx_f, f_nome in enumerate(funcoes_escrever):
+                    ws_pa.cell(row=linha_excel, column=col_fi_1based + idx_f).value = f_nome
+
+        # Atualizar também a folha PFCG_COMPOSTA com a união das funções calculadas por Composite Role
+        ws_comp_op = wb["PFCG_COMPOSTA"] if "PFCG_COMPOSTA" in wb.sheetnames else None
+        if ws_comp_op:
+            # Coletar membros existentes em PFCG_COMPOSTA
+            pares_existentes = set()
+            max_id_comp = 0
+            composta_textos = {}
+            for r in range(2, ws_comp_op.max_row + 1):
+                try:
+                    rid = int(ws_comp_op.cell(r, 1).value or 0)
+                    if rid > max_id_comp:
+                        max_id_comp = rid
+                except Exception:
+                    pass
+                agr_c = str(ws_comp_op.cell(r, 2).value or "").strip().upper()
+                txt_c = str(ws_comp_op.cell(r, 3).value or "").strip()
+                agr_f = str(ws_comp_op.cell(r, 4).value or "").strip().upper()
+                if agr_c and txt_c and agr_c not in composta_textos:
+                    composta_textos[agr_c] = txt_c
+                if agr_c and agr_f:
+                    pares_existentes.add((agr_c, agr_f))
+
+            # Agrupar união das funções por Composite Role para este departamento
+            compostas_dep = defaultdict(set)
+            for item in relatorio_utilizadores:
+                c_role = str(item.get("composite_atual", "")).strip().upper()
+                if c_role and c_role not in ("NAN", "NONE", "-"):
+                    compostas_dep[c_role].update(item.get("funcoes_calculadas", []))
+
+            for c_role, funcs_uniao in sorted(compostas_dep.items()):
+                txt_desc = composta_textos.get(c_role, dados.roles_compostas.get(c_role, {}).get("descricao", c_role))
+                for f_nome in sorted(funcs_uniao):
+                    f_upper = f_nome.strip().upper()
+                    if f_upper and (c_role, f_upper) not in pares_existentes:
+                        max_id_comp += 1
+                        next_r = ws_comp_op.max_row + 1
+                        ws_comp_op.cell(row=next_r, column=1, value=max_id_comp)
+                        ws_comp_op.cell(row=next_r, column=2, value=c_role)
+                        ws_comp_op.cell(row=next_r, column=3, value=txt_desc)
+                        ws_comp_op.cell(row=next_r, column=4, value=f_upper)
+                        pares_existentes.add((c_role, f_upper))
+
+        wb.save(caminho)
+        wb.close()
+        print(f"  [EXCEL] Reconstrução concluída e salva com sucesso em: {caminho}")
+
+    return {
+        "ok": True,
+        "departamento": nome_departamento,
+        "sheet_departamento": sheet_dep,
+        "simular": simular,
+        "total_utilizadores": len(relatorio_utilizadores),
+        "utilizadores": relatorio_utilizadores,
+        "celulas_vermelhas": len(celulas_para_pintar_vermelho),
+    }
+
+
+def reconstruir_funcoes_individuais_todos_departamentos(
+    dados: ProjetoPerfilData,
+    simular: bool = True,
+    caminho_excel: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Percorre TODOS os departamentos definidos na sheet CONTROLO
+    e executa a reconstrução das Funções Individuais na Proposta Ativa.
+    """
+    deps_controlo = [c.get("departamento") for c in dados.controlo if c.get("departamento")]
+    resultados_deps = {}
+
+    for dep_nome in deps_controlo:
+        res = reconstruir_funcoes_individuais_departamento(dados, dep_nome, simular=simular, caminho_excel=caminho_excel)
+        resultados_deps[dep_nome] = res
+
+    return {
+        "ok": True,
+        "simular": simular,
+        "total_departamentos": len(deps_controlo),
+        "resultados": resultados_deps
+    }
+
+
+def imprimir_relatorio_reconstrucao_proposta_ativa(resultado: Dict[str, Any]):
+    """Imprime no terminal o relatório detalhado da reconstrução de Funções Individuais."""
+    print("\n" + "=" * 78)
+    print(" RECONSTRUÇÃO DE FUNÇÕES INDIVIDUAIS NA PROPOSTA ATIVA")
+    print(f" MODO: {'SIMULAÇÃO (sem gravação)' if resultado.get('simular') else 'EXECUÇÃO REAL (gravado no Excel)'}")
+    print("=" * 78)
+
+    if "utilizadores" in resultado:
+        deps_map = {resultado.get("departamento", "Geral"): resultado}
+    else:
+        deps_map = resultado.get("resultados", {})
+
+    for dep_nome, d_res in deps_map.items():
+        if not d_res.get("ok"):
+            print(f"\n[DEPARTAMENTO] {dep_nome}")
+            print(f"  └─ {d_res.get('mensagem', 'Erro ou sheet não encontrada.')}")
+            continue
+
+        print(f"\n============================================================")
+        print(f" RECONSTRUÇÃO DE FUNÇÕES INDIVIDUAIS")
+        print(f" Departamento: {dep_nome}")
+        print(f"============================================================")
+
+        for u in d_res.get("utilizadores", []):
+            st = u.get("status")
+            if st in ("UTILIZADOR_NAO_ENCONTRADO_PROPOSTA_ATIVA", "DEPARTAMENTO_DIVERGENTE"):
+                print(f"\n 👤 {u['usuario']} | {u['nome']}")
+                print(f"    └─ [AVISO] {u.get('mensagem')}")
+                continue
+
+            print(f"\n User: {u['usuario']}")
+            print(f" Nome: {u['nome']}")
+            print(f" Linha Proposta Ativa: {u.get('linha_proposta_ativa')}")
+            print(f" Composite Role:       {u.get('composite_atual')}")
+            print(f" Transações com X:     {u.get('total_transacoes_x')}")
+            print(f" Funções únicas:       {u.get('total_funcoes_unicas')}")
+
+            print("\n Funções individuais encontradas:")
+            for idx_f, f_nome in enumerate(u.get("funcoes_calculadas", []), 1):
+                print(f"   {idx_f:02d}. {f_nome}")
+
+            if u.get("sem_funcao"):
+                print("\n Transações sem função individual:")
+                for tc in u["sem_funcao"]:
+                    print(f"   - {tc}")
+
+            print(f"\n Alterações:")
+            print(f"   Adicionadas ({len(u.get('adicionadas', []))}): {', '.join(u.get('adicionadas', [])) or 'Nenhuma'}")
+            print(f"   Mantidas    ({len(u.get('mantidas', []))}): {', '.join(u.get('mantidas', [])) or 'Nenhuma'}")
+            print(f"   Removidas   ({len(u.get('removidas', []))}): {', '.join(u.get('removidas', [])) or 'Nenhuma'}")
+
+            print(f"\n Status: {st}")
+            print("-" * 60)
+
+    print("\n" + "=" * 78)
+
+
+
+
 def adicionar_funcao_proposta_ativa(
     caminho_excel: Optional[str],
     utilizador: str,
@@ -3648,7 +4532,7 @@ def auditar_utilizador(dados: ProjetoPerfilData, utilizador: str) -> Dict[str, A
             import pandas as pd
             fonte = abrir_excel_seguro(dados.caminho)
             df_raw = pd.read_excel(fonte, sheet_name=sheet_proposta, header=None)
-            col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_raw, default_idx=10)
+            col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_raw)
             for idx in range(1, len(df_raw)):
                 u_id = str(df_raw.iloc[idx, 0]).strip() if pd.notna(df_raw.iloc[idx, 0]) else ""
                 if normalizar_texto(u_id) == user_norm:
@@ -4591,15 +5475,6 @@ def sincronizar_departamento_prd_qad_rfc(
         except Exception as e_ox:
             print(f"  [AVISO] Falha ao atualizar Excel com openpyxl: {e_ox}")
 
-        try:
-            import shutil
-            desktop_f = Path(r"C:\Users\clayton.silva\OneDrive - Salsajeans\Desktop\S4H_Perfis de autorização_v1.xlsx")
-            if desktop_f.exists():
-                shutil.copy2(dados.caminho, desktop_f)
-                print("  Cópia sincronizada na Área de Trabalho (Desktop)!")
-        except Exception as e_dsk:
-            print(f"  [AVISO] Falha ao sincronizar Desktop: {e_dsk}")
-
         item_dep["status"] = "PROCESSADO"
         item_dep["timestamp"] = timestamp_str
         item_dep["pendente"] = False
@@ -5465,15 +6340,6 @@ def executar_fluxo_pesquisa_atribuir_transacao(
         wb_ox.close()
         print("  ✓ Alterações gravadas com sucesso via openpyxl!")
 
-    # 10. Sincronizar cópia na Área de Trabalho (Desktop)
-    try:
-        desktop_f = Path(r"C:\Users\clayton.silva\OneDrive - Salsajeans\Desktop\S4H_Perfis de autorização_v1.xlsx")
-        if desktop_f.exists():
-            shutil.copy2(caminho, desktop_f)
-            print("  ✓ Cópia sincronizada na Área de Trabalho (Desktop)!")
-    except Exception as e_dsk:
-        print(f"  [AVISO] Falha ao sincronizar Desktop: {e_dsk}")
-
     print("\n" + "=" * 78)
     print(f"  ✓ ATRIBUIÇÃO E SINCRONIZAÇÃO CONCLUÍDAS COM SUCESSO!")
     print(f"     Utilizador:      {user_alvo} ({user_nome})")
@@ -5774,7 +6640,7 @@ if __name__ == "__main__":
     parser.add_argument("--comparar-prd", "--funcoes-diferentes-prd", dest="comparar_prd", action="store_true", help="Comparar catálogo de funções no PRD vs ficheiro Excel (AGR_DEFINE e AGR_USERS)")
     parser.add_argument("--pesquisar-role", "-r", dest="role", help="Pesquisar diretamente por nome de função")
     parser.add_argument("--pesquisar-tcode", "-t", dest="tcode", help="Pesquisar diretamente por transação SAP")
-    parser.add_argument("--pesquisar-user", "-u", dest="user", help="Auditar e pesquisar diretamente por utilizador (Proposta, CUA e SAP PRD)")
+    parser.add_argument("--pesquisar-user", "--user", "-u", dest="user", help="Auditar e pesquisar diretamente por utilizador (Proposta, CUA e SAP PRD)")
     parser.add_argument("--incorporar-adicionais", dest="incorporar_adicionais", action="store_true", help="Incorporar na Proposta Ativa as funções do catálogo que já estão ativas no SAP PRD")
     parser.add_argument("--validar-proposta-tcodes", "--validar-tcodes-prd", dest="validar_proposta_tcodes", action="store_true", help="Validar se todas as transações da sheet Proposta existem na tabela TSTC do SAP PRD")
     parser.add_argument("--sincronizar-catalogo", dest="sincronizar_catalogo", action="store_true", help="Sincronizar catálogo da folha Proposta com PFCG_CREATE e SAP PRD")
@@ -5784,6 +6650,9 @@ if __name__ == "__main__":
     parser.add_argument("--fila-cua", "--sincronizar-fila", dest="fila_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para todos os departamentos pendentes em sequência")
     parser.add_argument("--atribuir-transacao", "--pesquisar-atribuir", dest="atribuir_transacao", action="store_true", help="Pesquisar transação via RFC no PRD e atribuir a utilizador na Proposta Ativa, PFCG_CREATE e folha departamental")
     parser.add_argument("--corrigir-posterior", "--corrigir-sincronizacao", dest="corrigir_posterior", action="store_true", help="Executar correção de sincronização posterior para utilizadores com funções pendentes no CUA")
+    parser.add_argument("--audit", dest="audit", action="store_true", help="Executar Auditoria Departamental Pós-Processamento 100% Read-Only nos departamentos com STATUS=PROCESSADO")
+    parser.add_argument("--resumo", dest="resumo", action="store_true", help="Utilizar modo resumo na auditoria pós-processamento")
+    parser.add_argument("--reconstruir-proposta-ativa", "--reconstruir-proposta", dest="reconstruir_proposta", action="store_true", help="Reconstruir Funções Individuais da sheet Proposta Ativa a partir das matrizes departamentais e Proposta")
     parser.add_argument("--simular", dest="simular", action="store_true", help="Apenas simular a operação sem gravar no Excel")
     parser.add_argument("--yes", "-y", dest="assumir_sim", action="store_true", help="Confirmar automaticamente sem perguntar interativamente")
 
@@ -5792,13 +6661,54 @@ if __name__ == "__main__":
     caminho_alvo = args.ficheiro or encontrar_excel_padrao()
 
     # Se foram passados parâmetros de pesquisa direta via CLI:
-    if args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo or args.sincronizar_cua or args.fila_cua or args.atualizar_excel or args.executar_pendencias or args.atribuir_transacao or args.corrigir_posterior:
+    if args.reconstruir_proposta or args.audit or args.controlo or args.proximo or args.departamento is not None or args.cruzar_fontes or args.validar_users_prd or args.verificar_prd or args.comparar_prd or args.role or args.tcode or args.user or args.incorporar_adicionais or args.validar_proposta_tcodes or args.sincronizar_catalogo or args.sincronizar_cua or args.fila_cua or args.atualizar_excel or args.executar_pendencias or args.atribuir_transacao or args.corrigir_posterior:
         if not caminho_alvo:
             print("[ERRO] Erro: Ficheiro Excel não encontrado.")
             sys.exit(1)
         
         dados = carregar_projeto_perfil(caminho_alvo)
         imprimir_cabecalho(caminho_alvo)
+
+        if args.reconstruir_proposta:
+            alvo_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else None
+            alvo_user = args.user.strip() if (args.user and args.user.strip()) else None
+            is_sim = bool(args.simular or not args.assumir_sim)
+            if alvo_dep:
+                res_rec = reconstruir_funcoes_individuais_departamento(dados, alvo_dep, simular=is_sim, caminho_excel=caminho_alvo, filtro_utilizador=alvo_user)
+            elif alvo_user:
+                # Se não indicou departamento mas indicou utilizador, localizar o departamento do utilizador
+                res_dep_user = analisar_departamento_proposta(dados, "")
+                dep_encontrado = None
+                for c_dep in dados.controlo:
+                    d_nome = c_dep.get("departamento", "")
+                    if d_nome:
+                        t_u, _ = obter_transacoes_usuario_departamento(dados, d_nome, alvo_user)
+                        if t_u or d_nome:
+                            # Verificar se o utilizador está na sheet
+                            sheet_d = next((s for s in dados.sheets_disponiveis if normalizar_nome_coluna(s) == normalizar_nome_coluna(d_nome)), None)
+                            if sheet_d:
+                                fonte_d = abrir_excel_seguro(caminho_alvo)
+                                import pandas as pd
+                                df_d = pd.read_excel(fonte_d, sheet_name=sheet_d, header=None)
+                                if len(df_d) >= 2:
+                                    hdrs = [normalizar_texto(df_d.iloc[1, col]) for col in range(2, df_d.shape[1]) if pd.notna(df_d.iloc[1, col])]
+                                    if any(normalizar_texto(alvo_user) in h for h in hdrs):
+                                        dep_encontrado = d_nome
+                                        break
+                if not dep_encontrado:
+                    print(f"[ERRO] Utilizador '{alvo_user}' não foi encontrado em nenhuma sheet de departamento.")
+                    sys.exit(1)
+                res_rec = reconstruir_funcoes_individuais_departamento(dados, dep_encontrado, simular=is_sim, caminho_excel=caminho_alvo, filtro_utilizador=alvo_user)
+            else:
+                res_rec = reconstruir_funcoes_individuais_todos_departamentos(dados, simular=is_sim, caminho_excel=caminho_alvo)
+            imprimir_relatorio_reconstrucao_proposta_ativa(res_rec)
+            sys.exit(0)
+
+        if args.audit:
+            filtro_dep = args.departamento.strip() if (args.departamento and args.departamento.strip()) else None
+            res_audit = auditar_departamentos_processados(dados, ambientes=("PRD", "QAD"), filtro_departamento=filtro_dep)
+            imprimir_auditoria_departamental(res_audit)
+            sys.exit(0)
 
         # Se for sincronização CUA ou atualização de catálogo/Excel, executa a Tarefa 1 em primeiro lugar:
         if args.atualizar_excel or args.fila_cua or args.sincronizar_cua:

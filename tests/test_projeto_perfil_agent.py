@@ -149,3 +149,25 @@ class ProjetoPerfilServiceTests(TestCase):
             self.assertIn("ok", res)
             self.assertIn("status", res)
 
+
+class ProjetoPerfilFileRulesTests(TestCase):
+    """Garante a regra obrigatória do ficheiro Excel local (OneDrive -> Local apenas sob demanda, Local -> OneDrive proibido)."""
+
+    def test_encontrar_excel_padrao_nao_chama_sincronizacao(self) -> None:
+        """Garante que encontrar_excel_padrao() apenas retorna o caminho local sem invocar sincronização automática."""
+        from sap_rfc.projeto_perfil_service import get_projeto_perfil_module
+
+        mod = get_projeto_perfil_module()
+        with mock.patch.object(mod, "sincronizar_copia_sharepoint", side_effect=AssertionError("sincronizar_copia_sharepoint() não deve ser chamado em encontrar_excel_padrao()!")) as mock_sync:
+            caminho = mod.encontrar_excel_padrao()
+            self.assertEqual(caminho, mod.CAMINHO_EXCEL_LOCAL)
+            mock_sync.assert_not_called()
+
+    def test_nenhuma_escrita_local_para_onedrive(self) -> None:
+        """Garante que o código de Projeto Perfil.py não contém referências nem chamadas de cópia para o OneDrive/Desktop."""
+        mod_path = PROJECT_ROOT / "Processos" / "Projeto Autorizações" / "Projeto Perfil.py"
+        code = mod_path.read_text(encoding="utf-8")
+
+        self.assertNotIn(r"OneDrive - Salsajeans\Desktop", code)
+        self.assertNotIn("desktop_f", code)
+

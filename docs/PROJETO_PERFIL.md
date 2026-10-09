@@ -14,6 +14,11 @@ de leitura/gravação face ao OneDrive:
 C:\workspace\SapScript\S4H_Perfis de autorização_v1.xlsx
 ```
 
+### Regra Oficial de Sincronização e Leitura/Escrita
+- **Ficheiro Local Oficial**: `C:\workspace\SapScript\S4H_Perfis de autorização_v1.xlsx` é a cópia de trabalho oficial e a fonte operacional para todas as execuções do Projeto Perfil.
+- **OneDrive / SharePoint -> Local**: Permitido apenas através de atualização explícita/controlada (ex.: chamada manual de `sincronizar_copia_sharepoint()`). `encontrar_excel_padrao()` devolve sempre o ficheiro local sem efetuar sincronização automática.
+- **Local -> OneDrive / SharePoint**: **ESTRITAMENTE PROIBIDO**. Nenhuma execução normal do Projeto Perfil copia ou grava ficheiros no OneDrive/SharePoint a partir do ficheiro local.
+
 As rotinas que produzem uma cópia automática usam:
 
 ```text

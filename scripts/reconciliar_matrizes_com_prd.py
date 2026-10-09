@@ -2,23 +2,10 @@
 """
 scripts/reconciliar_matrizes_com_prd.py
 ======================================================================
-Script temporário e separado do fluxo principal do Projeto Perfil para
-reconciliar o ficheiro mestre de perfis (`S4H_Perfis de autorização_v1.xlsx`)
-com o estado REAL atual do SAP PRD.
-
-FINALIDADE:
-Recuperar para as matrizes departamentais do Excel as transações (X)
-que já foram concedidas em SAP PRD durante o projeto aos utilizadores,
-mas que ainda não estão marcadas com X nas respetivas sheets departamentais.
-
-REGRAS PRINCIPAIS:
-1. Processa APENAS departamentos com STATUS == 'PROCESSADO' na sheet CONTROLO.
-2. Identifica os utilizadores em cada sheet departamental usando correspondência exata de ID (Regex).
-3. Consulta SAP PRD (Somente Leitura via RFC) para obter o acesso efetivo REAL (Single Roles diretas + Composite Roles expandidas).
-4. Obtém TCODEs ativas/não expiradas associadas a essas Single Roles.
-5. Compara com os X atuais da matriz departamental.
-6. Adiciona APENAS X em falta (NUNCA remove X existentes, NUNCA cria novas linhas de TCODE).
-7. Suporta o modo `--simular` (obrigatório para primeira execução sem alteração no Excel).
+[UTILITÁRIO TEMPORÁRIO / LEGADO]
+Aviso: Este script implementa a reconciliação no sentido inverso (PRD -> Matriz).
+NÃO É UTILIZADO pelo fluxo oficial integrado do Projeto Perfil (que utiliza
+o fluxo oficial FASE 1 -> FASE 2 -> FASE 3A -> FASE 3B).
 ======================================================================
 """
 

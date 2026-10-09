@@ -43,6 +43,10 @@ class WorkerReapTest(unittest.TestCase):
         store.DB_PATH = store.DATA_DIR / "sap_script_jobs.sqlite3"
         store.init_db()
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(_TMPDIR, ignore_errors=True)
+
     def _running_job(self, worker: str) -> str:
         """Cria um job e forca-o a 'running' com este worker (deterministico,
         sem depender da ordem de claim_next_job)."""
