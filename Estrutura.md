@@ -110,15 +110,17 @@
 ### 2. Projetos
 
 #### 2.1 Projeto Perfil de Autorização
-- **Fluxo Geral:** Execução completa, departamento/matrizes, utilizador individual, pesquisa transações, correção de sincronização e diagnóstico SU53.
+- **Fluxo Geral:** Reconciliação Integrada de 7 Etapas (Tarefa 1): `[1/7]` Matrizes Departamentais × Proposta $\rightarrow$ `[2/7]` Proposta × TSTC $\rightarrow$ `[3/7]` Proposta Ativa $\rightarrow$ `[4/7]` Catálogo Vivo $\rightarrow$ `[5/7]` PFCG_COMPOSTA $\rightarrow$ `[6/7]` Preparar CUA_ADICIONAR (apenas Excel, idempotente, sem escrita SAP) $\rightarrow$ `[7/7]` Executar Sincronização SAP (exige confirmação explícita, BAPI + Commit + Readback obrigatório + atualização de CUA_ADICIONAR via ID por ambiente PRD/QAD independente).
 - **Frontend:** `cockpit.agent.js` (`projeto-perfil-execucao`, `projeto-perfil-departamento`, `projeto-perfil-utilizador`, `projeto-perfil-pesquisa`, `projeto-perfil-corrigir`, `projeto-perfil-su53`)
 - **API:** `POST /api/jobs` (tasks `projeto_perfil_execucao`, `projeto_perfil_departamento`, `projeto_perfil_utilizador`, `projeto_perfil_pesquisa`, `projeto_perfil_corrigir`, `projeto_perfil_su53`)
 - **Worker:** `worker/sap_tasks.py` (`_run_projeto_perfil_task`)
-- **Serviço / Scripts Operacionais:**
+- **Serviço / Scripts Operacionais / Reconciliação:**
   - `sap_rfc/projeto_perfil_service.py`, `sap_rfc/projeto_perfil_cli.py`
-  - `Processos/Projeto Autorizações/Projeto Perfil.py`
+  - `sap_rfc/pfcg_composta_sync_service.py`, `sap_rfc/pfcg_composta_sync_cli.py` (Orquestrador e CLI modular da Fase 4: preflight, barreira QAD $\rightarrow$ PRD, readback físico e estados `Concluído` / `Pendente PRD` / `Erro QAD`)
+  - `scripts/reconciliar_proposta_ativa_com_prd.py` (Integração encadeada Fases 1 a 4 com flag `--real` para gravação no Excel)
+  - `Processos/Projeto Autorizações/Projeto Perfil.py` (`preparar_cua_adicionar`, `executar_atribuicoes_cua_sap`, `executar_atualizacao_integrada_excel`, `executar_correcao_sincronizacao_posterior`)
   - `Processos/Projeto Autorizações/Pesquisa_Erros_SU53.py`
-- **Testes:** `SapScript/tests/test_projeto_perfil_agent.py`
+- **Testes:** `tests/test_auditoria_matrizes_vs_proposta.py`, `tests/test_pfcg_composta_sync_service.py`, `tests/test_reconciliar_proposta_ativa_com_prd.py`, `tests/test_projeto_perfil_agent.py`
 
 ---
 

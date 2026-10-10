@@ -80,8 +80,8 @@ def extrair_user_id(cabecalho: Any) -> Optional[str]:
     return None
 
 
-def obter_departamentos_processados(caminho_excel: str) -> List[str]:
-    """Lê a sheet CONTROLO e retorna os departamentos com STATUS == 'PROCESSADO'."""
+def obter_departamentos_processados(caminho_excel: str, incluir_pendencias: bool = True, incluir_pendentes: bool = False) -> List[str]:
+    """Lê a sheet CONTROLO e retorna os departamentos com STATUS em ('PROCESSADO', 'PROCESSADO_COM_PENDENCIAS') ou pendentes se incluir_pendentes=True."""
     if not OPENPYXL_AVAILABLE:
         raise RuntimeError("openpyxl não está instalado no ambiente.")
 
@@ -104,6 +104,8 @@ def obter_departamentos_processados(caminho_excel: str) -> List[str]:
     except ValueError:
         raise ValueError("Cabeçalhos 'DEPARTAMENTO' e 'STATUS' não encontrados em CONTROLO.")
 
+    status_validos = {"PROCESSADO", "PROCESSADO_COM_PENDENCIAS"} if incluir_pendencias else {"PROCESSADO"}
+
     deps_processados = []
     for row in rows[1:]:
         if len(row) <= max(col_dep, col_st):
@@ -111,8 +113,9 @@ def obter_departamentos_processados(caminho_excel: str) -> List[str]:
         dep_val = str(row[col_dep] or "").strip()
         st_val = str(row[col_st] or "").strip().upper()
 
-        if dep_val and st_val == "PROCESSADO":
-            deps_processados.append(dep_val)
+        if dep_val:
+            if st_val in status_validos or (incluir_pendentes and not st_val):
+                deps_processados.append(dep_val)
 
     return deps_processados
 

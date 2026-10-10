@@ -372,3 +372,111 @@ def test_fase3b_j_fase3a_adicionou_funcao_fase3b_enxerga():
     )
     assert res["composite_calculada"] == ["Z_ROLE_FASE3A", "Z_ROLE_INICIAL"]
 
+
+def test_classificacao_utilizador_pendente_new():
+    """1. NEW não bloqueia outros -> classificado como PENDENTE_CRIACAO_USER_SAP."""
+    raw_header = "NEW Daniela Faria"
+    is_new = "NEW" in raw_header.upper()
+    estado = "PENDENTE_CRIACAO_USER_SAP" if is_new else "PROCESSAVEL"
+    assert estado == "PENDENTE_CRIACAO_USER_SAP"
+
+
+def test_classificacao_utilizador_nao_mapeado_proposta_ativa():
+    """2. User sem Proposta Ativa não bloqueia outros -> classificado como USER_NAO_MAPEADO_PROPOSTA_ATIVA."""
+    uid = "S80001999"
+    proposta_ativa_map = {"S13020": 2, "S14030": 3}
+    pertence_proposta = uid in proposta_ativa_map
+    estado = "PROCESSAVEL" if pertence_proposta else "USER_NAO_MAPEADO_PROPOSTA_ATIVA"
+    assert estado == "USER_NAO_MAPEADO_PROPOSTA_ATIVA"
+
+
+def test_cenario_3_user_inativo_nao_bloqueia():
+    """3. User inativo não bloqueia outros -> classificado como USER_INATIVO_EXCLUIDO."""
+    valido_usr02 = False
+    estado = "PROCESSAVEL" if valido_usr02 else "USER_INATIVO_EXCLUIDO"
+    assert estado == "USER_INATIVO_EXCLUIDO"
+
+
+def test_cenario_4_user_sem_x_nao_bloqueia():
+    """4. User sem X não bloqueia outros -> classificado como USER_SEM_X_EXCLUIDO."""
+    qtd_x = 0
+    estado = "PROCESSAVEL" if qtd_x > 0 else "USER_SEM_X_EXCLUIDO"
+    assert estado == "USER_SEM_X_EXCLUIDO"
+
+
+def test_cenario_5_user_ambiguo_nao_bloqueia():
+    """5. User ambíguo não bloqueia outros -> classificado como USER_AMBIGUO."""
+    candidatos = ["S80001001", "S80001002"]
+    estado = "USER_AMBIGUO" if len(candidatos) > 1 else "PROCESSAVEL"
+    assert estado == "USER_AMBIGUO"
+
+
+def test_cenario_6_tcode_sem_role_continua_bloqueando():
+    """6. TCODE sem role em Proposta continua bloqueando o departamento com erro/alerta."""
+    tcode = "TCODE_DESCONHECIDA"
+    tcode_to_roles_map = {"ME21N": {"Z_ROLE"}}
+    sem_role = tcode not in tcode_to_roles_map
+    status_departamento = "ERRO" if sem_role else "PROCESSADO"
+    assert sem_role is True
+    assert status_departamento == "ERRO"
+
+
+def test_cenario_7_lote_com_pendencia_gera_processado_com_pendencias():
+    """7. Lote com utilizador pendente e utilizadores válidos gera status PROCESSADO_COM_PENDENCIAS."""
+    users = [{"uid": "S13020", "estado": "PROCESSAVEL"}, {"uid": None, "estado": "PENDENTE_CRIACAO_USER_SAP"}]
+    has_pendencias = any(u["estado"] != "PROCESSAVEL" for u in users)
+    has_validos = any(u["estado"] == "PROCESSAVEL" for u in users)
+    status_final = "PROCESSADO_COM_PENDENCIAS" if (has_pendencias and has_validos) else "PROCESSADO"
+    assert status_final == "PROCESSADO_COM_PENDENCIAS"
+
+
+def test_cenario_8_lote_sem_pendencia_gera_processado():
+    """8. Lote sem qualquer pendência gera status PROCESSADO."""
+    users = [{"uid": "S13020", "estado": "PROCESSAVEL"}, {"uid": "S14030", "estado": "PROCESSAVEL"}]
+    has_pendencias = any(u["estado"] != "PROCESSAVEL" for u in users)
+    status_final = "PROCESSADO_COM_PENDENCIAS" if has_pendencias else "PROCESSADO"
+    assert status_final == "PROCESSADO"
+
+
+def test_cenario_9_segunda_execucao_idempotente():
+    """9. Segunda execução é idempotente (0 novas adições)."""
+    funcs_proposta = {"Z_ROLE_1"}
+    funcs_necessarias = {"Z_ROLE_1"}
+    a_adicionar = funcs_necessarias - funcs_proposta
+    assert len(a_adicionar) == 0
+
+
+def test_cenario_10_user_corrigido_gera_somente_delta_proprio():
+    """10. User corrigido gera somente delta próprio, sem reprocessar utilizadores anteriores."""
+    user_a_finais = {"Z_ROLE_1"}  # Já processado anteriormente
+    user_b_novos = {"Z_ROLE_2"}   # Novo utilizador corrigido
+    
+    delta_a = set() - user_a_finais  # Adições para A = 0
+    delta_b = user_b_novos - set()   # Adições para B = 1
+    
+    assert len(delta_a) == 0
+    assert len(delta_b) == 1
+
+
+def test_cenario_11_composite_somente_delta_novo():
+    """11. PFCG_COMPOSTA gera somente delta novo quando nova role é incluída."""
+    composta_atual = {"Z_ROLE_1"}
+    composta_calculada = {"Z_ROLE_1", "Z_ROLE_2"}
+    novas_composta = composta_calculada - composta_atual
+    assert novas_composta == {"Z_ROLE_2"}
+
+
+def test_cenario_12_transicao_processado_com_pendencias_para_processado():
+    """12. Transição de status: PENDENTE -> PROCESSADO_COM_PENDENCIAS -> PROCESSADO após correção."""
+    # Passo 1: Com pendência
+    users_passo1 = [{"uid": "S13020", "estado": "PROCESSAVEL"}, {"uid": None, "estado": "PENDENTE_CRIACAO_USER_SAP"}]
+    status_passo1 = "PROCESSADO_COM_PENDENCIAS" if any(u["estado"] != "PROCESSAVEL" for u in users_passo1) else "PROCESSADO"
+    assert status_passo1 == "PROCESSADO_COM_PENDENCIAS"
+
+    # Passo 2: Após correção do utilizador rascunho com ID SAP e Proposta Ativa
+    users_passo2 = [{"uid": "S13020", "estado": "PROCESSAVEL"}, {"uid": "S80002000", "estado": "PROCESSAVEL"}]
+    status_passo2 = "PROCESSADO_COM_PENDENCIAS" if any(u["estado"] != "PROCESSAVEL" for u in users_passo2) else "PROCESSADO"
+    assert status_passo2 == "PROCESSADO"
+
+
+

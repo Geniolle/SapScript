@@ -31,11 +31,36 @@ modo normal usa diretamente o ficheiro `_v1` da raiz do projeto.
 ### Leitura Concorrente (Sem Bloqueio do Excel)
 Graças à função `abrir_excel_seguro`, o script abre o ficheiro utilizando a API do Windows (`win32file.CreateFile`) com as flags `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`. Isso permite executar pesquisas e análises mesmo enquanto o ficheiro estiver aberto e em edição no Microsoft Excel.
 
-## 3. Fluxo de Validação de Departamentos
+## 3. Fluxo Integrado de 7 Etapas da Tarefa 1
 
-### Etapa 1: Sheet `CONTROLO`
+O Projeto Perfil organiza a reconciliação e atualização num fluxo estruturado de 7 etapas:
+
+- **`[1/7]` Matrizes Departamentais × Sheet `Proposta`**: Auditoria de TCODEs utilizadas nas matrizes departamentais vs mapeamentos na `Proposta` (suporte a regras especiais como `BP` = `TRATADO_POR_REGRA_ESPECIAL`).
+- **`[2/7]` Proposta × SAP PRD TSTC**: Validação das TCODEs do catálogo contra o dicionário de transações do SAP.
+- **`[3/7]` Proposta Ativa**: Reconciliação dos utilizadores e funções das matrizes com a `Proposta Ativa`.
+- **`[4/7]` Catálogo Vivo**: Incorporação de funções válidas necessárias do SAP PRD.
+- **`[5/7]` PFCG_COMPOSTA**: Reconciliação entre Composite Roles e Single Roles.
+- **`[6/7]` PREPARAÇÃO DA SHEET CUA_ADICIONAR (Apenas Excel)**:
+  - Responsabilidade exclusiva: calcular roles diretas necessárias (Composta principal + Singles avulsas não-filhas + Definições) e criar SOMENTE as linhas em falta na sheet `CUA_ADICIONAR`.
+  - **Zero escrita no SAP**: Não efetua nenhuma chamada RFC de escrita nem altera o SAP nesta etapa.
+  - **Chave de Idempotência**: `UTILIZADOR + SISTEMA + AGR_NAME` (normalizado com `strip().upper()`). Se a combinação já existir, nenhuma nova linha é criada.
+  - **Campos das novas linhas**: `ID = max(ID)+1`, `UTILIZADOR`, `SISTEMA` (`S4PCLNT100` / `S4QCLNT100`), `AGR_NAME`, `STATUS` vazio, `MSG` vazio, `TIMESTEMP` vazio, `PRD`/`QAD` vazios.
+  - **Ambientes Independentes**: Linha independente por ambiente (`S4PCLNT100` e `S4QCLNT100`).
+- **`[7/7]` EXECUÇÃO DAS ATRIBUIÇÕES PENDENTES NO SAP**:
+  - Consome as atribuições pendentes registadas na sheet `CUA_ADICIONAR`.
+  - **Confirmação Obrigatória**: Exige ação explícita do utilizador `[1] Executar`, `[2] Simular`, `[3] Cancelar` antes de qualquer alteração no SAP.
+  - **Modo Simulação**: Executa BAPI e realiza obrigatoriamente `BAPI_TRANSACTION_ROLLBACK`.
+  - **Execução Real & Readback Obrigatório**: Lê o estado via `BAPI_USER_GET_DETAIL`, adiciona com `BAPI_USER_ACTGROUPS_ASSIGN` + `BAPI_TRANSACTION_COMMIT(WAIT='X')`, e efetua **READBACK OBRIGATÓRIO** para confirmar a atribuição no SAP antes de atualizar a linha na sheet `CUA_ADICIONAR` (via `ID`) com `STATUS='CONCLUÍDO'`, timestamp e marcação do ambiente correspondente (`PRD = OK` ou `QAD = OK`).
+  - **Independência PRD/QAD**: Falhas num ambiente não bloqueiam o outro nem geram rollback indevido.
+  - **Fluxo de Adição Segura**: Não remove automaticamente funções existentes do utilizador. Remorações continuam restritas ao fluxo separado `CUA_REMOVE`.
+
+### Sheet `CONTROLO`
 - Analisa a coluna `STATUS` de cada departamento registado na sheet `CONTROLO`.
-- Identifica departamentos com `STATUS` vazio/pendente (ex.: `Purchase & Services`).
+- Estados de status suportados:
+  - `PENDENTE` (ou vazio): Departamento aguarda processamento.
+  - `PROCESSADO`: 100% dos utilizadores foram reconciliados sem pendências.
+  - `PROCESSADO_COM_PENDENCIAS`: Reconciliação concluída para utilizadores válidos, mas contendo pendências pontuais de utilizadores ignorados.
+  - `ERRO`: Abortado devido a blocker funcional/estrutural.
 - Verifica se existe a sheet correspondente com o detalhe das transações do departamento.
 - Comando:
   ```powershell
@@ -1191,3 +1216,37 @@ C:\workspace\SapScript\output\S4H_Perfis_autorizacao_v1_before_reconcile_health_
 Nenhuma remoção de acessos legados foi executada sem prévia aprovação explícita.
 
 QAS continua pendente por indisponibilidade RFC (`WSAETIMEDOUT` no destino `172.19.66.22:3300`).
+
+---
+
+## 24. FASE 4 — Sincronização PFCG_COMPOSTA QAD/PRD
+
+A **FASE 4** orquestra a sincronização das Composite Roles e Single Roles da sheet `PFCG_COMPOSTA` com os ambientes SAP QAD e PRD via RFC com validação relacional e readback físico.
+
+### Fluxo Operacional de Execução:
+1. **Identificação de Pendências**:
+   - Processa estritamente linhas onde `STATUS` é nulo ou string vazia (`""`).
+   - Separa discriminadamente no relatório o **Novo Lote** (`IDs 742-849`) e as **Pendências Históricas** (`IDs < 742`).
+2. **Preflight de Conexão (QAD e PRD)**:
+   - Testa a acessibilidade RFC dos dois ambientes em modo READ-ONLY antes de qualquer operação.
+   - Se o preflight falhar em qualquer ambiente, a execução é abortada de imediato com **`SAP WRITE = 0`** e 0 células alteradas no Excel.
+3. **Classificação de Estados por Ambiente**:
+   - `EXISTS`: Relação Composite + Single confirmadamente existente em `AGR_AGRS`.
+   - `MISSING`: Relação ausente após leitura efetuada com sucesso.
+   - `UNKNOWN`: Estado indeterminado por erro de conexão/leitura. **NUNCA é tratado como MISSING nem resulta em STATUS "Concluído"**.
+4. **Execução em Duas Etapas com Readback Obrigatório**:
+   - **Etapa QAD**: Se faltar a relação, executa a atribuição RFC e efetua um **readback físico obrigatório em `AGR_AGRS`**.
+   - **Barreira QAD $\rightarrow$ PRD**: A etapa PRD só é iniciada se QAD for 100% confirmado.
+   - **Etapa PRD**: Se faltar, executa a atribuição RFC e efetua **readback físico em `AGR_AGRS`**.
+5. **Atualização Controlada do Excel**:
+   - Apenas permitida em execução REAL (`--real`). Em `--dry-run`, **0 células são modificadas**.
+   - **`STATUS = "Concluído"`**, `MSG = "Validado em SAP QAD e PRD via RFC"`, `PRD = "Validado"`: Sucesso total QAD + PRD.
+   - **`STATUS = "Pendente PRD"`**, `MSG = "Validado em QAD. Falha em PRD: <erro>"`, `PRD = "Pendente"`: QAD validado, PRD pendente/falhou pós-início.
+   - **`STATUS = "Pendente QAD"`**, `MSG = "Validado em PRD via RFC. QAD offline/pendente."`, `PRD = "Validado"`: PRD validado, QAD pendente/offline.
+   - **`STATUS = "Erro QAD"`**, `MSG = "<detalhe>"`, `PRD = ""`: Falha na atribuição QAD ou Single Role inválida (Composite em `AGR_FLAGS`).
+
+6. **Regra Oficial de Processamento Multiambiente Independente**:
+   - Os ambientes SAP (`DEV`, `QAS/QAD`, `PRD`) são auditados e sincronizados de forma **estritamente independente**.
+   - A indisponibilidade ou falha de conexão de um ambiente (ex.: QAS/QAD offline) **NÃO bloqueia** o processamento, auditoria ou atualização nos ambientes disponíveis (ex.: PRD online).
+   - O STATUS funcional de um departamento na folha `CONTROLO` (ex.: `PROCESSADO_COM_PENDENCIAS`) é independente das colunas de marcação por ambiente (`DEV`, `QAS`, `PRD`). Flags de ambientes já validados (como `PRD = X`) permanecem intactos.
+

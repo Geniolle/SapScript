@@ -94,11 +94,12 @@ def carregar_mapeamento_tcode_para_funcoes_proposta(caminho_excel: str) -> Tuple
     return tcode_map, []
 
 
-def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -> Dict[str, Any]:
+def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True, only_prd: bool = False) -> Dict[str, Any]:
     print(f"\n==============================================================================")
-    print(f"  EXECUÇÃO DE RECONCILIAÇÃO INTEGRADA (FASE 1 -> FASE 2 -> FASE 3A -> FASE 3B)")
+    print(f"  EXECUÇÃO DE RECONCILIAÇÃO INTEGRADA (FASE 1 -> FASE 2 -> FASE 3A -> FASE 3B -> FASE 4)")
     print(f"  Ficheiro: {caminho_excel}")
-    print(f"  Modo: {'SIMULAÇÃO (Somente Leitura)' if simular else 'EXECUÇÃO REAL'}")
+    print(f"  Modo PRD-Only: {'SIM' if only_prd else 'NÃO'}")
+    print(f"  Modo Execução: {'SIMULAÇÃO (Somente Leitura)' if simular else 'EXECUÇÃO REAL'}")
     print(f"==============================================================================\n")
 
     # 0. Obter conjunto de exclusão da sheet DEFINIÇÕES e Mapeamento 1:N TCODE -> Roles da sheet Proposta
@@ -111,11 +112,12 @@ def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -
 
     # FASE 1: USERS ATIVOS (CONTROLO -> Sheet Departamental -> User SAP)
     wb = openpyxl.load_workbook(caminho_excel, read_only=True, data_only=True)
-    deps = obter_departamentos_processados(caminho_excel)
-    print(f"[FASE 1] Departamentos PROCESSADOS na sheet CONTROLO ({len(deps)}): {', '.join(deps)}")
+    deps = obter_departamentos_processados(caminho_excel, incluir_pendencias=True, incluir_pendentes=True)
+    print(f"[FASE 1] Departamentos elegíveis na sheet CONTROLO ({len(deps)}): {', '.join(deps)}")
 
     users_excel_info = []
     user_ids_set = set()
+    users_pendentes_classificacao = []
 
     for d in deps:
         if d in wb.sheetnames:
@@ -124,10 +126,20 @@ def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -
             if len(rows) >= 2:
                 header = rows[1]
                 for col_idx in range(2, len(header)):
+                    raw_val = str(header[col_idx] or "").strip()
                     uid = extrair_user_id(header[col_idx])
-                    if uid:
-                        nome = str(header[col_idx] or "").replace(uid, "").strip().replace("\n", " ")
-                        users_excel_info.append({"dep": d, "uid": uid, "nome": nome, "coluna": col_idx + 1})
+                    nome = raw_val.replace(uid, "").strip().replace("\n", " ") if uid else raw_val.replace("\n", " ")
+
+                    if not uid:
+                        # Classificar o motivo da ausência de User SAP
+                        estado = "PENDENTE_CRIACAO_USER_SAP" if "NEW" in raw_val.upper() else "USER_SEM_ID_SAP"
+                        users_pendentes_classificacao.append({
+                            "dep": d, "uid": None, "nome": nome, "raw_cabecalho": raw_val,
+                            "coluna": col_idx + 1, "estado": estado,
+                            "motivo": "Utilizador rascunho sem ID SAP cadastrado na matriz departamental"
+                        })
+                    else:
+                        users_excel_info.append({"dep": d, "uid": uid, "nome": nome, "coluna": col_idx + 1, "raw_cabecalho": raw_val})
                         user_ids_set.add(uid)
 
     # Mapeamento para a Proposta Ativa
@@ -150,6 +162,7 @@ def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -
         if uid in proposta_ativa_map:
             linha_prop = proposta_ativa_map[uid]
             item["linha_proposta_ativa"] = linha_prop
+            item["estado"] = "PROCESSAVEL"
             r = rows_prop[linha_prop - 1]
             comp_role = str(r[7]).strip().upper() if len(r) > 7 and r[7] else ""
             user_composite_excel[uid] = comp_role
@@ -163,7 +176,10 @@ def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -
             users_mapeados_fase1.append(item)
         else:
             item["linha_proposta_ativa"] = None
+            item["estado"] = "USER_NAO_MAPEADO_PROPOSTA_ATIVA"
+            item["motivo"] = f"Utilizador '{uid}' não possui linha correspondente na sheet Proposta Ativa"
             erros_mapeamento.append(item)
+            users_pendentes_classificacao.append(item)
 
     print(f"      - População congelada: {len(users_excel_info)} Users ({len(users_mapeados_fase1)} mapeados na Proposta Ativa, {len(erros_mapeamento)} erros de mapeamento)\n")
 
@@ -171,6 +187,9 @@ def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -
     user_singles_prd: Dict[str, Set[str]] = {uid: set() for uid in user_ids_list}
 
     try:
+        load_project_env()
+        params = build_connection_params_for("PRD")
+        guard = make_read_only_guard()
         conn = Connection(**params)
         today_str = datetime.now().strftime("%Y%m%d")
 
@@ -392,9 +411,10 @@ def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -
     print(f"      - Concluída. Total Composites calculadas via União: {len(composta_roles_esperadas)}")
     print(f"      - Novas atribuições a adicionar na PFCG_COMPOSTA: {total_novas_adicionar}\n")
 
-    return {
+    res_fases = {
         "deps_processados": deps,
         "users_mapeados": users_mapeados_fase1,
+        "users_pendentes": users_pendentes_classificacao,
         "erros_mapeamento": erros_mapeamento,
         "total_adicionar_fase2": total_adicionar_fase2,
         "total_tcodes_com_x": total_tcodes_com_x,
@@ -418,14 +438,25 @@ def executar_reconciliacao_integrada(caminho_excel: str, simular: bool = True) -
         }
     }
 
+    # FASE 4: DISPARO AUTOMÁTICO DE SINCRONIZAÇÃO PFCG_COMPOSTA (DRY-RUN POR PADRÃO)
+    print(f"\n[FASE 4] Iniciando verificação/sincronização automática de linhas pendentes em PFCG_COMPOSTA...")
+    from sap_rfc.pfcg_composta_sync_service import sincronizar_pfcg_composta
+    fase4_res = sincronizar_pfcg_composta(caminho_excel=caminho_excel, dry_run=simular, only_prd=only_prd)
+    res_fases["fase4_resultado"] = fase4_res
+    print(f"      - Concluída Fase 4. Status: {fase4_res.get('status')} | Total Pendências: {fase4_res.get('total_linhas_pendentes', 0)}\n")
+
+    return res_fases
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Executar Simulação Integrada de Reconciliação (Fases 1 a 3B).")
+    parser = argparse.ArgumentParser(description="Executar Simulação Integrada de Reconciliação (Fases 1 a 4).")
     parser.add_argument("--excel", type=str, default=CAMINHO_EXCEL_PADRAO, help="Caminho do Excel mestre.")
-    parser.add_argument("--simular", action="store_true", default=True, help="Modo simulação.")
+    parser.add_argument("--real", action="store_true", help="Executar modo REAL no Excel (por padrão é simulação dry-run).")
+    parser.add_argument("--only-prd", action="store_true", help="Executar Fase 4 exclusivamente contra SAP PRD (bypassa QAD).")
     args = parser.parse_args()
 
-    executar_reconciliacao_integrada(args.excel, simular=True)
+    simular = not args.real
+    executar_reconciliacao_integrada(args.excel, simular=simular, only_prd=args.only_prd)
 
 
 if __name__ == "__main__":

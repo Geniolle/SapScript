@@ -2230,26 +2230,329 @@ def sincronizar_pfcg_composta_prd_rfc(dados: ProjetoPerfilData, caminho_excel: s
     }
 
 
+REGRAS_ESPECIAIS_TCODE: Dict[str, str] = {
+    "BP": "TRATADO_POR_REGRA_ESPECIAL",
+}
+
+
+def auditar_matrizes_departamentais_vs_proposta(
+    caminho_excel: str,
+    dados: ProjetoPerfilData,
+    regras_especiais: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """
+    Audita TODAS as TCODEs efetivamente utilizadas nas matrizes departamentais
+    listadas na sheet CONTROLO (independentemente do STATUS) contra a sheet Proposta.
+
+    Regra de Utilização:
+    - Qualquer 'X' (ou 1, SIM, YES, S) em qualquer coluna de utilizador = TCODE UTILIZADA
+    - Zero 'X' = IGNORAR
+    - TCODE normalizada com strip + uppercase, sem duplicados por departamento.
+    - Se TCODE == "BP" (ou em regras_especiais): CLASSIFICAR = TRATADO_POR_REGRA_ESPECIAL
+    - Se TCODE tem mapeamento na Proposta (TCODE -> 1:N Roles): CLASSIFICAR = MAPEADA
+    - Caso contrário: CLASSIFICAR = TCODE_SEM_MAPEAMENTO_PROPOSTA
+    """
+    import pandas as pd
+    from collections import defaultdict
+
+    if regras_especiais is None:
+        regras_especiais = REGRAS_ESPECIAIS_TCODE
+
+    fonte = abrir_excel_seguro(caminho_excel)
+    excel_file = pd.ExcelFile(fonte)
+
+    # 1. Carregar Mapeamento TCODE -> 1:N Roles da sheet Proposta (e descrições de TCODE)
+    df_prop = pd.read_excel(excel_file, sheet_name="Proposta")
+    proposta_tcodes_mapeados: Set[str] = set()
+    proposta_tcode_descs: Dict[str, str] = {}
+    current_role = None
+
+    for _, row in df_prop.iterrows():
+        f_val = str(row["FUNÇÃO"]).strip() if pd.notna(row["FUNÇÃO"]) else ""
+        d_val = str(row["DESCRIÇÃO"]).strip() if pd.notna(row["DESCRIÇÃO"]) else ""
+        if f_val.startswith("Z_") and d_val and "TRANSACAO NAO EXISTE" not in d_val.upper():
+            current_role = f_val
+        elif f_val and current_role and "TRANSACAO NAO EXISTE" not in d_val.upper():
+            for t in f_val.replace(";", " ").split():
+                tc = t.strip().upper()
+                if tc:
+                    proposta_tcodes_mapeados.add(tc)
+                    if tc not in proposta_tcode_descs or not proposta_tcode_descs[tc]:
+                        proposta_tcode_descs[tc] = d_val
+
+    # 2. Obter TODOS os departamentos listados na sheet CONTROLO (sem filtrar por STATUS)
+    deps_controlo: List[str] = [
+        item["departamento"] for item in dados.controlo if item.get("departamento")
+    ]
+
+    pendencias_por_dep: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+    total_tcodes_sem_mapeamento = 0
+    tcodes_sem_mapeamento_set: Set[str] = set()
+    total_tcodes_utilizadas_auditadas = 0
+
+    for dep_nome in deps_controlo:
+        sheet_dep_nome = next(
+            (s for s in excel_file.sheet_names if normalizar_nome_coluna(s) == normalizar_nome_coluna(dep_nome)),
+            None
+        )
+        if not sheet_dep_nome:
+            continue
+
+        df_matriz = pd.read_excel(excel_file, sheet_name=sheet_dep_nome, header=None)
+        if len(df_matriz) < 2:
+            continue
+
+        # Encontrar linha de cabeçalho dos utilizadores e colunas válidas
+        hdr_r_idx = None
+        user_cols = []
+        for r_idx in range(min(5, len(df_matriz))):
+            cols_found = []
+            for c_idx in range(2, len(df_matriz.columns)):
+                cell_v = str(df_matriz.iloc[r_idx, c_idx]).strip()
+                if cell_v and cell_v.upper() not in ("NAN", "NONE", ""):
+                    cols_found.append(c_idx)
+            if cols_found:
+                hdr_r_idx = r_idx
+                user_cols = cols_found
+                break
+
+        if hdr_r_idx is None or not user_cols:
+            continue
+
+        # Percorrer as linhas de TCODE da matriz departamental
+        tcodes_vistas_no_dep: Set[str] = set()
+
+        for r_idx in range(hdr_r_idx + 1, len(df_matriz)):
+            tc_raw = df_matriz.iloc[r_idx, 0]
+            if pd.isna(tc_raw):
+                continue
+            tc_clean_list = limpar_tcode(tc_raw)
+            if not tc_clean_list:
+                continue
+
+            tc = tc_clean_list[0]
+            desc_matriz = str(df_matriz.iloc[r_idx, 1]).strip() if pd.notna(df_matriz.iloc[r_idx, 1]) else ""
+
+            # Verificar se existe pelo menos um "X" em qualquer coluna de utilizador
+            tem_x = False
+            for c_idx in user_cols:
+                flag = str(df_matriz.iloc[r_idx, c_idx]).strip().upper()
+                if flag in ("X", "1", "SIM", "YES", "S"):
+                    tem_x = True
+                    break
+
+            if not tem_x:
+                continue  # ZERO X = IGNORAR
+
+            if tc in tcodes_vistas_no_dep:
+                continue  # Evitar duplicados no mesmo departamento
+            tcodes_vistas_no_dep.add(tc)
+
+            total_tcodes_utilizadas_auditadas += 1
+
+            # Classificação
+            if tc in regras_especiais:
+                classificacao = regras_especiais[tc]
+            elif tc in proposta_tcodes_mapeados:
+                classificacao = "MAPEADA"
+            else:
+                classificacao = "TCODE_SEM_MAPEAMENTO_PROPOSTA"
+
+            if classificacao == "TCODE_SEM_MAPEAMENTO_PROPOSTA":
+                desc_final = proposta_tcode_descs.get(tc) or desc_matriz
+                pendencias_por_dep[dep_nome].append({
+                    "tcode": tc,
+                    "descricao": desc_final
+                })
+                tcodes_sem_mapeamento_set.add(tc)
+
+    total_tcodes_sem_mapeamento = len(tcodes_sem_mapeamento_set)
+    deps_com_pendencias = list(pendencias_por_dep.keys())
+
+    return {
+        "deps_auditados": len(deps_controlo),
+        "total_tcodes_utilizadas": total_tcodes_utilizadas_auditadas,
+        "tem_pendencias": total_tcodes_sem_mapeamento > 0,
+        "deps_com_pendencias_count": len(deps_com_pendencias),
+        "deps_com_pendencias": deps_com_pendencias,
+        "total_tcodes_sem_mapeamento": total_tcodes_sem_mapeamento,
+        "tcodes_sem_mapeamento_set": tcodes_sem_mapeamento_set,
+        "pendencias_por_dep": dict(pendencias_por_dep)
+    }
+
+
+def preparar_cua_adicionar(
+    caminho_excel: str,
+    dados: ProjetoPerfilData,
+    roles_por_user_finais: Optional[Dict[str, Tuple[int, str, Set[str]]]] = None,
+    df_ativa: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    [ETAPA 6/7] PREPARAÇÃO DA SHEET CUA_ADICIONAR.
+    Lê a Proposta Ativa e o catálogo vivo para calcular atribuições diretas necessárias,
+    compara com a sheet CUA_ADICIONAR existente (chave UTILIZADOR + SISTEMA + AGR_NAME)
+    e grava no Excel SOMENTE as linhas em falta com STATUS/MSG/TIMESTEMP vazios.
+    NÃO executa qualquer chamada de escrita no SAP.
+    """
+    import pandas as pd
+
+    excel_file = pd.ExcelFile(abrir_excel_seguro(caminho_excel))
+    if df_ativa is None:
+        df_ativa = pd.read_excel(excel_file, sheet_name="Proposta Ativa")
+
+    df_add = pd.read_excel(excel_file, sheet_name="CUA_ADICIONAR") if "CUA_ADICIONAR" in excel_file.sheet_names else pd.DataFrame()
+
+    col_u_add = next((c for c in df_add.columns if "UTILIZADOR" in str(c).upper() or "USER" in str(c).upper()), None)
+    col_s_add = next((c for c in df_add.columns if "SISTEMA" in str(c).upper() or "SUBSYSTEM" in str(c).upper()), None)
+    col_r_add = next((c for c in df_add.columns if "AGR_NAME" in str(c).upper() or "ROLE" in str(c).upper() or "FUNCAO" in str(c).upper()), None)
+
+    existing_cua_keys: Set[Tuple[str, str, str]] = set()
+    max_id = 0
+
+    if not df_add.empty:
+        for idx_row, r in df_add.iterrows():
+            try:
+                rid = int(r.get("ID", 0))
+                if rid > max_id:
+                    max_id = rid
+            except Exception:
+                pass
+            u_val = normalizar_texto(r.get(col_u_add)) if col_u_add else ""
+            s_val = normalizar_texto(r.get(col_s_add)) if col_s_add else ""
+            r_val = normalizar_texto(r.get(col_r_add)) if col_r_add else ""
+            if u_val and s_val and r_val:
+                existing_cua_keys.add((u_val, s_val, r_val))
+
+    for item_dados in getattr(dados, "cua_adicionar", []):
+        u_val = normalizar_texto(item_dados.get("utilizador"))
+        s_val = normalizar_texto(item_dados.get("sistema"))
+        r_val = normalizar_texto(item_dados.get("role"))
+        if u_val and s_val and r_val:
+            existing_cua_keys.add((u_val, s_val, r_val))
+
+    roles_compostas_map = dados.roles_compostas
+
+    mapa_dep_sheet = {
+        "CONSTRUCTION & MAINTENANCE": "Construction & Maintenance",
+        "PURCHASE & SERVICES": "Purchase & Services",
+        "CLIENT SERVICES": "Client Services",
+        "INDUSTRY SERVICES": "Industry Services",
+        "PEOPLE & TALENT": "People & Talent",
+        "P&T": "People & Talent",
+        "HEALTH & SAFETY": "Health & Safety",
+        "H&S": "Health & Safety",
+        "DIGITAL": "Digital",
+        "IT": "IT",
+        "TI": "IT",
+        "LEGAL": "Legal",
+    }
+
+    col_user_at = [c for c in df_ativa.columns if "USER" in str(c).upper() or "UTILIZADOR" in str(c).upper() or "USU" in str(c).upper()][0]
+    col_comp_at = [c for c in df_ativa.columns if "COMPOSITE" in str(c).upper()][0]
+    col_dep_at = [c for c in df_ativa.columns if str(c).strip().upper() == "DEPARTAMENTO"][0]
+    col_dep_dir_at = [c for c in df_ativa.columns if "DIRE" in str(c).upper()][0]
+
+    novas_linhas: List[Dict[str, Any]] = []
+    detalhes_por_dep: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    total_users_analisados = 0
+    total_atribuicoes_esperadas = 0
+    ja_existentes_count = 0
+
+    sistemas_alvo = ["S4PCLNT100", "S4QCLNT100"]
+
+    for idx, r_at in df_ativa.iterrows():
+        u_id = normalizar_texto(r_at.get(col_user_at))
+        comp_nome = normalizar_texto(r_at.get(col_comp_at))
+        if not u_id or not comp_nome or comp_nome in ("NAN", "NONE", "-"):
+            continue
+
+        d1 = str(r_at.get(col_dep_at, "")).strip() if pd.notna(r_at.get(col_dep_at)) else ""
+        d2 = str(r_at.get(col_dep_dir_at, "")).strip() if pd.notna(r_at.get(col_dep_dir_at)) else ""
+        dep_raw = (d1 if d1 and d1.lower() != "nan" else d2).strip().upper()
+        dep_user = mapa_dep_sheet.get(dep_raw, dep_raw).upper()
+
+        total_users_analisados += 1
+
+        filhas_comp = {normalizar_texto(f) for f in roles_compostas_map.get(comp_nome, {}).get("roles_filhas", [])}
+        roles_diretas_necessarias = {comp_nome}
+
+        col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa)
+        for c_idx in range(col_fi_idx, len(r_at)):
+            val_cell = r_at.iloc[c_idx]
+            if pd.notna(val_cell):
+                v_str = normalizar_texto(val_cell)
+                if v_str and v_str.startswith("Z") and v_str != comp_nome and v_str not in filhas_comp and v_str not in roles_compostas_map:
+                    roles_diretas_necessarias.add(v_str)
+
+        if roles_por_user_finais and u_id in roles_por_user_finais:
+            _, _, r_set_unificadas = roles_por_user_finais[u_id]
+            for r_unif in r_set_unificadas:
+                r_unif_norm = normalizar_texto(r_unif)
+                if r_unif_norm and r_unif_norm != comp_nome and r_unif_norm not in filhas_comp and r_unif_norm not in roles_compostas_map:
+                    roles_diretas_necessarias.add(r_unif_norm)
+
+        u_nome = str(r_at.get(next((c for c in df_ativa.columns if "NOME" in str(c).upper()), col_user_at), "")).strip()
+
+        novas_user_dep = []
+        for sys_code in sistemas_alvo:
+            for r_nec in sorted(roles_diretas_necessarias):
+                total_atribuicoes_esperadas += 1
+                key = (u_id, sys_code, r_nec)
+                if key in existing_cua_keys:
+                    ja_existentes_count += 1
+                else:
+                    max_id += 1
+                    item_novo = {
+                        "ID": max_id,
+                        "UTILIZADOR": u_id,
+                        "SISTEMA": sys_code,
+                        "AGR_NAME": r_nec,
+                        "STATUS": "",
+                        "MSG": "",
+                        "TIMESTEMP": "",
+                        "PRD": "",
+                        "QAD": "",
+                    }
+                    novas_linhas.append(item_novo)
+                    existing_cua_keys.add(key)
+                    novas_user_dep.append((sys_code, r_nec))
+
+        if novas_user_dep:
+            detalhes_por_dep[dep_user].append({
+                "user": u_id,
+                "nome": u_nome,
+                "novas": novas_user_dep
+            })
+
+    return {
+        "max_id": max_id,
+        "total_users_analisados": total_users_analisados,
+        "total_atribuicoes_esperadas": total_atribuicoes_esperadas,
+        "ja_existentes_count": ja_existentes_count,
+        "novas_linhas_count": len(novas_linhas),
+        "novas_linhas": novas_linhas,
+        "detalhes_por_dep": dict(detalhes_por_dep)
+    }
+
+
 def executar_atualizacao_integrada_excel(
     caminho_excel: Optional[str] = None,
     dados: Optional[ProjetoPerfilData] = None,
     validar_tcodes_rfc: bool = True,
     incorporar_prd_rfc: bool = True,
+    assumir_sim: bool = False,
 ) -> ProjetoPerfilData:
     """
     [TAREFA 1 DO PROGRAMA] Executa a atualização e consolidação integrada do livro Excel
     num único ciclo atómico em memória, sem alternância ou saltos visuais entre folhas.
 
     Ordem lógica de dependência:
-      1. Sanitização de 'Proposta' (validação de TCODEs obsoletos na TSTC do SAP PRD via RFC)
-      2. Matrizes Departamentais -> 'Proposta Ativa' (atribuição oficial das áreas de negócio)
-      3. SAP PRD -> 'Proposta Ativa' (incorporação de funções ativas do catálogo oficial via RFC)
-      4. 'Proposta Ativa' -> 'PFCG_COMPOSTA' (alinhamento de membros das composite roles)
-
-    Gravação:
-      - Realizada uma única vez no final (via openpyxl ou Excel COM com ScreenUpdating=False).
-      - Gera cópia de segurança única em output/ e sincroniza com a Área de Trabalho.
-      - Recarrega e devolve o objeto ProjetoPerfilData 100% atualizado.
+      [1/6] Matrizes Departamentais × Proposta (Validar TCODEs utilizadas e mapeamentos)
+      [2/6] Proposta (Validar catálogo de TCODEs em SAP PRD / TSTC)
+      [3/6] Proposta Ativa (Reconciliar utilizadores e funções das matrizes)
+      [4/6] Proposta Ativa / catálogo vivo (Incorporar funções válidas necessárias)
+      [5/6] PFCG_COMPOSTA (Reconciliar Composite -> Single Roles)
+      [6/6] Sincronização Departamental & CUA (Auditar utilizadores e atribuições)
     """
     import pandas as pd
     from collections import defaultdict
@@ -2275,7 +2578,64 @@ def executar_atualizacao_integrada_excel(
     excel_file = pd.ExcelFile(fonte)
 
     # -------------------------------------------------------------
-    # ETAPA 1: Sanitização da folha 'Proposta' (TCODEs no SAP TSTC)
+    # ETAPA [1/6]: Matrizes Departamentais × Proposta
+    # -------------------------------------------------------------
+    res_auditoria = auditar_matrizes_departamentais_vs_proposta(caminho_excel, dados)
+    tcodes_ignoradas_por_sem_mapeamento: Set[str] = set()
+
+    if not res_auditoria["tem_pendencias"]:
+        print(f"  {CLR_VERDE}✓{CLR_RESET} [1/6] Matrizes Departamentais: todas as TCODEs utilizadas possuem mapeamento válido na Proposta.")
+    else:
+        n_deps_pend = res_auditoria["deps_com_pendencias_count"]
+        n_tcodes_pend = res_auditoria["total_tcodes_sem_mapeamento"]
+        print(f"\n==============================================================================")
+        print(f"  VALIDAÇÃO MATRIZES DEPARTAMENTAIS × PROPOSTA")
+        print(f"==============================================================================")
+        print(f"  {CLR_AMARELO}⚠️ Foram encontradas TCODEs utilizadas nas matrizes departamentais\n    sem mapeamento na sheet Proposta.{CLR_RESET}\n")
+
+        for dep_pend, lista_tc in res_auditoria["pendencias_por_dep"].items():
+            print(f"  {dep_pend}:")
+            for item_tc in lista_tc:
+                print(f"     - {item_tc['tcode']:<20} | {item_tc['descricao']}")
+            print()
+
+        print("-" * 78)
+        print(f"  Departamentos com pendências: {n_deps_pend}")
+        print(f"  TCODEs sem mapeamento: {n_tcodes_pend}")
+        print("-" * 78)
+
+        print(f"\n------------------------------------------------------------------------------")
+        print(f"  Existem transações utilizadas nas matrizes departamentais sem mapeamento")
+        print(f"  na sheet Proposta.\n")
+        print(f"  Estas pendências podem ser corrigidas agora ou tratadas posteriormente.\n")
+        print(f"  [1] Continuar o processamento parcialmente")
+        print(f"  [2] Abortar para corrigir o ficheiro")
+        print(f"------------------------------------------------------------------------------")
+
+        opcao_escolhida = ""
+        if assumir_sim:
+            opcao_escolhida = "1"
+            print("  [Auto-confirmado --yes] Opção 1 selecionada.")
+        else:
+            try:
+                opcao_escolhida = input("  Selecione uma opção [1-2]: ").strip()
+            except Exception:
+                opcao_escolhida = "2"
+
+        if opcao_escolhida != "1":
+            print(f"\n------------------------------------------------------------------------------")
+            print(f"  Processamento abortado pelo utilizador.\n")
+            print(f"  Corrija as TCODEs sem mapeamento na sheet Proposta")
+            print(f"  ou remova os X indevidos das matrizes departamentais.\n")
+            print(f"  Nenhuma etapa posterior da Tarefa 1 será executada.")
+            print(f"------------------------------------------------------------------------------\n")
+            return dados
+
+        tcodes_ignoradas_por_sem_mapeamento = res_auditoria["tcodes_sem_mapeamento_set"]
+        print(f"\n  {CLR_AMARELO}⚠️ [1/6] Matrizes Departamentais: {n_tcodes_pend} TCODEs sem mapeamento em {n_deps_pend} departamento(s).\n     Continuação parcial autorizada pelo utilizador.{CLR_RESET}")
+
+    # -------------------------------------------------------------
+    # ETAPA [2/6]: Sanitização da folha 'Proposta' (TCODEs no SAP TSTC)
     # -------------------------------------------------------------
     df_prop = pd.read_excel(excel_file, sheet_name="Proposta")
     analise_prop = analisar_folha_proposta(dados)
@@ -2296,9 +2656,9 @@ def executar_atualizacao_integrada_excel(
                     tcodes_a_marcar.append((idx + 2, role_atual, f_val))
 
     if tcodes_a_marcar:
-        print(f"  {CLR_VERMELHO}✗ [1/5] Proposta: {len(tcodes_a_marcar)} transação(ões) descontinuada(s) detetada(s) para marcação.{CLR_RESET}")
+        print(f"  {CLR_VERMELHO}✗ [2/6] Proposta: {len(tcodes_a_marcar)} transação(ões) descontinuada(s) detetada(s) para marcação.{CLR_RESET}")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [1/5] Proposta: Catálogo com {len(todos_tcodes)} TCODEs 100% validado no SAP PRD (TSTC).")
+        print(f"  {CLR_VERDE}✓{CLR_RESET} [2/6] Proposta: Catálogo com {len(todos_tcodes)} TCODEs 100% validado no SAP PRD (TSTC).")
 
     # Mapeamento TCODE -> roles (desconsiderando TCODEs descontinuados)
     tcodes_descartados_set = {tc for _, _, tc in tcodes_a_marcar}
@@ -2396,6 +2756,8 @@ def executar_atualizacao_integrada_excel(
 
         roles_esperadas = set()
         for tc in tcodes_marcados_user:
+            if tc in tcodes_ignoradas_por_sem_mapeamento:
+                continue
             for mr in tcode_to_roles.get(tc, []):
                 roles_esperadas.add(mr)
 
@@ -2414,12 +2776,12 @@ def executar_atualizacao_integrada_excel(
             roles_por_user_finais[u_val] = (idx + 2, c_val, set(funcoes_existentes))
 
     if users_em_falta_matriz:
-        print(f"  {CLR_VERMELHO}✗ [2/5] Proposta Ativa: {len(users_em_falta_matriz)} utilizador(es) atualizados com funções em falta das matrizes.{CLR_RESET}")
+        print(f"  {CLR_VERMELHO}✗ [3/6] Proposta Ativa: {len(users_em_falta_matriz)} utilizador(es) atualizados com funções em falta das matrizes.{CLR_RESET}")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [2/5] Proposta Ativa: {total_users_avaliados}/{total_users_avaliados} utilizadores conformes com as matrizes.")
+        print(f"  {CLR_VERDE}✓{CLR_RESET} [3/6] Proposta Ativa: Reconciliar utilizadores e funções das matrizes ({total_users_avaliados}/{total_users_avaliados} utilizadores).")
 
     # -------------------------------------------------------------
-    # ETAPA 3: SAP PRD -> 'Proposta Ativa' (Incorporação de funções vivas)
+    # ETAPA [4/6]: SAP PRD -> 'Proposta Ativa' (Incorporação de funções vivas)
     # -------------------------------------------------------------
     funcoes_vivas_a_adicionar = defaultdict(set)
     if incorporar_prd_rfc and roles_por_user_finais:
@@ -2482,12 +2844,12 @@ def executar_atualizacao_integrada_excel(
 
     total_vivas = sum(len(v) for v in funcoes_vivas_a_adicionar.values())
     if total_vivas > 0:
-        print(f"  {CLR_AMARELO}⚠️ {CLR_RESET} [3/5] Proposta Ativa: {total_vivas} função(ões) viva(s) do catálogo em PRD a incorporar ({len(funcoes_vivas_a_adicionar)} utilizadores).")
+        print(f"  {CLR_AMARELO}⚠️ {CLR_RESET} [4/6] Proposta Ativa / catálogo vivo: {total_vivas} função(ões) viva(s) do catálogo em PRD a incorporar ({len(funcoes_vivas_a_adicionar)} utilizadores).")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [3/5] Proposta Ativa: Nenhuma função adicional do catálogo pendente de incorporação.")
+        print(f"  {CLR_VERDE}✓{CLR_RESET} [4/6] Proposta Ativa / catálogo vivo: Incorporar funções válidas necessárias (0 pendentes).")
 
     # -------------------------------------------------------------
-    # ETAPA 4: 'Proposta Ativa' -> 'PFCG_COMPOSTA'
+    # ETAPA [5/7]: 'Proposta Ativa' -> 'PFCG_COMPOSTA'
     # -------------------------------------------------------------
     df_comp = pd.read_excel(excel_file, sheet_name="PFCG_COMPOSTA")
     composta_roles_esperadas = defaultdict(set)
@@ -2518,9 +2880,6 @@ def executar_atualizacao_integrada_excel(
         for r in r_set
     }
 
-    # Regra 12/26: NÃO REMOVER automaticamente funções existentes da Composite Role.
-    # As funções existentes que não aparecem na união calculada devem ser mantidas
-    # e podem ser registradas apenas para revisão futura se necessário.
     linhas_obsoletas_comp = []
 
     novas_linhas_comp = []
@@ -2537,143 +2896,53 @@ def executar_atualizacao_integrada_excel(
                 })
 
     if novas_linhas_comp or linhas_obsoletas_comp:
-        print(f"  {CLR_VERMELHO}✗ [4/5] PFCG_COMPOSTA: {len(novas_linhas_comp)} relação(ões) em falta e {len(linhas_obsoletas_comp)} obsoleta(s).{CLR_RESET}")
+        print(f"  {CLR_VERMELHO}✗ [5/7] PFCG_COMPOSTA: {len(novas_linhas_comp)} relação(ões) em falta e {len(linhas_obsoletas_comp)} obsoleta(s).{CLR_RESET}")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [4/5] PFCG_COMPOSTA: {len(composta_roles_esperadas)} Composite Roles 100% consistentes com Proposta Ativa.")
+        print(f"  {CLR_VERDE}✓{CLR_RESET} [5/7] PFCG_COMPOSTA: Reconciliar Composite -> Single Roles ({len(composta_roles_esperadas)} Composite Roles 100% consistentes).")
 
     # -------------------------------------------------------------
-    # ETAPA 5: Auditoria de Sincronização Departamental & CUA
+    # ETAPA [6/7]: PREPARAÇÃO DA SHEET CUA_ADICIONAR (SEM ESCRITA SAP)
     # -------------------------------------------------------------
-    df_add = pd.read_excel(excel_file, sheet_name="CUA_ADICIONAR") if "CUA_ADICIONAR" in excel_file.sheet_names else pd.DataFrame()
-    df_ctrl = pd.read_excel(excel_file, sheet_name="CONTROLO") if "CONTROLO" in excel_file.sheet_names else pd.DataFrame()
+    res_prep_cua = preparar_cua_adicionar(
+        caminho_excel=caminho_excel,
+        dados=dados,
+        roles_por_user_finais=roles_por_user_finais,
+        df_ativa=df_ativa,
+    )
+    novas_linhas_cua = res_prep_cua.get("novas_linhas", [])
 
-    cua_roles_por_user = defaultdict(set)
-    if not df_add.empty:
-        col_u_add = next((c for c in df_add.columns if "UTILIZADOR" in str(c).upper() or "USER" in str(c).upper()), None)
-        col_r_add = next((c for c in df_add.columns if "AGR_NAME" in str(c).upper() or "ROLE" in str(c).upper() or "FUNCAO" in str(c).upper()), None)
-        if col_u_add and col_r_add:
-            for _, r in df_add.iterrows():
-                u_val = str(r.get(col_u_add, "")).strip().upper()
-                r_val = str(r.get(col_r_add, "")).strip().upper()
-                if u_val and r_val:
-                    cua_roles_por_user[u_val].add(r_val)
+    print("\n==============================================================================")
+    print("  [6/7] PREPARAÇÃO DA SHEET CUA_ADICIONAR")
+    print("==============================================================================")
+    detalhes_dep = res_prep_cua.get("detalhes_por_dep", {})
+    if detalhes_dep:
+        for dep_nome, user_list in sorted(detalhes_dep.items()):
+            print(f"\n  {dep_nome}:")
+            for u_info in user_list:
+                print(f"\n  {u_info['user']} - {u_info['nome']}")
+                print(f"    Pendentes para CUA_ADICIONAR:")
+                for sys_code, r_nec in u_info["novas"]:
+                    print(f"      + {sys_code} | {r_nec}")
+        print()
 
-    ctrl_status = {}
-    if not df_ctrl.empty:
-        col_dep_ctrl = next((c for c in df_ctrl.columns if "DEPARTAMENTO" in str(c).upper()), None)
-        col_st_ctrl = next((c for c in df_ctrl.columns if "STATUS" in str(c).upper()), None)
-        if col_dep_ctrl and col_st_ctrl:
-            for _, r in df_ctrl.iterrows():
-                dep_c = str(r.get(col_dep_ctrl, "")).strip().upper()
-                st_c = str(r.get(col_st_ctrl, "")).strip()
-                if dep_c:
-                    ctrl_status[dep_c] = st_c if st_c else "PENDENTE"
-
-    # Apenas departamentos registados na folha CONTROLO com status 'PROCESSADO' são elegíveis para auditoria CUA
-    deps_auditaveis = {d for d, st in ctrl_status.items() if st.upper() == "PROCESSADO"}
-
-    discrepancias_por_dep = defaultdict(list)
-    total_users_analisados_dep = 0
-
-    for u_id, (l_idx, comp_nome, r_set) in roles_por_user_finais.items():
-        if comp_nome and str(comp_nome).strip().upper() not in ("NAN", "NONE", "-"):
-            dep_user = "GERAL"
-            for _, r_at in df_ativa.iterrows():
-                if str(r_at.get(col_user, "")).strip().upper() == u_id:
-                    d1 = str(r_at.get(col_dep, "")).strip() if pd.notna(r_at.get(col_dep)) else ""
-                    d2 = str(r_at.get(col_dep_dir, "")).strip() if pd.notna(r_at.get(col_dep_dir)) else ""
-                    dep_raw = (d1 if d1 and d1.lower() != "nan" else d2).strip().upper()
-                    dep_user = mapa_dep_sheet.get(dep_raw, dep_raw).upper()
-                    break
-
-            # Se o departamento não estiver na folha CONTROLO como PROCESSADO, ignorar da auditoria CUA
-            if dep_user not in deps_auditaveis:
-                continue
-
-            total_users_analisados_dep += 1
-            comp_upper = str(comp_nome).strip().upper()
-            filhas_comp = composta_roles_esperadas.get(comp_upper, set())
-
-            # Funções que necessitam de atribuição direta:
-            # 1. A Composite Role principal
-            # 2. Singles avulsas que NÃO são filhas da Composite Role
-            roles_diretas_necessarias = {comp_upper}
-            for s in r_set:
-                s_u = str(s).strip().upper()
-                if s_u and s_u != comp_upper and s_u not in filhas_comp:
-                    roles_diretas_necessarias.add(s_u)
-
-            roles_em_cua = cua_roles_por_user.get(u_id, set())
-            faltam_cua = {r for r in roles_diretas_necessarias if r not in roles_em_cua}
-            if faltam_cua:
-                u_nome = ""
-                u_cargo = ""
-                for _, r_at in df_ativa.iterrows():
-                    if str(r_at.get(col_user, "")).strip().upper() == u_id:
-                        col_nome = next((c for c in df_ativa.columns if "NOME" in str(c).upper()), None)
-                        col_cargo = next((c for c in df_ativa.columns if "FUNÇÃO" in str(c).upper() or "FUNCAO" in str(c).upper() or "CARGO" in str(c).upper()), None)
-                        u_nome = str(r_at.get(col_nome, "")).strip() if col_nome and pd.notna(r_at.get(col_nome)) else ""
-                        u_cargo = str(r_at.get(col_cargo, "")).strip() if col_cargo and pd.notna(r_at.get(col_cargo)) else ""
-                        break
-
-                discrepancias_por_dep[dep_user].append({
-                    "user": u_id,
-                    "nome": u_nome,
-                    "cargo": u_cargo,
-                    "departamento": dep_user,
-                    "composta": comp_upper,
-                    "total_esperadas": len(roles_diretas_necessarias),
-                    "total_em_cua": len(roles_em_cua),
-                    "faltam": sorted(faltam_cua),
-                    "roles_necessarias": sorted(roles_diretas_necessarias)
-                })
-
-    dados.discrepancias_cua = dict(discrepancias_por_dep)
-
-    if discrepancias_por_dep:
-        total_u_discrepantes = sum(len(ulist) for ulist in discrepancias_por_dep.values())
-        print(f"  {CLR_VERMELHO}✗ [5/5] Sincronização Departamental & CUA: Detetadas discrepâncias em {len(discrepancias_por_dep)} departamento(s) em CONTROLO ({total_u_discrepantes} utilizador(es) com funções pendentes no CUA):{CLR_RESET}")
-        for dep_d, u_list in sorted(discrepancias_por_dep.items()):
-            print(f"     ├─ {CLR_VERMELHO}✗{CLR_RESET} {dep_d} [CONTROLO: PROCESSADO - requer resincronização]: {len(u_list)} utilizador(es) com pendências")
-            for u_item in u_list[:2]:
-                ex_roles = ", ".join(u_item["faltam"][:2]) + ("..." if len(u_item["faltam"]) > 2 else "")
-                print(f"     │   └─ {CLR_VERMELHO}✗{CLR_RESET} {u_item['user']}: {len(u_item['faltam'])} função(ões) pendente(s) ({ex_roles})")
-            if len(u_list) > 2:
-                print(f"     │   └─ ... e mais {len(u_list) - 2} utilizador(es)")
+    if res_prep_cua["novas_linhas_count"] > 0:
+        print(f"  {CLR_VERMELHO}✗ [6/7] CUA_ADICIONAR preparada:{CLR_RESET}")
+        print(f"     {res_prep_cua['total_users_analisados']} utilizadores analisados")
+        print(f"     {res_prep_cua['total_atribuicoes_esperadas']} atribuições esperadas")
+        print(f"     {res_prep_cua['ja_existentes_count']} já existentes")
+        print(f"     {res_prep_cua['novas_linhas_count']} novas linhas criadas")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [5/5] Sincronização Departamental & CUA: Todos os {total_users_analisados_dep} utilizadores dos {len(deps_auditaveis)} departamentos em CONTROLO estão 100% conformes em CUA_ADICIONAR.")
+        print(f"  {CLR_VERDE}✓ [6/7] CUA_ADICIONAR já está sincronizada com a necessidade funcional.{CLR_RESET}")
+        print(f"     Nenhuma nova linha necessária.")
 
     # -------------------------------------------------------------
     # GRAVAÇÃO UNIFICADA NO EXCEL (Apenas se houver alterações)
     # -------------------------------------------------------------
-    tem_alteracoes = bool(tcodes_a_marcar or users_em_falta_matriz or funcoes_vivas_a_adicionar or novas_linhas_comp or linhas_obsoletas_comp)
-
-    def imprimir_resumo_discrepancias_final():
-        if discrepancias_por_dep:
-            total_u_disc = sum(len(ulist) for ulist in discrepancias_por_dep.values())
-            n_deps = len(discrepancias_por_dep)
-            dep_txt = f"{n_deps} departamento" if n_deps == 1 else f"{n_deps} departamentos"
-            u_txt = f"{total_u_disc} utilizador" if total_u_disc == 1 else f"{total_u_disc} utilizadores"
-
-            deps_proc = [d for d in discrepancias_por_dep if ctrl_status.get(d) == "PROCESSADO"]
-            deps_pend = [d for d in discrepancias_por_dep if ctrl_status.get(d) != "PROCESSADO"]
-
-            print(f"  {CLR_VERMELHO}✗ ATENÇÃO: As folhas do Excel estão alinhadas, mas existem pendências CUA em {dep_txt} ({u_txt}).{CLR_RESET}")
-            if deps_proc and not deps_pend:
-                print(f"  {CLR_AMARELO}💡 Sugestão:{CLR_RESET} Utilize a nova opção [5] (Corrigir Sincronização Posterior) do Menu Principal para sincronizar diretamente no SAP e CUA.")
-            elif deps_pend and not deps_proc:
-                if len(deps_pend) == 1:
-                    print(f"  {CLR_AMARELO}💡 Sugestão:{CLR_RESET} O departamento '{deps_pend[0].title()}' está pendente. Execute o processamento inicial via Menu [1] (Execução) ou Menu [2] (Departamento).")
-                else:
-                    print(f"  {CLR_AMARELO}💡 Sugestão:{CLR_RESET} Existem departamentos pendentes de processamento inicial. Execute o lote via Menu [1] (Execução).")
-            else:
-                print(f"  {CLR_AMARELO}💡 Sugestão:{CLR_RESET} Aceda ao Menu [2] (Departamento) para tratar as atribuições pendentes de cada departamento.")
-        else:
-            print(f"  {CLR_VERDE}✓ O ficheiro Excel e os departamentos em CONTROLO encontram-se 100% sincronizados!{CLR_RESET}")
+    tem_alteracoes = bool(tcodes_a_marcar or users_em_falta_matriz or funcoes_vivas_a_adicionar or novas_linhas_comp or linhas_obsoletas_comp or novas_linhas_cua)
 
     if not tem_alteracoes:
         print("-" * 78)
-        imprimir_resumo_discrepancias_final()
+        print(f"  {CLR_VERDE}✓ O ficheiro Excel encontra-se 100% alinhado em todas as sheets.{CLR_RESET}")
         print("-" * 78)
         return dados
 
@@ -2744,6 +3013,22 @@ def executar_atualizacao_integrada_excel(
                     ws_c.Cells(curr, 3).Value = row["TEXT"]
                     ws_c.Cells(curr, 4).Value = row["AGR_NAME"]
 
+            # Etapa 6: CUA_ADICIONAR
+            if novas_linhas_cua:
+                ws_add = wb_com.Worksheets("CUA_ADICIONAR")
+                last_r_add = ws_add.UsedRange.Rows.Count
+                while ws_add.Cells(last_r_add, 2).Value:
+                    last_r_add += 1
+                for i, row_item in enumerate(novas_linhas_cua):
+                    curr = last_r_add + i
+                    ws_add.Cells(curr, 1).Value = row_item["ID"]
+                    ws_add.Cells(curr, 2).Value = row_item["UTILIZADOR"]
+                    ws_add.Cells(curr, 3).Value = row_item["SISTEMA"]
+                    ws_add.Cells(curr, 4).Value = row_item["AGR_NAME"]
+                    ws_add.Cells(curr, 5).Value = ""
+                    ws_add.Cells(curr, 6).Value = ""
+                    ws_add.Cells(curr, 7).Value = ""
+
             wb_com.Save()
             print("  Ficheiro Excel gravado via Excel.Application (COM) sem cintilação de ecrã!")
         finally:
@@ -2782,15 +3067,25 @@ def executar_atualizacao_integrada_excel(
                 ws_c.cell(row=next_r, column=3, value=row["TEXT"])
                 ws_c.cell(row=next_r, column=4, value=row["AGR_NAME"])
 
+        # Etapa 6: CUA_ADICIONAR
+        if novas_linhas_cua:
+            ws_add = wb_ox["CUA_ADICIONAR"]
+            for row_item in novas_linhas_cua:
+                next_r = ws_add.max_row + 1
+                ws_add.cell(row=next_r, column=1, value=row_item["ID"])
+                ws_add.cell(row=next_r, column=2, value=row_item["UTILIZADOR"])
+                ws_add.cell(row=next_r, column=3, value=row_item["SISTEMA"])
+                ws_add.cell(row=next_r, column=4, value=row_item["AGR_NAME"])
+                ws_add.cell(row=next_r, column=5, value="")
+                ws_add.cell(row=next_r, column=6, value="")
+                ws_add.cell(row=next_r, column=7, value="")
+
         wb_ox.save(caminho_excel)
         wb_ox.close()
         print("  Ficheiro Excel gravado via openpyxl com sucesso!")
 
     print("  A recarregar dados estruturados do Excel atualizado...")
     dados = carregar_projeto_perfil(caminho_excel)
-    dados.discrepancias_cua = dict(discrepancias_por_dep)
-    print("-" * 78)
-    imprimir_resumo_discrepancias_final()
     print("-" * 78)
     return dados
 
@@ -5439,27 +5734,47 @@ def sincronizar_departamento_prd_qad_rfc(
             # Folha CUA_ADICIONAR
             if "CUA_ADICIONAR" in wb_ox.sheetnames and roles_adicionadas:
                 ws_add = wb_ox["CUA_ADICIONAR"]
+                row_by_key = {}
                 max_id_add = 0
                 for r in range(2, ws_add.max_row + 1):
-                    v = ws_add.cell(r, 1).value
+                    v_id = ws_add.cell(r, 1).value
                     try:
-                        v_int = int(v)
+                        v_int = int(v_id)
                         if v_int > max_id_add: max_id_add = v_int
                     except (ValueError, TypeError): pass
+                    u_c = normalizar_texto(ws_add.cell(r, 2).value)
+                    s_c = normalizar_texto(ws_add.cell(r, 3).value)
+                    r_c = normalizar_texto(ws_add.cell(r, 4).value)
+                    if u_c and s_c and r_c:
+                        row_by_key[(u_c, s_c, r_c)] = r
+
                 for usr, sis, rol, st, msg in roles_adicionadas:
-                    max_id_add += 1
-                    new_r = ws_add.max_row + 1
-                    ws_add.cell(new_r, 1, max_id_add)
-                    ws_add.cell(new_r, 2, usr)
-                    ws_add.cell(new_r, 3, sis)
-                    ws_add.cell(new_r, 4, rol)
-                    ws_add.cell(new_r, 5, st)
-                    ws_add.cell(new_r, 6, msg)
-                    ws_add.cell(new_r, 7, timestamp_str)
-                    if sis == "S4PCLNT100":
-                        ws_add.cell(new_r, 8, "OK")
-                    elif sis == "S4QCLNT100":
-                        ws_add.cell(new_r, 9, "OK")
+                    u_norm = normalizar_texto(usr)
+                    s_norm = normalizar_texto(sis)
+                    r_norm = normalizar_texto(rol)
+                    target_row = row_by_key.get((u_norm, s_norm, r_norm))
+                    if target_row:
+                        ws_add.cell(target_row, 5, st)
+                        ws_add.cell(target_row, 6, msg)
+                        ws_add.cell(target_row, 7, timestamp_str)
+                        if sis == "S4PCLNT100":
+                            ws_add.cell(target_row, 8, "OK")
+                        elif sis == "S4QCLNT100":
+                            ws_add.cell(target_row, 9, "OK")
+                    else:
+                        max_id_add += 1
+                        new_r = ws_add.max_row + 1
+                        ws_add.cell(new_r, 1, max_id_add)
+                        ws_add.cell(new_r, 2, usr)
+                        ws_add.cell(new_r, 3, sis)
+                        ws_add.cell(new_r, 4, rol)
+                        ws_add.cell(new_r, 5, st)
+                        ws_add.cell(new_r, 6, msg)
+                        ws_add.cell(new_r, 7, timestamp_str)
+                        if sis == "S4PCLNT100":
+                            ws_add.cell(new_r, 8, "OK")
+                        elif sis == "S4QCLNT100":
+                            ws_add.cell(new_r, 9, "OK")
 
             # Folha CONTROLO
             if "CONTROLO" in wb_ox.sheetnames:
@@ -6436,90 +6751,121 @@ def executar_correcao_sincronizacao_posterior(
 ) -> Optional[ProjetoPerfilData]:
     """
     Opção [5] do Menu Principal:
-    Apresenta a lista detalhada de utilizadores com funções pendentes nos departamentos
-    já processados, exibe as funções que serão atualizadas/atribuídas em SAP PRD, QAD e CUA,
-    e solicita confirmação ao utilizador antes de avançar com a sincronização.
+    Refatorada para separar explicitamente as responsabilidades:
+      [1] Preparar / Atualizar CUA_ADICIONAR (Apenas Excel)
+      [2] Executar atribuições pendentes no SAP (BAPI + Commit + Readback + Atualização Excel por ID)
+      [3] Simular atribuições pendentes no SAP (BAPI + Rollback sem alterações)
+      [0] Voltar
     """
-    print("\n" + "=" * 78)
-    print("  [OPÇÃO 5] CORREÇÃO DE SINCRONIZAÇÃO POSTERIOR (UTILIZADORES PENDENTES)")
-    print("=" * 78)
-
-    discrepancias = obter_discrepancias_sincronizacao(dados, caminho_excel)
-    if not discrepancias:
-        print(f"  {CLR_VERDE}✓ Não existem discrepâncias ou pendências de sincronização CUA.{CLR_RESET}")
-        print("  Todos os utilizadores dos departamentos em CONTROLO encontram-se 100% sincronizados!")
-        print("=" * 78)
-        return None
-
-    total_u = sum(len(ul) for ul in discrepancias.values())
-    total_d = len(discrepancias)
-    print(f"  Detetado(s) {total_u} utilizador(es) com funções pendentes em {total_d} departamento(s) processado(s):")
-    print("-" * 78)
-
-    for dep_nome, u_list in sorted(discrepancias.items()):
-        print(f"\n  📁 DEPARTAMENTO: {dep_nome} ({len(u_list)} utilizador(es) a corrigir)")
-        print("  " + "-" * 74)
-        for u_item in u_list:
-            u_id = u_item["user"]
-            u_nome = u_item.get("nome") or "(Nome não disponível)"
-            u_cargo = u_item.get("cargo") or "(Cargo não disponível)"
-            comp = u_item.get("composta") or "-"
-            faltam = u_item.get("faltam", [])
-            pacote = u_item.get("roles_sap_esperadas", [])
-
-            print(f"    👤 Utilizador : {u_id} - {u_nome}")
-            print(f"       Cargo      : {u_cargo}")
-            print(f"       Composta   : {comp}")
-            print(f"       Funções pendentes a atualizar no CUA ({len(faltam)}):")
-            for f in faltam:
-                print(f"         • {f}")
-            print(f"       Pacote de funções a sincronizar em SAP PRD & QAD ({len(pacote)}):")
-            for r in pacote:
-                tipo_str = " (Função Composta)" if r == comp else ""
-                print(f"         - {r}{tipo_str}")
-            print("  " + "-" * 74)
-
-    print()
-    if not assumir_sim:
-        resp = input("Deseja avançar com a sincronização deste(s) utilizador(es)? (S/N): ").strip().upper()
-        if resp not in ("S", "SIM", "Y", "YES"):
-            print("\n[CANCELADO] Operação cancelada pelo utilizador. Nenhuma alteração foi realizada.")
-            return None
-    else:
-        print("Avançando automaticamente (--yes ativado)...")
-
-    print("\n  A iniciar sincronização direta das discrepâncias no SAP e CUA...")
-
-    sucesso_total = True
-    for dep_nome, u_list in sorted(discrepancias.items()):
-        item_dep = next((it for it in dados.controlo if normalizar_texto(it.get("departamento")) == normalizar_texto(dep_nome)), None)
-        if not item_dep:
-            item_dep = {"departamento": dep_nome, "status": "PROCESSADO", "timestamp": "", "linha": 0}
-
-        usuarios_alvo = [u_item["user"] for u_item in u_list]
-
-        sucesso = sincronizar_departamento_prd_qad_rfc(
-            dados=dados,
-            item_dep=item_dep,
-            confirmar_execucao=False,
-            modo_simulacao=False,
-            usuarios_alvo=usuarios_alvo
-        )
-        if not sucesso:
-            sucesso_total = False
-            print(f"[ERRO] Falha na sincronização do departamento '{dep_nome}'.")
-
-    if sucesso_total:
-        print("\n  A recarregar e auditar consistência das folhas no Excel...")
-        novo_dados = executar_atualizacao_integrada_excel(caminho_excel, dados, incorporar_prd_rfc=False)
+    while True:
         print("\n" + "=" * 78)
-        print(f"  {CLR_VERDE}✓ CORREÇÃO DE SINCRONIZAÇÃO POSTERIOR CONCLUÍDA COM SUCESSO!{CLR_RESET}")
-        print("  Todas as folhas do Excel e os utilizadores corrigidos estão 100% sincronizados.")
+        print("  [OPÇÃO 5] CORREÇÃO DE SINCRONIZAÇÃO POSTERIOR")
         print("=" * 78)
-        return novo_dados
-    else:
-        print("\n[AVISO] Ocorreram erros durante a sincronização de alguns utilizadores.")
-        return carregar_projeto_perfil(caminho_excel)
+        print("  [1] Preparar / Atualizar Sheet CUA_ADICIONAR (Apenas Excel)")
+        print("  [2] Executar atribuições pendentes no SAP (PRD / QAD via RFC)")
+        print("  [3] Simular atribuições pendentes no SAP (SU01/SU10 Rollback)")
+        print("  [0] Voltar ao Menu Principal")
+        print("-" * 78)
+
+        if assumir_sim:
+            sub_op = "2"
+            print("  [Auto-confirmado --yes] Ação [2] Executar selecionada automaticamente.")
+        else:
+            try:
+                sub_op = input("Selecione uma opção [1-3, 0]: ").strip().upper()
+            except Exception:
+                sub_op = "0"
+
+        if sub_op in ("0", "VOLTAR", "V", "SAIR", ""):
+            return dados
+
+        if sub_op == "1":
+            print("\n  A preparar e atualizar a sheet CUA_ADICIONAR no Excel...")
+            novo_dados = executar_atualizacao_integrada_excel(caminho_excel, dados, incorporar_prd_rfc=False)
+            print("  ✓ Etapa [6/7] concluída. Ficheiro Excel sincronizado.")
+            dados = novo_dados
+            if assumir_sim:
+                return dados
+
+        elif sub_op in ("2", "3"):
+            modo_sim = (sub_op == "3")
+            lbl_modo = "SIMULAÇÃO" if modo_sim else "EXECUÇÃO REAL"
+
+            discrepancias = obter_discrepancias_sincronizacao(dados, caminho_excel)
+            if not discrepancias:
+                print(f"\n  {CLR_VERDE}✓ Não existem discrepâncias ou pendências de sincronização CUA.{CLR_RESET}")
+                print("  Todos os utilizadores dos departamentos em CONTROLO encontram-se 100% sincronizados!")
+                if assumir_sim:
+                    return dados
+                continue
+
+            total_u = sum(len(ul) for ul in discrepancias.values())
+            total_d = len(discrepancias)
+            print(f"\n  [{lbl_modo}] Detetado(s) {total_u} utilizador(es) com atribuições pendentes em {total_d} departamento(s):")
+            print("-" * 78)
+
+            for dep_nome, u_list in sorted(discrepancias.items()):
+                print(f"\n  📁 DEPARTAMENTO: {dep_nome} ({len(u_list)} utilizador(es))")
+                print("  " + "-" * 74)
+                for u_item in u_list:
+                    u_id = u_item["user"]
+                    u_nome = u_item.get("nome") or "(Nome não disponível)"
+                    u_cargo = u_item.get("cargo") or "(Cargo não disponível)"
+                    comp = u_item.get("composta") or "-"
+                    faltam = u_item.get("faltam", [])
+                    pacote = u_item.get("roles_sap_esperadas", [])
+
+                    print(f"    👤 Utilizador : {u_id} - {u_nome}")
+                    print(f"       Cargo      : {u_cargo}")
+                    print(f"       Composta   : {comp}")
+                    print(f"       Funções pendentes a atualizar no CUA ({len(faltam)}):")
+                    for f in faltam:
+                        print(f"         • {f}")
+                    print(f"       Pacote de funções a sincronizar em SAP PRD & QAD ({len(pacote)}):")
+                    for r in pacote:
+                        tipo_str = " (Função Composta)" if r == comp else ""
+                        print(f"         - {r}{tipo_str}")
+                    print("  " + "-" * 74)
+
+            print()
+            if not modo_sim and not assumir_sim:
+                print("  ATENÇÃO: Esta operação irá alterar autorizações de utilizadores no SAP PRD e QAD.")
+                resp = input("  Confirma a execução real e gravação no SAP? (S/N): ").strip().upper()
+                if resp not in ("S", "SIM", "Y", "YES"):
+                    print("\n[CANCELADO] Operação cancelada pelo utilizador. Nenhuma alteração foi realizada no SAP.")
+                    if assumir_sim:
+                        return dados
+                    continue
+
+            sucesso_total = True
+            for dep_nome, u_list in sorted(discrepancias.items()):
+                item_dep = next((it for it in dados.controlo if normalizar_texto(it.get("departamento")) == normalizar_texto(dep_nome)), None)
+                if not item_dep:
+                    item_dep = {"departamento": dep_nome, "status": "PROCESSADO", "timestamp": "", "linha": 0}
+
+                usuarios_alvo = [u_item["user"] for u_item in u_list]
+
+                sucesso = sincronizar_departamento_prd_qad_rfc(
+                    dados=dados,
+                    item_dep=item_dep,
+                    confirmar_execucao=False,
+                    modo_simulacao=modo_sim,
+                    usuarios_alvo=usuarios_alvo
+                )
+                if not sucesso:
+                    sucesso_total = False
+                    print(f"[ERRO] Falha na operação do departamento '{dep_nome}'.")
+
+            if sucesso_total and not modo_sim:
+                print("\n  A recarregar e auditar consistência das folhas no Excel...")
+                dados = executar_atualizacao_integrada_excel(caminho_excel, dados, incorporar_prd_rfc=False)
+                print("\n" + "=" * 78)
+                print(f"  {CLR_VERDE}✓ EXECUÇÃO DE ATRIBUIÇÕES PENDENTES NO SAP CONCLUÍDA COM SUCESSO!{CLR_RESET}")
+                print("  Todas as folhas do Excel e utilizadores estão 100% sincronizados.")
+                print("=" * 78)
+
+            if assumir_sim:
+                return dados
 
 
 def menu_interativo(caminho_inicial: Optional[str] = None):
