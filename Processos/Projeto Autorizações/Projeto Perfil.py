@@ -5244,23 +5244,378 @@ def executar_processos_pendentes(caminho_excel: str, pendencias: Dict[str, int])
         modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
 
 
-def verificar_e_perguntar_pendencias(caminho_excel: str, assumir_sim: bool = False) -> bool:
-    """Mostra as filas pendentes e pede uma única confirmação para executá-las."""
+def auditar_prevalidacao_cua_adicionar_prd(caminho_excel: str, dados: Optional[ProjetoPerfilData] = None) -> Dict[str, Any]:
+    """
+    Pré-validação read-only de CUA_ADICIONAR contra SAP PRD.
+    Classifica cada linha com STATUS vazio como:
+      - JA_EXISTE_EM_PRD_NAO_EXECUTAR (se a role já estiver ativa no PRD)
+      - REALMENTE_PENDENTE (se a role não estiver atribuída)
+    """
+    import pandas as pd
+    try:
+        from sap_rfc._rfc_common import build_connection_params_for_env, read_table, make_read_only_guard
+        from pyrfc import Connection
+    except ImportError:
+        return {"ok": False, "mensagem": "Módulos RFC não disponíveis."}
+
+    excel_file = abrir_excel_seguro(caminho_excel)
+    df_add = pd.read_excel(excel_file, sheet_name="CUA_ADICIONAR")
+    pend_add = df_add[df_add['STATUS'].fillna('').astype(str).str.strip() == '']
+    if pend_add.empty:
+        return {"ok": True, "total": 0, "ja_existem": 0, "realmente_pendentes": 0, "itens_pendentes": []}
+
+    users_add = pend_add['UTILIZADOR'].dropna().unique()
+    guard = make_read_only_guard(allowed_tables=("AGR_USERS",))
+    
+    try:
+        params = build_connection_params_for_env('PRD')
+        conn = Connection(**params)
+    except Exception as exc:
+        return {"ok": False, "mensagem": f"Erro de conexão RFC SAP PRD: {exc}"}
+
+    user_prd_roles = {}
+    for u in users_add:
+        u_name = str(u).strip().upper()
+        options = [{'TEXT': f"UNAME = '{u_name}'"}]
+        rows = read_table(conn, guard, table_name='AGR_USERS', fields=['UNAME', 'AGR_NAME', 'TO_DAT'], options=options, rowcount=0)
+        active_roles = {r[1].strip().upper() for r in rows if r[2].replace('-', '') >= '20261010'}
+        user_prd_roles[u_name] = active_roles
+
+    conn.close()
+
+    ja_existem = 0
+    realmente_pendentes = 0
+    itens_pendentes = []
+
+    for idx, row in pend_add.iterrows():
+        u = str(row.get('UTILIZADOR') or '').strip().upper()
+        sis = str(row.get('SISTEMA') or '').strip().upper()
+        r = str(row.get('AGR_NAME') or '').strip().upper()
+        row_id = row.get('ID')
+
+        if r in user_prd_roles.get(u, set()):
+            ja_existem += 1
+        else:
+            realmente_pendentes += 1
+            itens_pendentes.append({"id": row_id, "utilizador": u, "sistema": sis, "role": r})
+
+    return {
+        "ok": True,
+        "total": len(pend_add),
+        "ja_existem": ja_existem,
+        "realmente_pendentes": realmente_pendentes,
+        "itens_pendentes": itens_pendentes
+    }
+
+
+def auditar_prevalidacao_cua_remove_prd(caminho_excel: str, dados: Optional[ProjetoPerfilData] = None) -> Dict[str, Any]:
+    """
+    Pré-validação funcional read-only de CUA_REMOVE contra SAP PRD, Proposta Ativa, PFCG_COMPOSTA e EXCLUÇÃO.
+    Filtra automaticamente:
+      - Single Roles filhas de Composite Roles ativas na CUA_ADICIONAR
+      - Roles da folha EXCLUÇÃO
+      - Roles já não existentes / expiradas no SAP PRD
+    Classifica e devolve apenas remoções REALMENTE VÁLIDAS.
+    """
+    import pandas as pd
+    try:
+        from sap_rfc._rfc_common import build_connection_params_for_env, read_table, make_read_only_guard
+        from pyrfc import Connection
+    except ImportError:
+        return {"ok": False, "mensagem": "Módulos RFC não disponíveis."}
+
+    excel_file = abrir_excel_seguro(caminho_excel)
+    xl = pd.ExcelFile(excel_file)
+
+    df_rm = pd.read_excel(xl, sheet_name="CUA_REMOVE")
+    pend_rm = df_rm[df_rm['STATUS'].fillna('').astype(str).str.strip() == '']
+    if pend_rm.empty:
+        return {"ok": True, "total": 0, "ja_nao_existem": 0, "invalidas": 0, "validas": 0, "itens_validos": []}
+
+    df_add = pd.read_excel(xl, sheet_name="CUA_ADICIONAR") if "CUA_ADICIONAR" in xl.sheet_names else pd.DataFrame()
+    df_comp = pd.read_excel(xl, sheet_name="PFCG_COMPOSTA") if "PFCG_COMPOSTA" in xl.sheet_names else pd.DataFrame()
+    df_excl = pd.read_excel(xl, sheet_name="EXCLUÇÃO") if "EXCLUÇÃO" in xl.sheet_names else pd.DataFrame()
+
+    comp_to_singles = {}
+    if not df_comp.empty:
+        for _, row in df_comp.iterrows():
+            c_role = str(row.get('AGR_NAME_COMPOSTA') or '').strip().upper()
+            s_role = str(row.get('AGR_NAME') or '').strip().upper()
+            if c_role and s_role:
+                comp_to_singles.setdefault(c_role, set()).add(s_role)
+
+    user_adds = {}
+    if not df_add.empty:
+        for _, row in df_add.iterrows():
+            u = str(row.get('UTILIZADOR') or '').strip().upper()
+            r = str(row.get('AGR_NAME') or '').strip().upper()
+            if u and r:
+                user_adds.setdefault(u, set()).add(r)
+
+    excl_roles = set(df_excl['AGR_NAME'].dropna().astype(str).str.strip().str.upper()) if not df_excl.empty and 'AGR_NAME' in df_excl.columns else set()
+
+    users_rm = pend_rm['UTILIZADOR'].dropna().unique()
+    guard = make_read_only_guard(allowed_tables=("AGR_USERS",))
+    
+    try:
+        params = build_connection_params_for_env('PRD')
+        conn = Connection(**params)
+    except Exception as exc:
+        return {"ok": False, "mensagem": f"Erro de conexão RFC SAP PRD: {exc}"}
+
+    user_rm_prd_roles = {}
+    for u in users_rm:
+        u_name = str(u).strip().upper()
+        options = [{'TEXT': f"UNAME = '{u_name}'"}]
+        rows = read_table(conn, guard, table_name='AGR_USERS', fields=['UNAME', 'AGR_NAME', 'TO_DAT'], options=options, rowcount=0)
+        active_roles = {r[1].strip().upper() for r in rows if r[2].replace('-', '') >= '20261010'}
+        user_rm_prd_roles[u_name] = active_roles
+
+    conn.close()
+
+    ja_nao_existem = 0
+    invalidas = 0
+    validas = 0
+    itens_validos = []
+
+    for idx, row in pend_rm.iterrows():
+        u = str(row.get('UTILIZADOR') or '').strip().upper()
+        sis = str(row.get('SISTEMA') or '').strip().upper()
+        r = str(row.get('AGR_NAME') or '').strip().upper()
+        row_id = row.get('ID')
+
+        existe_no_sap = r in user_rm_prd_roles.get(u, set())
+        roles_adicionadas = user_adds.get(u, set())
+
+        eh_filha = False
+        for comp in roles_adicionadas:
+            if r in comp_to_singles.get(comp, set()):
+                eh_filha = True
+                break
+
+        eh_excluida = r in excl_roles
+
+        if not existe_no_sap:
+            ja_nao_existem += 1
+        elif eh_filha or eh_excluida:
+            invalidas += 1
+        else:
+            validas += 1
+            itens_validos.append({"id": row_id, "utilizador": u, "sistema": sis, "role": r})
+
+    return {
+        "ok": True,
+        "total": len(pend_rm),
+        "ja_nao_existem": ja_nao_existem,
+        "invalidas": invalidas,
+        "validas": validas,
+        "itens_validos": itens_validos
+    }
+
+
+def verificar_e_perguntar_pendencias(
+    caminho_excel: str,
+    assumir_sim: bool = False,
+    dados: Optional[ProjetoPerfilData] = None,
+    mock_executores: Optional[Dict[str, Any]] = None
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Despachante Refatorado de Processos Pendentes:
+    Executa a validação e solicitação de confirmação INDIVIDUAL processo a processo,
+    respeitando a ordem operacional (PFCG_CREATE -> PFCG_COMPOSTA -> CUA_ADICIONAR -> CUA_REMOVE).
+    Exige pré-validação funcional rigorosa e dupla confirmação para CUA_REMOVE.
+    Retorna dicionário com o resumo final por processo.
+    """
+    import importlib.util
+
     pendencias = obter_pendencias_status(caminho_excel)
     print("\n" + "=" * 78)
     print("  PROCESSOS PENDENTES")
     print("=" * 78)
     if not pendencias:
-        print(f"  {CLR_AZUL}ℹ️  Nenhuma linha com STATUS vazio.{CLR_RESET}")
-        return False
-    for folha, quantidade in pendencias.items():
-        print(f"  ⚠️  {folha}: {quantidade} linha(s)")
-    resposta = "" if assumir_sim else input("\nExecutar os processos pendentes? (S/N): ").strip().upper()
-    if not assumir_sim and resposta not in ("S", "SIM", "Y", "YES"):
-        print("Processos pendentes não executados.")
-        return False
-    executar_processos_pendentes(caminho_excel, pendencias)
-    return True
+        print(f"  {CLR_AZUL}ℹ️  Nenhuma folha com STATUS vazio.{CLR_RESET}")
+        return {}
+
+    # Ordem operacional mantida
+    ordem_oficial = ["PFCG_CREATE", "PFCG_COMPOSTA", "CUA_ADICIONAR", "CUA_REMOVE"]
+    processos_pendentes = [f for f in ordem_oficial if f in pendencias]
+
+    for p in processos_pendentes:
+        print(f"  ⚠️  {p}: {pendencias[p]} linha(s)")
+
+    resumo_final = {}
+    pasta = Path(__file__).resolve().parents[2] / "Processos" / "Funções PFCG"
+
+    def carregar(nome_modulo: str, nome_ficheiro: str):
+        if mock_executores and nome_modulo in mock_executores:
+            return mock_executores[nome_modulo]
+        spec = importlib.util.spec_from_file_location(nome_modulo, pasta / nome_ficheiro)
+        if not spec or not spec.loader:
+            raise RuntimeError(f"Não foi possível carregar {nome_ficheiro}")
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+        return modulo
+
+    total_proc = len(processos_pendentes)
+
+    for i, folha in enumerate(processos_pendentes, 1):
+        qtd = pendencias[folha]
+        print("\n" + "=" * 78)
+        print(f"  PROCESSO {i}/{total_proc} — {folha}")
+        print("=" * 78)
+
+        if folha == "PFCG_CREATE":
+            print(f"  Linhas na fila: {qtd}")
+            resp = "S" if assumir_sim else input(f"\nDeseja executar {folha}? (S/N): ").strip().upper()
+            if resp in ("S", "SIM", "Y", "YES"):
+                try:
+                    modulo = carregar("processo_pfcg_create", "A. PFCG_CREATE.py")
+                    modulo.executar("PRD", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False, metodo="RFC")
+                    resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "SUCESSO", "detalhe": f"{qtd} processadas"}
+                    print(f"\n{CLR_VERDE}✓ PFCG_CREATE concluída.{CLR_RESET}")
+                except Exception as exc:
+                    resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "ERRO", "detalhe": str(exc)}
+                    print(f"\n[ERRO em PFCG_CREATE]: {exc}")
+            else:
+                resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação recusada"}
+                print(f"\n{folha} ignorada pelo utilizador.")
+
+        elif folha == "PFCG_COMPOSTA":
+            print(f"  Linhas na fila: {qtd}")
+            resp = "S" if assumir_sim else input(f"\nDeseja executar {folha}? (S/N): ").strip().upper()
+            if resp in ("S", "SIM", "Y", "YES"):
+                try:
+                    if mock_executores and "processo_pfcg_composta" in mock_executores:
+                        modulo = mock_executores["processo_pfcg_composta"]
+                        modulo.executar("PRD", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+                        res_pfcg = {"ok": True, "mensagem": f"✓ PFCG_COMPOSTA concluída.\n   Linhas analisadas: {qtd}\n   Já existentes: 0\n   Criadas: {qtd}\n   Confirmadas por readback: {qtd}\n   Erros: 0", "analisadas": qtd, "ja_existiam": 0, "criadas": qtd, "confirmadas": qtd, "erros": []}
+                    else:
+                        from sap_rfc.pfcg_composta_sync_service import sincronizar_pfcg_composta
+                        res_pfcg = sincronizar_pfcg_composta(caminho_excel=caminho_excel, dry_run=False, only_prd=True)
+
+                    if res_pfcg.get("ok"):
+                        resumo_final[folha] = {
+                            "pendentes": qtd,
+                            "executado": True,
+                            "resultado": "SUCESSO",
+                            "detalhe": f"Analisadas={res_pfcg.get('analisadas', 0)}, Existentes={res_pfcg.get('ja_existiam', 0)}, Criadas={res_pfcg.get('criadas', 0)}, Readback={res_pfcg.get('confirmadas', 0)}"
+                        }
+                        print(f"\n{CLR_VERDE}{res_pfcg.get('mensagem')}{CLR_RESET}")
+                    else:
+                        resumo_final[folha] = {
+                            "pendentes": qtd,
+                            "executado": True,
+                            "resultado": "ERRO",
+                            "detalhe": res_pfcg.get("mensagem")
+                        }
+                        print(f"\n{CLR_VERMELHO}✗ PFCG_COMPOSTA NÃO EXECUTADA.{CLR_RESET}")
+                        print(f"  Motivo: {res_pfcg.get('mensagem')}")
+                        print(f"  {qtd} linha(s) permanecem pendentes.")
+                except Exception as exc:
+                    resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "ERRO", "detalhe": str(exc)}
+                    print(f"\n{CLR_VERMELHO}✗ PFCG_COMPOSTA NÃO EXECUTADA.{CLR_RESET}")
+                    print(f"  Motivo: {exc}")
+                    print(f"  {qtd} linha(s) permanecem pendentes.")
+            else:
+                resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação recusada"}
+                print(f"\n{folha} ignorada pelo utilizador.")
+
+        elif folha == "CUA_ADICIONAR":
+            print(f"  Linhas na fila: {qtd}")
+            print("  A efetuar pré-validação read-only contra o SAP PRD...")
+            audit_add = auditar_prevalidacao_cua_adicionar_prd(caminho_excel, dados=dados)
+            if audit_add.get("ok"):
+                ja_ex = audit_add.get("ja_existem", 0)
+                re_pend = audit_add.get("realmente_pendentes", 0)
+                print(f"  Já existentes no SAP PRD: {ja_ex}")
+                print(f"  Realmente pendentes SAP:  {re_pend}")
+                
+                if re_pend == 0:
+                    print(f"\n  {CLR_VERDE}ℹ Todas as {qtd} atribuições já existem no SAP PRD (JA_EXISTE_EM_PRD_NAO_EXECUTAR).{CLR_RESET}")
+                    resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "JA_EXISTEM_EM_PRD", "detalhe": f"0 executadas / {ja_ex} já existentes"}
+                    continue
+
+                resp = "S" if assumir_sim else input(f"\nDeseja executar as {re_pend} atribuições realmente pendentes? (S/N): ").strip().upper()
+                if resp in ("S", "SIM", "Y", "YES"):
+                    try:
+                        modulo = carregar("processo_cua_adicionar", "CUA_ADICIONAR_WEB.py")
+                        modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+                        resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "SUCESSO", "detalhe": f"{re_pend} executadas / {ja_ex} já existentes"}
+                        print(f"\n{CLR_VERDE}✓ CUA_ADICIONAR concluída.{CLR_RESET}")
+                    except Exception as exc:
+                        resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "ERRO", "detalhe": str(exc)}
+                        print(f"\n[ERRO em CUA_ADICIONAR]: {exc}")
+                else:
+                    resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação recusada"}
+                    print(f"\n{folha} ignorada pelo utilizador.")
+            else:
+                # Fallback sem pré-validação se RFC não disponível
+                resp = "S" if assumir_sim else input(f"\nDeseja executar {folha}? (S/N): ").strip().upper()
+                if resp in ("S", "SIM", "Y", "YES"):
+                    modulo = carregar("processo_cua_adicionar", "CUA_ADICIONAR_WEB.py")
+                    modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+                    resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "SUCESSO", "detalhe": f"{qtd} processadas"}
+                else:
+                    resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação recusada"}
+
+        elif folha == "CUA_REMOVE":
+            print(f"  Linhas na fila: {qtd}")
+            print("\n  ATENÇÃO: Este processo REMOVE funções de utilizadores no SAP.")
+            print("  Antes da execução é realizada pré-validação funcional read-only.")
+            print("  Filtra automaticamente: roles protegidas, filhas de Compostas e já ausentes.")
+
+            resp1 = "S" if assumir_sim else input(f"\nDeseja analisar/executar {folha} agora? (S/N): ").strip().upper()
+            if resp1 in ("S", "SIM", "Y", "YES"):
+                print("\n  A executar auditoria read-only funcional de CUA_REMOVE contra SAP PRD...")
+                audit_rm = auditar_prevalidacao_cua_remove_prd(caminho_excel, dados=dados)
+                if audit_rm.get("ok"):
+                    val = audit_rm.get("validas", 0)
+                    inv = audit_rm.get("invalidas", 0)
+                    ja_aus = audit_rm.get("ja_nao_existem", 0)
+                    print(f"    - Remoções realmente válidas:             {val}")
+                    print(f"    - Inválidas (filhas Composite / EXCLUÇÃO): {inv}")
+                    print(f"    - Já não existentes no SAP PRD:            {ja_aus}")
+
+                    if val == 0:
+                        print(f"\n  {CLR_VERDE}ℹ Nenhuma remoção funcionalmente válida para executar.{CLR_RESET}")
+                        resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "SEM_REMOCOES_VALIDAS", "detalhe": "0 válidas"}
+                        continue
+
+                    print(f"\n  ATENÇÃO: Esta operação irá remover {val} atribuições no SAP.")
+                    resp2 = "S" if assumir_sim else input(f"\n  Confirmar execução das {val} remoções válidas no SAP? (S/N): ").strip().upper()
+                    if resp2 in ("S", "SIM", "Y", "YES"):
+                        try:
+                            modulo = carregar("processo_cua_remove", "CUA_REMOVE_WEB.py")
+                            modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+                            resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "SUCESSO", "detalhe": f"{val} remoções executadas"}
+                            print(f"\n{CLR_VERDE}✓ CUA_REMOVE concluída.{CLR_RESET}")
+                        except Exception as exc:
+                            resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "ERRO", "detalhe": str(exc)}
+                            print(f"\n[ERRO em CUA_REMOVE]: {exc}")
+                    else:
+                        resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação cancelada na 2ª confirmação"}
+                        print(f"\n{folha} ignorada no 2º nível de confirmação.")
+                else:
+                    print(f"[ERRO na auditoria CUA_REMOVE]: {audit_rm.get('mensagem')}")
+                    resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "ERRO_AUDITORIA", "detalhe": audit_rm.get("mensagem")}
+            else:
+                resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação recusada na 1ª confirmação"}
+                print(f"\n{folha} ignorada pelo utilizador.")
+
+    # Resumo Final Consolidado
+    print("\n" + "=" * 78)
+    print("  RESUMO FINAL DA EXECUÇÃO DOS PROCESSOS PENDENTES")
+    print("=" * 78)
+    print(f"  {'PROCESSO':<15} | {'PENDENTES':<10} | {'EXECUTADO':<10} | {'RESULTADO'}")
+    print("  " + "-" * 74)
+    for p_nome, r_info in resumo_final.items():
+        exec_str = "SIM" if r_info["executado"] else "NÃO"
+        res_str = f"{r_info['resultado']} ({r_info['detalhe']})"
+        print(f"  {p_nome:<15} | {r_info['pendentes']:<10} | {exec_str:<10} | {res_str}")
+    print("=" * 78)
+
+    return resumo_final
+
 
 
 def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:

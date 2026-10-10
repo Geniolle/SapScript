@@ -6,20 +6,15 @@ Serviço de Sincronização da Fase 4 (PFCG_COMPOSTA -> SAP QAD & PRD)
 ======================================================================
 Regras de Negócio:
 1. Processa somente linhas com STATUS vazio em PFCG_COMPOSTA (None ou "").
-2. Agrupa por AGR_NAME_COMPOSTA.
-3. Preflight de Conexão (QAD e PRD) antes de qualquer tentativa de escrita. Se falhar preflight, 0 alterações no Excel e 0 chamadas SAP.
-4. Classificação estrita de estados por ambiente:
-   - EXISTS (já existe na AGR_AGRS)
-   - MISSING (confirmadamente ausente após leitura com sucesso)
-   - UNKNOWN (erro de conexão/leitura - NUNCA vira MISSING nem vira STATUS "Concluído")
-5. Execução em Duas Etapas com Readback Obrigatório:
-   - QAD: Se faltar, chama atribuição via RFC -> lê novamente AGR_AGRS para confirmação física.
-   - PRD: Somente inicia se QAD for 100% OK. Se faltar, chama atribuição via RFC -> lê novamente AGR_AGRS.
-6. Atualização de Excel: Somente em execução REAL (dry_run=False).
-   - "Concluído": QAD OK + PRD OK
-   - "Pendente PRD": QAD OK, mas PRD falhou/indisponível após ter sido iniciado
-   - "Erro QAD": Falha na atribuição QAD ou role filha é Composite role (AGR_FLAGS).
-7. Relatório discriminado separando NOVO_LOTE (IDs 742-849) de PENDENCIAS_HISTORICAS (IDs < 742).
+2. Pré-validação READ-ONLY obrigatória em AGR_AGRS para classificar:
+   - JA_EXISTE_PRD (membro já presente) -> ignora escrita
+   - REALMENTE_PENDENTE (confirmadamente ausente) -> adiciona via RFC
+   - ERRO_LEITURA -> aborta sem falsa conclusão
+3. Execução RFC exclusiva (PRGN_RFC_ADD_AGRS_TO_COLL_AGR + PRGN_GEN_PROFILES_FOR_ROLES)
+   sem qualquer fallback para SAP GUI.
+4. Readback OBRIGATÓRIO pós-escrita consultando novamente a AGR_AGRS.
+5. Retorno estruturado confiável (ok, analisadas, ja_existiam, criadas, confirmadas, erros).
+6. Atualização de Excel: Somente em execução REAL (dry_run=False) e se confirmadas por readback.
 ======================================================================
 """
 
@@ -30,6 +25,7 @@ from typing import Dict, List, Set, Tuple, Any, Optional
 from sap_rfc._rfc_common import (
     build_connection_params_for_env,
     make_read_only_guard,
+    make_write_guard,
     read_table,
     classify_rfc_error
 )
@@ -45,15 +41,14 @@ COL_MSG = 6                  # F
 COL_TIMESTEMP = 7            # G
 COL_PRD = 8                  # H
 
-STATE_EXISTS = "EXISTS"
-STATE_MISSING = "MISSING"
-STATE_UNKNOWN = "UNKNOWN"
+STATE_EXISTS = "JA_EXISTE_PRD"
+STATE_PENDING = "REALMENTE_PENDENTE"
+STATE_ERROR = "ERRO_LEITURA"
 
 
 def obter_pendencias_pfcg_composta(caminho_excel: str) -> List[Dict[str, Any]]:
     """
     Lê a sheet PFCG_COMPOSTA e retorna todas as linhas que possuem STATUS vazio (None ou "").
-    Separa o lote por ID (IDs 742-849 -> NOVO_LOTE, IDs < 742 -> PENDENCIA_HISTORICA).
     """
     wb = openpyxl.load_workbook(caminho_excel, read_only=True, data_only=True)
     if "PFCG_COMPOSTA" not in wb.sheetnames:
@@ -73,14 +68,13 @@ def obter_pendencias_pfcg_composta(caminho_excel: str) -> List[Dict[str, Any]]:
             continue
         
         status = str(r[COL_STATUS - 1]).strip() if len(r) >= COL_STATUS and r[COL_STATUS - 1] is not None else ""
-        if status == "" or status == "Pendente QAD":
+        if status == "" or status == "Pendente QAD" or status == "Pendente PRD":
             id_val = r[COL_ID - 1]
             comp_name = str(r[COL_AGR_NAME_COMPOSTA - 1]).strip().upper() if r[COL_AGR_NAME_COMPOSTA - 1] else ""
             text_val = str(r[COL_TEXT - 1]).strip() if r[COL_TEXT - 1] else ""
             single_name = str(r[COL_AGR_NAME - 1]).strip().upper() if r[COL_AGR_NAME - 1] else ""
 
             if comp_name and single_name:
-                # Classificar origem do lote
                 categoria = "NOVO_LOTE" if isinstance(id_val, (int, float)) and 742 <= id_val <= 849 else "PENDENCIA_HISTORICA"
                 pendencias.append({
                     "row_idx": row_idx,
@@ -98,13 +92,11 @@ def validar_roles_filhas_nao_compostas(conn: Any, guard: Any, single_roles: List
     """
     Consulta a tabela AGR_FLAGS para garantir que nenhuma Single Role a ser adicionada
     é na verdade uma Composite Role (FLAG_TYPE == 'COLL_AGR').
-    Retorna (set_roles_validas, set_roles_invalidas_compostas).
     """
     if not single_roles:
         return set(), set()
 
     roles_unicas = list(set(single_roles))
-    roles_fmt = ", ".join([f"'{r}'" for r in roles_unicas])
     options = [{"TEXT": f"AGR_NAME = '{r}' AND FLAG_TYPE = 'COLL_AGR'"} for r in roles_unicas]
 
     try:
@@ -157,7 +149,6 @@ def ler_relacoes_agr_agrs(conn: Any, guard: Any, composite_roles: List[str]) -> 
 def preflight_test_connection(ambiente: str) -> Tuple[bool, Optional[str]]:
     """
     Testa preflight de conexão com um ambiente SAP (READ-ONLY).
-    Retorna (sucesso, erro_msg).
     """
     try:
         from sap_rfc._rfc_common import load_project_env, find_project_root
@@ -182,23 +173,30 @@ def sincronizar_pfcg_composta(
     ambiente_prd: str = "PRD"
 ) -> Dict[str, Any]:
     """
-    Orquestra a sincronização da Fase 4.
+    Orquestra a sincronização da sheet PFCG_COMPOSTA via RFC com readback obrigatório.
+    Devolve estrutura de resultado padronizada.
     """
     pendencias = obter_pendencias_pfcg_composta(caminho_excel)
     if not pendencias:
         return {
+            "ok": True,
             "status": "SEM_PENDENCIAS",
             "mensagem": "Nenhuma linha com STATUS vazio encontrada na sheet PFCG_COMPOSTA.",
+            "analisadas": 0,
+            "ja_existiam": 0,
+            "criadas": 0,
+            "confirmadas": 0,
             "total_pendencias": 0,
             "total_novo_lote": 0,
             "total_historicas": 0,
+            "erros": [],
             "detalhes": []
         }
 
     novo_lote_count = sum(1 for p in pendencias if p["categoria"] == "NOVO_LOTE")
     historicas_count = sum(1 for p in pendencias if p["categoria"] == "PENDENCIA_HISTORICA")
 
-    # 1. PRE-FLIGHT INDEPENDENTE DOS AMBIENTES
+    # 1. PRE-FLIGHT DE CONEXÃO RFC
     qad_preflight_ok = False
     qad_preflight_err = None
     if not only_prd:
@@ -206,26 +204,23 @@ def sincronizar_pfcg_composta(
     
     prd_preflight_ok, prd_preflight_err = preflight_test_connection(ambiente_prd)
 
-    # Abortar somente se NENHUM ambiente solicitado estiver disponível
-    if not qad_preflight_ok and not prd_preflight_ok:
-        msg_preflight = []
-        if not only_prd and qad_preflight_err:
-            msg_preflight.append(f"Preflight QAD Falhou: {qad_preflight_err}")
-        if prd_preflight_err:
-            msg_preflight.append(f"Preflight PRD Falhou: {prd_preflight_err}")
-        
+    # Abortar se preflight do ambiente PRD falhar
+    if not prd_preflight_ok:
+        msg_err = f"Falha de conexão RFC com SAP PRD: {prd_preflight_err}"
         return {
+            "ok": False,
             "status": "PREFLIGHT_FAILED",
-            "mensagem": " | ".join(msg_preflight),
-            "qad_preflight_ok": qad_preflight_ok,
-            "prd_preflight_ok": prd_preflight_ok,
+            "mensagem": msg_err,
+            "analisadas": len(pendencias),
+            "ja_existiam": 0,
+            "criadas": 0,
+            "confirmadas": 0,
             "total_pendencias": len(pendencias),
-            "total_novo_lote": novo_lote_count,
-            "total_historicas": historicas_count,
+            "erros": [msg_err],
             "detalhes": []
         }
 
-    # Agrupar pendências por Composite Role
+    # Agrupar por Composite Role
     composites_map: Dict[str, Dict[str, Any]] = {}
     for item in pendencias:
         comp = item["composite"]
@@ -239,184 +234,159 @@ def sincronizar_pfcg_composta(
         composites_map[comp]["items"].append(item)
 
     lista_composites = list(composites_map.keys())
-    resultado_processamento: List[Dict[str, Any]] = []
-    excel_updates = []
-
-    # Leitura dos Ambientes Disponíveis
-    qad_rel_existentes = {}
-    prd_rel_existentes = {}
-    invalid_set = set()
     todas_singles = [s for comp in composites_map for s in composites_map[comp]["singles"]]
 
-    if qad_preflight_ok:
-        p_qad = build_connection_params_for_env(ambiente_qad)
-        g_qad = make_read_only_guard(("AGR_DEFINE", "AGR_FLAGS", "AGR_AGRS"))
-        conn_qad = Connection(**p_qad)
-        try:
-            _, inv_qad = validar_roles_filhas_nao_compostas(conn_qad, g_qad, todas_singles)
-            invalid_set.update(inv_qad)
-            qad_rel_existentes, qad_read_ok, qad_read_err = ler_relacoes_agr_agrs(conn_qad, g_qad, lista_composites)
-        finally:
-            conn_qad.close()
+    # 2. PRÉ-VALIDAÇÃO READ-ONLY EM AGR_AGRS (PRD)
+    params_prd = build_connection_params_for_env(ambiente_prd)
+    guard_ro = make_read_only_guard(("AGR_DEFINE", "AGR_FLAGS", "AGR_AGRS"))
+    conn_ro = Connection(**params_prd)
+    
+    try:
+        _, invalid_set = validar_roles_filhas_nao_compostas(conn_ro, guard_ro, todas_singles)
+        prd_rel_iniciais, prd_read_ok, prd_read_err = ler_relacoes_agr_agrs(conn_ro, guard_ro, lista_composites)
+    finally:
+        conn_ro.close()
 
-    if prd_preflight_ok:
-        p_prd = build_connection_params_for_env(ambiente_prd)
-        g_prd = make_read_only_guard(("AGR_DEFINE", "AGR_FLAGS", "AGR_AGRS"))
-        conn_prd = Connection(**p_prd)
-        try:
-            _, inv_prd = validar_roles_filhas_nao_compostas(conn_prd, g_prd, todas_singles)
-            invalid_set.update(inv_prd)
-            prd_rel_existentes, prd_read_ok, prd_read_err = ler_relacoes_agr_agrs(conn_prd, g_prd, lista_composites)
-        finally:
-            conn_prd.close()
+    if not prd_read_ok:
+        msg_err = f"Falha na leitura inicial da tabela AGR_AGRS no SAP PRD: {prd_read_err}"
+        return {
+            "ok": False,
+            "status": "READ_FAILED",
+            "mensagem": msg_err,
+            "analisadas": len(pendencias),
+            "ja_existiam": 0,
+            "criadas": 0,
+            "confirmadas": 0,
+            "erros": [msg_err],
+            "detalhes": []
+        }
 
-    # SNAPSHOT PRÉ-WRITE (se not dry_run e PRD ok)
-    snapshot_file_path = None
-    if not dry_run and prd_preflight_ok:
-        import json
-        from pathlib import Path
-        output_dir = Path(caminho_excel).parent / "output"
-        output_dir.mkdir(exist_ok=True)
-        ts_snap = datetime.now().strftime("%Y%m%d_%H%M%S")
-        snapshot_file_path = output_dir / f"fase4_prd_only_pre_write_{ts_snap}.json"
-        
-        snapshot_data = []
-        for comp, data in composites_map.items():
-            prd_exist = prd_rel_existentes.get(comp, set())
-            for it in data["items"]:
-                sing = it["single"]
-                p_state = STATE_EXISTS if sing in prd_exist else STATE_MISSING
-                snapshot_data.append({
-                    "id": it["id"],
-                    "composite": comp,
-                    "single": sing,
-                    "prd_state": p_state,
-                    "acao_prd": "SKIP_WRITE" if p_state == STATE_EXISTS else "ADD_RFC"
-                })
-        with open(snapshot_file_path, "w", encoding="utf-8") as f_snap:
-            json.dump(snapshot_data, f_snap, indent=2, ensure_ascii=False)
+    total_analisadas = len(pendencias)
+    ja_existiam_cnt = 0
+    realmente_pendentes_items = []
 
     for comp, data in composites_map.items():
-        singles_pendentes = data["singles"]
-        items = data["items"]
+        existentes_comp = prd_rel_iniciais.get(comp, set())
+        for it in data["items"]:
+            sing = it["single"]
+            if sing in existentes_comp:
+                ja_existiam_cnt += 1
+                it["estado_prd"] = STATE_EXISTS
+            else:
+                it["estado_prd"] = STATE_PENDING
+                realmente_pendentes_items.append(it)
 
-        # Validar Composite filhas em AGR_FLAGS
-        singles_invalidas = [s for s in singles_pendentes if s in invalid_set]
-        if singles_invalidas:
-            msg_err = f"Falha na validação SAP: Single roles filhas são Composite roles ({', '.join(singles_invalidas)})"
+    # 3. EXECUÇÃO RFC DAS REALMENTE PENDENTES (DELTA)
+    criadas_cnt = 0
+    erros_execucao = []
+
+    if realmente_pendentes_items and not dry_run:
+        guard_wr = make_write_guard(
+            allowed_functions=("PRGN_RFC_ADD_AGRS_TO_COLL_AGR", "PRGN_GEN_PROFILES_FOR_ROLES"),
+            allowed_tables=("AGR_AGRS", "AGR_TEXTS")
+        )
+        conn_wr = Connection(**params_prd)
+        try:
+            # Agrupar delta por Composite
+            delta_map = defaultdict(list)
+            for it in realmente_pendentes_items:
+                delta_map[it["composite"]].append(it)
+
+            for comp, items_delta in delta_map.items():
+                singles_payload = [{"AGR_NAME": it["single"], "TEXT": it["text"]} for it in items_delta]
+                try:
+                    res_rfc = conn_wr.call(
+                        "PRGN_RFC_ADD_AGRS_TO_COLL_AGR",
+                        ACTIVITY_GROUP=comp,
+                        ACTIVITY_GROUPS=singles_payload,
+                        NO_DIALOG="X"
+                    )
+                    rets = res_rfc.get("RETURN", []) or []
+                    errs = [m for m in rets if str(m.get("TYPE", "")).upper() in ("E", "A")]
+                    if errs:
+                        msg = f"Erro RFC ao adicionar a {comp}: {'; '.join(m.get('MESSAGE', '') for m in errs)}"
+                        erros_execucao.append(msg)
+                        continue
+
+                    # Gerar perfis e atualizar utilizador (User Compare)
+                    conn_wr.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": comp}], IV_USERCOMPARE="X")
+                    criadas_cnt += len(items_delta)
+                except Exception as exc:
+                    erros_execucao.append(f"Exceção RFC ao processar {comp}: {exc}")
+        finally:
+            conn_wr.close()
+
+    # 4. READBACK OBRIGATÓRIO EM AGR_AGRS PÓS-ESCRITA
+    conn_rb = Connection(**params_prd)
+    try:
+        prd_rel_finais, rb_ok, rb_err = ler_relacoes_agr_agrs(conn_rb, guard_ro, lista_composites)
+    finally:
+        conn_rb.close()
+
+    confirmadas_cnt = 0
+    excel_updates = []
+    resultado_detalhado = []
+
+    for comp, data in composites_map.items():
+        finais_comp = prd_rel_finais.get(comp, set())
+        for it in data["items"]:
+            sing = it["single"]
+            row_idx = it["row_idx"]
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for it in items:
-                excel_updates.append({
-                    "row_idx": it["row_idx"],
-                    "status": "Erro Validação",
-                    "msg": msg_err,
-                    "timestemp": ts,
-                    "prd": "Erro"
-                })
-            resultado_processamento.append({
-                "composite": comp,
-                "status_final": "Erro Validação",
-                "motivo": msg_err,
-                "items": items
-            })
-            continue
 
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Determinar status per-ambiente e status global
-        if qad_preflight_ok and prd_preflight_ok:
-            status_excel = "Concluído"
-            msg_excel = "Validado em SAP QAD e PRD via RFC (Simulação)" if dry_run else "Validado em SAP QAD e PRD via RFC"
-            prd_val = "Validado"
-        elif prd_preflight_ok and not qad_preflight_ok:
-            status_excel = "Pendente QAD"
-            msg_excel = "Validado em SAP PRD via RFC. QAD offline/pendente." if not dry_run else "Validado em SAP PRD via RFC (Simulação). QAD offline/pendente."
-            prd_val = "Validado"
-        elif qad_preflight_ok and not prd_preflight_ok:
-            status_excel = "Pendente PRD"
-            msg_excel = "Validado em SAP QAD via RFC. PRD offline/pendente." if not dry_run else "Validado em SAP QAD via RFC (Simulação). PRD offline/pendente."
-            prd_val = "Pendente"
-        else:
-            status_excel = "Pendente"
-            msg_excel = "Ambientes indisponíveis"
-            prd_val = "Desconhecido"
+            if sing in finais_comp:
+                confirmadas_cnt += 1
+                st = "Concluído"
+                msg = "Validado e confirmado fisicamente no SAP PRD via RFC (Readback OK)"
+                prd_st = "Validado"
+            else:
+                st = "Erro"
+                msg = "Falha no readback AGR_AGRS: Relação não confirmada no SAP PRD após tentativa"
+                prd_st = "Erro"
 
-        for it in items:
             excel_updates.append({
-                "row_idx": it["row_idx"],
-                "status": status_excel,
-                "msg": msg_excel,
+                "row_idx": row_idx,
+                "status": st,
+                "msg": msg,
                 "timestemp": ts,
-                "prd": prd_val
+                "prd": prd_st
             })
-        
-        resultado_processamento.append({
-            "composite": comp,
-            "status_final": status_excel,
-            "motivo": msg_excel,
-            "items": items
-        })
 
-    # GRAVAÇÃO E VERIFICAÇÃO FÍSICA NO EXCEL (SOMENTE SE DRY_RUN = FALSE E PREFLIGHT OK)
-    log_file_path = None
-    if not dry_run:
-        from pathlib import Path
-        output_dir = Path(caminho_excel).parent / "output"
-        output_dir.mkdir(exist_ok=True)
-        ts_filename = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file_path = output_dir / f"fase4_real_{ts_filename}.log"
-
-        with open(log_file_path, "w", encoding="utf-8") as f_log:
-            f_log.write(f"==============================================================================\n")
-            f_log.write(f"LOG DE EXECUÇÃO REAL DA FASE 4 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f_log.write(f"Ficheiro Excel: {caminho_excel}\n")
-            f_log.write(f"Total Pendências: {len(pendencias)} (Novo Lote: {novo_lote_count}, Históricas: {historicas_count})\n")
-            f_log.write(f"==============================================================================\n\n")
-
-            for res in resultado_processamento:
-                f_log.write(f"Composite: {res['composite']} | Status Final: {res['status_final']}\n")
-                for it in res["items"]:
-                    f_log.write(f"  - ID: {it['id']} | Single: {it['single']} | Categoria: {it['categoria']}\n")
-                f_log.write(f"  Motivo/Resumo: {res.get('motivo')}\n\n")
-
-    if not dry_run and excel_updates:
+    # 5. ATUALIZAÇÃO NO EXCEL SE EXECUÇÃO REAL (dry_run=False)
+    if not dry_run and excel_updates and not erros_execucao:
         wb = openpyxl.load_workbook(caminho_excel)
         ws = wb["PFCG_COMPOSTA"]
-
         for up in excel_updates:
             r_idx = up["row_idx"]
             ws.cell(row=r_idx, column=COL_STATUS, value=up["status"])
             ws.cell(row=r_idx, column=COL_MSG, value=up["msg"])
             ws.cell(row=r_idx, column=COL_TIMESTEMP, value=up["timestemp"])
             ws.cell(row=r_idx, column=COL_PRD, value=up["prd"])
-
         wb.save(caminho_excel)
         wb.close()
 
-        # REABRIR DO DISCO E VALIDAR FISICAMENTE (SAVE / CLOSE / READBACK EXCEL)
-        wb_check = openpyxl.load_workbook(caminho_excel, read_only=True, data_only=True)
-        ws_check = wb_check["PFCG_COMPOSTA"]
-        rows_check = list(ws_check.iter_rows(values_only=True))
-        wb_check.close()
+    is_ok = len(erros_execucao) == 0 and confirmadas_cnt == total_analisadas
 
-        for up in excel_updates:
-            r_idx = up["row_idx"]
-            r_data = rows_check[r_idx - 1]
-            st_written = str(r_data[COL_STATUS - 1] or "").strip()
-            msg_written = str(r_data[COL_MSG - 1] or "").strip()
-            prd_written = str(r_data[COL_PRD - 1] or "").strip()
-
-            if st_written != up["status"] or prd_written != up["prd"]:
-                raise RuntimeError(f"Falha na validação física do Excel na linha {r_idx}: Gravado STATUS='{st_written}', esperado '{up['status']}'")
+    msg_sucesso = (
+        f"✓ PFCG_COMPOSTA concluída via RFC.\n"
+        f"   Linhas analisadas: {total_analisadas}\n"
+        f"   Já existentes: {ja_existiam_cnt}\n"
+        f"   Criadas no SAP: {criadas_cnt}\n"
+        f"   Confirmadas por readback: {confirmadas_cnt}\n"
+        f"   Erros: {len(erros_execucao)}"
+    )
 
     return {
-        "status": "SUCESSO",
-        "dry_run": dry_run,
-        "log_file": str(log_file_path) if log_file_path else None,
-        "total_linhas_pendentes": len(pendencias),
+        "ok": is_ok,
+        "status": "SUCESSO" if is_ok else "FALHA",
+        "mensagem": msg_sucesso if is_ok else f"Falha na sincronização PFCG_COMPOSTA: {'; '.join(erros_execucao)}",
+        "analisadas": total_analisadas,
+        "ja_existiam": ja_existiam_cnt,
+        "criadas": criadas_cnt,
+        "confirmadas": confirmadas_cnt,
+        "total_pendencias": len(pendencias),
         "total_novo_lote": novo_lote_count,
         "total_historicas": historicas_count,
-        "total_composites_processadas": len(composites_map),
-        "atualizacoes_excel_propostas": excel_updates,
-        "detalhes": resultado_processamento
+        "erros": erros_execucao,
+        "detalhes": resultado_detalhado
     }

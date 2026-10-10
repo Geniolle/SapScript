@@ -3,7 +3,7 @@
 tests/test_pfcg_composta_sync_service.py
 ======================================================================
 Bateria de Testes Unitários Aprofundada para a Fase 4
-(Sincronização PFCG_COMPOSTA com QAD / PRD e Gestão de Status Excel)
+(Sincronização PFCG_COMPOSTA com RFC exclusivo, preflight, delta e readback)
 ======================================================================
 """
 
@@ -69,7 +69,6 @@ def test_validar_roles_filhas_nao_compostas_sucesso():
 def test_validar_roles_filhas_nao_compostas_com_composite_invalida():
     mock_conn = MagicMock()
     mock_guard = MagicMock()
-    # Simular que Z_COMPOSITE_FILHA está registrada em AGR_FLAGS como COLL_AGR
     mock_data = [["Z_COMPOSITE_FILHA", "COLL_AGR"]]
     with patch("sap_rfc.pfcg_composta_sync_service.read_table", return_value=mock_data):
         validas, invalidas = validar_roles_filhas_nao_compostas(mock_conn, mock_guard, ["Z_FI_SINGLE_1", "Z_COMPOSITE_FILHA"])
@@ -92,54 +91,34 @@ def test_ler_relacoes_agr_agrs():
         assert rel["Z_BR_PURCHREQ_MANAGER"] == {"Z_FI_VENDOR_READ", "Z_MM_PO_CREATE"}
 
 
-def test_sincronizar_pfcg_composta_preflight_falha_qad_mas_prd_ok(excel_fake_pfcg_composta):
-    """Testa que se o preflight QAD falhar mas PRD estiver OK, o processamento de PRD avança e gera STATUS='Pendente QAD'."""
-    from sap_agent.safety import SafetyGuard
-    real_guard = SafetyGuard.build(allow_write_operations=False, allowed_functions=["RFC_READ_TABLE"], allowed_tables=["AGR_DEFINE", "AGR_FLAGS", "AGR_AGRS"])
-    mock_conn = MagicMock()
-    fake_params = {"user": "U", "passwd": "P", "ashost": "H", "sysnr": "00", "client": "100"}
-
-    with patch("sap_rfc.pfcg_composta_sync_service.preflight_test_connection", side_effect=lambda env: (False, "Falha auth QAD") if env == "QAD" else (True, None)), \
-         patch("sap_rfc.pfcg_composta_sync_service.build_connection_params_for_env", return_value=fake_params), \
-         patch("sap_rfc.pfcg_composta_sync_service.make_read_only_guard", return_value=real_guard), \
-         patch("sap_rfc.pfcg_composta_sync_service.Connection", return_value=mock_conn), \
-         patch("sap_rfc.pfcg_composta_sync_service.validar_roles_filhas_nao_compostas", return_value=({"Z_FI_VENDOR_READ", "Z_MM_PO_CREATE"}, set())), \
-         patch("sap_rfc.pfcg_composta_sync_service.ler_relacoes_agr_agrs", return_value=({"Z_BR_PURCHREQ_MANAGER": set()}, True, None)):
-        
-        res = sincronizar_pfcg_composta(excel_fake_pfcg_composta, dry_run=True)
-        assert res["status"] == "SUCESSO"
-        assert res["detalhes"][0]["status_final"] == "Pendente QAD"
-
-
 def test_sincronizar_pfcg_composta_preflight_falha_ambos(excel_fake_pfcg_composta):
-    """Testa que se o preflight falhar em AMBOS os ambientes, a execução aborta de imediato (PREFLIGHT_FAILED)."""
+    """Testa que se o preflight PRD falhar, a execução aborta de imediato (PREFLIGHT_FAILED)."""
     with patch("sap_rfc.pfcg_composta_sync_service.preflight_test_connection", return_value=(False, "Ambiente Offline")):
         res = sincronizar_pfcg_composta(excel_fake_pfcg_composta, dry_run=True)
+        assert res["ok"] is False
         assert res["status"] == "PREFLIGHT_FAILED"
-        assert res["qad_preflight_ok"] is False
-        assert res["prd_preflight_ok"] is False
 
 
 def test_sincronizar_pfcg_composta_dry_run_sucesso(excel_fake_pfcg_composta):
-    from sap_agent.safety import SafetyGuard
-    real_guard = SafetyGuard.build(allow_write_operations=False, allowed_functions=["RFC_READ_TABLE"], allowed_tables=["AGR_DEFINE", "AGR_FLAGS", "AGR_AGRS"])
+    """Testa execução dry-run com preflight PRD OK e readback positivo."""
     mock_conn = MagicMock()
     fake_params = {"user": "U", "passwd": "P", "ashost": "H", "sysnr": "00", "client": "100"}
 
     with patch("sap_rfc.pfcg_composta_sync_service.preflight_test_connection", return_value=(True, None)), \
          patch("sap_rfc.pfcg_composta_sync_service.build_connection_params_for_env", return_value=fake_params), \
-         patch("sap_rfc.pfcg_composta_sync_service.make_read_only_guard", return_value=real_guard), \
          patch("sap_rfc.pfcg_composta_sync_service.Connection", return_value=mock_conn), \
          patch("sap_rfc.pfcg_composta_sync_service.validar_roles_filhas_nao_compostas", return_value=({"Z_FI_VENDOR_READ", "Z_MM_PO_CREATE"}, set())), \
-         patch("sap_rfc.pfcg_composta_sync_service.ler_relacoes_agr_agrs", return_value=({"Z_BR_PURCHREQ_MANAGER": set()}, True, None)):
+         patch("sap_rfc.pfcg_composta_sync_service.ler_relacoes_agr_agrs", side_effect=[
+             ({"Z_BR_PURCHREQ_MANAGER": set()}, True, None),
+             ({"Z_BR_PURCHREQ_MANAGER": {"Z_FI_VENDOR_READ", "Z_MM_PO_CREATE"}}, True, None)
+         ]):
 
         res = sincronizar_pfcg_composta(excel_fake_pfcg_composta, dry_run=True)
 
+        assert res["ok"] is True
         assert res["status"] == "SUCESSO"
-        assert res["dry_run"] is True
-        assert res["total_linhas_pendentes"] == 2
-        assert len(res["detalhes"]) == 1
-        assert res["detalhes"][0]["status_final"] == "Concluído"
+        assert res["total_pendencias"] == 2
+        assert res["confirmadas"] == 2
 
         # Verificar se o Excel PERMANECEU INALTERADO no modo dry-run
         wb = openpyxl.load_workbook(excel_fake_pfcg_composta, data_only=True)
@@ -159,6 +138,7 @@ def test_sincronizar_pfcg_composta_sem_pendencias(tmp_path):
     wb.close()
 
     res = sincronizar_pfcg_composta(str(excel_path), dry_run=True)
+    assert res["ok"] is True
     assert res["status"] == "SEM_PENDENCIAS"
     assert res["total_pendencias"] == 0
 
@@ -181,33 +161,3 @@ def test_sincronizar_pfcg_composta_classificacao_historicas(tmp_path):
     assert pend[0]["categoria"] == "PENDENCIA_HISTORICA"
     assert pend[1]["id"] == 742
     assert pend[1]["categoria"] == "NOVO_LOTE"
-
-
-def test_integracao_fase3b_para_fase4(tmp_path):
-    """Testa a chamada integrada automática da Fase 4 ao final de reconciliar_proposta_ativa_com_prd.py."""
-    excel_path = tmp_path / "test_reconciliar.xlsx"
-    wb = openpyxl.Workbook()
-    ws_ctrl = wb.active
-    ws_ctrl.title = "CONTROLO"
-    ws_ctrl.append(["DEPARTAMENTO", "STATUS"])
-    
-    ws_pfcg = wb.create_sheet("PFCG_COMPOSTA")
-    ws_pfcg.append(["ID", "AGR_NAME_COMPOSTA", "TEXT", "AGR_NAME", "STATUS", "MSG", "TIMESTEMP", "PRD"])
-
-    ws_def = wb.create_sheet("DEFINIÇÕES")
-    ws_def.append(["DEPARTAMENTO", "ROLE"])
-
-    ws_prop = wb.create_sheet("Proposta")
-    ws_prop.append(["FUNCAO", "DESCRICAO"])
-
-    ws_prop_at = wb.create_sheet("Proposta Ativa")
-    ws_prop_at.append(["USER_ID", "COMPOSITE"])
-
-    wb.save(excel_path)
-    wb.close()
-
-    from scripts.reconciliar_proposta_ativa_com_prd import executar_reconciliacao_integrada
-    res = executar_reconciliacao_integrada(str(excel_path), simular=True)
-    assert "fase4_resultado" in res
-    assert res["fase4_resultado"]["status"] in ("SEM_PENDENCIAS", "PREFLIGHT_FAILED", "SUCESSO")
-

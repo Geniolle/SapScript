@@ -116,11 +116,11 @@
 - **Worker:** `worker/sap_tasks.py` (`_run_projeto_perfil_task`)
 - **Serviço / Scripts Operacionais / Reconciliação:**
   - `sap_rfc/projeto_perfil_service.py`, `sap_rfc/projeto_perfil_cli.py`
-  - `sap_rfc/pfcg_composta_sync_service.py`, `sap_rfc/pfcg_composta_sync_cli.py` (Orquestrador e CLI modular da Fase 4: preflight, barreira QAD $\rightarrow$ PRD, readback físico e estados `Concluído` / `Pendente PRD` / `Erro QAD`)
+  - `sap_rfc/pfcg_composta_sync_service.py`, `sap_rfc/pfcg_composta_sync_cli.py` (Serviço RFC modular: execução exclusiva RFC via `.env` sem SAP GUI, pré-validação read-only em `AGR_AGRS`, processamento estritamente delta, readback físico em `AGR_AGRS` pós-escrita e retorno estruturado confiável)
   - `scripts/reconciliar_proposta_ativa_com_prd.py` (Integração encadeada Fases 1 a 4 com flag `--real` para gravação no Excel)
-  - `Processos/Projeto Autorizações/Projeto Perfil.py` (`preparar_cua_adicionar`, `executar_atribuicoes_cua_sap`, `executar_atualizacao_integrada_excel`, `executar_correcao_sincronizacao_posterior`)
+  - `Processos/Projeto Autorizações/Projeto Perfil.py` (`preparar_cua_adicionar`, `executar_atribuicoes_cua_sap`, `verificar_e_perguntar_pendencias` [Refatorado para execução interativa individual processo-a-processo com pré-validação read-only RFC e dupla confirmação para `CUA_REMOVE`], `executar_atualizacao_integrada_excel`, `executar_correcao_sincronizacao_posterior`)
   - `Processos/Projeto Autorizações/Pesquisa_Erros_SU53.py`
-- **Testes:** `tests/test_auditoria_matrizes_vs_proposta.py`, `tests/test_pfcg_composta_sync_service.py`, `tests/test_reconciliar_proposta_ativa_com_prd.py`, `tests/test_projeto_perfil_agent.py`
+- **Testes:** `tests/test_auditoria_matrizes_vs_proposta.py`, `tests/test_pfcg_composta_sync_service.py`, `tests/test_reconciliar_proposta_ativa_com_prd.py`, `tests/test_preparacao_e_execucao_cua.py`, `tests/test_despachante_interativo_processos.py`, `tests/test_projeto_perfil_agent.py`
 
 ---
 
