@@ -71,6 +71,7 @@ EXPECTED_TASKS = {
     "projeto_perfil_pesquisa",
     "projeto_perfil_corrigir",
     "projeto_perfil_su53",
+    "projeto_perfil_atribuir_su53",
     "zterm_interval_analysis",
     "zterm_copy_gui",
     "sap_cockpit",

@@ -7319,6 +7319,59 @@
                     </div>
                 `;
             }
+        } else if (actionName === 'atribuir_su53') {
+            const u = escapeHtml(result.usuario || '');
+            const comp = escapeHtml(result.composite_role || '');
+            const env = escapeHtml(result.target_env || 'PRD');
+            const funcs = Array.isArray(result.funcoes_atribuidas) ? result.funcoes_atribuidas : [];
+            const objs = Array.isArray(result.objetos_atribuidos) ? result.objetos_atribuidos : [];
+
+            detailsHtml += `
+                <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; row-gap: 6px; margin-top: 2px;">
+                    ${asiBuildPfcgResultField('Utilizador', u, 'asi-pfcg-result-value--nowrap')}
+                    ${asiBuildPfcgResultField('Função Composta', comp, 'asi-pfcg-result-value--nowrap')}
+                    ${asiBuildPfcgResultField('Ambiente', env)}
+                </div>
+            `;
+
+            if (funcs.length > 0) {
+                detailsHtml += `
+                    <div style="margin-top: 8px;">
+                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 4px;">
+                            Funções Atribuídas à Composta (${funcs.length}):
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            ${funcs.map(f => `
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: rgba(34, 197, 94, 0.06); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 6px; font-size: 0.8rem;">
+                                    <span><strong>${escapeHtml(f.tcode || '')}</strong> &rarr; <code>${escapeHtml(f.role || '')}</code></span>
+                                    <span style="font-size: 0.72rem; color: #16a34a; font-weight: 700;">✓ Atribuída & Ajustada</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (objs.length > 0) {
+                detailsHtml += `
+                    <div style="margin-top: 8px;">
+                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 4px;">
+                            Objetos Registados em PFCG_AUTHORITY (${objs.length}):
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            ${objs.map(o => `
+                                <div style="padding: 5px 8px; background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 6px; font-size: 0.8rem;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700; color: #1d4ed8;">
+                                        <span>${escapeHtml(o.objeto || '')} &bull; Perfil: <code>${escapeHtml(o.role || '')}</code></span>
+                                        <span style="font-size: 0.72rem; color: #16a34a;">✓ ${escapeHtml(o.status || 'REGISTADO')}</span>
+                                    </div>
+                                    ${o.actvt ? `<div style="font-size: 0.75rem; color: #475569; margin-top: 2px;">• <strong>Campo:</strong> <code>ACTVT = ${escapeHtml(o.actvt)}</code></div>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
         }
 
         return `
@@ -7403,7 +7456,22 @@
                     const result = data.result || {};
                     const resultHtml = asiBuildProjetoPerfilResultHtml(actionName, result, label);
 
-                    const followActions = [
+                    const followActions = [];
+                    if (actionName === 'su53' && (
+                        (Array.isArray(result.transacoes_bloqueadas) && result.transacoes_bloqueadas.length > 0) ||
+                        (Array.isArray(result.objetos_em_falta) && result.objetos_em_falta.length > 0)
+                    )) {
+                        const targetUser = result.usuario || '';
+                        followActions.push({
+                            id: `projeto-perfil-atribuir-su53:${targetUser}`,
+                            label: 'Atribuir Objetos / Funções em Falta',
+                            icon: 'lightning',
+                            prompt: `Quero atribuir as funções e objetos de autorização em falta para o utilizador ${targetUser}.`,
+                            followupText: `A processar a atribuição das funções e objetos de autorização em falta para ${targetUser}...`
+                        });
+                    }
+
+                    followActions.push(
                         {
                             id: 'projeto-perfil-autorizacao',
                             label: 'Voltar ao Projeto Perfil',
@@ -7413,7 +7481,7 @@
                             followupActionsSource: 'children'
                         },
                         { ...ASI_MAIN_MENU_ACTION, prompt: 'Quero voltar ao menu principal.' }
-                    ];
+                    );
 
                     let messageText = result.message || `Processo ${label} concluído.`;
                     if (actionName === 'departamento' && result.subacao === 'listar') {
@@ -11350,6 +11418,14 @@
             const dep = actionId.replace('projeto-perfil-depto:', '').trim();
             asiAppendMessage(asiCreateMessage('user', dep));
             await asiStartProjetoPerfilJob('departamento', `Análise de Departamento: ${dep}`, { departamento: dep, subacao: 'analisar' });
+            return;
+        }
+
+        if (typeof actionId === 'string' && actionId.indexOf('projeto-perfil-atribuir-su53:') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            const u = actionId.replace('projeto-perfil-atribuir-su53:', '').trim();
+            asiAppendMessage(asiCreateMessage('user', `Atribuir objetos e funções em falta para ${u}`));
+            await asiStartProjetoPerfilJob('atribuir_su53', `Atribuição SU53: ${u}`, { username: u, environment: 'PRD' });
             return;
         }
 

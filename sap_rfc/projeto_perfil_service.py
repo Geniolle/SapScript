@@ -473,3 +473,237 @@ def diagnostico_su53(
         "objetos_em_falta": objetos_detalhes,
         "message": f"Diagnóstico SU53 concluído para {u_clean} em {env_clean}. {len(tcodes_detalhes)} transações e {len(objetos_detalhes)} objetos com falha.",
     }
+
+
+def atribuir_objetos_e_funcoes_su53(
+    username: str,
+    target_env: str = "PRD",
+    caminho_excel: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Atribui as funções individuais correspondentes às transações bloqueadas na função composta
+    do utilizador (no Excel e no SAP via RFC), e registra os objetos de autorização em falta
+    na folha PFCG_AUTHORITY vinculados ao perfil da transação."""
+    import openpyxl
+    import shutil
+    from datetime import datetime
+
+    u_clean = username.strip().upper()
+    if not u_clean:
+        return {"ok": False, "message": "ID do utilizador SAP não pode estar vazio."}
+
+    env_clean = "QAD" if target_env.strip().upper() in ("QAS", "QAD") else "PRD"
+    mod_su53 = get_pesquisa_su53_module()
+    caminho = caminho_excel or mod_su53.CAMINHO_EXCEL_PADRAO
+
+    if not os.path.exists(caminho):
+        return {"ok": False, "message": f"Ficheiro Excel não encontrado: {caminho}"}
+
+    # 1. Obter diagnóstico SU53 mais recente
+    try:
+        erros = mod_su53.consultar_erros_su53_rfc(u_clean, target_env=env_clean)
+    except Exception as exc:
+        return {"ok": False, "message": f"Falha ao consultar buffer SU53 via RFC: {exc}"}
+
+    transacoes, objetos = mod_su53.agrupar_erros_para_analise(erros)
+
+    # 2. Localizar dados do utilizador na Proposta Ativa
+    dados_user = mod_su53.obter_dados_utilizador_proposta_ativa(caminho, u_clean)
+    comp_role = ""
+    departamento = ""
+    if dados_user:
+        comp_role = dados_user.get("composite_role") or ""
+        departamento = dados_user.get("departamento") or ""
+
+    # Se não tiver composta na Proposta Ativa, buscar no SAP PRD
+    if not comp_role:
+        try:
+            from sap_rfc.connection import Connection, build_connection_params_for
+            from sap_rfc.guards import make_write_guard
+            from sap_rfc.table_reader import read_table
+
+            params = build_connection_params_for(env_clean)
+            conn = Connection(**params)
+            guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_USERS",))
+            rows = read_table(
+                conn, guard, table_name="AGR_USERS", fields=["AGR_NAME"],
+                options=[{"TEXT": f"UNAME = '{u_clean}'"}], rowcount=50
+            )
+            conn.close()
+            for r in rows:
+                r_name = r[0].strip().upper()
+                if r_name.startswith("Z_BR_") or "COMP" in r_name:
+                    comp_role = r_name
+                    break
+            if not comp_role and rows:
+                comp_role = rows[0][0].strip().upper()
+        except Exception:
+            pass
+
+    if not comp_role:
+        comp_role = f"Z_COMP_{u_clean}"
+
+    # Fazer backup do Excel antes de quaisquer alterações
+    backup_dir = os.path.join(os.path.dirname(caminho), "output")
+    os.makedirs(backup_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = os.path.join(backup_dir, f"backup_su53_atribuir_{ts}_{os.path.basename(caminho)}")
+    try:
+        shutil.copy2(caminho, backup_file)
+    except Exception:
+        pass
+
+    funcoes_atribuidas = []
+    roles_mapeadas = []
+
+    # 3. Atribuir funções individuais correspondentes às transações bloqueadas
+    for t in transacoes:
+        tc = t.get("tcode_falha")
+        if not tc:
+            continue
+        try:
+            roles_enc = mod_su53.buscar_funcao_individual_para_transacao(
+                caminho_excel=caminho, tcode=tc, usuario=u_clean
+            )
+            sgl_role = roles_enc[0].get("role") if roles_enc else None
+        except Exception:
+            sgl_role = None
+
+        if sgl_role:
+            roles_mapeadas.append(sgl_role)
+            # Aplicar no Excel e no SAP
+            res_excel = {"ok": False}
+            nome_sheet_dep = mod_su53.resolver_nome_sheet_departamento(caminho, departamento) if departamento else None
+            if dados_user and nome_sheet_dep:
+                try:
+                    res_excel = mod_su53.aplicar_alteracoes_excel(
+                        caminho_excel=caminho,
+                        dados_user=dados_user,
+                        tcode=tc,
+                        single_role=sgl_role,
+                        nome_sheet_dep=nome_sheet_dep
+                    )
+                except Exception as exc_ex:
+                    res_excel = {"ok": False, "erro": str(exc_ex)}
+
+            # Sincronizar via RFC no SAP
+            res_sap = {"ok": False}
+            try:
+                res_sap = mod_su53.sincronizar_sap_rfc(
+                    env=env_clean,
+                    composite_role=comp_role,
+                    single_role=sgl_role,
+                    usuario=u_clean
+                )
+            except Exception as exc_sap:
+                res_sap = {"ok": False, "erro": str(exc_sap)}
+
+            funcoes_atribuidas.append({
+                "tcode": tc,
+                "role": sgl_role,
+                "composta": comp_role,
+                "excel": res_excel.get("ok", False),
+                "sap": res_sap.get("ok", False),
+                "mensagem": "Atribuída à função composta e ajustada no SAP",
+            })
+
+    # Se não identificou single role de transação, usa a primeira role do utilizador ou composta
+    single_role_alvo = roles_mapeadas[0] if roles_mapeadas else (dados_user.get("funcoes_existentes", [""])[0] if dados_user and dados_user.get("funcoes_existentes") else comp_role)
+
+    # 4. Atribuir os objetos de autorização em falta na folha PFCG_AUTHORITY
+    objetos_atribuidos = []
+    try:
+        wb = openpyxl.load_workbook(caminho)
+        if "PFCG_AUTHORITY" in wb.sheetnames:
+            ws_auth = wb["PFCG_AUTHORITY"]
+            max_id = 0
+            for r in range(2, ws_auth.max_row + 1):
+                v_id = ws_auth.cell(row=r, column=1).value
+                try:
+                    num_id = int(v_id)
+                    if num_id > max_id:
+                        max_id = num_id
+                except Exception:
+                    pass
+
+            for o in objetos:
+                obj_nome = str(o.get("objeto") or "").strip().upper()
+                obj_desc = str(o.get("descricao") or "").strip()
+                if not obj_nome:
+                    continue
+
+                campos_dict = {f: v for f, v in (o.get("campos_relevantes") or [])}
+                actvt_val = str(campos_dict.get("ACTVT") or "").strip()
+                ktokd_val = str(campos_dict.get("KTOKD") or "").strip() or None
+                rltyp_val = str(campos_dict.get("RLTYP") or "").strip() or None
+
+                # Verificar se já existe na folha para idempotência
+                ja_existe = False
+                for r in range(2, ws_auth.max_row + 1):
+                    c_comp = str(ws_auth.cell(row=r, column=2).value or "").strip().upper()
+                    c_sgl = str(ws_auth.cell(row=r, column=4).value or "").strip().upper()
+                    c_obj = str(ws_auth.cell(row=r, column=6).value or "").strip().upper()
+                    c_act = str(ws_auth.cell(row=r, column=8).value or "").strip()
+                    if c_comp == comp_role.upper() and c_sgl == single_role_alvo.upper() and c_obj == obj_nome:
+                        if not actvt_val or c_act == actvt_val:
+                            ja_existe = True
+                            break
+
+                if not ja_existe:
+                    max_id += 1
+                    ws_auth.append([
+                        max_id,
+                        comp_role.strip().upper(),
+                        dados_user.get("nome", "") if dados_user else "ATRIBUIDO SU53",
+                        single_role_alvo.strip().upper(),
+                        obj_desc or single_role_alvo.strip().upper(),
+                        obj_nome,
+                        ktokd_val,
+                        actvt_val or None,
+                        rltyp_val,
+                        "Criado",
+                        "Atribuído via diagnóstico SU53",
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "Validado",
+                        "Validado",
+                        None
+                    ])
+                    objetos_atribuidos.append({
+                        "objeto": obj_nome,
+                        "descricao": obj_desc,
+                        "role": single_role_alvo,
+                        "composta": comp_role,
+                        "actvt": actvt_val,
+                        "status": "REGISTADO",
+                    })
+                else:
+                    objetos_atribuidos.append({
+                        "objeto": obj_nome,
+                        "descricao": obj_desc,
+                        "role": single_role_alvo,
+                        "composta": comp_role,
+                        "actvt": actvt_val,
+                        "status": "JA_EXISTIA",
+                    })
+
+            wb.save(caminho)
+            wb.close()
+    except Exception as exc_auth:
+        return {
+            "ok": False,
+            "message": f"Erro ao registar na folha PFCG_AUTHORITY: {exc_auth}",
+            "funcoes_atribuidas": funcoes_atribuidas,
+        }
+
+    return {
+        "ok": True,
+        "usuario": u_clean,
+        "composite_role": comp_role,
+        "target_env": env_clean,
+        "single_role_alvo": single_role_alvo,
+        "funcoes_atribuidas": funcoes_atribuidas,
+        "objetos_atribuidos": objetos_atribuidos,
+        "total_funcoes_atribuidas": len(funcoes_atribuidas),
+        "total_objetos_atribuidos": len(objetos_atribuidos),
+        "message": f"Atribuição concluída para {u_clean}: {len(funcoes_atribuidas)} função(ões) associada(s) a {comp_role} e {len(objetos_atribuidos)} objeto(s) registado(s) em PFCG_AUTHORITY.",
+    }
+

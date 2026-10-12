@@ -2747,7 +2747,7 @@ def api_salsa_it_pfcg_transport_search_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
-PROJETO_PERFIL_ACTIONS = frozenset({"execucao", "departamento", "utilizador", "pesquisa", "corrigir", "su53"})
+PROJETO_PERFIL_ACTIONS = frozenset({"execucao", "departamento", "utilizador", "pesquisa", "corrigir", "su53", "atribuir_su53"})
 
 
 @app.post("/api/salsa-it-agent/projeto-perfil/{action}")

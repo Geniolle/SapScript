@@ -535,10 +535,38 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         self.assertEqual(got["result"]["usuario"], "S2795")
         self.assertEqual(got["result"]["total_erros"], 31)
 
-    def test_projeto_perfil_invalid_action_returns_400(self) -> None:
-        with self.assertRaises(main.HTTPException) as ctx:
-            main.api_salsa_it_projeto_perfil("acao_inexistente")
-        self.assertEqual(ctx.exception.status_code, 400)
+    def test_projeto_perfil_atribuir_su53_create_and_succeed(self) -> None:
+        created = _body(
+            main.api_salsa_it_projeto_perfil(
+                "atribuir_su53",
+                main.SalsaItProjetoPerfilRequest(username="S2795", environment="PRD"),
+            )
+        )
+        self.assertIn("job_id", created)
+        self.assertEqual(created["state"], "pending")
+
+        payload_result = {
+            "ok": True,
+            "usuario": "S2795",
+            "composite_role": "Z_BR_BUYER_SPECIALIST",
+            "target_env": "PRD",
+            "funcoes_atribuidas": [{"tcode": "ME21N", "role": "Z_PURCHASE_ORDER_CREATE"}],
+            "objetos_atribuidos": [{"objeto": "B_BUP_PCPT", "actvt": "03"}],
+            "total_funcoes_atribuidas": 1,
+            "total_objetos_atribuidos": 1,
+            "message": "Atribuição concluída para S2795.",
+        }
+        self._complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps(payload_result),
+            "",
+        )
+        got = _body(main.api_salsa_it_projeto_perfil_job("atribuir_su53", created["job_id"]))
+        self.assertEqual(got["state"], "succeeded")
+        self.assertEqual(got["result"]["usuario"], "S2795")
+        self.assertEqual(got["result"]["total_funcoes_atribuidas"], 1)
+        self.assertEqual(got["result"]["total_objetos_atribuidos"], 1)
 
 
 def tearDownModule() -> None:

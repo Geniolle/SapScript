@@ -20,6 +20,7 @@ from sap_rfc.projeto_perfil_service import (
     pesquisa_atribuir_transacao,
     correcao_sincronizacao_posterior,
     diagnostico_su53,
+    atribuir_objetos_e_funcoes_su53,
 )
 
 
@@ -31,7 +32,7 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
         "--action",
         dest="action",
         required=True,
-        choices=["execucao", "departamento", "utilizador", "pesquisa", "corrigir", "su53"],
+        choices=["execucao", "departamento", "utilizador", "pesquisa", "corrigir", "su53", "atribuir_su53"],
         help="Ação a executar.",
     )
     parser.add_argument("--departamento", "-d", dest="departamento", default="", help="Nome ou linha do departamento.")
@@ -76,6 +77,12 @@ def run_cli(args_list: list[str] | None = None) -> int:
                 username=args.username,
                 target_env=args.environment,
                 tcode_atribuir=args.tcode_atribuir if args.tcode_atribuir else None,
+                caminho_excel=args.caminho_excel,
+            )
+        elif args.action == "atribuir_su53":
+            result = atribuir_objetos_e_funcoes_su53(
+                username=args.username,
+                target_env=args.environment,
                 caminho_excel=args.caminho_excel,
             )
         else:

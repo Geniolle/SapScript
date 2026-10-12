@@ -2639,6 +2639,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "projeto_perfil_pesquisa": lambda job, params: _run_projeto_perfil_task("pesquisa", params),
     "projeto_perfil_corrigir": lambda job, params: _run_projeto_perfil_task("corrigir", params),
     "projeto_perfil_su53": lambda job, params: _run_projeto_perfil_task("su53", params),
+    "projeto_perfil_atribuir_su53": lambda job, params: _run_projeto_perfil_task("atribuir_su53", params),
 }
 
 
