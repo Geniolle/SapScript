@@ -7120,14 +7120,15 @@
     }
 
     function asiBuildProjetoPerfilResultHtml(actionName, result, label) {
+        asiEnsurePfcgResultStyles();
         if (!result) {
-            return '<div class="pfcg-result-card"><p>Processo concluído sem dados adicionais.</p></div>';
+            return '<div class="asi-pfcg-result-card" style="max-width: 580px;"><p style="margin: 0; font-size: 0.82rem; color: #64748b;">Processo concluído sem dados adicionais.</p></div>';
         }
 
         if (actionName === 'departamento' && result.subacao === 'listar') {
             const deps = Array.isArray(result.departamentos) ? result.departamentos : [];
             if (!deps.length) {
-                return '<div class="pfcg-result-card" style="padding: 12px;"><p style="margin: 0; color: #64748b;">Nenhum departamento encontrado na folha CONTROLO.</p></div>';
+                return '<div class="asi-pfcg-result-card" style="max-width: 480px; padding: 10px;"><p style="margin: 0; color: #64748b; font-size: 0.82rem;">Nenhum departamento encontrado na folha CONTROLO.</p></div>';
             }
             const items = deps.map(d => {
                 const depName = escapeHtml(d.departamento || '');
@@ -7135,22 +7136,23 @@
                 const isPending = d.pendente || status.toUpperCase() === 'PENDENTE';
                 const statusBadge = status ? `<span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; ${isPending ? 'background:#fef3c7; color:#b45309;' : 'background:#ecfdf5; color:#047857;'}">${status}</span>` : '';
                 return `
-                    <div data-agent-action-id="projeto-perfil-depto:${depName}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#ffffff'">
-                        <span style="font-weight: 600; color: #1e293b; font-size: 13px;">${depName}</span>
+                    <div data-agent-action-id="projeto-perfil-depto:${depName}" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#ffffff'">
+                        <span style="font-weight: 600; color: #1e293b; font-size: 12px;">${depName}</span>
                         ${statusBadge}
                     </div>
                 `;
             }).join('');
 
             return `
-                <div class="pfcg-result-card" style="padding: 12px; display: flex; flex-direction: column; gap: 6px;">
+                <div class="asi-pfcg-result-card" style="max-width: 480px; width: 100%; display: flex; flex-direction: column; gap: 5px;">
                     ${items}
                 </div>
             `;
         }
 
         const isOk = result.ok !== false && result.status !== 'ERRO' && result.status !== 'FALHA';
-        const badgeClass = isOk ? 'badge-success' : 'badge-warning';
+        const pillClass = isOk ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
+        const accent = isOk ? '#16a34a' : '#d97706';
         const statusText = escapeHtml(result.status || (isOk ? 'SUCESSO' : 'ATENÇÃO'));
         const message = escapeHtml(result.message || '');
 
@@ -7159,11 +7161,13 @@
         if (actionName === 'execucao') {
             const total = result.total_departamentos_processados || 0;
             const fila = Array.isArray(result.fila_processada) ? result.fila_processada : [];
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Departamentos Processados:</strong> ${total}</div>`;
+            detailsHtml += `
+                <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; row-gap: 6px; margin-top: 2px;">
+                    ${asiBuildPfcgResultField('Departamentos Processados', total)}
+                </div>
+            `;
             if (fila.length > 0) {
-                detailsHtml += '<div style="margin-top: 8px;"><strong>Fila:</strong><ul>' +
-                    fila.map(f => `<li>${escapeHtml(f)}</li>`).join('') +
-                    '</ul></div>';
+                detailsHtml += `<div style="margin-top: 6px; font-size: 0.75rem; color: var(--text-secondary);"><strong>Fila:</strong> ${escapeHtml(fila.join(', '))}</div>`;
             }
         } else if (actionName === 'departamento') {
             if (result.subacao === 'analisar') {
@@ -7171,81 +7175,162 @@
                 const totalUsers = result.total_usuarios !== undefined ? result.total_usuarios : (result.proposta ? result.proposta.total_utilizadores : 0);
                 const totalCompostas = result.total_compostas !== undefined ? result.total_compostas : (result.proposta ? result.proposta.total_roles : 0);
                 const totalSingles = result.total_singles || 0;
-                detailsHtml += `<div class="pfcg-meta-row"><strong>Departamento:</strong> ${dep}</div>`;
-                detailsHtml += `<div class="pfcg-meta-row"><strong>Total Utilizadores:</strong> ${totalUsers} | <strong>Funções Compostas:</strong> ${totalCompostas}${totalSingles ? ` | <strong>Singles:</strong> ${totalSingles}` : ''}</div>`;
+                detailsHtml += `
+                    <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; row-gap: 6px; margin-top: 2px;">
+                        ${asiBuildPfcgResultField('Departamento', dep, 'asi-pfcg-result-value--nowrap')}
+                        ${asiBuildPfcgResultField('Utilizadores', totalUsers)}
+                        ${asiBuildPfcgResultField('Compostas', totalCompostas)}
+                        ${totalSingles ? asiBuildPfcgResultField('Singles', totalSingles) : ''}
+                    </div>
+                `;
                 const users = Array.isArray(result.usuarios) ? result.usuarios : [];
                 if (users.length > 0) {
-                    detailsHtml += '<div style="margin-top: 8px;"><strong>Utilizadores:</strong><ul style="max-height: 180px; overflow-y: auto; margin-top: 4px;">' +
-                        users.map(u => `<li><strong>${escapeHtml(u.usuario || '')}</strong> - ${escapeHtml(u.nome || '')} (${escapeHtml(u.cargo || 'N/A')})</li>`).join('') +
-                        '</ul></div>';
+                    detailsHtml += `
+                        <div style="margin-top: 8px;">
+                            <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 4px;">Utilizadores (${users.length}):</div>
+                            <div style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; font-size: 0.78rem;">
+                                ${users.map(u => `<div style="padding: 2px 6px; background: rgba(0,0,0,0.02); border-radius: 4px;"><strong>${escapeHtml(u.usuario || '')}</strong> - ${escapeHtml(u.nome || '')} <span style="color:#64748b;">(${escapeHtml(u.cargo || 'N/A')})</span></div>`).join('')}
+                            </div>
+                        </div>
+                    `;
                 }
             } else {
-                detailsHtml += `<div class="pfcg-meta-row"><strong>Departamento:</strong> ${escapeHtml(result.departamento || '')}</div>`;
+                detailsHtml += `<div class="asi-pfcg-result-grid" style="grid-template-columns: 1fr; margin-top: 2px;">${asiBuildPfcgResultField('Departamento', escapeHtml(result.departamento || ''))}</div>`;
             }
         } else if (actionName === 'utilizador') {
             const u = escapeHtml(result.username || '');
             const depto = escapeHtml(result.departamento || 'Não atribuído');
             const totalRoles = result.total_roles || (Array.isArray(result.roles) ? result.roles.length : 0);
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Utilizador:</strong> ${u}</div>`;
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Departamento:</strong> ${depto}</div>`;
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Total de Roles:</strong> ${totalRoles}</div>`;
-            if (Array.isArray(result.roles) && result.roles.length > 0) {
-                detailsHtml += '<div style="margin-top: 8px;"><strong>Funções Atribuídas:</strong><div style="max-height: 180px; overflow-y: auto; margin-top: 4px;"><ul>' +
-                    result.roles.map(r => `<li><code>${escapeHtml(typeof r === 'string' ? r : (r.role || JSON.stringify(r)))}</code></li>`).join('') +
-                    '</ul></div></div>';
-            }
+            let statusPrdTxt = '';
             if (result.detalhes_prd) {
                 const prd = result.detalhes_prd;
-                const statusPrd = prd.existe ? (prd.bloqueado ? '<span style="color:red;">Bloqueado</span>' : '<span style="color:green;">Ativo</span>') : 'Inexistente em PRD';
-                detailsHtml += `<div class="pfcg-meta-row" style="margin-top: 6px;"><strong>Estado em PRD:</strong> ${statusPrd}</div>`;
+                statusPrdTxt = prd.existe ? (prd.bloqueado ? 'Bloqueado em PRD' : 'Ativo em PRD') : 'Inexistente em PRD';
+            }
+            detailsHtml += `
+                <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; row-gap: 6px; margin-top: 2px;">
+                    ${asiBuildPfcgResultField('Utilizador', u, 'asi-pfcg-result-value--nowrap')}
+                    ${asiBuildPfcgResultField('Departamento', depto)}
+                    ${asiBuildPfcgResultField('Total Roles', totalRoles)}
+                    ${statusPrdTxt ? asiBuildPfcgResultField('Estado PRD', statusPrdTxt) : ''}
+                </div>
+            `;
+            if (Array.isArray(result.roles) && result.roles.length > 0) {
+                detailsHtml += `
+                    <div style="margin-top: 8px;">
+                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 4px;">Funções Atribuídas (${result.roles.length}):</div>
+                        <div style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; font-size: 0.76rem;">
+                            ${result.roles.map(r => `<div><code>${escapeHtml(typeof r === 'string' ? r : (r.role || JSON.stringify(r)))}</code></div>`).join('')}
+                        </div>
+                    </div>
+                `;
             }
         } else if (actionName === 'pesquisa') {
             const tc = escapeHtml(result.tcode || '');
             const roles = Array.isArray(result.roles) ? result.roles : [];
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Transação:</strong> <code>${tc}</code></div>`;
+            detailsHtml += `
+                <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; row-gap: 6px; margin-top: 2px;">
+                    ${asiBuildPfcgResultField('Transação', tc, 'asi-pfcg-result-value--nowrap')}
+                    ${asiBuildPfcgResultField('Funções Encontradas', roles.length)}
+                </div>
+            `;
             if (result.encontrado === false) {
-                detailsHtml += '<div style="color: #c00; margin-top: 6px;">Não foram encontradas funções no catálogo oficial para esta transação.</div>';
-            } else {
-                detailsHtml += `<div style="margin-top: 8px;"><strong>Funções do Projeto (${roles.length}):</strong><ul style="margin-top: 4px;">` +
-                    roles.map(r => `<li><code>${escapeHtml(r.role || r)}</code>${r.descricao ? ` - ${escapeHtml(r.descricao)}` : ''}</li>`).join('') +
-                    '</ul></div>';
+                detailsHtml += '<div style="color: #dc2626; font-size: 0.78rem; margin-top: 4px;">Não foram encontradas funções no catálogo oficial para esta transação.</div>';
+            } else if (roles.length > 0) {
+                detailsHtml += `
+                    <div style="margin-top: 6px;">
+                        <div style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; font-size: 0.76rem;">
+                            ${roles.map(r => `<div><code>${escapeHtml(r.role || r)}</code>${r.descricao ? ` <span style="color:#64748b;">- ${escapeHtml(r.descricao)}</span>` : ''}</div>`).join('')}
+                        </div>
+                    </div>
+                `;
             }
             if (result.subacao === 'atribuir' && result.username) {
-                detailsHtml += `<div class="pfcg-meta-row" style="margin-top: 8px;"><strong>Atribuição ao Utilizador:</strong> ${escapeHtml(result.username)}: ${result.sucesso_atribuicao ? '<span style="color:green;">Sucesso</span>' : '<span style="color:red;">Falha</span>'}</div>`;
+                const atribuicaoTxt = result.sucesso_atribuicao ? 'Sucesso' : 'Falha';
+                detailsHtml += `<div style="margin-top: 6px; font-size: 0.78rem;"><strong>Atribuição a ${escapeHtml(result.username)}:</strong> <span style="color:${result.sucesso_atribuicao ? '#16a34a' : '#dc2626'}; font-weight: 700;">${atribuicaoTxt}</span></div>`;
             }
         } else if (actionName === 'corrigir') {
             const disc = result.total_discrepancias !== undefined ? result.total_discrepancias : 0;
             const deps = Array.isArray(result.departamentos_corrigidos) ? result.departamentos_corrigidos : [];
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Utilizadores com Discrepâncias:</strong> ${disc}</div>`;
-            if (deps.length > 0) {
-                detailsHtml += `<div class="pfcg-meta-row"><strong>Departamentos:</strong> ${escapeHtml(deps.join(', '))}</div>`;
-            }
+            detailsHtml += `
+                <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; row-gap: 6px; margin-top: 2px;">
+                    ${asiBuildPfcgResultField('Discrepâncias', disc)}
+                    ${deps.length > 0 ? asiBuildPfcgResultField('Departamentos', deps.join(', ')) : ''}
+                </div>
+            `;
         } else if (actionName === 'su53') {
             const u = escapeHtml(result.usuario || '');
             const env = escapeHtml(result.target_env || 'PRD');
-            const totalErros = result.total_erros_buffer || 0;
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Utilizador:</strong> ${u} | <strong>Ambiente:</strong> ${env}</div>`;
-            detailsHtml += `<div class="pfcg-meta-row"><strong>Erros no Buffer:</strong> ${totalErros}</div>`;
-            if (Array.isArray(result.transacoes_bloqueadas) && result.transacoes_bloqueadas.length > 0) {
-                detailsHtml += '<div style="margin-top: 8px;"><strong>Transações Bloqueadas:</strong><ul style="margin-top: 4px;">' +
-                    result.transacoes_bloqueadas.map(t => `<li><code>${escapeHtml(t.tcode || '')}</code> (RC=${escapeHtml(String(t.rc || ''))})${t.sugestao_role ? ` &rarr; Sugestão: <code>${escapeHtml(t.sugestao_role)}</code>` : ''}</li>`).join('') +
-                    '</ul></div>';
+            const totalErros = result.total_erros_buffer !== undefined ? result.total_erros_buffer : (result.total_erros || 0);
+            const transacoesList = Array.isArray(result.transacoes_bloqueadas) ? result.transacoes_bloqueadas : (Array.isArray(result.transacoes) ? result.transacoes : []);
+            const objetosList = Array.isArray(result.objetos_em_falta) ? result.objetos_em_falta : (Array.isArray(result.objetos) ? result.objetos : []);
+            
+            detailsHtml += `
+                <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; row-gap: 6px; margin-top: 2px;">
+                    ${asiBuildPfcgResultField('Utilizador', u, 'asi-pfcg-result-value--nowrap')}
+                    ${asiBuildPfcgResultField('Ambiente', env)}
+                    ${asiBuildPfcgResultField('Erros no Buffer', totalErros)}
+                </div>
+            `;
+            if (transacoesList.length > 0) {
+                detailsHtml += `
+                    <div style="margin-top: 8px;">
+                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 4px;">
+                            Transações Bloqueadas (${transacoesList.length}):
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            ${transacoesList.map(t => `
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.18); border-radius: 6px; font-size: 0.8rem;">
+                                    <span style="font-family: monospace; font-weight: 700; color: #dc2626;">${escapeHtml(t.tcode || '')} <span style="font-weight: 500; font-size: 0.74rem; color: #64748b;">(RC=${escapeHtml(String(t.rc || ''))})</span></span>
+                                    ${t.sugestao_role ? `<span style="font-size: 0.74rem; color: #0284c7;">Sugestão: <code>${escapeHtml(t.sugestao_role)}</code></span>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
             }
-            if (Array.isArray(result.objetos_em_falta) && result.objetos_em_falta.length > 0) {
-                detailsHtml += '<div style="margin-top: 8px;"><strong>Objetos em Falta:</strong><ul style="margin-top: 4px;">' +
-                    result.objetos_em_falta.map(o => `<li><code>${escapeHtml(o.objeto || '')}</code> - ${escapeHtml(o.descricao || '')}</li>`).join('') +
-                    '</ul></div>';
+            if (objetosList.length > 0) {
+                detailsHtml += `
+                    <div style="margin-top: 8px;">
+                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 4px;">
+                            Objetos em Falta (${objetosList.length}):
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            ${objetosList.map(o => {
+                                const objNome = escapeHtml(o.objeto || '');
+                                const objDesc = escapeHtml(o.descricao || '');
+                                const rcTxt = o.rc !== undefined ? ` (RC=${escapeHtml(String(o.rc))})` : '';
+                                let camposContent = '';
+                                if (o.campos_formatados) {
+                                    camposContent = escapeHtml(o.campos_formatados);
+                                } else if (Array.isArray(o.campos) && o.campos.length > 0) {
+                                    camposContent = escapeHtml(o.campos.map(c => `${c.campo || ''} = ${c.valor || ''}`).join(', '));
+                                }
+                                return `
+                                    <div style="padding: 5px 8px; background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 6px; font-size: 0.8rem;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700; color: #b45309;">
+                                            <span>${objNome}${objDesc ? ` <span style="font-weight: 500; font-size: 0.74rem; color: #64748b;">- ${objDesc}</span>` : ''}</span>
+                                            ${rcTxt ? `<span style="font-size: 0.72rem; color: #64748b;">${rcTxt}</span>` : ''}
+                                        </div>
+                                        ${camposContent ? `<div style="font-size: 0.75rem; color: #475569; margin-top: 2px;">• <strong>Campo:</strong> <code style="font-size: 0.75rem; background: rgba(0,0,0,0.04); padding: 1px 4px; border-radius: 4px;">${camposContent}</code></div>` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
             }
         }
 
         return `
-            <div class="pfcg-result-card">
-                <div class="pfcg-result-header">
-                    <h4>${escapeHtml(label)}</h4>
-                    <span class="pfcg-badge ${badgeClass}">${statusText}</span>
+            <div class="asi-pfcg-result-card" style="max-width: 580px; width: 100%;">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${accent}; font-size: 0.88rem;">${escapeHtml(label)}</div>
+                    <span class="asi-pfcg-result-pill ${pillClass}">${statusText}</span>
                 </div>
-                ${message ? `<p class="pfcg-result-message">${message}</p>` : ''}
-                ${detailsHtml}
+                ${message ? `<div class="asi-pfcg-result-note" style="margin-top: 4px; margin-bottom: 6px; font-size: 0.80rem; color: var(--text-secondary); line-height: 1.35;">${message}</div>` : ''}
+                <div class="asi-pfcg-result-shell" style="margin-top: 6px; padding-top: 6px;">
+                    ${detailsHtml}
+                </div>
             </div>
         `;
     }
@@ -7340,7 +7425,7 @@
                         html: resultHtml,
                         isProcessing: false,
                         isThinkingOnly: false,
-                        wide: true,
+                        wide: false,
                         actions: followActions,
                         actionLevel: 1
                     });

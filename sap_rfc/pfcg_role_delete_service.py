@@ -331,9 +331,17 @@ def delete_pfcg_role_rfc(
             resolved_request_number = str(request_create_result.get("request") or "")
 
         guard.assert_function_allowed("BPC_DELETE_SINGLE_ROLE")
+        if len(normalized_role) <= 24:
+            del_prefix = " "
+            del_name = normalized_role
+        else:
+            split_pos = len(normalized_role) - 24
+            del_prefix = normalized_role[:split_pos]
+            del_name = normalized_role[split_pos:]
+
         call_kwargs: dict[str, Any] = {
-            "IV_NAME_PREFIX": "",
-            "IV_PREF_AGR_NAME": normalized_role,
+            "IV_NAME_PREFIX": del_prefix,
+            "IV_PREF_AGR_NAME": del_name,
             "NO_DIALOG": "X",
             "REQUEST": resolved_request_number,
         }
@@ -671,11 +679,19 @@ def bulk_delete_pfcg_roles_rfc(
                 continue
 
             guard.assert_function_allowed("BPC_DELETE_SINGLE_ROLE")
+            if len(role_name) <= 24:
+                del_prefix = " "
+                del_name = role_name
+            else:
+                split_pos = len(role_name) - 24
+                del_prefix = role_name[:split_pos]
+                del_name = role_name[split_pos:]
+
             try:
                 rfc_result = connection.call(
                     "BPC_DELETE_SINGLE_ROLE",
-                    IV_NAME_PREFIX="",
-                    IV_PREF_AGR_NAME=role_name,
+                    IV_NAME_PREFIX=del_prefix,
+                    IV_PREF_AGR_NAME=del_name,
                     NO_DIALOG="X",
                     REQUEST=resolved_request_number,
                 )

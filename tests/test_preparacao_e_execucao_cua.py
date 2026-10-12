@@ -101,11 +101,112 @@ class TestPreparacaoEExecucaoCUA(unittest.TestCase):
                 usuarios_alvo=["S80001882"]
             )
             self.assertTrue(sucesso)
-            # Confirmar que ROLLBACK foi chamado e COMMIT NÃO foi chamado
             calls = [call[0][0] for call in conn_instance.call.call_args_list]
             self.assertIn("BAPI_TRANSACTION_ROLLBACK", calls)
             self.assertNotIn("BAPI_TRANSACTION_COMMIT", calls)
 
+    @patch("pyrfc.Connection")
+    def test_prd_online_qad_offline_sem_rollback_cruzado(self, mock_conn):
+        """Testa que se PRD está online e QAD falha na conexão, PRD executa e comita com sucesso sem rollback."""
+        conn_prd = MagicMock()
+
+        def connection_factory(**params):
+            if params.get("ashost") == "s4prd" or params.get("sysnr") == "00" or params.get("env") == "PRD":
+                return conn_prd
+            raise ConnectionError("QAD indisponivel (timeout RFC)")
+
+        mock_conn.side_effect = connection_factory
+        conn_prd.call.side_effect = lambda name, **kw: (
+            {"RETURN": [], "ACTIVITYGROUPS": []} if "BAPI_USER_GET_DETAIL" in name else {"RETURN": []}
+        )
+        item_dep = {"departamento": "HEALTH & SAFETY", "linha": 2}
+
+        with patch("sap_rfc._rfc_common.build_connection_params_for", side_effect=lambda env: {"env": env}):
+            sucesso = mod.sincronizar_departamento_prd_qad_rfc(
+                dados=self.dados,
+                item_dep=item_dep,
+                confirmar_execucao=False,
+                modo_simulacao=False,
+                usuarios_alvo=["S80001882"]
+            )
+            self.assertTrue(sucesso)
+            calls_prd = [call[0][0] for call in conn_prd.call.call_args_list]
+            self.assertIn("BAPI_USER_ACTGROUPS_ASSIGN", calls_prd)
+            self.assertIn("BAPI_TRANSACTION_COMMIT", calls_prd)
+            self.assertNotIn("BAPI_TRANSACTION_ROLLBACK", calls_prd)
+
+    @patch("pyrfc.Connection")
+    def test_prd_offline_qad_online_sem_rollback_cruzado(self, mock_conn):
+        """Testa que se PRD está offline e QAD online, QAD executa e comita com sucesso sem rollback."""
+        conn_qad = MagicMock()
+
+        def connection_factory(**params):
+            if params.get("env") == "QAD":
+                return conn_qad
+            raise ConnectionError("PRD indisponivel")
+
+        mock_conn.side_effect = connection_factory
+        conn_qad.call.side_effect = lambda name, **kw: (
+            {"RETURN": [], "ACTIVITYGROUPS": []} if "BAPI_USER_GET_DETAIL" in name else {"RETURN": []}
+        )
+        item_dep = {"departamento": "HEALTH & SAFETY", "linha": 2}
+
+        with patch("sap_rfc._rfc_common.build_connection_params_for", side_effect=lambda env: {"env": env}):
+            sucesso = mod.sincronizar_departamento_prd_qad_rfc(
+                dados=self.dados,
+                item_dep=item_dep,
+                confirmar_execucao=False,
+                modo_simulacao=False,
+                usuarios_alvo=["S80001882"]
+            )
+            self.assertTrue(sucesso)
+            calls_qad = [call[0][0] for call in conn_qad.call.call_args_list]
+            self.assertIn("BAPI_USER_ACTGROUPS_ASSIGN", calls_qad)
+            self.assertIn("BAPI_TRANSACTION_COMMIT", calls_qad)
+            self.assertNotIn("BAPI_TRANSACTION_ROLLBACK", calls_qad)
+
+    @patch("pyrfc.Connection")
+    def test_ambos_ambientes_offline_retorna_false_graciosamente(self, mock_conn):
+        """Testa que se ambos os ambientes falham na conexão, a função retorna False sem crash."""
+        mock_conn.side_effect = ConnectionError("Conexao recusada")
+        item_dep = {"departamento": "HEALTH & SAFETY", "linha": 2}
+
+        with patch("sap_rfc._rfc_common.build_connection_params_for", return_value={}):
+            sucesso = mod.sincronizar_departamento_prd_qad_rfc(
+                dados=self.dados,
+                item_dep=item_dep,
+                confirmar_execucao=False,
+                modo_simulacao=False,
+                usuarios_alvo=["S80001882"]
+            )
+            self.assertFalse(sucesso)
+
+    def test_executar_atribuicoes_cua_sap_ambientes_offline_zero_executadas(self):
+        """Testa que executar_atribuicoes_cua_sap com RFC indisponível reporta 0 executadas e status PENDENTE_AMBIENTE_INDISPONIVEL."""
+        with patch("sap_rfc._rfc_common.build_connection_params_for", side_effect=Exception("RFC offline")):
+            res = mod.executar_atribuicoes_cua_sap(self.caminho_excel, dados=self.dados, modo_simulacao=False)
+            self.assertFalse(res["ok"])
+            self.assertEqual(res["confirmadas_readback"], 0)
+            self.assertEqual(res["tentadas"], 0)
+            self.assertEqual(res["status"], "PENDENTE_AMBIENTE_INDISPONIVEL")
+
+    @patch("pyrfc.Connection")
+    def test_executar_atribuicoes_cua_sap_readback_negativo_mantem_pendente(self, mock_conn):
+        """Testa que se a BAPI/COMMIT for executada mas o readback não encontrar a role, ela não é confirmada."""
+        conn_instance = MagicMock()
+        mock_conn.return_value = conn_instance
+        # Retorna BAPI OK mas no readback pós-commit não contém a role nova
+        conn_instance.call.side_effect = lambda name, **kw: (
+            {"RETURN": [], "ACTIVITYGROUPS": []} if "BAPI_USER_GET_DETAIL" in name else {"RETURN": []}
+        )
+
+        with patch("sap_rfc._rfc_common.build_connection_params_for", return_value={}):
+            res = mod.executar_atribuicoes_cua_sap(self.caminho_excel, dados=self.dados, modo_simulacao=False, ambiente_alvo="PRD")
+            # Nenhuma role confirmada por readback
+            self.assertEqual(res["confirmadas_readback"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

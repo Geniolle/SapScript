@@ -50,7 +50,7 @@ try:
 except ImportError:
     project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     venv_python = os.path.join(project_root_dir, ".venv-rfc", "Scripts", "python.exe")
-    if os.path.exists(venv_python) and sys.executable.lower() != venv_python.lower():
+    if __name__ == "__main__" and os.path.exists(venv_python) and sys.executable.lower() != venv_python.lower():
         import subprocess
         res = subprocess.run([venv_python, os.path.abspath(__file__)] + sys.argv[1:])
         sys.exit(res.returncode)
@@ -197,63 +197,113 @@ CAMINHO_EXCEL_LOCAL = str(Path(__file__).resolve().parents[2] / "S4H_Perfis de a
 CAMINHO_EXCEL_BACKUP_LOCAL = str(Path(__file__).resolve().parents[2] / "output" / "S4H_Perfis de autorização_v1_backup_automatico.xlsx")
 
 
-def sincronizar_copia_sharepoint() -> bool:
+def obter_caminho_onedrive_oficial() -> Optional[str]:
     """
-    Localiza o ficheiro sincronizado do SharePoint na pasta do OneDrive da Salsa
-    e atualiza a cópia de trabalho local em C:\\workspace\\SapScript\\S4H_Perfis de autorização_v1.xlsx.
-    Faz backup automático antes de sobrescrever.
+    Localiza o caminho oficial do Excel S4H_Perfis de autorização_v1.xlsx no OneDrive corporativo da Salsa.
+    Primeiro procura em Shortcuts (SharePoint sincronizado) e depois em subpastas do OneDrive.
+    Retorna o caminho absoluto do arquivo ou None se não encontrado.
+    """
+    user_profile = os.environ.get("USERPROFILE", "")
+    if not user_profile:
+        return None
+
+    # 1. Procurar na pasta de atalhos sincronizados do SharePoint
+    padrao_shortcuts = os.path.join(user_profile, "OneDrive - Salsajeans", "Shortcuts", "*", "S4H_Perfis de autorização_v1.xlsx")
+    candidatos = glob.glob(padrao_shortcuts)
+    if candidatos:
+        for c in candidatos:
+            if os.path.isfile(c) and "OLD" not in os.path.normpath(c).split(os.sep):
+                return c
+
+    # 2. Fallback geral no OneDrive corporativo (excluindo pastas OLD)
+    padrao_fallback = os.path.join(user_profile, "OneDrive - Salsajeans", "**", "S4H_Perfis de autorização_v1.xlsx")
+    candidatos = glob.glob(padrao_fallback, recursive=True)
+    if candidatos:
+        for c in candidatos:
+            if os.path.isfile(c) and "OLD" not in os.path.normpath(c).split(os.sep):
+                return c
+
+    return None
+
+
+def atualizar_excel_local_do_onedrive_seguro(
+    caminho_destino: Optional[str] = None,
+    caminho_origem_onedrive: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Atualiza com segurança máxima o Excel local a partir do OneDrive:
+    1. Valida que a origem OneDrive existe.
+    2. Cria backup timestampado do arquivo local atual em output/.
+    3. Confirma que o backup existe e tem tamanho > 0.
+    4. Copia OneDrive -> Local (proibido Local -> OneDrive).
+    5. Valida o novo arquivo local:
+       - existe;
+       - tamanho > 0;
+       - abre com openpyxl;
+       - sheets essenciais estão acessíveis.
+    Retorna (sucesso: bool, mensagem_erro: str).
     """
     import shutil
+    import openpyxl
+
+    destino = caminho_destino or CAMINHO_EXCEL_LOCAL
+    origem = caminho_origem_onedrive or obter_caminho_onedrive_oficial()
+
+    # 1. Validar que o ficheiro de origem OneDrive existe
+    if not origem or not os.path.isfile(origem):
+        return False, f"Ficheiro de origem no OneDrive não encontrado ou inacessível: {origem}"
+
+    # 2. Criar backup timestampado do ficheiro local atual em output/
+    dir_output = Path(__file__).resolve().parents[2] / "output"
+    dir_output.mkdir(parents=True, exist_ok=True)
+
+    backup_ts = None
+    if os.path.exists(destino):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_ts = dir_output / f"S4H_Perfis_v1_backup_{timestamp}.xlsx"
+        try:
+            shutil.copy2(destino, backup_ts)
+        except Exception as e_bkp:
+            return False, f"Falha ao gerar backup de segurança antes da atualização: {e_bkp}"
+
+        # 3. Confirmar que o backup existe e tem tamanho > 0
+        if not backup_ts.is_file() or backup_ts.stat().st_size == 0:
+            return False, f"Backup de segurança inválido ou vazio criado em: {backup_ts}"
+
+    # 4. Copiar: OneDrive -> Local (nunca o contrário)
     try:
-        user_profile = os.environ.get("USERPROFILE", "")
-        if not user_profile:
-            return False
+        shutil.copy2(origem, destino)
+    except Exception as e_cp:
+        return False, f"Falha ao copiar ficheiro do OneDrive para o destino local: {e_cp}"
 
-        # Procurar a pasta de atalhos sincronizados do SharePoint
-        padrao_onedrive = os.path.join(user_profile, "OneDrive - Salsajeans", "Shortcuts", "*", "S4H_Perfis de autorização_v1.xlsx")
-        candidatos = glob.glob(padrao_onedrive)
-        
-        if not candidatos:
-            # Fallback para qualquer ficheiro v1 na estrutura do OneDrive corporativo
-            padrao_fallback = os.path.join(user_profile, "OneDrive - Salsajeans", "**", "S4H_Perfis de autorização_v1.xlsx")
-            candidatos = glob.glob(padrao_fallback, recursive=True)
+    # 6. Validar o novo ficheiro local
+    p_dest = Path(destino)
+    if not p_dest.is_file():
+        return False, f"Ficheiro local não encontrado após a cópia: {destino}"
 
-        if not candidatos:
-            return False
+    if p_dest.stat().st_size == 0:
+        return False, f"Ficheiro local copiado está vazio (tamanho 0): {destino}"
 
-        origem_sp = candidatos[0]
-        if not os.path.exists(origem_sp):
-            return False
+    try:
+        wb = openpyxl.load_workbook(destino, read_only=True)
+        sheets = wb.sheetnames
+        wb.close()
+    except Exception as e_wb:
+        return False, f"Ficheiro local copiado está corrompido ou não pôde ser aberto pelo openpyxl: {e_wb}"
 
-        # Se já existe o local e a origem for mais recente (ou se o local não existir), efetuar a cópia
-        precisa_atualizar = True
-        if os.path.exists(CAMINHO_EXCEL_LOCAL):
-            mtime_origem = os.path.getmtime(origem_sp)
-            mtime_local = os.path.getmtime(CAMINHO_EXCEL_LOCAL)
-            if mtime_local >= mtime_origem:
-                precisa_atualizar = False
+    sheets_obrigatorias = ["CONTROLO", "Proposta", "Proposta Ativa"]
+    sheets_norm = {normalizar_texto(s): s for s in sheets}
+    faltantes = [s for s in sheets_obrigatorias if normalizar_texto(s) not in sheets_norm]
+    if faltantes:
+        return False, f"Ficheiro local copiado não contém as sheets essenciais esperadas: {faltantes}"
 
-        if precisa_atualizar:
-            # Criar pasta de output se necessário
-            dir_output = os.path.dirname(CAMINHO_EXCEL_BACKUP_LOCAL)
-            os.makedirs(dir_output, exist_ok=True)
+    return True, ""
 
-            # Backup com timestamp se o local já existir
-            if os.path.exists(CAMINHO_EXCEL_LOCAL):
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_ts = os.path.join(dir_output, f"S4H_Perfis_v1_backup_{timestamp}.xlsx")
-                shutil.copy2(CAMINHO_EXCEL_LOCAL, backup_ts)
 
-            # Copiar da origem sincronizada para o ficheiro local
-            shutil.copy2(origem_sp, CAMINHO_EXCEL_LOCAL)
-            print(f"[SINCRONIZAÇÃO] Cópia atualizada com sucesso a partir do SharePoint/OneDrive:")
-            print(f"               Origem: {origem_sp}")
-            print(f"               Destino: {CAMINHO_EXCEL_LOCAL}")
-            return True
-
-    except Exception as err:
-        print(f"[AVISO] Não foi possível sincronizar automaticamente do SharePoint/OneDrive: {err}")
-    return False
+def sincronizar_copia_sharepoint() -> bool:
+    """Função legada para compatibilidade de chamadas existentes."""
+    ok, _ = atualizar_excel_local_do_onedrive_seguro()
+    return ok
 
 
 def encontrar_excel_padrao(diretorio_base: Optional[str] = None) -> Optional[str]:
@@ -2476,20 +2526,14 @@ def preparar_cua_adicionar(
         filhas_comp = {normalizar_texto(f) for f in roles_compostas_map.get(comp_nome, {}).get("roles_filhas", [])}
         roles_diretas_necessarias = {comp_nome}
 
-        col_fi_idx = encontrar_coluna_funcoes_individuais_df(df_ativa)
-        for c_idx in range(col_fi_idx, len(r_at)):
-            val_cell = r_at.iloc[c_idx]
-            if pd.notna(val_cell):
-                v_str = normalizar_texto(val_cell)
-                if v_str and v_str.startswith("Z") and v_str != comp_nome and v_str not in filhas_comp and v_str not in roles_compostas_map:
-                    roles_diretas_necessarias.add(v_str)
-
-        if roles_por_user_finais and u_id in roles_por_user_finais:
-            _, _, r_set_unificadas = roles_por_user_finais[u_id]
-            for r_unif in r_set_unificadas:
-                r_unif_norm = normalizar_texto(r_unif)
-                if r_unif_norm and r_unif_norm != comp_nome and r_unif_norm not in filhas_comp and r_unif_norm not in roles_compostas_map:
-                    roles_diretas_necessarias.add(r_unif_norm)
+        # Adicionar roles default/organizacionais de base do departamento (da sheet DEFINIÇÕES)
+        def_dep_roles = getattr(dados, "definicoes_departamento", {}).get(dep_user, set())
+        if not def_dep_roles and dep_user in ("LEGAL", "PURCHASE & SERVICES", "PURCHASE AND SERVICES"):
+            def_dep_roles = getattr(dados, "definicoes_departamento", {}).get("PURCHASE & SERVICES", set())
+        for r_def in def_dep_roles:
+            r_def_norm = normalizar_texto(r_def)
+            if r_def_norm and r_def_norm.startswith("Z"):
+                roles_diretas_necessarias.add(r_def_norm)
 
         u_nome = str(r_at.get(next((c for c in df_ativa.columns if "NOME" in str(c).upper()), col_user_at), "")).strip()
 
@@ -2546,18 +2590,23 @@ def executar_atualizacao_integrada_excel(
     [TAREFA 1 DO PROGRAMA] Executa a atualização e consolidação integrada do livro Excel
     num único ciclo atómico em memória, sem alternância ou saltos visuais entre folhas.
 
-    Ordem lógica de dependência:
-      [1/6] Matrizes Departamentais × Proposta (Validar TCODEs utilizadas e mapeamentos)
-      [2/6] Proposta (Validar catálogo de TCODEs em SAP PRD / TSTC)
-      [3/6] Proposta Ativa (Reconciliar utilizadores e funções das matrizes)
-      [4/6] Proposta Ativa / catálogo vivo (Incorporar funções válidas necessárias)
-      [5/6] PFCG_COMPOSTA (Reconciliar Composite -> Single Roles)
-      [6/6] Sincronização Departamental & CUA (Auditar utilizadores e atribuições)
+    Ordem lógica de dependência (8 etapas padronizadas /8):
+      [1/8] Matrizes Departamentais × Proposta
+      [2/8] Proposta × SAP TSTC
+      [3/8] Proposta Ativa
+      [4/8] Catálogo Vivo
+      [5/8] PFCG_AUTHORITY
+      [6/8] Funções Individuais
+      [7/8] Funções Compostas
+      [8/8] CUA_ADICIONAR
     """
     import pandas as pd
     from collections import defaultdict
     import openpyxl
     import shutil
+    from sap_rfc.status_logger import (
+        print_status_success, print_status_warning, print_status_error, print_status_info
+    )
 
     if not caminho_excel:
         caminho_excel = encontrar_excel_padrao()
@@ -2571,6 +2620,32 @@ def executar_atualizacao_integrada_excel(
     print("  TAREFA 1: ATUALIZAÇÃO E SINCRONIZAÇÃO INTEGRADA DO EXCEL")
     print("=" * 78)
 
+    # PRE-CHECK: Pergunta de atualização com a versão do OneDrive
+    resp_onedrive = "N"
+    if assumir_sim:
+        resp_onedrive = "N"
+        print("Deseja atualizar o Excel local com a versão do OneDrive? (S/N) [Padrão: N]: N")
+    else:
+        try:
+            raw_input_od = input("\nDeseja atualizar o Excel local com a versão do OneDrive? (S/N) [Padrão: N]: ").strip().upper()
+            resp_onedrive = "S" if raw_input_od in ("S", "SIM", "Y", "YES") else "N"
+        except Exception:
+            resp_onedrive = "N"
+
+    if resp_onedrive == "S":
+        sucesso_od, msg_erro_od = atualizar_excel_local_do_onedrive_seguro(caminho_destino=caminho_excel)
+        if not sucesso_od:
+            print_status_error(f"\n[ERRO] Falha crítica ao atualizar Excel local a partir do OneDrive:\n  {msg_erro_od}")
+            print("  Processamento da Tarefa 1 abortado para evitar inconsistências.\n")
+            if dados is not None:
+                return dados
+            raise RuntimeError(f"Falha na atualização do OneDrive: {msg_erro_od}")
+        print_status_success("\n✓ Excel local atualizado a partir do OneDrive.\n")
+        # Forçar recarregamento em memória com o novo arquivo do Excel
+        dados = None
+    else:
+        print_status_info("\nℹ Excel local mantido.\n")
+
     if dados is None:
         dados = carregar_projeto_perfil(caminho_excel)
 
@@ -2578,18 +2653,18 @@ def executar_atualizacao_integrada_excel(
     excel_file = pd.ExcelFile(fonte)
 
     # -------------------------------------------------------------
-    # ETAPA [1/6]: Matrizes Departamentais × Proposta
+    # ETAPA [1/8]: Matrizes Departamentais × Proposta
     # -------------------------------------------------------------
     res_auditoria = auditar_matrizes_departamentais_vs_proposta(caminho_excel, dados)
     tcodes_ignoradas_por_sem_mapeamento: Set[str] = set()
 
     if not res_auditoria["tem_pendencias"]:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [1/6] Matrizes Departamentais: todas as TCODEs utilizadas possuem mapeamento válido na Proposta.")
+        print_status_success("  ✓ [1/8] Matrizes Departamentais × Proposta: todas as TCODEs utilizadas possuem mapeamento válido.")
     else:
         n_deps_pend = res_auditoria["deps_com_pendencias_count"]
         n_tcodes_pend = res_auditoria["total_tcodes_sem_mapeamento"]
         print(f"\n==============================================================================")
-        print(f"  VALIDAÇÃO MATRIZES DEPARTAMENTAIS × PROPOSTA")
+        print(f"  [1/8] VALIDAÇÃO MATRIZES DEPARTAMENTAIS × PROPOSTA")
         print(f"==============================================================================")
         print(f"  {CLR_AMARELO}⚠️ Foram encontradas TCODEs utilizadas nas matrizes departamentais\n    sem mapeamento na sheet Proposta.{CLR_RESET}\n")
 
@@ -2632,10 +2707,10 @@ def executar_atualizacao_integrada_excel(
             return dados
 
         tcodes_ignoradas_por_sem_mapeamento = res_auditoria["tcodes_sem_mapeamento_set"]
-        print(f"\n  {CLR_AMARELO}⚠️ [1/6] Matrizes Departamentais: {n_tcodes_pend} TCODEs sem mapeamento em {n_deps_pend} departamento(s).\n     Continuação parcial autorizada pelo utilizador.{CLR_RESET}")
+        print_status_warning(f"\n  ⚠️ [1/8] Matrizes Departamentais × Proposta: {n_tcodes_pend} TCODEs sem mapeamento em {n_deps_pend} departamento(s).\n     Continuação parcial autorizada pelo utilizador.")
 
     # -------------------------------------------------------------
-    # ETAPA [2/6]: Sanitização da folha 'Proposta' (TCODEs no SAP TSTC)
+    # ETAPA [2/8]: Proposta × SAP TSTC
     # -------------------------------------------------------------
     df_prop = pd.read_excel(excel_file, sheet_name="Proposta")
     analise_prop = analisar_folha_proposta(dados)
@@ -2656,9 +2731,9 @@ def executar_atualizacao_integrada_excel(
                     tcodes_a_marcar.append((idx + 2, role_atual, f_val))
 
     if tcodes_a_marcar:
-        print(f"  {CLR_VERMELHO}✗ [2/6] Proposta: {len(tcodes_a_marcar)} transação(ões) descontinuada(s) detetada(s) para marcação.{CLR_RESET}")
+        print_status_error(f"  ✗ [2/8] Proposta × SAP TSTC: {len(tcodes_a_marcar)} transação(ões) descontinuada(s) detetada(s) para marcação.")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [2/6] Proposta: Catálogo com {len(todos_tcodes)} TCODEs 100% validado no SAP PRD (TSTC).")
+        print_status_success(f"  ✓ [2/8] Proposta × SAP TSTC: Catálogo com {len(todos_tcodes)} TCODEs 100% validado no SAP PRD (TSTC).")
 
     # Mapeamento TCODE -> roles (desconsiderando TCODEs descontinuados)
     tcodes_descartados_set = {tc for _, _, tc in tcodes_a_marcar}
@@ -2676,7 +2751,7 @@ def executar_atualizacao_integrada_excel(
                     tcode_to_roles[tc].append(current_role)
 
     # -------------------------------------------------------------
-    # ETAPA 2: Matrizes Departamentais -> 'Proposta Ativa'
+    # ETAPA [3/8]: Proposta Ativa
     # -------------------------------------------------------------
     mapa_dep_sheet = {
         "CONSTRUCTION & MAINTENANCE": "Construction & Maintenance",
@@ -2776,12 +2851,12 @@ def executar_atualizacao_integrada_excel(
             roles_por_user_finais[u_val] = (idx + 2, c_val, set(funcoes_existentes))
 
     if users_em_falta_matriz:
-        print(f"  {CLR_VERMELHO}✗ [3/6] Proposta Ativa: {len(users_em_falta_matriz)} utilizador(es) atualizados com funções em falta das matrizes.{CLR_RESET}")
+        print_status_error(f"  ✗ [3/8] Proposta Ativa: {len(users_em_falta_matriz)} utilizador(es) atualizados com funções em falta das matrizes.")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [3/6] Proposta Ativa: Reconciliar utilizadores e funções das matrizes ({total_users_avaliados}/{total_users_avaliados} utilizadores).")
+        print_status_success(f"  ✓ [3/8] Proposta Ativa: Reconciliar utilizadores e funções das matrizes ({total_users_avaliados}/{total_users_avaliados} utilizadores).")
 
     # -------------------------------------------------------------
-    # ETAPA [4/6]: SAP PRD -> 'Proposta Ativa' (Incorporação de funções vivas)
+    # ETAPA [4/8]: Catálogo Vivo (SAP PRD -> 'Proposta Ativa')
     # -------------------------------------------------------------
     funcoes_vivas_a_adicionar = defaultdict(set)
     if incorporar_prd_rfc and roles_por_user_finais:
@@ -2844,13 +2919,79 @@ def executar_atualizacao_integrada_excel(
 
     total_vivas = sum(len(v) for v in funcoes_vivas_a_adicionar.values())
     if total_vivas > 0:
-        print(f"  {CLR_AMARELO}⚠️ {CLR_RESET} [4/6] Proposta Ativa / catálogo vivo: {total_vivas} função(ões) viva(s) do catálogo em PRD a incorporar ({len(funcoes_vivas_a_adicionar)} utilizadores).")
+        print_status_warning(f"  ⚠️ [4/8] Catálogo Vivo: {total_vivas} função(ões) viva(s) do catálogo em PRD a incorporar ({len(funcoes_vivas_a_adicionar)} utilizadores).")
     else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [4/6] Proposta Ativa / catálogo vivo: Incorporar funções válidas necessárias (0 pendentes).")
+        print_status_success("  ✓ [4/8] Catálogo Vivo: Incorporar funções válidas necessárias (0 pendentes).")
 
     # -------------------------------------------------------------
-    # ETAPA [5/7]: 'Proposta Ativa' -> 'PFCG_COMPOSTA'
+    # ETAPA [5/8]: RECONCILIAÇÃO PFCG_AUTHORITY (Dry Run)
     # -------------------------------------------------------------
+    res_rec_authority = {}
+    analise_authority = {}
+    try:
+        from sap_rfc.pfcg_authority_reconcile_service import reconciliar_pfcg_authority_com_catalogos
+        res_rec_authority = reconciliar_pfcg_authority_com_catalogos(caminho_excel, dry_run=True, imprimir_log=True)
+        analise_authority = res_rec_authority.get("analise", {})
+    except Exception as e_rec:
+        print(f"  [AVISO] Reconciliação PFCG_AUTHORITY: {e_rec}")
+
+    # -------------------------------------------------------------
+    # ETAPA [6/8]: VALIDAR FUNÇÕES INDIVIDUAIS
+    # -------------------------------------------------------------
+    res_val_singles = {}
+    try:
+        from sap_rfc.role_existence_validator_service import executar_etapa_validacao_funcoes_individuais
+        res_val_singles = executar_etapa_validacao_funcoes_individuais(
+            caminho_excel=caminho_excel,
+            dados=dados,
+            environment="PRD",
+            assumir_sim=assumir_sim
+        )
+    except Exception as e_s:
+        print(f"  [AVISO] Validação de Funções Individuais: {e_s}")
+
+    # -------------------------------------------------------------
+    # ETAPA [7/8]: VALIDAR FUNÇÕES COMPOSTAS
+    # -------------------------------------------------------------
+    res_val_composites = {}
+    try:
+        from sap_rfc.role_existence_validator_service import executar_etapa_validacao_funcoes_compostas
+        res_val_composites = executar_etapa_validacao_funcoes_compostas(
+            caminho_excel=caminho_excel,
+            dados=dados,
+            environment="PRD",
+            assumir_sim=assumir_sim
+        )
+    except Exception as e_c:
+        print(f"  [AVISO] Validação de Funções Compostas: {e_c}")
+
+    # Alinhamento das linhas da sheet PFCG_CREATE no Excel
+    df_create = pd.read_excel(excel_file, sheet_name="PFCG_CREATE")
+    roles_create_existentes = set()
+    max_id_create = 0
+    for idx, row in df_create.iterrows():
+        try:
+            rid = int(row.get("ID", 0))
+            if rid > max_id_create: max_id_create = rid
+        except Exception: pass
+        agr = str(row.get("AGR_NAME", "")).strip().upper()
+        if agr:
+            roles_create_existentes.add(agr)
+
+    novas_linhas_create = []
+    for item in analise_authority.get("create_novas_necessarias", []):
+        r_nome = str(item.get("role", "")).strip().upper()
+        if r_nome and r_nome not in roles_create_existentes:
+            max_id_create += 1
+            roles_create_existentes.add(r_nome)
+            novas_linhas_create.append({
+                "ID": max_id_create,
+                "AGR_NAME": r_nome,
+                "TEXT": str(item.get("text", "")).strip(),
+                "TCODE": str(item.get("tcode", "")).strip(),
+            })
+
+    # Alinhamento das linhas da sheet PFCG_COMPOSTA no Excel
     df_comp = pd.read_excel(excel_file, sheet_name="PFCG_COMPOSTA")
     composta_roles_esperadas = defaultdict(set)
     composta_textos = {}
@@ -2874,19 +3015,12 @@ def executar_atualizacao_integrada_excel(
         if agr_c and agr:
             pares_existentes.add((agr_c, agr))
 
-    pares_esperados_comp = {
-        (comp, r)
-        for comp, r_set in composta_roles_esperadas.items()
-        for r in r_set
-    }
-
-    linhas_obsoletas_comp = []
-
     novas_linhas_comp = []
     for comp, r_set in sorted(composta_roles_esperadas.items()):
         desc = composta_textos.get(comp, "")
         for r in sorted(r_set):
             if (comp, r) not in pares_existentes:
+                pares_existentes.add((comp, r))
                 max_id_comp += 1
                 novas_linhas_comp.append({
                     "ID": max_id_comp,
@@ -2895,13 +3029,22 @@ def executar_atualizacao_integrada_excel(
                     "AGR_NAME": r,
                 })
 
-    if novas_linhas_comp or linhas_obsoletas_comp:
-        print(f"  {CLR_VERMELHO}✗ [5/7] PFCG_COMPOSTA: {len(novas_linhas_comp)} relação(ões) em falta e {len(linhas_obsoletas_comp)} obsoleta(s).{CLR_RESET}")
-    else:
-        print(f"  {CLR_VERDE}✓{CLR_RESET} [5/7] PFCG_COMPOSTA: Reconciliar Composite -> Single Roles ({len(composta_roles_esperadas)} Composite Roles 100% consistentes).")
+    for item_cp in analise_authority.get("composta_novas_necessarias", []):
+        p_nome = str(item_cp.get("parent", "")).strip().upper()
+        c_nome = str(item_cp.get("child", "")).strip().upper()
+        txt_p = str(item_cp.get("text_parent", "")).strip()
+        if p_nome and c_nome and (p_nome, c_nome) not in pares_existentes:
+            pares_existentes.add((p_nome, c_nome))
+            max_id_comp += 1
+            novas_linhas_comp.append({
+                "ID": max_id_comp,
+                "AGR_NAME_COMPOSTA": p_nome,
+                "TEXT": txt_p or composta_textos.get(p_nome, ""),
+                "AGR_NAME": c_nome,
+            })
 
     # -------------------------------------------------------------
-    # ETAPA [6/7]: PREPARAÇÃO DA SHEET CUA_ADICIONAR (SEM ESCRITA SAP)
+    # ETAPA [8/8]: PREPARAÇÃO DA SHEET CUA_ADICIONAR (SEM ESCRITA SAP)
     # -------------------------------------------------------------
     res_prep_cua = preparar_cua_adicionar(
         caminho_excel=caminho_excel,
@@ -2910,39 +3053,68 @@ def executar_atualizacao_integrada_excel(
         df_ativa=df_ativa,
     )
     novas_linhas_cua = res_prep_cua.get("novas_linhas", [])
+    debug_ativo = os.environ.get("SAP_DEBUG", "").strip() in ("1", "true", "TRUE", "True")
 
-    print("\n==============================================================================")
-    print("  [6/7] PREPARAÇÃO DA SHEET CUA_ADICIONAR")
-    print("==============================================================================")
-    detalhes_dep = res_prep_cua.get("detalhes_por_dep", {})
-    if detalhes_dep:
-        for dep_nome, user_list in sorted(detalhes_dep.items()):
-            print(f"\n  {dep_nome}:")
-            for u_info in user_list:
-                print(f"\n  {u_info['user']} - {u_info['nome']}")
-                print(f"    Pendentes para CUA_ADICIONAR:")
-                for sys_code, r_nec in u_info["novas"]:
-                    print(f"      + {sys_code} | {r_nec}")
-        print()
+    if debug_ativo:
+        print("\n==============================================================================")
+        print("  [8/8] PREPARAÇÃO DA SHEET CUA_ADICIONAR (DEBUG)")
+        print("==============================================================================")
+    if debug_ativo:
+        detalhes_dep = res_prep_cua.get("detalhes_por_dep", {})
+        if detalhes_dep:
+            for dep_nome, user_list in sorted(detalhes_dep.items()):
+                print(f"\n  {dep_nome}:")
+                for u_info in user_list:
+                    print(f"\n  {u_info['user']} - {u_info['nome']}")
+                    print(f"    Pendentes para CUA_ADICIONAR:")
+                    for sys_code, r_nec in u_info["novas"]:
+                        print(f"      + {sys_code} | {r_nec}")
+            print()
 
     if res_prep_cua["novas_linhas_count"] > 0:
-        print(f"  {CLR_VERMELHO}✗ [6/7] CUA_ADICIONAR preparada:{CLR_RESET}")
-        print(f"     {res_prep_cua['total_users_analisados']} utilizadores analisados")
-        print(f"     {res_prep_cua['total_atribuicoes_esperadas']} atribuições esperadas")
-        print(f"     {res_prep_cua['ja_existentes_count']} já existentes")
-        print(f"     {res_prep_cua['novas_linhas_count']} novas linhas criadas")
+        print_status_warning(
+            f"  ⚠️ [8/8] CUA_ADICIONAR: {res_prep_cua['total_users_analisados']} utilizadores | "
+            f"{res_prep_cua['total_atribuicoes_esperadas']} esperadas | "
+            f"{res_prep_cua['ja_existentes_count']} existentes | "
+            f"{res_prep_cua['novas_linhas_count']} novas"
+        )
     else:
-        print(f"  {CLR_VERDE}✓ [6/7] CUA_ADICIONAR já está sincronizada com a necessidade funcional.{CLR_RESET}")
-        print(f"     Nenhuma nova linha necessária.")
+        print_status_success("  ✓ [8/8] CUA_ADICIONAR: sincronizada | novas 0")
 
     # -------------------------------------------------------------
     # GRAVAÇÃO UNIFICADA NO EXCEL (Apenas se houver alterações)
     # -------------------------------------------------------------
-    tem_alteracoes = bool(tcodes_a_marcar or users_em_falta_matriz or funcoes_vivas_a_adicionar or novas_linhas_comp or linhas_obsoletas_comp or novas_linhas_cua)
+    tem_alteracoes = bool(tcodes_a_marcar or users_em_falta_matriz or funcoes_vivas_a_adicionar or novas_linhas_create or novas_linhas_comp or linhas_obsoletas_comp or novas_linhas_cua)
+
+    # Verificação estrita de pendências em runtime (todas as etapas [1/8] a [8/8]):
+    pendencias_detalhes = []
+    if tcodes_ignoradas_por_sem_mapeamento:
+        pendencias_detalhes.append(f"{len(tcodes_ignoradas_por_sem_mapeamento)} TCODEs sem mapeamento")
+    if analise_authority.get("conflitos_count", 0) > 0:
+        pendencias_detalhes.append(f"{analise_authority['conflitos_count']} Conflitos PFCG_AUTHORITY")
+    if res_val_singles.get("ausentes", 0) > 0:
+        pendencias_detalhes.append(f"{res_val_singles['ausentes']} Singles ausentes")
+    if res_val_singles.get("tipos_divergentes", 0) > 0:
+        pendencias_detalhes.append(f"{res_val_singles['tipos_divergentes']} Singles com tipo divergente")
+    if res_val_composites.get("ausentes", 0) > 0:
+        pendencias_detalhes.append(f"{res_val_composites['ausentes']} Composites ausentes")
+    if res_val_composites.get("tipos_divergentes", 0) > 0:
+        pendencias_detalhes.append(f"{res_val_composites['tipos_divergentes']} Composites com tipo divergente")
+    if novas_linhas_create:
+        pendencias_detalhes.append(f"{len(novas_linhas_create)} novas Singles PFCG_CREATE")
+    if novas_linhas_comp:
+        pendencias_detalhes.append(f"{len(novas_linhas_comp)} novas relações PFCG_COMPOSTA")
+    if novas_linhas_cua:
+        pendencias_detalhes.append(f"{len(novas_linhas_cua)} novas atribuições CUA_ADICIONAR")
+
+    tem_pendencias_conhecidas = bool(pendencias_detalhes)
 
     if not tem_alteracoes:
         print("-" * 78)
-        print(f"  {CLR_VERDE}✓ O ficheiro Excel encontra-se 100% alinhado em todas as sheets.{CLR_RESET}")
+        if tem_pendencias_conhecidas:
+            print_status_warning(f"  ⚠️ Sincronização concluída com pendências conhecidas: {', '.join(pendencias_detalhes)}.")
+        else:
+            print_status_success("  ✓ Sincronização concluída sem pendências.")
         print("-" * 78)
         return dados
 
@@ -2998,7 +3170,20 @@ def executar_atualizacao_integrada_excel(
                     for i, role in enumerate(sorted(roles_finais)):
                         ws_a.Cells(row_idx, col_fi + i).Value = role
 
-            # Etapa 4: PFCG_COMPOSTA (Apenas colunas 1 a 4)
+            # Etapa 5: PFCG_CREATE
+            if novas_linhas_create:
+                ws_cr = wb_com.Worksheets("PFCG_CREATE")
+                last_r_cr = ws_cr.UsedRange.Rows.Count
+                while ws_cr.Cells(last_r_cr, 2).Value:
+                    last_r_cr += 1
+                for i, row_item in enumerate(novas_linhas_create):
+                    curr = last_r_cr + i
+                    ws_cr.Cells(curr, 1).Value = row_item["ID"]
+                    ws_cr.Cells(curr, 2).Value = row_item["AGR_NAME"]
+                    ws_cr.Cells(curr, 3).Value = row_item["TEXT"]
+                    ws_cr.Cells(curr, 4).Value = row_item["TCODE"]
+
+            # Etapa 4 & 5: PFCG_COMPOSTA (Apenas colunas 1 a 4)
             if linhas_obsoletas_comp or novas_linhas_comp:
                 ws_c = wb_com.Worksheets("PFCG_COMPOSTA")
                 for r_idx in reversed(linhas_obsoletas_comp):
@@ -3013,7 +3198,7 @@ def executar_atualizacao_integrada_excel(
                     ws_c.Cells(curr, 3).Value = row["TEXT"]
                     ws_c.Cells(curr, 4).Value = row["AGR_NAME"]
 
-            # Etapa 6: CUA_ADICIONAR
+            # Etapa 8: CUA_ADICIONAR
             if novas_linhas_cua:
                 ws_add = wb_com.Worksheets("CUA_ADICIONAR")
                 last_r_add = ws_add.UsedRange.Rows.Count
@@ -3055,8 +3240,18 @@ def executar_atualizacao_integrada_excel(
                 for i, role in enumerate(sorted(roles_finais)):
                     ws_a.cell(row=row_idx, column=col_fi + i, value=role)
 
-        # Etapa 4: PFCG_COMPOSTA (Apenas colunas 1 a 4)
-        if linhas_obsoletas_comp or novas_linhas_comp:
+        # Etapa 5: PFCG_CREATE
+        if novas_linhas_create and "PFCG_CREATE" in wb_ox.sheetnames:
+            ws_cr = wb_ox["PFCG_CREATE"]
+            for row_item in novas_linhas_create:
+                next_r = ws_cr.max_row + 1
+                ws_cr.cell(row=next_r, column=1, value=row_item["ID"])
+                ws_cr.cell(row=next_r, column=2, value=row_item["AGR_NAME"])
+                ws_cr.cell(row=next_r, column=3, value=row_item["TEXT"])
+                ws_cr.cell(row=next_r, column=4, value=row_item["TCODE"])
+
+        # Etapa 4 & 5: PFCG_COMPOSTA (Apenas colunas 1 a 4)
+        if (linhas_obsoletas_comp or novas_linhas_comp) and "PFCG_COMPOSTA" in wb_ox.sheetnames:
             ws_c = wb_ox["PFCG_COMPOSTA"]
             for r_idx in reversed(linhas_obsoletas_comp):
                 ws_c.delete_rows(r_idx, 1)
@@ -3067,8 +3262,8 @@ def executar_atualizacao_integrada_excel(
                 ws_c.cell(row=next_r, column=3, value=row["TEXT"])
                 ws_c.cell(row=next_r, column=4, value=row["AGR_NAME"])
 
-        # Etapa 6: CUA_ADICIONAR
-        if novas_linhas_cua:
+        # Etapa 8: CUA_ADICIONAR
+        if novas_linhas_cua and "CUA_ADICIONAR" in wb_ox.sheetnames:
             ws_add = wb_ox["CUA_ADICIONAR"]
             for row_item in novas_linhas_cua:
                 next_r = ws_add.max_row + 1
@@ -3086,6 +3281,38 @@ def executar_atualizacao_integrada_excel(
 
     print("  A recarregar dados estruturados do Excel atualizado...")
     dados = carregar_projeto_perfil(caminho_excel)
+
+    # Pós-Validação e readback da reconciliação PFCG_AUTHORITY pós-escrita:
+    try:
+        from sap_rfc.pfcg_authority_reconcile_service import reconciliar_pfcg_authority_com_catalogos
+        res_post_auth = reconciliar_pfcg_authority_com_catalogos(caminho_excel, dry_run=True, imprimir_log=False)
+        analise_post_auth = res_post_auth.get("analise", {})
+    except Exception:
+        analise_post_auth = {}
+
+    pendencias_finais = []
+    if tcodes_ignoradas_por_sem_mapeamento:
+        pendencias_finais.append(f"{len(tcodes_ignoradas_por_sem_mapeamento)} TCODEs sem mapeamento")
+    if analise_post_auth.get("create_novas_count", 0) > 0:
+        pendencias_finais.append(f"{analise_post_auth['create_novas_count']} Singles PFCG_CREATE pendentes")
+    if analise_post_auth.get("composta_novas_count", 0) > 0:
+        pendencias_finais.append(f"{analise_post_auth['composta_novas_count']} relações PFCG_COMPOSTA pendentes")
+    if analise_post_auth.get("conflitos_count", 0) > 0:
+        pendencias_finais.append(f"{analise_post_auth['conflitos_count']} Conflitos PFCG_AUTHORITY")
+    if res_val_singles.get("ausentes", 0) > 0:
+        pendencias_finais.append(f"{res_val_singles['ausentes']} Singles ausentes")
+    if res_val_singles.get("tipos_divergentes", 0) > 0:
+        pendencias_finais.append(f"{res_val_singles['tipos_divergentes']} Singles com tipo divergente")
+    if res_val_composites.get("ausentes", 0) > 0:
+        pendencias_finais.append(f"{res_val_composites['ausentes']} Composites ausentes")
+    if res_val_composites.get("tipos_divergentes", 0) > 0:
+        pendencias_finais.append(f"{res_val_composites['tipos_divergentes']} Composites com tipo divergente")
+
+    print("-" * 78)
+    if pendencias_finais:
+        print_status_warning(f"  ⚠️ Sincronização concluída com pendências conhecidas: {', '.join(pendencias_finais)}.")
+    else:
+        print_status_success("  ✓ Sincronização concluída sem pendências.")
     print("-" * 78)
     return dados
 
@@ -5187,7 +5414,11 @@ def imprimir_cabecalho_compacto(ficheiro: str):
 
 
 def obter_pendencias_status(caminho_excel: str) -> Dict[str, int]:
-    """Conta linhas com STATUS vazio nas folhas operacionais, sem alterar o Excel."""
+    """
+    Conta linhas com pendências nas folhas operacionais, sem alterar o Excel.
+    Para PFCG_COMPOSTA, utiliza a função oficial obter_pendencias_pfcg_composta
+    como única fonte da verdade (status vazio, Pendente QAD ou Pendente PRD).
+    """
     import pandas as pd
 
     folhas = ["PFCG_CREATE", "PFCG_COMPOSTA", "CUA_ADICIONAR", "CUA_REMOVE"]
@@ -5198,6 +5429,17 @@ def obter_pendencias_status(caminho_excel: str) -> Dict[str, int]:
         sheet = next((s for s in excel_file.sheet_names if normalizar_nome_coluna(s) == normalizar_nome_coluna(folha)), None)
         if not sheet:
             continue
+        
+        if folha == "PFCG_COMPOSTA":
+            try:
+                from sap_rfc.pfcg_composta_sync_service import obter_pendencias_pfcg_composta
+                pend_comp = obter_pendencias_pfcg_composta(caminho_excel)
+                if pend_comp:
+                    resultado[folha] = len(pend_comp)
+                continue
+            except Exception:
+                pass
+
         df = pd.read_excel(excel_file, sheet_name=sheet)
         col_status = next((c for c in df.columns if normalizar_nome_coluna(c) == "STATUS"), None)
         if col_status is None:
@@ -5242,6 +5484,252 @@ def executar_processos_pendentes(caminho_excel: str, pendencias: Dict[str, int])
         print("\n[4/4] Executando CUA_REMOVE...")
         modulo = carregar("processo_cua_remove", "CUA_REMOVE_WEB.py")
         modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
+
+
+def executar_atribuicoes_cua_sap(
+    caminho_excel: str,
+    dados: Optional[ProjetoPerfilData] = None,
+    modo_simulacao: bool = False,
+    ambiente_alvo: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Executor Oficial RFC de CUA_ADICIONAR (PRD e QAD independentes).
+    Processa as atribuições pendentes na folha CUA_ADICIONAR via BAPI_USER_ACTGROUPS_ASSIGN
+    com commit individual e readback obrigatório pós-escrita.
+    
+    Regra absoluta de governança:
+      - BAPI OK + COMMIT OK + READBACK OK -> STATUS='CONCLUÍDO', PRD/QAD='OK'
+      - Se executor/RFC/conexão falhar ou readback falhar -> STATUS permanece vazio.
+      - Retorno estruturado confiável: candidatas, ja_existentes, tentadas, confirmadas_readback, falhadas, pendentes.
+    """
+    import pandas as pd
+    from datetime import datetime
+    from sap_rfc._rfc_common import build_connection_params_for
+    from pyrfc import Connection
+
+    excel_file = abrir_excel_seguro(caminho_excel)
+    df_add = pd.read_excel(excel_file, sheet_name="CUA_ADICIONAR")
+    pend_add = df_add[df_add['STATUS'].fillna('').astype(str).str.strip() == '']
+    total_candidatas = len(pend_add)
+
+    resultado_padrao = {
+        "ok": False,
+        "candidatas": total_candidatas,
+        "ja_existentes": 0,
+        "tentadas": 0,
+        "confirmadas_readback": 0,
+        "falhadas": 0,
+        "pendentes": total_candidatas,
+        "status": "ERRO",
+        "detalhe": ""
+    }
+
+    if pend_add.empty:
+        resultado_padrao["ok"] = True
+        resultado_padrao["status"] = "SEM_PENDENCIAS"
+        resultado_padrao["detalhe"] = "Nenhuma linha pendente em CUA_ADICIONAR."
+        return resultado_padrao
+
+    # Mapear ambientes e conexões
+    ambientes_alvo = [ambiente_alvo] if ambiente_alvo else ["PRD", "QAD"]
+    conexoes = {}
+    erros_con = {}
+
+    for env in ambientes_alvo:
+        try:
+            params = build_connection_params_for(env)
+            conexoes[env] = Connection(**params)
+        except Exception as e_c:
+            erros_con[env] = str(e_c)
+
+    if not conexoes:
+        resultado_padrao["status"] = "PENDENTE_AMBIENTE_INDISPONIVEL"
+        resultado_padrao["detalhe"] = f"Nenhum ambiente SAP conectado: {erros_con}"
+        return resultado_padrao
+
+    # Agrupar itens por (ambiente, utilizador)
+    data_hoje_bapi = datetime.now().strftime("%Y%m%d")
+    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Mapear linhas por ID e sistema
+    linhas_a_processar = []
+    for idx, row in pend_add.iterrows():
+        u = str(row.get('UTILIZADOR') or '').strip().upper()
+        sis = str(row.get('SISTEMA') or '').strip().upper()
+        r = str(row.get('AGR_NAME') or '').strip().upper()
+        row_id = row.get('ID')
+        env = "PRD" if "S4P" in sis or sis == "PRD" else ("QAD" if "S4Q" in sis or sis == "QAD" else "PRD")
+        linhas_a_processar.append({
+            "idx": idx,
+            "id": row_id,
+            "user": u,
+            "sistema": sis,
+            "role": r,
+            "env": env
+        })
+
+    tentadas = 0
+    confirmadas = 0
+    falhadas = 0
+    ja_existentes = 0
+    itens_sucesso_excel = []
+
+    # Processar utilizador por utilizador dentro de cada ambiente disponível
+    for env in ambientes_alvo:
+        if env not in conexoes:
+            continue
+        conn = conexoes[env]
+        linhas_env = [l for l in linhas_a_processar if l["env"] == env]
+        if not linhas_env:
+            continue
+
+        # Agrupar por utilizador
+        users_env = sorted(list({l["user"] for l in linhas_env if l["user"]}))
+        for u in users_env:
+            itens_user = [l for l in linhas_env if l["user"] == u]
+            roles_adicionar = {l["role"] for l in itens_user if l["role"]}
+
+            # 1. BAPI_USER_GET_DETAIL inicial
+            try:
+                det = conn.call("BAPI_USER_GET_DETAIL", USERNAME=u)
+                roles_atuais = {r["AGR_NAME"].strip().upper(): r for r in det.get("ACTIVITYGROUPS", [])}
+            except Exception as e_get:
+                print(f"  [ERRO {env}] Falha ao ler utilizador {u}: {e_get}")
+                falhadas += len(itens_user)
+                continue
+
+            # Separar o que já existe vs novas a adicionar
+            novas_para_bapi = set()
+            for l in itens_user:
+                r_name = l["role"]
+                if r_name in roles_atuais:
+                    ja_existentes += 1
+                    # Role já ativa no SAP - marcar como existente/sucesso sem escrita
+                    itens_sucesso_excel.append({
+                        "id": l["id"],
+                        "user": u,
+                        "sistema": l["sistema"],
+                        "role": r_name,
+                        "env": env,
+                        "msg": f"Já atribuída no SAP {env} (Readback prévio OK)"
+                    })
+                else:
+                    novas_para_bapi.add(r_name)
+
+            if not novas_para_bapi:
+                continue
+
+            tentadas += len(novas_para_bapi)
+
+            if modo_simulacao:
+                # Simulação: não chama BAPI de gravação real
+                continue
+
+            # Montar conjunto completo preservando as roles existentes do utilizador
+            novo_conjunto = []
+            for r_name, r_info in roles_atuais.items():
+                novo_conjunto.append({
+                    "AGR_NAME": r_name,
+                    "FROM_DAT": r_info.get("FROM_DAT") or data_hoje_bapi,
+                    "TO_DAT": r_info.get("TO_DAT") or "99991231"
+                })
+            for r_name in sorted(novas_para_bapi):
+                novo_conjunto.append({
+                    "AGR_NAME": r_name,
+                    "FROM_DAT": data_hoje_bapi,
+                    "TO_DAT": "99991231"
+                })
+
+            # 2. BAPI_USER_ACTGROUPS_ASSIGN
+            try:
+                res_bapi = conn.call("BAPI_USER_ACTGROUPS_ASSIGN", USERNAME=u, ACTIVITYGROUPS=novo_conjunto)
+                ret_bapi = res_bapi.get("RETURN", []) or []
+                erros = [m for m in ret_bapi if str(m.get("TYPE", "")).upper() in ("E", "A")]
+                if erros:
+                    conn.call("BAPI_TRANSACTION_ROLLBACK")
+                    falhadas += len(novas_para_bapi)
+                    continue
+
+                # 3. COMMIT individual
+                conn.call("BAPI_TRANSACTION_COMMIT", WAIT="X")
+
+                # 4. READBACK obrigatório pós-escrita
+                det_rb = conn.call("BAPI_USER_GET_DETAIL", USERNAME=u)
+                roles_rb = {r["AGR_NAME"].strip().upper() for r in det_rb.get("ACTIVITYGROUPS", [])}
+
+                for l in itens_user:
+                    if l["role"] in novas_para_bapi:
+                        if l["role"] in roles_rb:
+                            confirmadas += 1
+                            itens_sucesso_excel.append({
+                                "id": l["id"],
+                                "user": u,
+                                "sistema": l["sistema"],
+                                "role": l["role"],
+                                "env": env,
+                                "msg": f"Atribuição gravada e confirmada via RFC ({env})"
+                            })
+                        else:
+                            falhadas += 1
+            except Exception as e_assign:
+                print(f"  [ERRO {env}] Falha na gravação do utilizador {u}: {e_assign}")
+                try:
+                    conn.call("BAPI_TRANSACTION_ROLLBACK")
+                except Exception:
+                    pass
+                falhadas += len(novas_para_bapi)
+
+    for c in conexoes.values():
+        try:
+            c.close()
+        except Exception:
+            pass
+
+    # Gravar no Excel apenas as que foram confirmadas por readback (ou já existentes)
+    if itens_sucesso_excel and not modo_simulacao:
+        try:
+            import openpyxl
+            wb_ox = openpyxl.load_workbook(caminho_excel)
+            if "CUA_ADICIONAR" in wb_ox.sheetnames:
+                ws_add = wb_ox["CUA_ADICIONAR"]
+                row_map = {}
+                for r in range(2, ws_add.max_row + 1):
+                    rid = ws_add.cell(r, 1).value
+                    if rid is not None:
+                        row_map[rid] = r
+
+                for it in itens_sucesso_excel:
+                    target_r = row_map.get(it["id"])
+                    if target_r:
+                        ws_add.cell(target_r, 5, "CONCLUÍDO")
+                        ws_add.cell(target_r, 6, it["msg"])
+                        ws_add.cell(target_r, 7, timestamp_str)
+                        if it["env"] == "PRD":
+                            ws_add.cell(target_r, 8, "OK")
+                        elif it["env"] == "QAD":
+                            ws_add.cell(target_r, 9, "OK")
+
+                wb_ox.save(caminho_excel)
+                wb_ox.close()
+        except Exception as e_save:
+            print(f"  [AVISO] Falha ao atualizar Excel CUA_ADICIONAR: {e_save}")
+
+    pendentes_restantes = total_candidatas - confirmadas - ja_existentes
+    status_final = "SUCESSO" if (confirmadas > 0 or (ja_existentes > 0 and pendentes_restantes == 0)) and falhadas == 0 else (
+        "PENDENTE_AMBIENTE_INDISPONIVEL" if confirmadas == 0 and ja_existentes == 0 and falhadas == 0 else "FALHA"
+    )
+
+    return {
+        "ok": confirmadas > 0 or (ja_existentes > 0 and pendentes_restantes == 0),
+        "candidatas": total_candidatas,
+        "ja_existentes": ja_existentes,
+        "tentadas": tentadas,
+        "confirmadas_readback": confirmadas,
+        "falhadas": falhadas,
+        "pendentes": pendentes_restantes,
+        "status": status_final,
+        "detalhe": f"{confirmadas} confirmadas por readback / {ja_existentes} já existentes / {falhadas} falhas"
+    }
 
 
 def auditar_prevalidacao_cua_adicionar_prd(caminho_excel: str, dados: Optional[ProjetoPerfilData] = None) -> Dict[str, Any]:
@@ -5458,10 +5946,48 @@ def verificar_e_perguntar_pendencias(
 
     total_proc = len(processos_pendentes)
 
+    # =========================================================================
+    # FASE OBRIGATÓRIA: VALIDAÇÃO DE EXISTÊNCIA DE ROLES NO SAP (PRD / QAD)
+    # =========================================================================
+    # Executada ANTES de qualquer criação de relações ou atribuições (PFCG_COMPOSTA, CUA_ADICIONAR, CUA_REMOVE).
+    # Separa Composite Roles de Single Roles e pergunta criação por ambiente se faltarem.
+    print("\n" + "=" * 78)
+    print("  FASE OBRIGATÓRIA: VALIDAÇÃO DE EXISTÊNCIA DE ROLES NO SAP (PRD / QAD)")
+    print("=" * 78)
+    roles_confirmadas_map = {"PRD": set(), "QAD": set()}
+    try:
+        if mock_executores and "executar_fase_validacao_existencia_roles" in mock_executores:
+            res_val_roles = mock_executores["executar_fase_validacao_existencia_roles"](caminho_excel, dados=dados, assumir_sim=assumir_sim)
+        else:
+            from sap_rfc.role_existence_validator_service import executar_fase_validacao_existencia_roles
+            res_val_roles = executar_fase_validacao_existencia_roles(caminho_excel, dados=dados, assumir_sim=assumir_sim)
+        roles_confirmadas_map = res_val_roles.get("roles_confirmadas", {"PRD": set(), "QAD": set()})
+
+        # Verificar se ocorreu RFC_LOGON_FAILURE / PASSWORD_MUST_BE_CHANGED no PRD
+        amb_prd = res_val_roles.get("ambientes", {}).get("PRD", {})
+        err_conn_prd = str(amb_prd.get("erro_conexao", "")).lower()
+        if "password must be changed" in err_conn_prd or "password_must_be_changed" in err_conn_prd or "logon_failure" in err_conn_prd:
+            print("\n" + "=" * 78)
+            print("  PRD RFC indisponível para validação.")
+            print("  Motivo: PASSWORD_MUST_BE_CHANGED")
+            print("  Nenhuma operação SAP será executada.")
+            print("=" * 78)
+            for folha_abort in processos_pendentes:
+                resumo_final[folha_abort] = {
+                    "pendentes": pendencias[folha_abort],
+                    "executado": False,
+                    "resultado": "ABORTADO_RFC_LOGON_FAILURE",
+                    "detalhe": "PRD indisponível: PASSWORD_MUST_BE_CHANGED"
+                }
+            return resumo_final
+
+    except Exception as e_val_r:
+        print(f"  [AVISO] Validação de existência de roles: {e_val_r}")
+
     for i, folha in enumerate(processos_pendentes, 1):
         qtd = pendencias[folha]
         print("\n" + "=" * 78)
-        print(f"  PROCESSO {i}/{total_proc} — {folha}")
+        print(f"  [8/8] EXECUÇÃO SAP — PROCESSO {i}/{total_proc} ({folha})")
         print("=" * 78)
 
         if folha == "PFCG_CREATE":
@@ -5481,24 +6007,132 @@ def verificar_e_perguntar_pendencias(
                 print(f"\n{folha} ignorada pelo utilizador.")
 
         elif folha == "PFCG_COMPOSTA":
-            print(f"  Linhas na fila: {qtd}")
-            resp = "S" if assumir_sim else input(f"\nDeseja executar {folha}? (S/N): ").strip().upper()
+            print(f"  Linhas candidatas na fila: {qtd}")
+            print("  A efetuar pré-validação read-only contra o SAP PRD...")
+            
+            # Pré-validação oficial
+            if mock_executores and "prevalidar_pfcg_composta" in mock_executores:
+                preval_comp = mock_executores["prevalidar_pfcg_composta"](caminho_excel)
+            else:
+                from sap_rfc.pfcg_composta_sync_service import prevalidar_pfcg_composta
+                preval_comp = prevalidar_pfcg_composta(caminho_excel, ambiente_prd="PRD")
+
+            if not preval_comp.get("ok"):
+                msg_falha = "; ".join(preval_comp.get("erros", ["Falha na pré-validação"]))
+                print(f"\n{CLR_VERMELHO}✗ Pré-validação PFCG_COMPOSTA falhou: {msg_falha}{CLR_RESET}")
+                resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "ERRO_PREVALIDACAO", "detalhe": msg_falha}
+                continue
+
+            candidatas = preval_comp["analisadas"]
+            ja_ex_prd = preval_comp["ja_existiam"]
+            ausentes_prd = preval_comp["ausentes"]
+            invalidas_comp = preval_comp["invalidas_composite_composite"]
+            executaveis = preval_comp["executaveis"]
+            itens_ja_existem = preval_comp.get("itens_ja_existem", [])
+
+            # Reconciliar no Excel as relações que já existem no SAP PRD (sem escrita SAP)
+            if ja_ex_prd > 0:
+                print(f"  Relações já existentes em PRD : {ja_ex_prd}")
+                if mock_executores and "reconciliar_ja_existentes_pfcg_composta_excel" in mock_executores:
+                    res_rec = mock_executores["reconciliar_ja_existentes_pfcg_composta_excel"](caminho_excel, itens_ja_existem)
+                else:
+                    from sap_rfc.pfcg_composta_sync_service import reconciliar_ja_existentes_pfcg_composta_excel
+                    res_rec = reconciliar_ja_existentes_pfcg_composta_excel(caminho_excel, itens_ja_existem, criar_backup=True)
+
+                if not res_rec.get("ok"):
+                    msg_err_rec = res_rec.get("erro", "Erro desconhecido ao salvar")
+                    print(f"\n{CLR_VERMELHO}✗ Falha ao reconciliar PFCG_COMPOSTA no Excel: {msg_err_rec}{CLR_RESET}")
+                    print("  Não considerar as relações como tratadas. Nenhuma escrita SAP realizada.")
+                    resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "ERRO_EXCEL", "detalhe": msg_err_rec}
+                    continue
+
+                linhas_reconciliadas = res_rec.get("linhas_reconciliadas", 0)
+                print(f"  Linhas reconciliadas no Excel : {linhas_reconciliadas}")
+                print(f"  Escritas SAP realizadas       : 0")
+                print(f"  {CLR_VERDE}✓ Relações já existentes foram marcadas como concluídas no Excel.{CLR_RESET}")
+                if res_rec.get("backup_criado"):
+                    print(f"  Backup salvo em: {res_rec['backup_criado']}")
+            else:
+                linhas_reconciliadas = 0
+
+            parent_nao_existe_cnt = preval_comp.get("parent_nao_existe", 0)
+            child_nao_existe_cnt = preval_comp.get("child_nao_existe", 0)
+            parent_tipo_div_cnt = preval_comp.get("parent_tipo_divergente", 0)
+            child_tipo_div_cnt = preval_comp.get("child_tipo_divergente", 0)
+            pais_inexistentes = preval_comp.get("pais_inexistentes", {})
+
+            # Exibição do estado de pré-validação após reconciliação
+            print("\n" + "=" * 78)
+            print("  PRÉ-VALIDAÇÃO PFCG_COMPOSTA")
+            print("=" * 78)
+            print(f"  Pendentes após reconciliação           : {ausentes_prd}")
+            print(f"  Composite -> Composite inválidas       : {invalidas_comp}")
+            print(f"  Parent não existe no SAP               : {parent_nao_existe_cnt}")
+            print(f"  Child não existe no SAP                : {child_nao_existe_cnt}")
+            if parent_tipo_div_cnt:
+                print(f"  Parent tipo divergente (não Composite) : {parent_tipo_div_cnt}")
+            if child_tipo_div_cnt:
+                print(f"  Child tipo divergente (não Single)     : {child_tipo_div_cnt}")
+            print(f"  Realmente executáveis                  : {executaveis}")
+            print("-" * 78)
+
+            if pais_inexistentes:
+                print(f"  Composite Roles Pai Inexistentes no SAP ({len(pais_inexistentes)}):")
+                for pai, filhos in sorted(pais_inexistentes.items()):
+                    print(f"    • {pai} ({len(filhos)} relação(ões) bloqueada(s))")
+                    for flh in sorted(filhos)[:5]:
+                        print(f"        └─ {flh}")
+                    if len(filhos) > 5:
+                        print(f"        └─ ... e mais {len(filhos) - 5} funções filhas")
+                print("-" * 78)
+
+            if preval_comp.get("invalidas"):
+                print("  Relações Inválidas Identificadas (Composite -> Composite):")
+                for inv in preval_comp["invalidas"]:
+                    print(f"    PARENT = {inv['composite']:<30} CHILD = {inv['single']:<28} TIPO_CHILD = COMPOSITE | AÇÃO = NÃO EXECUTAR")
+                print("-" * 78)
+
+            if executaveis == 0:
+                print(f"\n  {CLR_VERDE}ℹ Nenhuma relação necessita de execução SAP (0 executáveis).{CLR_RESET}")
+                resumo_final[folha] = {
+                    "pendentes": qtd,
+                    "executado": False,
+                    "resultado": "RECONCILIADO_SEM_DELTA",
+                    "detalhe": f"{linhas_reconciliadas} reconciliadas no Excel / 0 executáveis / {invalidas_comp} inválidas / {parent_nao_existe_cnt} pais ausentes"
+                }
+                continue
+
+            resp = "S" if assumir_sim else input(f"\nDeseja executar as {executaveis} relações tecnicamente válidas? (S/N): ").strip().upper()
             if resp in ("S", "SIM", "Y", "YES"):
                 try:
                     if mock_executores and "processo_pfcg_composta" in mock_executores:
                         modulo = mock_executores["processo_pfcg_composta"]
                         modulo.executar("PRD", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
-                        res_pfcg = {"ok": True, "mensagem": f"✓ PFCG_COMPOSTA concluída.\n   Linhas analisadas: {qtd}\n   Já existentes: 0\n   Criadas: {qtd}\n   Confirmadas por readback: {qtd}\n   Erros: 0", "analisadas": qtd, "ja_existiam": 0, "criadas": qtd, "confirmadas": qtd, "erros": []}
+                        res_pfcg = {
+                            "ok": True,
+                            "mensagem": f"✓ PFCG_COMPOSTA concluída via RFC.\n   Linhas candidatas: {candidatas}\n   Já existentes: {ja_ex_prd}\n   Criadas: {executaveis}\n   Confirmadas por readback: {executaveis}\n   Erros: 0",
+                            "analisadas": candidatas,
+                            "ja_existiam": ja_ex_prd,
+                            "criadas": executaveis,
+                            "confirmadas": executaveis,
+                            "executaveis": executaveis,
+                            "erros": []
+                        }
                     else:
                         from sap_rfc.pfcg_composta_sync_service import sincronizar_pfcg_composta
-                        res_pfcg = sincronizar_pfcg_composta(caminho_excel=caminho_excel, dry_run=False, only_prd=True)
+                        res_pfcg = sincronizar_pfcg_composta(
+                            caminho_excel=caminho_excel,
+                            dry_run=False,
+                            only_prd=True,
+                            qtd_esperada_executaveis=executaveis
+                        )
 
                     if res_pfcg.get("ok"):
                         resumo_final[folha] = {
                             "pendentes": qtd,
                             "executado": True,
                             "resultado": "SUCESSO",
-                            "detalhe": f"Analisadas={res_pfcg.get('analisadas', 0)}, Existentes={res_pfcg.get('ja_existiam', 0)}, Criadas={res_pfcg.get('criadas', 0)}, Readback={res_pfcg.get('confirmadas', 0)}"
+                            "detalhe": f"Candidatas={res_pfcg.get('analisadas', 0)}, Existentes={res_pfcg.get('ja_existiam', 0)}, Invalidas={res_pfcg.get('invalidas_composite_composite', 0)}, Criadas={res_pfcg.get('criadas', 0)}, Readback={res_pfcg.get('confirmadas', 0)}"
                         }
                         print(f"\n{CLR_VERDE}{res_pfcg.get('mensagem')}{CLR_RESET}")
                     else:
@@ -5538,10 +6172,28 @@ def verificar_e_perguntar_pendencias(
                 resp = "S" if assumir_sim else input(f"\nDeseja executar as {re_pend} atribuições realmente pendentes? (S/N): ").strip().upper()
                 if resp in ("S", "SIM", "Y", "YES"):
                     try:
-                        modulo = carregar("processo_cua_adicionar", "CUA_ADICIONAR_WEB.py")
-                        modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
-                        resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "SUCESSO", "detalhe": f"{re_pend} executadas / {ja_ex} já existentes"}
-                        print(f"\n{CLR_VERDE}✓ CUA_ADICIONAR concluída.{CLR_RESET}")
+                        if mock_executores and "executar_atribuicoes_cua_sap" in mock_executores:
+                            res_cua = mock_executores["executar_atribuicoes_cua_sap"](caminho_excel, dados=dados, modo_simulacao=False)
+                        else:
+                            res_cua = executar_atribuicoes_cua_sap(caminho_excel, dados=dados, modo_simulacao=False)
+
+                        conf = res_cua.get("confirmadas_readback", 0)
+                        ja_e = res_cua.get("ja_existentes", 0)
+                        falh = res_cua.get("falhadas", 0)
+                        pend_res = res_cua.get("pendentes", 0)
+                        st_res = res_cua.get("status", "FALHA")
+
+                        executado_bool = conf > 0 or falh > 0
+                        resumo_final[folha] = {
+                            "pendentes": qtd,
+                            "executado": executado_bool,
+                            "resultado": st_res,
+                            "detalhe": f"{conf} confirmadas por readback / {ja_e} já existentes / {falh} falhas / {pend_res} pendentes"
+                        }
+                        if st_res == "SUCESSO":
+                            print(f"\n{CLR_VERDE}✓ CUA_ADICIONAR concluída com sucesso: {conf} confirmadas por readback.{CLR_RESET}")
+                        else:
+                            print(f"\n{CLR_VERMELHO}✗ CUA_ADICIONAR: {st_res} ({res_cua.get('detalhe')}){CLR_RESET}")
                     except Exception as exc:
                         resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "ERRO", "detalhe": str(exc)}
                         print(f"\n[ERRO em CUA_ADICIONAR]: {exc}")
@@ -5549,14 +6201,15 @@ def verificar_e_perguntar_pendencias(
                     resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação recusada"}
                     print(f"\n{folha} ignorada pelo utilizador.")
             else:
-                # Fallback sem pré-validação se RFC não disponível
-                resp = "S" if assumir_sim else input(f"\nDeseja executar {folha}? (S/N): ").strip().upper()
-                if resp in ("S", "SIM", "Y", "YES"):
-                    modulo = carregar("processo_cua_adicionar", "CUA_ADICIONAR_WEB.py")
-                    modulo.executar("CUA", caminho_ficheiro=caminho_excel, modo_nao_interativo=True, pedir_confirmacao=False)
-                    resumo_final[folha] = {"pendentes": qtd, "executado": True, "resultado": "SUCESSO", "detalhe": f"{qtd} processadas"}
-                else:
-                    resumo_final[folha] = {"pendentes": qtd, "executado": False, "resultado": "IGNORADO_PELO_UTILIZADOR", "detalhe": "Operação recusada"}
+                # Fallback se auditoria falhou por indisponibilidade
+                err_msg = audit_add.get("mensagem", "Indisponibilidade de conexão RFC")
+                print(f"  [AVISO] Pré-validação CUA_ADICIONAR não pôde ser executada: {err_msg}")
+                resumo_final[folha] = {
+                    "pendentes": qtd,
+                    "executado": False,
+                    "resultado": "PENDENTE_AMBIENTE_INDISPONIVEL",
+                    "detalhe": f"Pré-validação RFC indisponível: {err_msg}"
+                }
 
         elif folha == "CUA_REMOVE":
             print(f"  Linhas na fila: {qtd}")
@@ -5797,20 +6450,83 @@ def sincronizar_departamento_prd_qad_rfc(
             print("[EXPIRADO] Operação cancelada pelo utilizador.")
             return False
 
-    try:
-        from sap_rfc._rfc_common import build_connection_params_for
-        from pyrfc import Connection
+    from sap_rfc._rfc_common import build_connection_params_for
+    from pyrfc import Connection
 
-        params_prd = build_connection_params_for("PRD")
-        params_qad = build_connection_params_for("QAD")
+    # Estruturas de resultado independentes por ambiente
+    res_ambientes: Dict[str, Dict[str, Any]] = {
+        "PRD": {
+            "sys_code": "S4PCLNT100",
+            "online": False,
+            "conn": None,
+            "erros_conexao": "",
+            "processados": 0,
+            "erros_bapi": 0,
+            "readback_ok": True,
+            "roles_removidas": [],
+            "roles_adicionadas": []
+        },
+        "QAD": {
+            "sys_code": "S4QCLNT100",
+            "online": False,
+            "conn": None,
+            "erros_conexao": "",
+            "processados": 0,
+            "erros_bapi": 0,
+            "readback_ok": True,
+            "roles_removidas": [],
+            "roles_adicionadas": []
+        }
+    }
 
-        print("  A ligar aos sistemas SAP PRD e QAD via RFC...", flush=True)
-        conn_prd = Connection(**params_prd)
-        conn_qad = Connection(**params_qad)
-        print("  ✓ Conexões RFC ativas em PRD e QAD!", flush=True)
-    except Exception as e_conn:
-        print(f"[ERRO] Falha ao conectar via RFC: {e_conn}")
+    # 1. CONEXÕES INDEPENDENTES (Falha em um ambiente NÃO afeta o outro)
+    print("  A ligar aos sistemas SAP (PRD e QAD independentes)...", flush=True)
+    for env in ("PRD", "QAD"):
+        try:
+            params = build_connection_params_for(env)
+            conn = Connection(**params)
+            res_ambientes[env]["conn"] = conn
+            res_ambientes[env]["online"] = True
+            print(f"  ✓ Conexão RFC ativa em {env} ({res_ambientes[env]['sys_code']})!", flush=True)
+        except Exception as e_c:
+            res_ambientes[env]["erros_conexao"] = str(e_c)
+            print(f"  [AVISO] Ambiente {env} ({res_ambientes[env]['sys_code']}) indisponível: {e_c}")
+
+    if not res_ambientes["PRD"]["online"] and not res_ambientes["QAD"]["online"]:
+        print("[ERRO] Nenhum ambiente SAP (PRD ou QAD) está disponível para conexão.")
         return False
+
+
+    # ---------------------------------------------------------------------
+    # 1.1 GARANTIA DE MEMBROS DAS FUNÇÕES COMPOSTAS NO SAP (PRD / QAD)
+    # ---------------------------------------------------------------------
+    # Antes de atribuir as compostas aos utilizadores, assegurar que no SAP
+    # todas as funções compostas departamentais contêm as suas filhas de PFCG_COMPOSTA.
+    compostas_do_dep = {
+        normalizar_texto(u_data.get("composta"))
+        for u_data in analise.get("usuarios", [])
+        if u_data.get("composta") and normalizar_texto(u_data.get("composta")) not in ("NONE", "NAN", "-")
+    }
+
+    if compostas_do_dep:
+        for comp_nome in sorted(compostas_do_dep):
+            membros_excel = dados.roles_compostas.get(comp_nome, {}).get("roles_filhas", [])
+            if not membros_excel:
+                continue
+            for env in ("PRD", "QAD"):
+                env_info = res_ambientes[env]
+                if not env_info["online"]:
+                    continue
+                conn = env_info["conn"]
+                try:
+                    res_m = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_AGRS", OPTIONS=[{"TEXT": f"AGR_NAME = '{comp_nome}'"}], FIELDS=[{"FIELDNAME": "CHILD_AGR"}])
+                    existentes_m = {r["WA"].strip() for r in res_m.get("DATA", [])}
+                    a_incluir = [{"AGR_NAME": m} for m in membros_excel if m not in existentes_m]
+                    if a_incluir and not modo_simulacao:
+                        conn.call("PRGN_RFC_ADD_AGRS_TO_COLL_AGR", ACTIVITY_GROUP=comp_nome, ACTIVITY_GROUPS=a_incluir, PROFILE_COMPARISON="X")
+                        conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": comp_nome}], IV_USERCOMPARE="X")
+                except Exception as e_comp_sync:
+                    pass
 
     # Obter funções da sheet DEFINIÇÕES para o departamento
     dep_norm = normalizar_texto(dep_nome)
@@ -5867,296 +6583,263 @@ def sincronizar_departamento_prd_qad_rfc(
     timestamp_now = datetime.now()
     timestamp_str = timestamp_now.strftime("%Y-%m-%d %H:%M:%S")
 
-    sucesso_geral = True
+    existing_cua = {
+        (str(item.get("utilizador", "")).strip().upper(), str(item.get("sistema", "")).strip().upper(), str(item.get("role", "")).strip().upper())
+        for item in dados.cua_adicionar
+    }
 
     try:
-        for u in users:
-            u_norm = str(u).strip().upper()
-            print(f"\n  >>> Utilizador: {u} ...", flush=True)
-            expected_roles = user_expected_map.get(u_norm, set())
-
-            # 1. Ler roles atuais em PRD (distinguindo atribuições diretas vs herdadas via ORG_FLAG)
-            try:
-                det_prd = conn_prd.call("BAPI_USER_GET_DETAIL", USERNAME=u)
-                roles_prd = {r["AGR_NAME"]: r for r in det_prd.get("ACTIVITYGROUPS", [])}
-                diretas_prd = {r["AGR_NAME"]: r for r in det_prd.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C"}
-            except Exception as e_get_p:
-                print(f"     [ERRO] Falha ao consultar utilizador {u} em PRD: {e_get_p}")
-                sucesso_geral = False
+        # ---------------------------------------------------------------------
+        # 2. EXECUÇÃO INDEPENDENTE POR AMBIENTE
+        # ---------------------------------------------------------------------
+        for env in ("PRD", "QAD"):
+            env_info = res_ambientes[env]
+            if not env_info["online"]:
+                print(f"\n  [INFO] A saltar processamento de {env} (ambiente offline / indisponível).")
                 continue
 
-            # 2. Ler roles atuais em QAD (distinguindo atribuições diretas vs herdadas via ORG_FLAG)
-            try:
-                det_qad = conn_qad.call("BAPI_USER_GET_DETAIL", USERNAME=u)
-                roles_qad = {r["AGR_NAME"]: r for r in det_qad.get("ACTIVITYGROUPS", [])}
-                diretas_qad = {r["AGR_NAME"]: r for r in det_qad.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C"}
-            except Exception as e_get_q:
-                print(f"     [ERRO] Falha ao consultar utilizador {u} em QAD: {e_get_q}")
-                sucesso_geral = False
-                continue
+            conn = env_info["conn"]
+            sys_code = env_info["sys_code"]
+            print(f"\n  === PROCESSAMENTO INDEPENDENTE: {env} ({sys_code}) ===")
 
-            # Determinar preservadas (EXCLUÇÃO), a remover e a adicionar (apenas no conjunto de atribuições diretas)
-            preservadas_prd = {r: info for r, info in diretas_prd.items() if dados.is_excluida(r)}
-            removidas_prd = [r for r in diretas_prd if not dados.is_excluida(r) and r not in expected_roles]
-            adicionadas_prd = [r for r in sorted(expected_roles) if r not in diretas_prd]
+            for u in users:
+                u_norm = str(u).strip().upper()
+                expected_roles = user_expected_map.get(u_norm, set())
 
-            preservadas_qad = {r: info for r, info in diretas_qad.items() if dados.is_excluida(r)}
-            removidas_qad = [r for r in diretas_qad if not dados.is_excluida(r) and r not in expected_roles]
-            adicionadas_qad = [r for r in sorted(expected_roles) if r not in diretas_qad]
+                # 2.1 Ler roles atuais no ambiente via BAPI_USER_GET_DETAIL
+                try:
+                    det = conn.call("BAPI_USER_GET_DETAIL", USERNAME=u)
+                    roles_env = {r["AGR_NAME"]: r for r in det.get("ACTIVITYGROUPS", [])}
+                    diretas_env = {r["AGR_NAME"]: r for r in det.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C"}
+                except Exception as e_get:
+                    print(f"     [ERRO {env}] Falha ao consultar utilizador {u}: {e_get}")
+                    env_info["erros_bapi"] += 1
+                    continue
 
-            # Montar payload final para PRD
-            novo_conjunto_prd = []
-            for r_name, r_info in preservadas_prd.items():
-                novo_conjunto_prd.append({
-                    "AGR_NAME": r_name,
-                    "FROM_DAT": r_info.get("FROM_DAT") or data_hoje_bapi,
-                    "TO_DAT": r_info.get("TO_DAT") or "99991231"
-                })
-            for r_name in sorted(expected_roles):
-                r_info = roles_prd.get(r_name, {})
-                novo_conjunto_prd.append({
-                    "AGR_NAME": r_name,
-                    "FROM_DAT": r_info.get("FROM_DAT") or data_hoje_bapi,
-                    "TO_DAT": r_info.get("TO_DAT") or "99991231"
-                })
+                preservadas = {r: info for r, info in diretas_env.items() if dados.is_excluida(r)}
+                removidas = [r for r in diretas_env if not dados.is_excluida(r) and r not in expected_roles]
+                adicionadas = [r for r in sorted(expected_roles) if r not in diretas_env]
 
-            # Montar payload final para QAD
-            novo_conjunto_qad = []
-            for r_name, r_info in preservadas_qad.items():
-                novo_conjunto_qad.append({
-                    "AGR_NAME": r_name,
-                    "FROM_DAT": r_info.get("FROM_DAT") or data_hoje_bapi,
-                    "TO_DAT": r_info.get("TO_DAT") or "99991231"
-                })
-            for r_name in sorted(expected_roles):
-                r_info = roles_qad.get(r_name, {})
-                novo_conjunto_qad.append({
-                    "AGR_NAME": r_name,
-                    "FROM_DAT": r_info.get("FROM_DAT") or data_hoje_bapi,
-                    "TO_DAT": r_info.get("TO_DAT") or "99991231"
-                })
+                # Montar payload com estrita garantia de não-duplicação
+                novo_conjunto = []
+                vistos_agr = set()
+                for r_name, r_info in preservadas.items():
+                    if r_name not in vistos_agr:
+                        novo_conjunto.append({
+                            "AGR_NAME": r_name,
+                            "FROM_DAT": r_info.get("FROM_DAT") or data_hoje_bapi,
+                            "TO_DAT": r_info.get("TO_DAT") or "99991231"
+                        })
+                        vistos_agr.add(r_name)
+                for r_name in sorted(expected_roles):
+                    if r_name not in vistos_agr:
+                        r_info = roles_env.get(r_name, {})
+                        novo_conjunto.append({
+                            "AGR_NAME": r_name,
+                            "FROM_DAT": r_info.get("FROM_DAT") or data_hoje_bapi,
+                            "TO_DAT": r_info.get("TO_DAT") or "99991231"
+                        })
+                        vistos_agr.add(r_name)
 
-            pres_p_str = f" | Preservadas={len(preservadas_prd)}" if preservadas_prd else ""
-            pres_q_str = f" | Preservadas={len(preservadas_qad)}" if preservadas_qad else ""
-            print(f"     PRD: {len(diretas_prd)} Diretas -> Remover={len(removidas_prd)}, Adicionar={len(adicionadas_prd)}{pres_p_str} => Total Final={len(novo_conjunto_prd)}")
-            print(f"     QAD: {len(diretas_qad)} Diretas -> Remover={len(removidas_qad)}, Adicionar={len(adicionadas_qad)}{pres_q_str} => Total Final={len(novo_conjunto_qad)}")
+                pres_str = f" | Preservadas={len(preservadas)}" if preservadas else ""
+                print(f"     {env} [{u}]: {len(diretas_env)} Diretas -> Remover={len(removidas)}, Adicionar={len(adicionadas)}{pres_str} => Total Único={len(novo_conjunto)}")
 
-            # 3. Chamar BAPI em PRD
-            res_p = conn_prd.call("BAPI_USER_ACTGROUPS_ASSIGN", USERNAME=u, ACTIVITYGROUPS=novo_conjunto_prd)
-            ret_p = res_p.get("RETURN", [])
-            erros_p = [m for m in ret_p if str(m.get("TYPE", "")).upper() in ("E", "A")]
+                # 2.2 Chamar BAPI_USER_ACTGROUPS_ASSIGN isoladamente
+                res_bapi = conn.call("BAPI_USER_ACTGROUPS_ASSIGN", USERNAME=u, ACTIVITYGROUPS=novo_conjunto)
+                ret_bapi = res_bapi.get("RETURN", [])
+                erros = [m for m in ret_bapi if str(m.get("TYPE", "")).upper() in ("E", "A")]
 
-            # 4. Chamar BAPI em QAD
-            res_q = conn_qad.call("BAPI_USER_ACTGROUPS_ASSIGN", USERNAME=u, ACTIVITYGROUPS=novo_conjunto_qad)
-            ret_q = res_q.get("RETURN", [])
-            erros_q = [m for m in ret_q if str(m.get("TYPE", "")).upper() in ("E", "A")]
+                if erros:
+                    env_info["erros_bapi"] += 1
+                    for ep in erros:
+                        print(f"     [ERRO {env}] {ep.get('ID')}: {ep.get('MESSAGE')}")
+                    # ROLLBACK APENAS DESTE AMBIENTE! Não afeta o outro ambiente.
+                    conn.call("BAPI_TRANSACTION_ROLLBACK")
+                    continue
 
-            if erros_p or erros_q:
-                sucesso_geral = False
-                for ep in erros_p:
-                    print(f"     [ERRO PRD] {ep.get('ID')}: {ep.get('MESSAGE')}")
-                for eq in erros_q:
-                    print(f"     [ERRO QAD] {eq.get('ID')}: {eq.get('MESSAGE')}")
-                conn_prd.call("BAPI_TRANSACTION_ROLLBACK")
-                conn_qad.call("BAPI_TRANSACTION_ROLLBACK")
-                continue
+                if modo_simulacao:
+                    conn.call("BAPI_TRANSACTION_ROLLBACK")
+                    msg_sim = "; ".join(m.get("MESSAGE", "") for m in ret_bapi if m.get("MESSAGE")) or "Simulação OK"
+                    print(f"     ✓ [SIMULAÇÃO {env} OK] {msg_sim}")
+                    env_info["processados"] += 1
+                else:
+                    # 2.3 COMMIT isolado neste ambiente
+                    conn.call("BAPI_TRANSACTION_COMMIT", WAIT="X")
+                    print(f"     ✓ [COMMIT {env} OK] Atribuições gravadas com sucesso no {env}!")
+                    env_info["processados"] += 1
 
-            if modo_simulacao:
-                conn_prd.call("BAPI_TRANSACTION_ROLLBACK")
-                conn_qad.call("BAPI_TRANSACTION_ROLLBACK")
-                msg_p = "; ".join(m.get("MESSAGE", "") for m in ret_p if m.get("MESSAGE")) or "Simulação OK"
-                msg_q = "; ".join(m.get("MESSAGE", "") for m in ret_q if m.get("MESSAGE")) or "Simulação OK"
-                print(f"     ✓ [SIMULAÇÃO OK] PRD: {msg_p}")
-                print(f"     ✓ [SIMULAÇÃO OK] QAD: {msg_q}")
-                print("     [ROLLBACK] Nenhuma alteração foi persistida na base de dados.")
-            else:
-                conn_prd.call("BAPI_TRANSACTION_COMMIT", WAIT="X")
-                conn_qad.call("BAPI_TRANSACTION_COMMIT", WAIT="X")
+                    # Gerar User Compare se houver funções compostas
+                    users_processados_set = {str(usr).strip().upper() for usr in users}
+                    for comp_role in sorted({u_data.get("composta") for u_data in analise.get("usuarios", []) if str(u_data.get("usuario", "")).strip().upper() in users_processados_set and u_data.get("composta")}):
+                        try:
+                            conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": comp_role}], IV_USERCOMPARE="X")
+                        except Exception:
+                            pass
 
-                # Gerar User Compare para as funções compostas envolvidas
-                users_processados_set = {str(usr).strip().upper() for usr in users}
-                for comp_role in sorted({u_data.get("composta") for u_data in analise.get("usuarios", []) if str(u_data.get("usuario", "")).strip().upper() in users_processados_set and u_data.get("composta")}):
+                    # 2.4 READBACK obrigatório no próprio ambiente pós-gravação
                     try:
-                        conn_prd.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": comp_role}], IV_USERCOMPARE="X")
-                    except Exception:
-                        pass
-                    try:
-                        conn_qad.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": comp_role}], IV_USERCOMPARE="X")
-                    except Exception:
-                        pass
+                        det_rb = conn.call("BAPI_USER_GET_DETAIL", USERNAME=u)
+                        diretas_rb = {r["AGR_NAME"] for r in det_rb.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C" and not dados.is_excluida(r["AGR_NAME"])}
+                        if diretas_rb == expected_roles:
+                            print(f"     ✓ [READBACK {env} OK] Diretas 100% conferidas no {env} ({len(diretas_rb)}/{len(expected_roles)})")
+                        else:
+                            print(f"     [AVISO READBACK {env}] Divergência no {env}: Gravadas={len(diretas_rb)} vs Esperadas={len(expected_roles)}")
+                            env_info["readback_ok"] = False
+                    except Exception as e_rb:
+                        print(f"     [AVISO READBACK {env}] Falha ao auditar readback: {e_rb}")
+                        env_info["readback_ok"] = False
 
-                print(f"     ✓ [COMMIT OK] Atribuições gravadas com sucesso em PRD e QAD!")
-
-                existing_cua = {
-                    (str(item.get("utilizador", "")).strip().upper(), str(item.get("sistema", "")).strip().upper(), str(item.get("role", "")).strip().upper())
-                    for item in dados.cua_adicionar
-                }
-
-                for r in removidas_prd:
-                    roles_removidas.append((u, "S4PCLNT100", r, "CONCLUÍDO", f"User {u} has changed via RFC"))
-                for r in removidas_qad:
-                    roles_removidas.append((u, "S4QCLNT100", r, "CONCLUÍDO", f"User {u} has changed via RFC"))
-
-                for r in sorted(expected_roles):
-                    if (u_norm, "S4PCLNT100", r) not in existing_cua:
-                        roles_adicionadas.append((u, "S4PCLNT100", r, "CONCLUÍDO", "Atribuição criada/confirmada no SAP PRD via RFC"))
-                        existing_cua.add((u_norm, "S4PCLNT100", r))
-                    if (u_norm, "S4QCLNT100", r) not in existing_cua:
-                        roles_adicionadas.append((u, "S4QCLNT100", r, "CONCLUÍDO", f"User {u} has changed via RFC"))
-                        existing_cua.add((u_norm, "S4QCLNT100", r))
+                    # Coletar itens gravados com sucesso para atualização deste sistema
+                    for r in removidas:
+                        env_info["roles_removidas"].append((u, sys_code, r, "CONCLUÍDO", f"User {u} has changed via RFC ({env})"))
+                    for r in sorted(expected_roles):
+                        key_tup = (u_norm, sys_code, r)
+                        if key_tup not in existing_cua:
+                            msg_ok = f"Atribuição criada/confirmada no SAP {env} via RFC" if env == "PRD" else f"User {u} has changed via RFC ({env})"
+                            env_info["roles_adicionadas"].append((u, sys_code, r, "CONCLUÍDO", msg_ok))
+                            existing_cua.add(key_tup)
 
         if modo_simulacao:
             print("\n" + "=" * 75)
-            print(f"✓ SIMULAÇÃO CONCLUÍDA COM SUCESSO PARA O DEPARTAMENTO: {dep_nome.upper()}")
-            print("  Nenhum dado foi alterado no SAP. Para efetivar, utilize a ação [4] Sincronizar PRD & QAD.")
+            print(f"✓ SIMULAÇÃO CONCLUÍDA PARA O DEPARTAMENTO: {dep_nome.upper()}")
+            print("  Nenhum dado foi alterado no SAP. PRD e QAD avaliados independentemente.")
             print("=" * 75)
             return True
 
-        if not sucesso_geral:
-            print(f"\n[ERRO] A sincronização do departamento '{dep_nome}' encontrou falhas.")
-            return False
-
-        # Auditoria final em tempo real
-        print("\n  A verificar auditoria final de paridade (PRD == QAD == Catálogo)...")
-        auditorias_invalidas = []
-        for u in users:
-            u_norm = str(u).strip().upper()
-            expected_direct = user_expected_map.get(u_norm, set())
-
-            det_p = conn_prd.call("BAPI_USER_GET_DETAIL", USERNAME=u)
-            p_finais = {r["AGR_NAME"] for r in det_p.get("ACTIVITYGROUPS", []) if not dados.is_excluida(r["AGR_NAME"])}
-            p_diretas = {r["AGR_NAME"] for r in det_p.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C" and not dados.is_excluida(r["AGR_NAME"])}
-
-            det_q = conn_qad.call("BAPI_USER_GET_DETAIL", USERNAME=u)
-            q_finais = {r["AGR_NAME"] for r in det_q.get("ACTIVITYGROUPS", []) if not dados.is_excluida(r["AGR_NAME"])}
-            q_diretas = {r["AGR_NAME"] for r in det_q.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C" and not dados.is_excluida(r["AGR_NAME"])}
-
-            match_direto = (p_diretas == expected_direct) and (q_diretas == expected_direct)
-            match_total = (p_finais == q_finais)
-
-            if match_direto:
-                print(f"     Auditoria {u}: Atribuições diretas 100% conformes (PRD={len(p_diretas)} | QAD={len(q_diretas)} | Catálogo={len(expected_direct)}) -> MATCH: True")
-                if not match_total:
-                    print(f"     ℹ️  Nota PFCG: O total expandido difere (PRD={len(p_finais)} vs QAD={len(q_finais)}) devido a funções filhas geradas por User Compare no ambiente.")
-            else:
-                print(f"     Auditoria {u}: Divergência em atribuições diretas! PRD={len(p_diretas)} | QAD={len(q_diretas)} | Esperadas={len(expected_direct)} -> MATCH: False")
-                auditorias_invalidas.append(u)
-
-        if auditorias_invalidas:
-            print(f"[ALERTA] Auditoria acusou divergência nas atribuições diretas dos seguintes utilizadores: {', '.join(auditorias_invalidas)}")
-
-        # Atualização do Excel (CUA_REMOVE, CUA_ADICIONAR, CONTROLO)
+        # ---------------------------------------------------------------------
+        # 3. ATUALIZAÇÃO NO EXCEL POR AMBIENTE INDEPENDENTE
+        # ---------------------------------------------------------------------
         print("\n  A atualizar folhas de cálculo oficiais no Excel...")
-        try:
-            import shutil
-            output_dir = Path(r"C:\workspace\SapScript\output")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            backup_path = output_dir / f"S4H_Perfis_backup_{timestamp_now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-            shutil.copy2(dados.caminho, backup_path)
-            print(f"  Backup criado em: {backup_path.name}")
-        except Exception as e_bkp:
-            print(f"  [AVISO] Falha ao criar backup: {e_bkp}")
+        roles_adicionadas_total = res_ambientes["PRD"]["roles_adicionadas"] + res_ambientes["QAD"]["roles_adicionadas"]
+        roles_removidas_total = res_ambientes["PRD"]["roles_removidas"] + res_ambientes["QAD"]["roles_removidas"]
 
-        try:
-            import openpyxl
-            wb_ox = openpyxl.load_workbook(dados.caminho)
+        if roles_adicionadas_total or roles_removidas_total:
+            try:
+                import shutil
+                output_dir = Path(r"C:\workspace\SapScript\output")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                backup_path = output_dir / f"S4H_Perfis_backup_{timestamp_now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+                shutil.copy2(dados.caminho, backup_path)
+                print(f"  Backup criado em: {backup_path.name}")
+            except Exception as e_bkp:
+                print(f"  [AVISO] Falha ao criar backup: {e_bkp}")
 
-            # Folha CUA_REMOVE
-            if "CUA_REMOVE" in wb_ox.sheetnames and roles_removidas:
-                ws_rem = wb_ox["CUA_REMOVE"]
-                max_id_rem = 0
-                for r in range(2, ws_rem.max_row + 1):
-                    v = ws_rem.cell(r, 1).value
-                    try:
-                        v_int = int(v)
-                        if v_int > max_id_rem: max_id_rem = v_int
-                    except (ValueError, TypeError): pass
-                for usr, sis, rol, st, msg in roles_removidas:
-                    max_id_rem += 1
-                    new_r = ws_rem.max_row + 1
-                    ws_rem.cell(new_r, 1, max_id_rem)
-                    ws_rem.cell(new_r, 2, usr)
-                    ws_rem.cell(new_r, 3, sis)
-                    ws_rem.cell(new_r, 4, rol)
-                    ws_rem.cell(new_r, 5, st)
-                    ws_rem.cell(new_r, 6, msg)
-                    ws_rem.cell(new_r, 7, timestamp_str)
-                    if sis == "S4PCLNT100":
-                        ws_rem.cell(new_r, 8, "OK")
-                    elif sis == "S4QCLNT100":
-                        ws_rem.cell(new_r, 9, "OK")
+            try:
+                import openpyxl
+                wb_ox = openpyxl.load_workbook(dados.caminho)
 
-            # Folha CUA_ADICIONAR
-            if "CUA_ADICIONAR" in wb_ox.sheetnames and roles_adicionadas:
-                ws_add = wb_ox["CUA_ADICIONAR"]
-                row_by_key = {}
-                max_id_add = 0
-                for r in range(2, ws_add.max_row + 1):
-                    v_id = ws_add.cell(r, 1).value
-                    try:
-                        v_int = int(v_id)
-                        if v_int > max_id_add: max_id_add = v_int
-                    except (ValueError, TypeError): pass
-                    u_c = normalizar_texto(ws_add.cell(r, 2).value)
-                    s_c = normalizar_texto(ws_add.cell(r, 3).value)
-                    r_c = normalizar_texto(ws_add.cell(r, 4).value)
-                    if u_c and s_c and r_c:
-                        row_by_key[(u_c, s_c, r_c)] = r
-
-                for usr, sis, rol, st, msg in roles_adicionadas:
-                    u_norm = normalizar_texto(usr)
-                    s_norm = normalizar_texto(sis)
-                    r_norm = normalizar_texto(rol)
-                    target_row = row_by_key.get((u_norm, s_norm, r_norm))
-                    if target_row:
-                        ws_add.cell(target_row, 5, st)
-                        ws_add.cell(target_row, 6, msg)
-                        ws_add.cell(target_row, 7, timestamp_str)
+                # Folha CUA_REMOVE
+                if "CUA_REMOVE" in wb_ox.sheetnames and roles_removidas_total:
+                    ws_rem = wb_ox["CUA_REMOVE"]
+                    max_id_rem = 0
+                    for r in range(2, ws_rem.max_row + 1):
+                        v = ws_rem.cell(r, 1).value
+                        try:
+                            v_int = int(v)
+                            if v_int > max_id_rem: max_id_rem = v_int
+                        except (ValueError, TypeError): pass
+                    for usr, sis, rol, st, msg in roles_removidas_total:
+                        max_id_rem += 1
+                        new_r = ws_rem.max_row + 1
+                        ws_rem.cell(new_r, 1, max_id_rem)
+                        ws_rem.cell(new_r, 2, usr)
+                        ws_rem.cell(new_r, 3, sis)
+                        ws_rem.cell(new_r, 4, rol)
+                        ws_rem.cell(new_r, 5, st)
+                        ws_rem.cell(new_r, 6, msg)
+                        ws_rem.cell(new_r, 7, timestamp_str)
                         if sis == "S4PCLNT100":
-                            ws_add.cell(target_row, 8, "OK")
+                            ws_rem.cell(new_r, 8, "OK")
                         elif sis == "S4QCLNT100":
-                            ws_add.cell(target_row, 9, "OK")
-                    else:
-                        max_id_add += 1
-                        new_r = ws_add.max_row + 1
-                        ws_add.cell(new_r, 1, max_id_add)
-                        ws_add.cell(new_r, 2, usr)
-                        ws_add.cell(new_r, 3, sis)
-                        ws_add.cell(new_r, 4, rol)
-                        ws_add.cell(new_r, 5, st)
-                        ws_add.cell(new_r, 6, msg)
-                        ws_add.cell(new_r, 7, timestamp_str)
-                        if sis == "S4PCLNT100":
-                            ws_add.cell(new_r, 8, "OK")
-                        elif sis == "S4QCLNT100":
-                            ws_add.cell(new_r, 9, "OK")
+                            ws_rem.cell(new_r, 9, "OK")
 
-            # Folha CONTROLO
-            if "CONTROLO" in wb_ox.sheetnames:
-                ws_ctrl = wb_ox["CONTROLO"]
-                for r in range(2, ws_ctrl.max_row + 1):
-                    if str(ws_ctrl.cell(r, 1).value or "").strip().upper() == dep_nome.strip().upper():
-                        ws_ctrl.cell(r, 2, "PROCESSADO")
-                        ws_ctrl.cell(r, 3, timestamp_str)
-                        break
+                # Folha CUA_ADICIONAR
+                if "CUA_ADICIONAR" in wb_ox.sheetnames and roles_adicionadas_total:
+                    ws_add = wb_ox["CUA_ADICIONAR"]
+                    row_by_key = {}
+                    max_id_add = 0
+                    for r in range(2, ws_add.max_row + 1):
+                        v_id = ws_add.cell(r, 1).value
+                        try:
+                            v_int = int(v_id)
+                            if v_int > max_id_add: max_id_add = v_int
+                        except (ValueError, TypeError): pass
+                        u_c = normalizar_texto(ws_add.cell(r, 2).value)
+                        s_c = normalizar_texto(ws_add.cell(r, 3).value)
+                        r_c = normalizar_texto(ws_add.cell(r, 4).value)
+                        if u_c and s_c and r_c:
+                            row_by_key[(u_c, s_c, r_c)] = r
 
-            wb_ox.save(dados.caminho)
-            print(f"  Ficheiro Excel {Path(dados.caminho).name} atualizado com sucesso!")
-        except Exception as e_ox:
-            print(f"  [AVISO] Falha ao atualizar Excel com openpyxl: {e_ox}")
+                    for usr, sis, rol, st, msg in roles_adicionadas_total:
+                        u_norm = normalizar_texto(usr)
+                        s_norm = normalizar_texto(sis)
+                        r_norm = normalizar_texto(rol)
+                        target_row = row_by_key.get((u_norm, s_norm, r_norm))
+                        if target_row:
+                            ws_add.cell(target_row, 5, st)
+                            ws_add.cell(target_row, 6, msg)
+                            ws_add.cell(target_row, 7, timestamp_str)
+                            if sis == "S4PCLNT100":
+                                ws_add.cell(target_row, 8, "OK")
+                            elif sis == "S4QCLNT100":
+                                ws_add.cell(target_row, 9, "OK")
+                        else:
+                            max_id_add += 1
+                            new_r = ws_add.max_row + 1
+                            ws_add.cell(new_r, 1, max_id_add)
+                            ws_add.cell(new_r, 2, usr)
+                            ws_add.cell(new_r, 3, sis)
+                            ws_add.cell(new_r, 4, rol)
+                            ws_add.cell(new_r, 5, st)
+                            ws_add.cell(new_r, 6, msg)
+                            ws_add.cell(new_r, 7, timestamp_str)
+                            if sis == "S4PCLNT100":
+                                ws_add.cell(new_r, 8, "OK")
+                            elif sis == "S4QCLNT100":
+                                ws_add.cell(new_r, 9, "OK")
 
-        item_dep["status"] = "PROCESSADO"
-        item_dep["timestamp"] = timestamp_str
-        item_dep["pendente"] = False
+                # Folha CONTROLO: Marcar PROCESSADO apenas se ambos os ambientes estiverem 100% concluídos
+                ambos_concluidos = (
+                    res_ambientes["PRD"]["online"] and res_ambientes["PRD"]["erros_bapi"] == 0 and
+                    res_ambientes["QAD"]["online"] and res_ambientes["QAD"]["erros_bapi"] == 0
+                )
+                if ambos_concluidos and "CONTROLO" in wb_ox.sheetnames:
+                    ws_ctrl = wb_ox["CONTROLO"]
+                    for r in range(2, ws_ctrl.max_row + 1):
+                        if str(ws_ctrl.cell(r, 1).value or "").strip().upper() == dep_nome.strip().upper():
+                            ws_ctrl.cell(r, 2, "PROCESSADO")
+                            ws_ctrl.cell(r, 3, timestamp_str)
+                            break
+                    item_dep["status"] = "PROCESSADO"
+                    item_dep["timestamp"] = timestamp_str
+                    item_dep["pendente"] = False
 
-        print(f"\n✓ Sincronização do departamento '{dep_nome}' concluída com sucesso (PRD e QAD)!")
-        return True
+                wb_ox.save(dados.caminho)
+                print(f"  Ficheiro Excel {Path(dados.caminho).name} atualizado com sucesso!")
+            except Exception as e_ox:
+                print(f"  [AVISO] Falha ao atualizar Excel com openpyxl: {e_ox}")
+
+        p_ok = res_ambientes["PRD"]["online"] and res_ambientes["PRD"]["erros_bapi"] == 0
+        q_ok = res_ambientes["QAD"]["online"] and res_ambientes["QAD"]["erros_bapi"] == 0
+        p_desc = "OK" if p_ok else ("OFFLINE" if not res_ambientes["PRD"]["online"] else "ERROS")
+        q_desc = "OK" if q_ok else ("OFFLINE" if not res_ambientes["QAD"]["online"] else "ERROS")
+
+        print(f"\n==============================================================================")
+        print(f"RESUMO DE EXECUÇÃO INDEPENDENTE: {dep_nome.upper()}")
+        print(f"==============================================================================")
+        print(f"  PRD (S4PCLNT100) : {p_desc} | Adições: {len(res_ambientes['PRD']['roles_adicionadas'])} | Erros: {res_ambientes['PRD']['erros_bapi']}")
+        print(f"  QAD (S4QCLNT100) : {q_desc} | Adições: {len(res_ambientes['QAD']['roles_adicionadas'])} | Erros: {res_ambientes['QAD']['erros_bapi']}")
+        print(f"==============================================================================")
+
+        return p_ok or q_ok
 
     finally:
-        try: conn_prd.close()
-        except Exception: pass
-        try: conn_qad.close()
-        except Exception: pass
+        if res_ambientes["PRD"]["conn"]:
+            try: res_ambientes["PRD"]["conn"].close()
+            except Exception: pass
+        if res_ambientes["QAD"]["conn"]:
+            try: res_ambientes["QAD"]["conn"].close()
+            except Exception: pass
 
 
 sincronizar_departamento_cua_completo = sincronizar_departamento_prd_qad_rfc
@@ -7137,7 +7820,7 @@ def executar_correcao_sincronizacao_posterior(
         if sub_op == "1":
             print("\n  A preparar e atualizar a sheet CUA_ADICIONAR no Excel...")
             novo_dados = executar_atualizacao_integrada_excel(caminho_excel, dados, incorporar_prd_rfc=False)
-            print("  ✓ Etapa [6/7] concluída. Ficheiro Excel sincronizado.")
+            print("  ✓ Etapa [7/8] concluída. Ficheiro Excel sincronizado.")
             dados = novo_dados
             if assumir_sim:
                 return dados
@@ -7351,7 +8034,7 @@ if __name__ == "__main__":
     parser.add_argument("--fila-cua", "--sincronizar-fila", dest="fila_cua", action="store_true", help="Executar sincronização CUA completa (PRD -> QAS) para todos os departamentos pendentes em sequência")
     parser.add_argument("--atribuir-transacao", "--pesquisar-atribuir", dest="atribuir_transacao", action="store_true", help="Pesquisar transação via RFC no PRD e atribuir a utilizador na Proposta Ativa, PFCG_CREATE e folha departamental")
     parser.add_argument("--corrigir-posterior", "--corrigir-sincronizacao", dest="corrigir_posterior", action="store_true", help="Executar correção de sincronização posterior para utilizadores com funções pendentes no CUA")
-    parser.add_argument("--audit", dest="audit", action="store_true", help="Executar Auditoria Departamental Pós-Processamento 100% Read-Only nos departamentos com STATUS=PROCESSADO")
+    parser.add_argument("--audit", dest="audit", action="store_true", help="Executar Auditoria Departamental Pós-Processamento 100%% Read-Only nos departamentos com STATUS=PROCESSADO")
     parser.add_argument("--resumo", dest="resumo", action="store_true", help="Utilizar modo resumo na auditoria pós-processamento")
     parser.add_argument("--reconstruir-proposta-ativa", "--reconstruir-proposta", dest="reconstruir_proposta", action="store_true", help="Reconstruir Funções Individuais da sheet Proposta Ativa a partir das matrizes departamentais e Proposta")
     parser.add_argument("--simular", dest="simular", action="store_true", help="Apenas simular a operação sem gravar no Excel")

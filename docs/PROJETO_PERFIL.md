@@ -31,28 +31,94 @@ modo normal usa diretamente o ficheiro `_v1` da raiz do projeto.
 ### Leitura Concorrente (Sem Bloqueio do Excel)
 Graças à função `abrir_excel_seguro`, o script abre o ficheiro utilizando a API do Windows (`win32file.CreateFile`) com as flags `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`. Isso permite executar pesquisas e análises mesmo enquanto o ficheiro estiver aberto e em edição no Microsoft Excel.
 
-## 3. Fluxo Integrado de 7 Etapas da Tarefa 1
+## 3. Fluxo Integrado de 8 Etapas da Tarefa 1
 
-O Projeto Perfil organiza a reconciliação e atualização num fluxo estruturado de 7 etapas:
+O Projeto Perfil organiza a reconciliação e atualização num fluxo estruturado de 8 etapas padronizadas (`/8`):
 
-- **`[1/7]` Matrizes Departamentais × Sheet `Proposta`**: Auditoria de TCODEs utilizadas nas matrizes departamentais vs mapeamentos na `Proposta` (suporte a regras especiais como `BP` = `TRATADO_POR_REGRA_ESPECIAL`).
-- **`[2/7]` Proposta × SAP PRD TSTC**: Validação das TCODEs do catálogo contra o dicionário de transações do SAP.
-- **`[3/7]` Proposta Ativa**: Reconciliação dos utilizadores e funções das matrizes com a `Proposta Ativa`.
-- **`[4/7]` Catálogo Vivo**: Incorporação de funções válidas necessárias do SAP PRD.
-- **`[5/7]` PFCG_COMPOSTA**: Reconciliação entre Composite Roles e Single Roles.
-- **`[6/7]` PREPARAÇÃO DA SHEET CUA_ADICIONAR (Apenas Excel)**:
+- **`[1/8]` Matrizes Departamentais × Sheet `Proposta`**: Auditoria de TCODEs utilizadas nas matrizes departamentais vs mapeamentos na `Proposta` (suporte a regras especiais como `BP` = `TRATADO_POR_REGRA_ESPECIAL`).
+- **`[2/8]` Proposta × SAP PRD TSTC**: Validação das TCODEs do catálogo contra o dicionário de transações do SAP.
+- **`[3/8]` Proposta Ativa**: Reconciliação dos utilizadores e funções das matrizes com a `Proposta Ativa`.
+- **`[4/8]` Catálogo Vivo**: Incorporação de funções válidas necessárias do SAP PRD.
+- **Reconciliação Prévia de PFCG_AUTHORITY (`sap_rfc/pfcg_authority_reconcile_service.py`)**:
+  - **Execução Antecedente às Validações SAP**: Ocorre imediatamente antes de `[5/8]` e `[6/8]`, garantindo que o catálogo de tipos esperados do Excel esteja coerente antes de qualquer consulta ao SAP.
+  - **Regra Oficial de Tipo por Coluna**:
+    - `PFCG_AUTHORITY.AGR_NAME_COMPOSTA` preenchido $\rightarrow$ `TIPO_ESPERADO = COMPOSITE`. A relação `(AGR_NAME_COMPOSTA, AGR_NAME)` deve existir na sheet `PFCG_COMPOSTA` (quando houver child).
+    - `PFCG_AUTHORITY.AGR_NAME` preenchido $\rightarrow$ `TIPO_ESPERADO = SINGLE`. Deve existir na sheet `PFCG_CREATE`.
+    - **Remoção de regra errônea**: Presença em `PFCG_AUTHORITY` NÃO transforma uma role em Single genérica. Roles como `Z_BR_BUSINESS_PARTNER`, `Z_BR_BUSINESS_PARTNER_GL` e `Z_BR_TYPE_BP_GERAL` que constam em `AGR_NAME_COMPOSTA` são estritamente reconhecidas como `COMPOSITE`.
+  - **Casos Especiais & Integridade**:
+    - `AGR_NAME_COMPOSTA` vazio $\rightarrow$ Single avulsa, deve existir em `PFCG_CREATE`, nenhuma relação criada em `PFCG_COMPOSTA`.
+    - `AGR_NAME` vazio com composta preenchida $\rightarrow$ classificada como `AUTHORITY_COMPOSITE_SEM_CHILD`. Mantém tipo `COMPOSITE`, sem inventar relação vazia.
+    - Conflito (role em ambas as colunas) $\rightarrow$ classificada como `CONFLITO_TIPO_AUTHORITY` e reportada sem alteração automática.
+  - **Garantias Operacionais**:
+    - `dry_run = True`: somente leitura e relatório de deltas (`SAP_WRITE = 0`, `EXCEL_WRITE = 0`).
+    - `dry_run = False`: backup timestampado obrigatório em `output/` antes de gravar no Excel. Falha no backup aborta a escrita. Novas Singles em `PFCG_CREATE` são criadas com TCODE vazio e descrições existentes não são sobrescritas.
+- **`[5/8]` VALIDAÇÃO DE FUNÇÕES INDIVIDUAIS (SINGLE ROLES)**:
+  - **Serviço Responsável**: `sap_rfc/role_existence_validator_service.py` (`executar_etapa_validacao_funcoes_individuais`).
+  - **Filtro Estrito por Tipo**: Valida **exclusivamente** roles com `TIPO_ESPERADO == 'SINGLE'` (89 Single Roles esperadas no projeto). Nenhuma Composite entra nesta etapa.
+  - **Classificações Técnicas**:
+    - `SINGLE_OK`: Existe fisicamente em `AGR_DEFINE` e não possui flag `COLL_AGR` em `AGR_FLAGS`.
+    - `SINGLE_AUSENTE`: Inexistente em `AGR_DEFINE`.
+    - `SINGLE_TIPO_DIVERGENTE`: Existe fisicamente em `AGR_DEFINE`, mas possui flag `COLL_AGR = 'X'` em `AGR_FLAGS` (está incorretamente como Composta no SAP).
+    - `ERRO_LEITURA`: Falha de comunicação ou leitura RFC.
+    - `UNKNOWN_AMBIENTE`: Ambiente offline (QAD indisponível = `UNKNOWN`, nunca `MISSING`).
+  - **Política de Correção Segura**:
+    - Se houver `SINGLE_TIPO_DIVERGENTE`, lista todas as roles com divergência dinamicamente.
+    - Pergunta de confirmação separada: *"Deseja analisar/corrigir agora? (S/N)"*.
+    - Sob confirmação, executa auditoria aprofundada (`auditar_single_role_divergente`) verificando tipo no SAP, tipo esperado, utilizadores, tcodes, autorizações e relações.
+    - Bloqueia automaticamente para revisão manual (`BLOQUEADA_PARA_REVISAO`), sem delete/recreate automático descontrolado.
+- **`[6/8]` VALIDAÇÃO DE FUNÇÕES COMPOSTAS (COMPOSITE ROLES)**:
+  - **Serviço Responsável**: `sap_rfc/role_existence_validator_service.py` (`executar_etapa_validacao_funcoes_compostas`, `corrigir_composite_role_divergente_com_readback`).
+  - **Filtro Estrito por Tipo**: Valida **exclusivamente** roles com `TIPO_ESPERADO == 'COMPOSITE'` (35 Composite Roles esperadas no projeto). Nenhuma Single entra nesta etapa.
+  - **Classificações Técnicas**:
+    - `COMPOSITE_OK`: Existe fisicamente em `AGR_DEFINE` e possui `COLL_AGR = 'X'` em `AGR_FLAGS`.
+    - `COMPOSITE_AUSENTE`: Inexistente em `AGR_DEFINE`.
+    - `COMPOSITE_TIPO_DIVERGENTE`: Existe fisicamente em `AGR_DEFINE`, mas não possui flag `COLL_AGR = 'X'` (está incorretamente como Single no SAP).
+    - `ERRO_LEITURA`: Falha de comunicação ou leitura RFC.
+    - `UNKNOWN_AMBIENTE`: Ambiente offline (QAD indisponível = `UNKNOWN`, nunca `MISSING`).
+  - **Fluxo de Correção Segura com Readback Estrito**:
+    - Se houver `COMPOSITE_TIPO_DIVERGENTE`, lista todas as roles dinamicamente.
+    - Pergunta de confirmação separada: *"Deseja corrigir agora as X Composite Roles com tipo incorreto? (S/N)"*.
+    - Sob confirmação (`S`), para cada role:
+      1. READBACK inicial (confirma existência e tipo físico Single);
+      2. Valida segurança para substituição;
+      3. Elimina Single incorreta via RFC oficial (`PRGN_RFC_DELETE_ACTIVITY_GROUPS`);
+      4. Commit explícito (`BAPI_TRANSACTION_COMMIT(WAIT='X')`);
+      5. READBACK obrigatório de ausência em `AGR_DEFINE`;
+      6. Recria como Composta oficial via `PRGN_RFC_CREATE_AGR_MULTIPLE(COLLECTIVE_AGR='X')` (nunca `PRGN_RFC_CREATE_ACTIVITY_GROUP`);
+      7. Commit explícito;
+      8. READBACK final obrigatório confirmando existência em `AGR_DEFINE` e `COLL_AGR = 'X'` em `AGR_FLAGS`;
+      9. Apenas após confirmação por readback é marcada como `CORRIGIDA`.
+  - **Proteção contra Falha de Logon RFC**: Se ocorrer `RFC_LOGON_FAILURE` / `Password must be changed` no PRD, aborta imediatamente sem exibir perguntas interativas e sem executar nenhuma mutação SAP.
+  - **Proteção da Mensagem 100% Alinhado**: Nunca exibe *"O ficheiro Excel encontra-se 100% alinhado"* caso existam divergências ou pendências conhecidas (exibe *"Sincronização concluída com pendências conhecidas."*).
+- **`[7/8]` PREPARAÇÃO DA SHEET CUA_ADICIONAR (Apenas Excel)**:
   - Responsabilidade exclusiva: calcular roles diretas necessárias (Composta principal + Singles avulsas não-filhas + Definições) e criar SOMENTE as linhas em falta na sheet `CUA_ADICIONAR`.
   - **Zero escrita no SAP**: Não efetua nenhuma chamada RFC de escrita nem altera o SAP nesta etapa.
   - **Chave de Idempotência**: `UTILIZADOR + SISTEMA + AGR_NAME` (normalizado com `strip().upper()`). Se a combinação já existir, nenhuma nova linha é criada.
   - **Campos das novas linhas**: `ID = max(ID)+1`, `UTILIZADOR`, `SISTEMA` (`S4PCLNT100` / `S4QCLNT100`), `AGR_NAME`, `STATUS` vazio, `MSG` vazio, `TIMESTEMP` vazio, `PRD`/`QAD` vazios.
   - **Ambientes Independentes**: Linha independente por ambiente (`S4PCLNT100` e `S4QCLNT100`).
-- **`[7/7]` EXECUÇÃO DAS ATRIBUIÇÕES PENDENTES NO SAP**:
-  - Consome as atribuições pendentes registadas na sheet `CUA_ADICIONAR`.
-  - **Confirmação Obrigatória**: Exige ação explícita do utilizador `[1] Executar`, `[2] Simular`, `[3] Cancelar` antes de qualquer alteração no SAP.
-  - **Modo Simulação**: Executa BAPI e realiza obrigatoriamente `BAPI_TRANSACTION_ROLLBACK`.
-  - **Execução Real & Readback Obrigatório**: Lê o estado via `BAPI_USER_GET_DETAIL`, adiciona com `BAPI_USER_ACTGROUPS_ASSIGN` + `BAPI_TRANSACTION_COMMIT(WAIT='X')`, e efetua **READBACK OBRIGATÓRIO** para confirmar a atribuição no SAP antes de atualizar a linha na sheet `CUA_ADICIONAR` (via `ID`) com `STATUS='CONCLUÍDO'`, timestamp e marcação do ambiente correspondente (`PRD = OK` ou `QAD = OK`).
-  - **Independência PRD/QAD**: Falhas num ambiente não bloqueiam o outro nem geram rollback indevido.
-  - **Fluxo de Adição Segura**: Não remove automaticamente funções existentes do utilizador. Remorações continuam restritas ao fluxo separado `CUA_REMOVE`.
+- **`[8/8]` EXECUÇÃO DAS ATRIBUIÇÕES PENDENTES NO SAP (PRD e QAD Independentes)**:
+  - Consome as atribuições pendentes registadas na sheet `CUA_ADICIONAR` e as relações em `PFCG_COMPOSTA`.
+  - Relações em `PFCG_COMPOSTA` só são executadas se a parent for `COMPOSITE_OK` e a child não tiver `CHILD_TIPO_DIVERGENTE`.
+  - **Chave Oficial de Processamento**: `UTILIZADOR + SISTEMA + AGR_NAME`. Cada linha é uma unidade de execução isolada para o seu ambiente específico (`S4PCLNT100` ou `S4QCLNT100`).
+  - **Independência Total entre Ambientes**:
+    - **Conexões Independentes**: Tentativa de conexão isolada para `PRD` e `QAD`. Se um ambiente estiver indisponível (offline ou timeout), o outro conecta e processa normalmente sem bloqueio global.
+    - **Zero Rollback Cruzado**: Cada ambiente executa a sua chamada `BAPI_USER_ACTGROUPS_ASSIGN` e gere os seus erros de forma independente. Um erro ou falha no QAD jamais dispara rollback no PRD, e vice-versa.
+    - **Commit e Readback Isolados**: O ambiente online executa `BAPI_TRANSACTION_COMMIT(WAIT='X')` e efetua **READBACK OBRIGATÓRIO** via `BAPI_USER_GET_DETAIL` no próprio ambiente para auditar se as funções diretas estão fisicamente persistidas.
+    - **Atualização Cirúrgica no Excel**: Apenas as linhas pertencentes ao ambiente processado com sucesso são atualizadas no Excel (`STATUS = 'CONCLUÍDO'`, `MSG` de sucesso, timestamp atual e marcação de ambiente `PRD = 'OK'` ou `QAD = 'OK'`). As linhas do ambiente indisponível ou com erro permanecem estritamente intactas com `STATUS = ''` e marcação vazia.
+    - **Preservação de Funções & Foco em Adição**: A atribuição segura preserva integralmente as funções existentes do utilizador (incluindo folha `EXCLUÇÃO`), sem remover roles. Remoções pertencem exclusivamente ao fluxo `CUA_REMOVE`.
+    - **Sheet CONTROLO**: Apenas transita para `PROCESSADO` se ambos os ambientes tiverem concluído 100% das suas atribuições sem erros pendentes. Se um ambiente ficar pendente, o departamento permanece disponível para posterior sincronização do ambiente faltante.
+  - **Confirmação Obrigatória**: Exige confirmação explícita do utilizador antes de qualquer alteração física no SAP.
+  - **Modo Simulação**: Executa as BAPIs e realiza `BAPI_TRANSACTION_ROLLBACK` em cada ambiente sem alterar o SAP.
+  - **Chave Oficial de Processamento**: `UTILIZADOR + SISTEMA + AGR_NAME`. Cada linha é uma unidade de execução isolada para o seu ambiente específico (`S4PCLNT100` ou `S4QCLNT100`).
+  - **Independência Total entre Ambientes**:
+    - **Conexões Independentes**: Tentativa de conexão isolada para `PRD` e `QAD`. Se um ambiente estiver indisponível (offline ou timeout), o outro conecta e processa normalmente sem bloqueio global.
+    - **Zero Rollback Cruzado**: Cada ambiente executa a sua chamada `BAPI_USER_ACTGROUPS_ASSIGN` e gere os seus erros de forma independente. Um erro ou falha no QAD jamais dispara rollback no PRD, e vice-versa.
+    - **Commit e Readback Isolados**: O ambiente online executa `BAPI_TRANSACTION_COMMIT(WAIT='X')` e efetua **READBACK OBRIGATÓRIO** via `BAPI_USER_GET_DETAIL` no próprio ambiente para auditar se as funções diretas estão fisicamente persistidas.
+    - **Atualização Cirúrgica no Excel**: Apenas as linhas pertencentes ao ambiente processado com sucesso são atualizadas no Excel (`STATUS = 'CONCLUÍDO'`, `MSG` de sucesso, timestamp atual e marcação de ambiente `PRD = 'OK'` ou `QAD = 'OK'`). As linhas do ambiente indisponível ou com erro permanecem estritamente intactas com `STATUS = ''` e marcação vazia.
+    - **Preservação de Funções & Foco em Adição**: A atribuição segura preserva integralmente as funções existentes do utilizador (incluindo folha `EXCLUÇÃO`), sem remover roles. Remoções pertencem exclusivamente ao fluxo `CUA_REMOVE`.
+    - **Sheet CONTROLO**: Apenas transita para `PROCESSADO` se ambos os ambientes tiverem concluído 100% das suas atribuições sem erros pendentes. Se um ambiente ficar pendente, o departamento permanece disponível para posterior sincronização do ambiente faltante.
+  - **Confirmação Obrigatória**: Exige confirmação explícita do utilizador antes de qualquer alteração física no SAP.
+  - **Modo Simulação**: Executa as BAPIs e realiza `BAPI_TRANSACTION_ROLLBACK` em cada ambiente sem alterar o SAP.
 
 ### Sheet `CONTROLO`
 - Analisa a coluna `STATUS` de cada departamento registado na sheet `CONTROLO`.

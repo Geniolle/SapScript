@@ -496,6 +496,50 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         got = _body(main.api_salsa_it_pfcg_analyze_job(created["job_id"]))
         self.assertEqual(got["state"], "failed")
 
+    def test_projeto_perfil_su53_create_job(self) -> None:
+        created = _body(
+            main.api_salsa_it_projeto_perfil(
+                "su53",
+                main.SalsaItProjetoPerfilRequest(username="S2795", environment="PRD"),
+            )
+        )
+        self.assertIn("job_id", created)
+        self.assertEqual(created["state"], "pending")
+
+    def test_projeto_perfil_su53_job_succeeded(self) -> None:
+        created = _body(
+            main.api_salsa_it_projeto_perfil(
+                "su53",
+                main.SalsaItProjetoPerfilRequest(username="S2795", environment="PRD"),
+            )
+        )
+        payload_result = {
+            "ok": True,
+            "usuario": "S2795",
+            "target_env": "PRD",
+            "total_erros": 31,
+            "total_transacoes": 4,
+            "total_objetos": 1,
+            "transacoes": [{"tcode": "ME21N", "rc": 4}],
+            "objetos": [{"objeto": "B_BUP_PCPT", "rc": 12}],
+            "message": "Diagnóstico SU53 concluído para S2795 em PRD.",
+        }
+        self._complete_job(
+            created["job_id"],
+            "succeeded",
+            json.dumps(payload_result),
+            "",
+        )
+        got = _body(main.api_salsa_it_projeto_perfil_job("su53", created["job_id"]))
+        self.assertEqual(got["state"], "succeeded")
+        self.assertEqual(got["result"]["usuario"], "S2795")
+        self.assertEqual(got["result"]["total_erros"], 31)
+
+    def test_projeto_perfil_invalid_action_returns_400(self) -> None:
+        with self.assertRaises(main.HTTPException) as ctx:
+            main.api_salsa_it_projeto_perfil("acao_inexistente")
+        self.assertEqual(ctx.exception.status_code, 400)
+
 
 def tearDownModule() -> None:
     shutil.rmtree(_TMPDIR, ignore_errors=True)

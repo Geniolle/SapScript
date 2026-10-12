@@ -838,10 +838,16 @@ class SalsaItCuaAdicionarRequest(BaseModel):
     agr_name: str = ""
     subsystem: str = ""
 
-
-
-
-
+class SalsaItProjetoPerfilRequest(BaseModel):
+    action: str = ""
+    departamento: str = ""
+    subacao: str = ""
+    username: str = ""
+    tcode: str = ""
+    environment: str = "PRD"
+    tcode_atribuir: str = ""
+    assumir_sim: bool = False
+    caminho_excel: str | None = None
 
 
 
@@ -2739,6 +2745,66 @@ def api_salsa_it_pfcg_transport_search_job(job_id: str) -> JSONResponse:
 
     safe_result = _safe_pfcg_transport_search_result(result)
     return _json_no_store({"state": "succeeded", "result": safe_result})
+
+
+PROJETO_PERFIL_ACTIONS = frozenset({"execucao", "departamento", "utilizador", "pesquisa", "corrigir", "su53"})
+
+
+@app.post("/api/salsa-it-agent/projeto-perfil/{action}")
+def api_salsa_it_projeto_perfil(action: str, payload: SalsaItProjetoPerfilRequest | None = None) -> JSONResponse:
+    action_clean = str(action or "").strip().lower()
+    if action_clean not in PROJETO_PERFIL_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Ação do Projeto Perfil inválida: {action}")
+
+    task_name = f"projeto_perfil_{action_clean}"
+    p_dict = payload.model_dump() if payload else {}
+    p_dict["action"] = action_clean
+    p_dict["environment"] = _validate_pfcg_system_or_400(p_dict.get("environment") or "PRD")
+
+    try:
+        job = create_job(task_name, p_dict)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _json_no_store({"job_id": job["id"], "state": job["state"]})
+
+
+@app.get("/api/salsa-it-agent/projeto-perfil/{action}/{job_id}")
+def api_salsa_it_projeto_perfil_job(action: str, job_id: str) -> JSONResponse:
+    action_clean = str(action or "").strip().lower()
+    if action_clean not in PROJETO_PERFIL_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Ação do Projeto Perfil inválida: {action}")
+
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+
+    expected_task = f"projeto_perfil_{action_clean}"
+    if job.get("task") != expected_task:
+        raise HTTPException(status_code=400, detail=f"O job {job_id} não pertence à tarefa {expected_task}.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        err_msg = str(job.get("status") or job.get("log") or "Operação do Projeto Perfil falhou.")
+        return _json_no_store({"state": "failed", "message": err_msg})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": "Resultado retornado não é um objeto JSON válido."})
+
+    return _json_no_store({"state": "succeeded", "result": result})
 
 
 @app.post("/api/sap-agent/chat")

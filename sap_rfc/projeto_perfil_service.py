@@ -422,7 +422,13 @@ def diagnostico_su53(
         roles_encontradas = []
         if os.path.exists(caminho):
             try:
-                sug_role, roles_encontradas = mod_su53.localizar_transacao_no_excel(caminho, tc)
+                roles_encontradas = mod_su53.buscar_funcao_individual_para_transacao(
+                    caminho_excel=caminho,
+                    tcode=tc,
+                    usuario=u_clean,
+                )
+                if roles_encontradas:
+                    sug_role = roles_encontradas[0].get("role")
             except Exception:
                 pass
         tcodes_detalhes.append({
@@ -440,18 +446,30 @@ def diagnostico_su53(
             "descricao": o.get("descricao") or "",
             "rc": o.get("rc_mais_recente"),
             "data_hora": o.get("data_hora_recente"),
+            "programa": o.get("programa") or "",
+            "linha": o.get("linha") or 0,
+            "total_ocorrencias": o.get("total_ocorrencias") or 1,
+            "campos": [
+                {"campo": f, "valor": v}
+                for f, v in (o.get("campos_relevantes") or [])
+            ],
+            "campos_formatados": ", ".join([f"{f} = {v}" for f, v in (o.get("campos_relevantes") or [])])
         }
         for o in objetos
     ]
 
+    total_erros_count = len(erros)
     return {
         "ok": True,
         "usuario": u_clean,
         "target_env": env_clean,
-        "total_erros": len(erros),
+        "total_erros": total_erros_count,
+        "total_erros_buffer": total_erros_count,
         "total_transacoes": len(tcodes_detalhes),
         "total_objetos": len(objetos_detalhes),
         "transacoes": tcodes_detalhes,
+        "transacoes_bloqueadas": tcodes_detalhes,
         "objetos": objetos_detalhes,
+        "objetos_em_falta": objetos_detalhes,
         "message": f"Diagnóstico SU53 concluído para {u_clean} em {env_clean}. {len(tcodes_detalhes)} transações e {len(objetos_detalhes)} objetos com falha.",
     }
