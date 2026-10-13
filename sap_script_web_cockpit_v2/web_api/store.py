@@ -541,6 +541,40 @@ def delete_job(job_id: str) -> None:
         conn.commit()
 
 
+def purge_old_jobs(days: int = 30, keep_last: int = 500) -> int:
+    """
+    Remove jobs antigos (finalizados) mantendo os mais recentes (keep_last)
+    ou com menos de 'days' dias, evitando crescimento indefinido da tabela.
+    Executa VACUUM para recuperar espaco em disco do SQLite.
+    """
+    with get_connection() as conn:
+        # Apaga jobs succeeded/failed que excedem o limite de 'keep_last'
+        # e sao mais antigos que X dias
+        cur = conn.cursor()
+        cur.execute(
+            """
+            DELETE FROM jobs
+            WHERE state IN ('succeeded', 'failed')
+              AND id NOT IN (
+                  SELECT id FROM jobs
+                  ORDER BY created_at DESC
+                  LIMIT ?
+              )
+              AND datetime(created_at) < datetime('now', ? || ' days')
+            """,
+            (keep_last, f"-{days}"),
+        )
+        deleted = cur.rowcount
+        conn.commit()
+
+        if deleted > 0:
+            try:
+                conn.execute("VACUUM")
+            except Exception:
+                pass
+    return deleted
+
+
 def update_job_params(job_id: str, new_params: dict[str, Any]) -> dict[str, Any]:
     now = utc_now()
     with get_connection() as conn:

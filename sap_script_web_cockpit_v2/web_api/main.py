@@ -131,11 +131,29 @@ POLL_SECONDS = max(1, int(os.getenv("POLL_SECONDS", "60")))
 JIRA_DOWNLOAD_DIR_CONTAINER = os.getenv("JIRA_DOWNLOAD_DIR_CONTAINER", "/data/jira").strip()
 JIRA_DOWNLOAD_DIR_WINDOWS = os.getenv("JIRA_DOWNLOAD_DIR_WINDOWS", r"C:\Jira").strip()
 
+async def auto_purge_jobs_loop():
+    """Executa expurgo automático de jobs antigos uma vez por dia."""
+    while True:
+        try:
+            await asyncio.sleep(86400) # 24 horas
+            from web_api.store import purge_old_jobs
+            deleted = await asyncio.to_thread(purge_old_jobs, days=30, keep_last=500)
+            if deleted > 0:
+                print(f"[AUTO-PURGE] {deleted} jobs antigos expurgados com sucesso.")
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            print(f"[AUTO-PURGE ERRO] {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     _log_jira_env_boot_status()
-    background_tasks = [asyncio.create_task(sync_jira_tickets_loop())]
+    background_tasks = [
+        asyncio.create_task(sync_jira_tickets_loop()),
+        asyncio.create_task(auto_purge_jobs_loop()),
+    ]
     try:
         yield
     finally:
@@ -162,6 +180,14 @@ def api_health() -> dict[str, Any]:
     except Exception as exc:
         return {"status": "unhealthy", "database": False, "error": str(exc)}
     return {"status": "healthy", "database": db_ok, "jobs_count": job_count}
+
+
+@app.post("/api/admin/purge_jobs")
+def api_purge_jobs(days: int = 30, keep_last: int = 500) -> dict[str, Any]:
+    """Expurga jobs antigos e executa VACUUM no SQLite."""
+    from web_api.store import purge_old_jobs
+    deleted = purge_old_jobs(days=days, keep_last=keep_last)
+    return {"status": "success", "deleted_count": deleted}
 
 
 class CompleteJobRequest(BaseModel):
