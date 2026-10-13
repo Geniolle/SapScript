@@ -24,21 +24,21 @@ def _validate_user_create_system_or_400(system: str) -> str:
     return value
 
 
-def _validate_username_or_400(username: str) -> str:
-    try:
-        from sap_rfc.user_data_service import validate_username
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Não foi possível carregar a validação de utilizador no backend.",
-        ) from exc
+import re
 
-    try:
-        return validate_username(username)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+_USER_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,12}$")
+
+
+def _validate_username_or_400(username: str) -> str:
+    value = str(username or "").strip().upper()
+    if not value:
+        raise HTTPException(status_code=400, detail="Indique um utilizador SAP.")
+    if not _USER_RE.match(value):
+        raise HTTPException(
+            status_code=400,
+            detail="Utilizador invalido: use apenas letras, numeros, _, . ou - (max. 12).",
+        )
+    return value
 
 
 def _safe_user_create_failed_message() -> str:
@@ -54,20 +54,13 @@ def _safe_user_unlock_failed_message() -> str:
 
 
 def _validate_pernr_or_400(pernr: str) -> str:
-    try:
-        from sap_rfc.hr_lookup_service import validate_pernr
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Não foi possível carregar a validação de PERNR no backend.",
-        ) from exc
-
-    try:
-        return validate_pernr(pernr)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    value = str(pernr or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Indique o número de colaborador (PERNR).")
+    digits = re.sub(r"\D", "", value)
+    if not digits:
+        raise HTTPException(status_code=400, detail="PERNR inválido: use apenas dígitos numéricos.")
+    return digits.zfill(8)
 
 
 def _safe_hr_lookup_failed_message() -> str:

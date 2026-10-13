@@ -8,10 +8,8 @@ $LogPath = Join-Path $ProjectDir "start_all.log"
 
 cd $ProjectDir
 
-"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Subindo Docker Compose..." | Out-File $LogPath -Append -Encoding UTF8
-docker compose up -d --build *>> $LogPath
-
-Start-Sleep -Seconds 5
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] O Cockpit Web esta hospedado na Oracle Cloud (140.238.123.30)." | Out-File $LogPath -Append -Encoding UTF8
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Docker local nao e necessario." | Out-File $LogPath -Append -Encoding UTF8
 
 $ExistingWorker = Get-CimInstance Win32_Process |
     Where-Object {

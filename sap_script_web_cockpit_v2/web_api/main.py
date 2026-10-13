@@ -149,6 +149,21 @@ app.mount("/static", StaticFiles(directory="web_api/static"), name="static")
 templates = Jinja2Templates(directory="web_api/templates")
 
 
+@app.get("/health")
+def api_health() -> dict[str, Any]:
+    db_ok = False
+    try:
+        from web_api.store import get_connection
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT count(*) FROM jobs")
+            job_count = cur.fetchone()[0]
+            db_ok = True
+    except Exception as exc:
+        return {"status": "unhealthy", "database": False, "error": str(exc)}
+    return {"status": "healthy", "database": db_ok, "jobs_count": job_count}
+
+
 class CompleteJobRequest(BaseModel):
     state: str
     status: str
@@ -227,9 +242,19 @@ def get_available_environments() -> list[dict[str, str]]:
 
 
 def _get_fi_default_context() -> dict[str, Any]:
-    from sap_rfc.fi_config import get_fi_default_context
-
-    return get_fi_default_context()
+    try:
+        from sap_rfc.fi_config import get_fi_default_context
+        return get_fi_default_context()
+    except Exception:
+        return {
+            "company_code": os.getenv("SAP_FI_COMPANY_CODE", "1000"),
+            "currency": os.getenv("SAP_FI_CURRENCY", "EUR"),
+            "amount": os.getenv("SAP_FI_AMOUNT", "1.00"),
+            "tax_code": os.getenv("SAP_FI_TAX_CODE", "V0"),
+            "doc_type_fornecedor": os.getenv("SAP_FI_DOC_TYPE_FORNECEDOR", "KR"),
+            "doc_type_cliente": os.getenv("SAP_FI_DOC_TYPE_CLIENTE", "DR"),
+            "doc_type_razao": os.getenv("SAP_FI_DOC_TYPE_RAZAO", "SA"),
+        }
 
 
 def _default_f110_next_due_date() -> str:

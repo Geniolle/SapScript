@@ -20,6 +20,8 @@ credentials.json
 !.env.enc
 
 # Local uploads and temporary files
+Servidor/
+data/*.sqlite3
 sap_script_uploads/
 sap_script_web_cockpit_v2/data/
 *.bak_*

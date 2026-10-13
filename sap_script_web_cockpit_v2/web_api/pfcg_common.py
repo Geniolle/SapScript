@@ -18,21 +18,24 @@ PFCG_RFC_DELETE_ENVIRONMENT = "DEV"
 PFCG_RFC_BULK_DELETE_PREVIEWS: dict[str, dict[str, Any]] = {}
 
 
-def _validate_pfcg_role_name_or_400(role_name: str) -> str:
-    try:
-        from sap_rfc import validate_role_name
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Não foi possível carregar a validação PFCG no backend.",
-        ) from exc
+import re
 
-    try:
-        return validate_role_name(role_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+ROLE_NAME_RE = re.compile(r"^[A-Z0-9_\-/:]{1,30}$")
+
+
+def _validate_pfcg_role_name_or_400(role_name: str) -> str:
+    normalized = str(role_name or "").strip().upper()
+    if not normalized:
+        raise HTTPException(
+            status_code=400,
+            detail="Entrada inválida: informe um nome de função/perfil PFCG.",
+        )
+    if not ROLE_NAME_RE.fullmatch(normalized):
+        raise HTTPException(
+            status_code=400,
+            detail="Entrada inválida: use apenas A-Z, 0-9, _, -, / ou :.",
+        )
+    return normalized
 
 
 PFCG_SYSTEMS = ("DEV", "QAD", "PRD", "CUA")

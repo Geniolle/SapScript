@@ -27,13 +27,11 @@ from app.ui import ...
 
 Por isso a aplicacao web foi colocada no pacote `web_api`, para nao criar conflito com o pacote `app` do teu projeto SAP original.
 
-## Procedimento
+## Acesso e Servidor (Oracle Cloud)
 
-Os passos operacionais, formatos de execução, regras da interface web e comandos
-do proxy local ficam centralizados em:
+O Cockpit Web foi migrado para a nuvem. Os dados de acesso e operação encontram-se em:
+- Documentação detalhada: [docs/MIGRACAO_ORACLE_CLOUD.md](../docs/MIGRACAO_ORACLE_CLOUD.md)
+- **URL Web:** [http://140.238.123.30](http://140.238.123.30)
+- **Utilizador:** `Geniolle` | **Senha:** `P@1geniolle.`
+- **Acesso SSH:** `ssh -i "C:\workspace\SapScript\Servidor\ssh-key-2026-10-13.key" ubuntu@140.238.123.30`
 
-- [docs/PROCEDIMENTO.md](docs/PROCEDIMENTO.md)
-- [docs/RUNTIME_POLICY.md](docs/RUNTIME_POLICY.md)
-- [docs/FI_DEFAULT_DOCUMENT_FLOW.md](docs/FI_DEFAULT_DOCUMENT_FLOW.md)
-
-Use esse documento como referência única para a operação diária. Aqui fica apenas a visão geral do pacote e a ponte para o procedimento.

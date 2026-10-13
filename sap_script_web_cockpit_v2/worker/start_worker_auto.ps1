@@ -54,7 +54,7 @@ while ($true) {
 
         $env:PYTHONUTF8 = "1"
         $env:PYTHONIOENCODING = "utf-8"
-        $env:API_BASE_URL = "http://localhost:8010"
+        $env:API_BASE_URL = "http://140.238.123.30"
         $env:WORKER_TOKEN = $TokenFromEnv
         $env:SAP_SCRIPT_PROJECT_DIR = $ProjectDir
         $env:SAP_COCKPIT_MODULE = "sap_script_web_cockpit_v2.sap_cockpit_web_ready"
