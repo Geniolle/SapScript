@@ -10,7 +10,7 @@ import sys
 import requests
 
 from uuid import uuid4
-from typing import Any
+from typing import Any, Optional
 import time
 
 from dotenv import load_dotenv
@@ -728,6 +728,167 @@ async def api_get_ticket_details(ticket_key: str) -> dict[str, Any]:
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ===========================================================================
+# SALSA IT AGENT - ROTAS DE ANÁLISE DE TICKETS (FASE 1)
+# ===========================================================================
+
+@app.get("/api/salsa-it-agent/tickets/{ticket_key}/eligibility")
+async def api_salsa_it_ticket_eligibility(ticket_key: str) -> dict[str, Any]:
+    """Consulta a elegibilidade de um ticket para o Agente Salsa IT."""
+    from salsa_agent.orchestrator import SalsaAgentOrchestrator
+    from web_api.jira_client import fetch_ticket_details
+    from web_api.store import get_connection
+
+    clean_key = ticket_key.strip().upper()
+    try:
+        # Tenta obter do SQLite
+        ticket_record = None
+        with get_connection() as conn:
+            cur = conn.execute("SELECT * FROM jira_tickets WHERE key = ?", (clean_key,))
+            row = cur.fetchone()
+            if row:
+                ticket_record = dict(row)
+
+        details = {}
+        try:
+            details = await asyncio.to_thread(fetch_ticket_details, clean_key)
+        except Exception:
+            pass
+
+        summary = str(details.get("summary") or (ticket_record.get("summary") if ticket_record else "") or "")
+        description = str(details.get("description") or "")
+        process = str(details.get("categoria_sap") or (ticket_record.get("process") if ticket_record else "") or "")
+        assignee = str(ticket_record.get("assignee") if ticket_record else "Clayton Lopes")
+        project = str(ticket_record.get("project") if ticket_record else "IZ")
+        status = str(ticket_record.get("status") if ticket_record else "Open")
+
+        ticket_context = {
+            "key": clean_key,
+            "summary": summary,
+            "description": description,
+            "project": project,
+            "assignee": assignee,
+            "process": process,
+            "status": status,
+        }
+
+        orchestrator = SalsaAgentOrchestrator()
+        is_eligible, reason = orchestrator.check_eligibility(ticket_context)
+        return {
+            "ticket_key": clean_key,
+            "eligible": is_eligible,
+            "reason": reason,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class SalsaAnalyzeRequest(BaseModel):
+    force_reanalyze: bool = False
+
+
+@app.post("/api/salsa-it-agent/tickets/{ticket_key}/analyze")
+async def api_salsa_it_analyze_ticket(ticket_key: str, payload: SalsaAnalyzeRequest = None) -> dict[str, Any]:
+    """Executa a análise de um ticket Jira via Agente Salsa IT (Fase 1: passiva, sem SAP nem escrita Jira)."""
+    from salsa_agent.orchestrator import SalsaAgentOrchestrator
+
+    clean_key = ticket_key.strip().upper()
+    force = payload.force_reanalyze if payload else False
+    orchestrator = SalsaAgentOrchestrator()
+
+    try:
+        result = await asyncio.to_thread(orchestrator.analyze_ticket_by_key, clean_key, force)
+        return {"status": "success", "analysis": result.to_dict()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao analisar ticket: {str(exc)}")
+
+
+@app.get("/api/salsa-it-agent/tickets/{ticket_key}/analysis")
+def api_salsa_it_get_ticket_analysis(ticket_key: str) -> dict[str, Any]:
+    """Obtém a análise mais recente guardada para o ticket especificado."""
+    from salsa_agent.orchestrator import SalsaAgentOrchestrator
+
+    clean_key = ticket_key.strip().upper()
+    orchestrator = SalsaAgentOrchestrator()
+    analysis = orchestrator.get_analysis_for_ticket(clean_key)
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Análise não encontrada para este ticket.")
+    return {"status": "success", "analysis": analysis}
+
+
+@app.get("/api/salsa-it-agent/tickets/{ticket_key}/history")
+def api_salsa_it_get_ticket_history(ticket_key: str) -> dict[str, Any]:
+    """Obtém o histórico de análises passadas para o ticket especificado."""
+    from salsa_agent.orchestrator import SalsaAgentOrchestrator
+
+    clean_key = ticket_key.strip().upper()
+    orchestrator = SalsaAgentOrchestrator()
+    history = orchestrator.get_history_for_ticket(clean_key)
+    return {"status": "success", "ticket_key": clean_key, "history": history}
+
+
+class SalsaEnvironmentUpdateRequest(BaseModel):
+    environments: list[str] = []
+
+
+@app.patch("/api/salsa-it-agent/tickets/{ticket_key}/environments")
+def api_salsa_it_update_ticket_environments(
+    ticket_key: str, payload: SalsaEnvironmentUpdateRequest
+) -> dict[str, Any]:
+    """Permite ao utilizador definir ou alterar manualmente o(s) ambiente(s) SAP (PRD, QAD, DEV)."""
+    from web_api.store import update_salsa_ticket_environment
+
+    clean_key = ticket_key.strip().upper()
+    valid_envs = {"PRD", "QAD", "DEV"}
+    normalized = [e.upper().strip() for e in payload.environments if e.upper().strip() in valid_envs]
+
+    updated = update_salsa_ticket_environment(clean_key, normalized)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Ticket não encontrado para atualização de ambiente.")
+    return {"status": "success", "analysis": updated}
+
+
+class SalsaExtractedDataUpdateRequest(BaseModel):
+    field: str
+    value: Optional[str] = None
+
+
+@app.patch("/api/salsa-it-agent/tickets/{ticket_key}/extracted-data")
+def api_salsa_it_update_ticket_extracted_data(
+    ticket_key: str, payload: SalsaExtractedDataUpdateRequest
+) -> dict[str, Any]:
+    """Permite ao utilizador definir ou alterar manualmente campos extraídos (sap_user_id, reference_user)."""
+    from web_api.store import update_salsa_ticket_extracted_field
+
+    clean_key = ticket_key.strip().upper()
+    allowed_fields = {"sap_user_id", "reference_user"}
+    if payload.field not in allowed_fields:
+        raise HTTPException(status_code=400, detail=f"Campo '{payload.field}' não editável.")
+
+    updated = update_salsa_ticket_extracted_field(clean_key, payload.field, payload.value)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Ticket não encontrado para atualização.")
+    return {"status": "success", "analysis": updated}
+
+
+
+@app.get("/api/salsa-it-agent/analyses")
+def api_salsa_it_list_analyses(
+    classification: Optional[str] = None,
+    level: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Lista as análises persistidas com filtros opcionais."""
+    from web_api.store import list_salsa_ticket_analyses
+    try:
+        results = list_salsa_ticket_analyses(classification, level, status, limit)
+        return {"status": "success", "total": len(results), "analyses": results}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 
 @app.post("/api/sap-agent/analyze/{ticket_key}")

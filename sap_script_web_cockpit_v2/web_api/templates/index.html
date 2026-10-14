@@ -2132,7 +2132,8 @@
     };
   </script>
   <script src="/static/js/cockpit.core.js?v=p5i"></script>
-  <script src="/static/js/cockpit.agent.js?v=su53_v4"></script>
+  <script src="/static/js/cockpit.agent.js?v=salsa_v6"></script>
+
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">
     <div style="background:#ffffff; border-radius:18px; box-shadow:0 25px 60px rgba(0,0,0,0.25); width:540px; max-width:95vw; max-height:90vh; overflow-y:auto; animation: modalSlideIn 0.22s ease;">
@@ -2231,6 +2232,161 @@
       <div style="padding:14px 24px 20px; border-top:1px solid #f1f5f9; display:flex; align-items:center; justify-content:flex-end; gap:10px;">
         <button type="button" onclick="defCloseModal()" style="padding:9px 18px; font-size:0.82rem; font-weight:600; color:#64748b; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">Cancelar</button>
         <button type="button" id="def-modal-save-btn" onclick="defSaveRule()" style="padding:9px 22px; font-size:0.82rem; font-weight:700; color:white; background:linear-gradient(135deg,#6366f1,#4f46e5); border:none; border-radius:10px; cursor:pointer; box-shadow:0 4px 12px rgba(99,102,241,0.35); transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">💾 Guardar Regra</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL DE DIAGNÓSTICO DO AGENTE SALSA IT (FASE 1) -->
+  <!-- ========================================================================= -->
+  <div id="salsa-agent-diagnostic-modal" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(15,23,42,0.7); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:20px;">
+    <div style="background:#ffffff; border-radius:16px; width:100%; max-width:850px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); border:1px solid #e2e8f0; overflow:hidden;">
+      <!-- Header -->
+      <div style="padding:18px 24px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; background:#f8fafc;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#6366f1,#4f46e5); display:flex; align-items:center; justify-content:center; color:white; font-size:18px; box-shadow:0 4px 10px rgba(99,102,241,0.3);">
+            🤖
+          </div>
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <h3 id="salsa-modal-ticket-key" style="margin:0; font-size:1.15rem; font-weight:800; color:#1e293b; font-family:monospace;">IZ-00000</h3>
+              <span id="salsa-modal-status-badge" style="padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; background:#e0e7ff; color:#4338ca;">NÍVEL 1</span>
+            </div>
+            <p id="salsa-modal-ticket-summary" style="margin:2px 0 0; font-size:0.85rem; color:#64748b; max-width:600px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Sumário do ticket...</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeSalsaDiagnosticModal()" style="background:none; border:none; color:#94a3b8; font-size:20px; cursor:pointer; padding:6px; border-radius:8px; line-height:1;" title="Fechar">✕</button>
+      </div>
+
+      <!-- Body -->
+      <div class="custom-scroll" style="padding:24px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:18px; background:#ffffff;">
+        <!-- Loading State -->
+        <div id="salsa-modal-loading" style="display:none; text-align:center; padding:40px 20px;">
+          <div style="font-size:32px; animation:pulse-opacity 1.5s infinite;">⚙️</div>
+          <p style="margin-top:12px; font-weight:600; color:#475569;">A analisar o ticket passivamente com o Agente Salsa IT...</p>
+          <span style="font-size:12px; color:#94a3b8;">Nenhuma operação SAP ou escrita Jira será realizada.</span>
+        </div>
+
+        <!-- Content Area -->
+        <div id="salsa-modal-content" style="display:flex; flex-direction:column; gap:18px;">
+          <!-- Classification Banner -->
+          <div style="padding:16px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0; display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em;">Intenção do Pedido</span>
+              <div id="salsa-modal-intent" style="font-size:1.05rem; font-weight:800; color:#1e293b;">-</div>
+              <div id="salsa-modal-justification" style="font-size:0.85rem; color:#475569; margin-top:2px;">-</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0;">
+              <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Classificação</span>
+              <div id="salsa-modal-classification-code" style="font-size:0.95rem; font-weight:800; color:#4f46e5; font-family:monospace; margin-top:2px;">-</div>
+            </div>
+          </div>
+
+          <!-- Semantic Notice Callout -->
+          <div id="salsa-modal-notice-banner" style="padding:12px 16px; border-radius:10px; font-size:12px; line-height:1.45; display:flex; align-items:center; gap:10px; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af;">
+            <span style="font-size:16px;">ℹ️</span>
+            <div id="salsa-modal-notice-text">
+              <strong>CLASSIFICADO:</strong> Intenção identificada passivamente a partir do texto do Jira. Zero operações executadas em SAP.
+            </div>
+          </div>
+
+          <!-- Extracted Data Grid -->
+          <div>
+            <h4 style="margin:0 0 10px; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em;">Dados Extraídos & Estado Operacional</h4>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
+              <div style="padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; display:flex; flex-direction:column; justify-content:space-between;">
+                <span style="font-size:11px; color:#64748b; font-weight:600;">Utilizador SAP</span>
+                <input type="text" id="salsa-modal-input-user" placeholder="Não identificado" onchange="saveSalsaExtractedField('sap_user_id', this.value)" onblur="saveSalsaExtractedField('sap_user_id', this.value)" onkeydown="if(event.key==='Enter'){this.blur();}" style="margin-top:4px; width:100%; box-sizing:border-box; padding:4px 8px; font-weight:700; font-size:0.88rem; color:#1e293b; font-family:monospace; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; outline:none; transition:border-color 0.15s;" onfocus="this.style.borderColor='#6366f1'">
+                <div id="salsa-modal-val-user" style="display:none;"></div>
+              </div>
+              <div style="padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; display:flex; flex-direction:column; justify-content:space-between;">
+                <span style="font-size:11px; color:#64748b; font-weight:600;">Utilizador de Referência</span>
+                <input type="text" id="salsa-modal-input-ref-user" placeholder="Não identificado" onchange="saveSalsaExtractedField('reference_user', this.value)" onblur="saveSalsaExtractedField('reference_user', this.value)" onkeydown="if(event.key==='Enter'){this.blur();}" style="margin-top:4px; width:100%; box-sizing:border-box; padding:4px 8px; font-weight:700; font-size:0.88rem; color:#1e293b; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; outline:none; transition:border-color 0.15s;" onfocus="this.style.borderColor='#6366f1'">
+                <div id="salsa-modal-val-ref-user" style="display:none;"></div>
+              </div>
+              <div style="padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px;">
+                <span style="font-size:11px; color:#64748b; font-weight:600;">Solicitante (Jira)</span>
+                <div id="salsa-modal-val-requester" style="font-weight:700; font-size:0.9rem; color:#1e293b; margin-top:2px;">-</div>
+              </div>
+              <div style="padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; display:flex; flex-direction:column; justify-content:space-between;">
+                <span style="font-size:11px; color:#64748b; font-weight:600;">Ambiente(s)</span>
+                <!-- Compact System Columns with flag below -->
+                <div style="display:flex; gap:16px; align-items:center; margin-top:4px;">
+                  <!-- PRD -->
+                  <label style="display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; user-select:none;">
+                    <span style="font-size:11px; font-weight:800; color:#1e293b; letter-spacing:0.02em;">PRD</span>
+                    <input type="checkbox" id="salsa-env-cb-prd" value="PRD" onchange="saveSalsaSelectedEnvironments()" style="cursor:pointer; width:15px; height:15px; accent-color:#4f46e5; margin:0;">
+                  </label>
+                  <!-- QAD -->
+                  <label style="display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; user-select:none;">
+                    <span style="font-size:11px; font-weight:800; color:#1e293b; letter-spacing:0.02em;">QAD</span>
+                    <input type="checkbox" id="salsa-env-cb-qad" value="QAD" onchange="saveSalsaSelectedEnvironments()" style="cursor:pointer; width:15px; height:15px; accent-color:#4f46e5; margin:0;">
+                  </label>
+                  <!-- DEV -->
+                  <label style="display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; user-select:none;">
+                    <span style="font-size:11px; font-weight:800; color:#1e293b; letter-spacing:0.02em;">DEV</span>
+                    <input type="checkbox" id="salsa-env-cb-dev" value="DEV" onchange="saveSalsaSelectedEnvironments()" style="cursor:pointer; width:15px; height:15px; accent-color:#4f46e5; margin:0;">
+                  </label>
+                  <span id="salsa-modal-val-env" style="display:none;"></span>
+                </div>
+              </div>
+              <div style="padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px;">
+                <span style="font-size:11px; color:#64748b; font-weight:600;">Estado Operacional</span>
+                <div id="salsa-modal-val-op-status" style="font-weight:700; font-size:0.9rem; color:#d97706; margin-top:2px;">-</div>
+              </div>
+              <div style="padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px;">
+                <span style="font-size:11px; color:#64748b; font-weight:600;">Dependência Identificada</span>
+                <div id="salsa-modal-val-dependency" style="font-weight:700; font-size:0.9rem; color:#1e293b; margin-top:2px;">-</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Evidences & Missing Info Split -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div style="padding:14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px;">
+              <span style="font-size:11px; font-weight:700; color:#16a34a; text-transform:uppercase;">✓ Evidências Identificadas</span>
+              <ul id="salsa-modal-evidences-list" style="margin:8px 0 0; padding-left:18px; font-size:12px; color:#334155; display:flex; flex-direction:column; gap:4px;">
+                <li>Nenhuma evidência registada</li>
+              </ul>
+            </div>
+            <div style="padding:14px; background:#fef2f2; border:1px solid #fee2e2; border-radius:10px;">
+              <span style="font-size:11px; font-weight:700; color:#dc2626; text-transform:uppercase;">⚠ Informações em Falta</span>
+              <ul id="salsa-modal-missing-list" style="margin:8px 0 0; padding-left:18px; font-size:12px; color:#991b1b; display:flex; flex-direction:column; gap:4px;">
+                <li>Nenhuma informação em falta</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Suggested Next Action -->
+          <div style="padding:14px 16px; background:#f8fafc; border-left:4px solid #6366f1; border-radius:6px;">
+            <span style="font-size:11px; font-weight:700; color:#6366f1; text-transform:uppercase;">Próxima Ação Recomendada</span>
+            <div id="salsa-modal-next-action" style="font-size:0.9rem; font-weight:600; color:#1e293b; margin-top:3px;">-</div>
+          </div>
+
+          <!-- Historical Summary -->
+          <div id="salsa-modal-history-section" style="margin-top:4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Histórico de Análises Anteriores</span>
+              <span id="salsa-modal-history-count" style="font-size:11px; color:#94a3b8;">0 versões</span>
+            </div>
+            <div id="salsa-modal-history-list" style="max-height:120px; overflow-y:auto; border:1px solid #f1f5f9; border-radius:8px; padding:6px; font-size:12px; display:flex; flex-direction:column; gap:4px;">
+              <span style="color:#94a3b8; font-style:italic;">Sem histórico prévio.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Actions -->
+      <div style="padding:14px 24px; border-top:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; background:#f8fafc;">
+        <span style="font-size:11px; color:#94a3b8;">Agente Salsa IT • Fase 1 (Passivo)</span>
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="salsa-modal-reanalyze-btn" onclick="triggerSalsaManualReanalyze()" style="padding:8px 16px; font-size:0.82rem; font-weight:600; color:#4338ca; background:#e0e7ff; border:1px solid #c7d2fe; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+            🔄 Reanalisar Ticket
+          </button>
+          <button type="button" onclick="closeSalsaDiagnosticModal()" style="padding:8px 18px; font-size:0.82rem; font-weight:600; color:#475569; background:#ffffff; border:1px solid #cbd5e1; border-radius:8px; cursor:pointer;">
+            Fechar
+          </button>
+        </div>
       </div>
     </div>
   </div>

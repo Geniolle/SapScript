@@ -1,0 +1,106 @@
+  METHOD DOWNLOAD_FILE.
+
+    DATA: LV_LENGTH             TYPE I,
+          LT_STREAM             TYPE FIAPPT_T_SALV_XML_XLINE,
+          LS_STREAM             LIKE LINE OF LT_STREAM,
+          LV_FILENAME           TYPE STRING,
+          LV_FILEPATH           TYPE STRING,
+          LV_COMPLETE_FILE_NAME TYPE STRING,
+          LV_STRING             TYPE STRING,
+          LV_STRING_LEN         TYPE I,
+          LV_STCEG              TYPE STCEG,
+          LV_MSG                TYPE STRING,
+          LR_EXCEPTION          TYPE REF TO CX_FS_PATH_ERROR.
+
+* Declaration for Security check up..directory traversal..
+    CONSTANTS LC_FILENAME TYPE FILEINTERN VALUE 'FI_RFFOPT_CBR_FILE'.
+
+    CALL METHOD READ_T001
+      IMPORTING
+        EV_COMP_TAX_CODE = LV_STCEG.
+
+*Create File Name according to the Portuguese Central Bank rules
+*    “BPO_COPE.(Client NPC).YYYYMM.YYYYMMDDhhmmss.XML”
+    LV_FILEPATH = IV_FILEPATH.
+    CONCATENATE 'BOP_COPE.' LV_STCEG+2(9) '.' GV_YEAR GV_PERIOD '.' SY-DATUM
+    SY-TIMLO '.XML' INTO LV_FILENAME.
+    CONDENSE LV_FILENAME NO-GAPS.
+
+    TRY.
+        LV_COMPLETE_FILE_NAME = ME->GET_COMPLETE_FILE_NAME(
+          IV_FILE_PATH           = LV_FILEPATH
+          IV_FILE_NAME           = LV_FILENAME
+          IV_PRESENTATION_SERVER = IV_DWNLD_TO_PC
+        ).
+
+      CATCH CX_SMART_PATH_SYNTAX CX_FS_PATHS_INCOMPATIBLE CX_FS_PATH_ERROR INTO LR_EXCEPTION.
+
+        CALL METHOD LR_EXCEPTION->IF_MESSAGE~GET_TEXT
+          RECEIVING
+            RESULT = LV_MSG.
+
+        MESSAGE LV_MSG TYPE 'E' RAISING FILEPATH_ERROR.
+    ENDTRY.
+
+    IF IV_DWNLD_TO_PC = 'X'.
+*Download the XML file in Presentation Server
+
+      CALL METHOD CL_SALV_DATA_SERVICES=>DOWNLOAD_XML_TO_FILE
+        EXPORTING
+          FILENAME = LV_COMPLETE_FILE_NAME
+          XCONTENT = IV_XML_XSTRING.
+
+      IF SY-SUBRC <> 0.
+        RAISE FILEPATH_ERROR.
+      ENDIF.
+
+    ELSE.
+*Download the XML file in Application Server
+      CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+        EXPORTING
+          BUFFER        = IV_XML_XSTRING
+        IMPORTING
+          OUTPUT_LENGTH = LV_LENGTH
+        TABLES
+          BINARY_TAB    = LT_STREAM.
+
+      CALL FUNCTION 'SCMS_BINARY_TO_STRING'
+        EXPORTING
+          INPUT_LENGTH  = LV_LENGTH
+*         FIRST_LINE    = 0
+*         LAST_LINE     = 0
+*         MIMETYPE      = ' '
+*         ENCODING      =
+        IMPORTING
+          TEXT_BUFFER   = LV_STRING
+          OUTPUT_LENGTH = LV_STRING_LEN
+        TABLES
+          BINARY_TAB    = LT_STREAM.
+
+*   Check for Security Directory traversal...
+      CALL FUNCTION 'FILE_VALIDATE_NAME'
+        EXPORTING
+          LOGICAL_FILENAME  = LC_FILENAME
+        CHANGING
+          PHYSICAL_FILENAME = LV_COMPLETE_FILE_NAME
+        EXCEPTIONS
+          OTHERS            = 1.
+
+      IF SY-SUBRC <> 0.
+        RAISE FILEPATH_ERROR.
+      ENDIF.
+
+      OPEN DATASET LV_COMPLETE_FILE_NAME IN TEXT MODE FOR OUTPUT ENCODING UTF-8 MESSAGE LV_MSG.
+      IF SY-SUBRC <> 0.
+        MESSAGE LV_MSG TYPE 'E' RAISING FILEPATH_ERROR.
+      ENDIF.
+
+*      LOOP AT lt_stream INTO ls_stream.
+      TRANSFER LV_STRING TO LV_COMPLETE_FILE_NAME.
+*      ENDLOOP.
+
+      CLOSE DATASET LV_FILEPATH.
+
+    ENDIF.
+
+  ENDMETHOD.

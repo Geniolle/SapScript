@@ -1,0 +1,3 @@
+FUNCTION-POOL ZFI_CHANGE_BANKID_FG.         "MESSAGE-ID ..
+
+* INCLUDE LZFI_CHANGE_BANKID_FGD...          " Local class definition

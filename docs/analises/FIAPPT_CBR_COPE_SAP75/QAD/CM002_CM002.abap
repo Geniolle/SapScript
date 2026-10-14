@@ -1,0 +1,140 @@
+  METHOD CHECK_FOREIGN_TRANS.
+
+    DATA: LS_BSEG_ITEM      TYPE FIAPPT_S_TRANS_CBR,
+          LV_PROCESS_RECORD TYPE FLAG,
+          LS_FIAPPTD_TRANS  TYPE FIAPPTD_TRANS,
+          LS_LFA1           TYPE LFA1,
+          LS_KNA1           TYPE KNA1,
+          LS_LFBK           TYPE LFBK,
+          LT_LFBK           TYPE TABLE OF LFBK,
+          LS_KNBK           TYPE KNBK,
+          LT_KNBK           TYPE TABLE OF KNBK,
+          LS_TIBAN          TYPE TIBAN,
+          LS_BSEC           TYPE BSEC,
+          LV_LIFNR          TYPE LIFNR,
+          LV_KUNNR          TYPE KUNNR,
+          LV_INTCA          TYPE INTCA,
+          LV_LINE           TYPE I,
+          LV_STCEG          TYPE STCEG.
+
+    CONSTANTS: CV_CURR TYPE WAERS VALUE 'EUR'.
+
+    CLEAR: EV_FOREIGN_TRANS, LV_PROCESS_RECORD,
+           ES_LFA1, ES_KNA1, EV_LAND, LT_LFBK,
+           LS_LFBK, LT_KNBK, LS_KNBK, LV_LINE,
+           EV_STCEG, LV_STCEG.
+
+    LS_BSEG_ITEM = IS_BSEG_PAY_VC.
+    LS_FIAPPTD_TRANS = CS_FIAPPTD_TRANS.
+
+    IF LS_BSEG_ITEM-LIFNR IS NOT INITIAL.
+*     Vendor Items
+*   Vendor Land has to be foreign (Not 'PT')
+      IF LS_BSEG_ITEM-XCPDD IS INITIAL.
+        READ TABLE IT_LFA1 INTO LS_LFA1 WITH KEY
+          LIFNR = LS_BSEG_ITEM-LIFNR.
+        IF SY-SUBRC = 0.
+          LV_PROCESS_RECORD = 'X'.
+        ENDIF.
+      ELSE.
+        SELECT SINGLE * FROM BSEC INTO LS_BSEC
+          WHERE BUKRS = GV_BUKRS
+            AND BELNR = LS_BSEG_ITEM-BELNR
+            AND GJAHR = GV_YEAR
+            AND BUZEI = LS_BSEG_ITEM-BUZEI.
+        IF SY-SUBRC = 0 AND LS_BSEC-LAND1 NE 'PT'.
+          LV_PROCESS_RECORD = 'X'.
+        ENDIF.
+      ENDIF.
+
+
+      IF LV_PROCESS_RECORD IS NOT INITIAL.
+        IF LS_LFA1 IS INITIAL.
+          SELECT SINGLE * FROM LFA1 INTO LS_LFA1 WHERE
+            LIFNR = LS_BSEG_ITEM-LIFNR.
+        ENDIF.
+        LS_FIAPPTD_TRANS-ACCOUNT = LS_LFA1-LIFNR.
+        IF LS_BSEG_ITEM-XCPDD IS NOT INITIAL. "One-time
+          CALL METHOD ME->GET_VAT_REG_NO
+            EXPORTING
+              IV_STCEG = LS_BSEG_ITEM-STCEG
+            IMPORTING
+              EV_STCEG = LV_STCEG.
+
+          EV_LAND = LS_BSEG_ITEM-LANDL.
+          IF LS_BSEG_ITEM-LANDL IS INITIAL.
+            EV_LAND = LS_BSEC-LAND1.
+          ENDIF.
+        ELSE.
+          CALL METHOD ME->GET_VAT_REG_NO
+            EXPORTING
+              IV_STCEG = LS_LFA1-STCEG
+            IMPORTING
+              EV_STCEG = LV_STCEG.
+
+          EV_LAND = LS_LFA1-LAND1.
+        ENDIF.
+        LS_FIAPPTD_TRANS-KOART = 'K'.
+      ENDIF.
+
+    ELSEIF LS_BSEG_ITEM-KUNNR IS NOT INITIAL.
+*    Customer land has to be foreign (Not 'PT')
+      IF LS_BSEG_ITEM-XCPDD IS INITIAL.
+        READ TABLE IT_KNA1 INTO LS_KNA1 WITH KEY
+        KUNNR = LS_BSEG_ITEM-KUNNR.
+        IF SY-SUBRC = 0.
+          LV_PROCESS_RECORD = 'X'.
+        ENDIF.
+      ELSE.
+        SELECT SINGLE * FROM BSEC INTO LS_BSEC
+          WHERE BUKRS = GV_BUKRS
+            AND BELNR = LS_BSEG_ITEM-BELNR
+            AND GJAHR = GV_YEAR
+            AND BUZEI = LS_BSEG_ITEM-BUZEI.
+        IF SY-SUBRC = 0 AND LS_BSEC-LAND1 NE 'PT'.
+          LV_PROCESS_RECORD = 'X'.
+        ENDIF.
+      ENDIF.
+*      ENDIF.
+
+      IF LV_PROCESS_RECORD IS NOT INITIAL.
+        IF LS_KNA1 IS INITIAL.
+          SELECT SINGLE * FROM KNA1 INTO LS_KNA1 WHERE
+            KUNNR = LS_BSEG_ITEM-KUNNR.
+        ENDIF.
+        LS_FIAPPTD_TRANS-ACCOUNT = LS_KNA1-KUNNR.
+        IF LS_BSEG_ITEM-XCPDD IS NOT INITIAL. "One-time
+          CALL METHOD ME->GET_VAT_REG_NO
+            EXPORTING
+              IV_STCEG = LS_BSEG_ITEM-STCEG
+            IMPORTING
+              EV_STCEG = LV_STCEG.
+
+          EV_LAND = LS_BSEG_ITEM-LANDL.
+          IF LS_BSEG_ITEM-LANDL IS INITIAL.
+            EV_LAND = LS_BSEC-LAND1.
+          ENDIF.
+        ELSE.
+          CALL METHOD ME->GET_VAT_REG_NO
+            EXPORTING
+              IV_STCEG = LS_KNA1-STCEG
+            IMPORTING
+              EV_STCEG = LV_STCEG.
+
+          EV_LAND = LS_KNA1-LAND1.
+        ENDIF.
+        LS_FIAPPTD_TRANS-KOART = 'D'.
+      ENDIF.
+    ELSE.
+*        G/L Payments
+      LS_FIAPPTD_TRANS-ACCOUNT = LS_BSEG_ITEM-HKONT.
+      LS_FIAPPTD_TRANS-KOART = 'S'.
+    ENDIF.
+
+    ES_LFA1 = LS_LFA1.
+    ES_KNA1 = LS_KNA1.
+    EV_STCEG = LV_STCEG.
+    EV_FOREIGN_TRANS = LV_PROCESS_RECORD.
+    CS_FIAPPTD_TRANS = LS_FIAPPTD_TRANS .
+
+  ENDMETHOD.

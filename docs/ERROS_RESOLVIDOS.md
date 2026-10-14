@@ -7,7 +7,41 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-10-14 — COPE / Balança Comercial (FIAPPT_CBR): Saldos de contas bancárias em CNY omitem a conta firme (...10) e apresentam apenas a conta movimento (...11)
+
+### Sintoma
+- Na transação `FIAPPT_CBR` (report `RFFOPT_CBR` / classe `CL_FIAPPT_CBR`), o saldo total do banco `ICB01` (moeda CNY, empresa `2010`) apresentava apenas o saldo da conta de movimento transitória `12040011`.
+- A conta firme `12040010` (que acumulava saldos em todos os períodos) era completamente ignorada.
+- No período 3, em que a conta transitória `12040011` tinha saldo zero, o banco `ICB01` desaparecia por completo do relatório, apesar de a conta firme ter saldo real.
+- Em outras moedas (ex.: EUR para `CBK01` e `CGD02`), os saldos eram lidos e reportados corretamente.
+
+### Causa raiz
+- Em `CL_FIAPPT_CBR->GET_BANK_BALANCES_2`, a determinação do Banco Empresa (`HBKID`) para contas que não estão na tabela clássica de vias de pagamento `T042I` (como é o caso das contas firmes `...10`) é efetuada via classe de Bank Account Management (BAM) do S/4HANA:
+  `cl_fclm_house_bank_account=>get_t012k_t( ... it_hkont = ... )`.
+- Esse método consulta as tabelas internas `FCLM_BAM_ACLINK2` e `FCLM_BAM_AMD`, exigindo que a revisão ativa da conta bancária (`REVISION = '0000'`) não esteja com status obsoleto (`STATUS <> '15'`).
+- Na base de dados de PRD (tabela `FCLM_BAM_AMD`), a conta bancária `1000000093` (`ICB01` / CNY) encontrava-se com a revisão `0000` marcada com `STATUS = '15'` (`OBSOLETED`) e validade expirada em `30.05.2022`.
+- Como resultado, `get_t012k_t` retornava vazio, deixando o `LV_HBKID` em branco e descartando a conta firme `12040010`. Em contrapartida, a conta transitória `12040011` era encontrada diretamente na `T042I` (sem passar pelo BAM), sendo a única processada.
+
+### Correção
+- Na gestão de contas bancárias (BAM / NWBC / Fiori *Manage Bank Accounts*), retirar o banco empresa/conta bancária do estado de obsoleto e ativar a revisão com validade até `31.12.9999` (à semelhança das contas EUR ativas).
+- Assim que o status no BAM passa a ativo, o método `get_t012k_t` associa a conta firme `12040010` ao banco `ICB01` e o COPE passa a consolidar o saldo total (firme + movimento).
+
+### Como diagnosticar
+1. Verificar na tabela `FCLM_BAM_ACLINK2` o `ACC_ID` associado à conta de razão (`HKONT`).
+2. Consultar na tabela `FCLM_BAM_AMD` o `STATUS` e `VALID_TO` da revisão `0000`: se `STATUS = '15'`, a conta é considerada obsoleta pelo S/4HANA BAM e ignorada pelo `CL_FIAPPT_CBR`.
+
+### Como prevenir
+- Garantir que qualquer criação ou manutenção de contas bancárias no S/4HANA tenha a revisão principal `0000` ativada e consolidada no Bank Account Management (BAM), prevenindo divergências entre `T012K` legada e `FCLM_BAM_AMD`.
+
+### Ficheiros / Objetos
+- Classe SAP: `CL_FIAPPT_CBR` (método `GET_BANK_BALANCES_2` em `CM00B_CM00B.abap`)
+- Tabelas SAP: `FCLM_BAM_AMD`, `FCLM_BAM_ACLINK2`, `T012K`, `T042I`, `FAGLFLEXT`, `FIAPPTD_BALANCE`
+- Documentação e extrações: `docs/analises/FIAPPT_CBR_COPE_SAP75/`
+
+---
+
 ## 2026-09-11 — Leitura de Excel sincronizado no OneDrive/SharePoint falha com `PermissionError: [Errno 13] Permission denied` quando aberto no Microsoft Excel
+
 
 ### Sintoma
 - Ao tentar ler um ficheiro Excel (`.xlsx`) localizado numa pasta sincronizada do OneDrive / SharePoint (ex.: `S4H_Perfis de autorização.xlsx`), o Python dispara `PermissionError: [Errno 13] Permission denied` através do `open()` interno do `pandas` / `openpyxl`.

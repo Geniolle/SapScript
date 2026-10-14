@@ -6,6 +6,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY web_api ./web_api
+COPY salsa_agent ./salsa_agent
+
 
 ENV DATA_DIR=/data
 ENV WORKER_TOKEN=change-me

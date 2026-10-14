@@ -13136,16 +13136,43 @@
                 keyDisplay += linksHtml;
             }
 
+            // Check eligibility for Agente Salsa IT:
+            // Project IZ, Clayton Lopes as assignee, Process 'CA Acessos', not closed
+            const isClaytonAssignee = (t.assignee || '').toLowerCase().includes('clayton');
+            const isCaAcessos = (t.process || '').toLowerCase().includes('acessos') || (t.process || '').trim() === '28790';
+            const isIzProject = (ticketKey.startsWith('IZ-') || (t.project || '').toUpperCase().includes('IZ'));
+            const isEligibleSalsaAgent = isClaytonAssignee && isCaAcessos && isIzProject;
+
+            let salsaAgentBtn = '';
+            if (isEligibleSalsaAgent) {
+                salsaAgentBtn = `
+                    <button type="button" class="salsa-agent-btn" 
+                            data-ticket-key="${escapeHtml(ticketKey)}"
+                            data-ticket-summary="${escapeHtml(t.summary)}"
+                            onclick="openSalsaDiagnosticModal('${escapeHtml(ticketKey)}', '${escapeHtml(t.summary.replace(/'/g, "\\'"))}')"
+                            title="Agente IA: Diagnóstico e pré-classificação passiva (Fase 1)"
+                            style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; border-radius: 6px; background: linear-gradient(135deg, #6366f1, #4f46e5); color: #ffffff; border: none; cursor: pointer; box-shadow: 0 2px 5px rgba(99, 102, 241, 0.25); vertical-align: middle; margin-left: 6px; transition: transform 0.15s ease;"
+                            onmouseover="this.style.transform='scale(1.05)'"
+                            onmouseout="this.style.transform='scale(1)'">
+                        <span style="font-size: 11px;">🤖</span>
+                        <span>Agente IA</span>
+                    </button>
+                `;
+            }
+
             return `
                     <tr class="kpi-table-row" id="row-${ticketKey.replace(/[^a-z0-9]/gi,'-')}">
-                    <td style="padding: 14px 16px; font-family: monospace; font-weight: bold;">
+                    <td style="padding: 14px 16px; font-family: monospace; font-weight: bold; white-space: nowrap;">
                         ${keyDisplay}
                     </td>
                     <td style="padding: 14px 16px; color: var(--text-primary); font-weight: 500;">
-                        <a class="summary-link js-reply-toggle" id="summary-link-${ticketKey.replace(/[^a-z0-9]/gi,'-')}" data-key="${ticketKey.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" style="cursor:pointer;">
-                            ${escapeHtml(t.summary)}
-                            <span class="link-icon">▾</span>
-                        </a>
+                        <div style="display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                            <a class="summary-link js-reply-toggle" id="summary-link-${ticketKey.replace(/[^a-z0-9]/gi,'-')}" data-key="${ticketKey.replace(/"/g,'&quot;')}" data-expand-id="${expandId}" style="cursor:pointer;">
+                                ${escapeHtml(t.summary)}
+                                <span class="link-icon">▾</span>
+                            </a>
+                            ${salsaAgentBtn}
+                        </div>
                     </td>
                     <td style="padding: 10px 16px; vertical-align: middle;">
                         <select class="status-cell-select" style="${badgeStyle}" 
@@ -13154,6 +13181,7 @@
                             <option value="" selected>${escapeHtml(normalizeValue(t.status) || '-')}</option>
                         </select>
                     </td>
+
                     <td style="padding: 14px 16px; color: var(--text-secondary);">
                         ${t.team ? escapeHtml(t.team) : '<span style="color: #9ca3af;">-</span>'}
                     </td>
@@ -15406,7 +15434,295 @@
         });
     });
 
+    // =========================================================================
+    // SALSA IT AGENT - MODAL & CONTROLLER (FASE 1)
+    // =========================================================================
+
+    let currentSalsaModalKey = null;
+
+    window.openSalsaDiagnosticModal = async function(ticketKey, ticketSummary) {
+        currentSalsaModalKey = ticketKey;
+        const modal = document.getElementById('salsa-agent-diagnostic-modal');
+        if (!modal) return;
+
+        modal.style.display = 'flex';
+
+        const elKey = document.getElementById('salsa-modal-ticket-key');
+        const elSummary = document.getElementById('salsa-modal-ticket-summary');
+        const elLoading = document.getElementById('salsa-modal-loading');
+        const elContent = document.getElementById('salsa-modal-content');
+
+        if (elKey) elKey.textContent = ticketKey;
+        if (elSummary) elSummary.textContent = ticketSummary || 'Sem sumário disponível';
+        if (elLoading) elLoading.style.display = 'block';
+        if (elContent) elContent.style.display = 'none';
+
+        try {
+            // First check existing analysis or execute passively
+            let res = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/analysis`);
+            let data = null;
+            if (res.ok) {
+                data = await res.json();
+            } else if (res.status === 404) {
+                // Not analyzed yet: trigger passive analysis
+                const runRes = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force_reanalyze: false })
+                });
+                if (runRes.ok) {
+                    data = await runRes.json();
+                }
+            }
+
+            if (data && data.analysis) {
+                renderSalsaModalData(data.analysis);
+            } else {
+                throw new Error('Não foi possível obter o resultado da análise.');
+            }
+
+            // Load history
+            loadSalsaModalHistory(ticketKey);
+        } catch (err) {
+            if (elLoading) elLoading.style.display = 'none';
+            if (elContent) elContent.style.display = 'flex';
+            const intentEl = document.getElementById('salsa-modal-intent');
+            const justEl = document.getElementById('salsa-modal-justification');
+            if (intentEl) intentEl.textContent = 'Erro ao processar análise';
+            if (justEl) justEl.textContent = err.message || 'Falha de comunicação';
+        }
+    };
+
+    window.closeSalsaDiagnosticModal = function() {
+        const modal = document.getElementById('salsa-agent-diagnostic-modal');
+        if (modal) modal.style.display = 'none';
+        currentSalsaModalKey = null;
+    };
+
+    window.triggerSalsaManualReanalyze = async function() {
+        if (!currentSalsaModalKey) return;
+        const elLoading = document.getElementById('salsa-modal-loading');
+        const elContent = document.getElementById('salsa-modal-content');
+        if (elLoading) elLoading.style.display = 'block';
+        if (elContent) elContent.style.display = 'none';
+
+        try {
+            const res = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(currentSalsaModalKey)}/analyze`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ force_reanalyze: true })
+            });
+            if (!res.ok) throw new Error('Falha ao reanalisar ticket');
+            const data = await res.json();
+            if (data && data.analysis) {
+                renderSalsaModalData(data.analysis);
+                loadSalsaModalHistory(currentSalsaModalKey);
+            }
+        } catch (err) {
+            alert('Erro ao reanalisar: ' + err.message);
+            if (elLoading) elLoading.style.display = 'none';
+            if (elContent) elContent.style.display = 'flex';
+        }
+    };
+
+    window.toggleSalsaEnvEditor = function() {
+        const editor = document.getElementById('salsa-modal-env-editor');
+        if (!editor) return;
+        const isHidden = editor.style.display === 'none' || !editor.style.display;
+        editor.style.display = isHidden ? 'block' : 'none';
+    };
+
+    window.saveSalsaSelectedEnvironments = async function() {
+        if (!currentSalsaModalKey) return;
+        const selected = [];
+        if (document.getElementById('salsa-env-cb-prd')?.checked) selected.push('PRD');
+        if (document.getElementById('salsa-env-cb-qad')?.checked) selected.push('QAD');
+        if (document.getElementById('salsa-env-cb-dev')?.checked) selected.push('DEV');
+
+        try {
+            const res = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(currentSalsaModalKey)}/environments`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ environments: selected })
+            });
+            if (!res.ok) throw new Error('Falha ao atualizar ambientes');
+            const data = await res.json();
+            if (data && data.analysis) {
+                renderSalsaModalData(data.analysis);
+            }
+        } catch (err) {
+            alert('Erro ao guardar ambiente: ' + err.message);
+        }
+    };
+
+    const _salsaLastSavedFieldVals = {};
+    window.saveSalsaExtractedField = async function(field, value) {
+        if (!currentSalsaModalKey) return;
+        const cleanVal = (value || '').trim();
+        const cacheKey = `${currentSalsaModalKey}:${field}`;
+        if (_salsaLastSavedFieldVals[cacheKey] === cleanVal) return;
+
+        try {
+            const res = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(currentSalsaModalKey)}/extracted-data`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ field: field, value: cleanVal })
+            });
+            if (!res.ok) throw new Error('Falha ao atualizar ' + field);
+            const data = await res.json();
+            if (data && data.analysis) {
+                _salsaLastSavedFieldVals[cacheKey] = cleanVal;
+                renderSalsaModalData(data.analysis);
+            }
+        } catch (err) {
+            console.error('Erro ao guardar campo:', err);
+        }
+    };
+
+    function renderSalsaModalData(analysis) {
+        const elLoading = document.getElementById('salsa-modal-loading');
+        const elContent = document.getElementById('salsa-modal-content');
+        if (elLoading) elLoading.style.display = 'none';
+        if (elContent) elContent.style.display = 'flex';
+
+        // Badge
+        const badge = document.getElementById('salsa-modal-status-badge');
+        if (badge) {
+            badge.textContent = `${analysis.level || 'NÍVEL 1'} • ${analysis.status || 'CONCLUÍDO'}`;
+            if (analysis.status === 'ERROR') {
+                badge.style.background = '#fee2e2';
+                badge.style.color = '#dc2626';
+            } else if (analysis.status === 'REVISION_REQUIRED' || analysis.requires_human_review) {
+                badge.style.background = '#fef3c7';
+                badge.style.color = '#d97706';
+            } else {
+                badge.style.background = '#dcfce7';
+                badge.style.color = '#15803d';
+            }
+        }
+
+        // Classification & Intent
+        document.getElementById('salsa-modal-intent').textContent = analysis.intent || '-';
+        document.getElementById('salsa-modal-justification').textContent = analysis.justification || '-';
+        document.getElementById('salsa-modal-classification-code').textContent = analysis.classification || '-';
+
+        // Notice banner semantics
+        const noticeText = document.getElementById('salsa-modal-notice-text');
+        if (noticeText) {
+            if (analysis.requires_human_review || analysis.status === 'REVISION_REQUIRED') {
+                noticeText.innerHTML = '<strong>REVISÃO NECESSÁRIA:</strong> Pedido ambíguo, fora dos padrões conhecidos ou dependente de confirmação. Nenhuma operação executada em SAP.';
+            } else {
+                noticeText.innerHTML = '<strong>CLASSIFICADO (PENDENTE DE PRÉ-VALIDAÇÃO):</strong> Intenção identificada passivamente a partir do texto do Jira. Zero operações executadas em SAP.';
+            }
+        }
+
+        // Extracted data
+        const ext = analysis.extracted_data || {};
+        const inputUser = document.getElementById('salsa-modal-input-user');
+        const inputRefUser = document.getElementById('salsa-modal-input-ref-user');
+        const elValUser = document.getElementById('salsa-modal-val-user');
+        const elValRefUser = document.getElementById('salsa-modal-val-ref-user');
+        const elValRequester = document.getElementById('salsa-modal-val-requester');
+        const elValEnv = document.getElementById('salsa-modal-val-env');
+        const elValOpStatus = document.getElementById('salsa-modal-val-op-status');
+        const elValDep = document.getElementById('salsa-modal-val-dependency');
+
+        // Populate editable input fields (preserves value if currently focused by user)
+        if (inputUser && document.activeElement !== inputUser) {
+            inputUser.value = ext.sap_user_id || '';
+        }
+        if (inputRefUser && document.activeElement !== inputRefUser) {
+            inputRefUser.value = ext.reference_user || ext.user_name || '';
+        }
+
+        if (elValUser) elValUser.textContent = ext.sap_user_id || 'Não identificado';
+        if (elValRefUser) elValRefUser.textContent = ext.reference_user || (ext.user_name ? `${ext.user_name} (Nome)` : 'Não identificado');
+        if (elValRequester) elValRequester.textContent = ext.requester || 'Não identificado';
+
+
+        // Sync environments & checkboxes
+        const envList = (ext.sap_environment && Array.isArray(ext.sap_environment)) ? ext.sap_environment : [];
+        if (elValEnv) {
+            elValEnv.textContent = envList.join(', ');
+        }
+        const cbPrd = document.getElementById('salsa-env-cb-prd');
+        const cbQad = document.getElementById('salsa-env-cb-qad');
+        const cbDev = document.getElementById('salsa-env-cb-dev');
+        if (cbPrd) cbPrd.checked = envList.includes('PRD');
+        if (cbQad) cbQad.checked = envList.includes('QAD');
+        if (cbDev) cbDev.checked = envList.includes('DEV');
+
+        if (elValOpStatus) {
+            elValOpStatus.textContent = analysis.operational_status || 'READY_FOR_REVIEW';
+            if (analysis.operational_status === 'WAITING_FOR_FEEDBACK') {
+                elValOpStatus.style.color = '#d97706';
+            } else if (analysis.operational_status === 'READY_FOR_REVIEW') {
+                elValOpStatus.style.color = '#15803d';
+            } else {
+                elValOpStatus.style.color = '#dc2626';
+            }
+        }
+        if (elValDep) elValDep.textContent = analysis.identified_dependency || 'Nenhuma dependência impeditiva';
+
+        // Evidences
+        const evList = document.getElementById('salsa-modal-evidences-list');
+        if (evList) {
+            const evs = analysis.evidences || [];
+            if (evs.length === 0) {
+                evList.innerHTML = '<li>Nenhuma evidência registada</li>';
+            } else {
+                evList.innerHTML = evs.map(e => `<li>${escapeHtml(e)}</li>`).join('');
+            }
+        }
+
+        // Missing Info
+        const missList = document.getElementById('salsa-modal-missing-list');
+        if (missList) {
+            const miss = analysis.missing_info || [];
+            if (miss.length === 0) {
+                missList.innerHTML = '<li style="color:#16a34a;">Nenhuma informação crítica em falta</li>';
+            } else {
+                missList.innerHTML = miss.map(m => `<li>${escapeHtml(m)}</li>`).join('');
+            }
+        }
+
+        // Next Action
+        document.getElementById('salsa-modal-next-action').textContent = analysis.suggested_next_action || 'Proceder à revisão técnica manual.';
+    }
+
+    async function loadSalsaModalHistory(ticketKey) {
+        const countEl = document.getElementById('salsa-modal-history-count');
+        const listEl = document.getElementById('salsa-modal-history-list');
+        if (!listEl) return;
+
+        try {
+            const res = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/history`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const history = data.history || [];
+            if (countEl) countEl.textContent = `${history.length} versão(ões)`;
+
+            if (history.length === 0) {
+                listEl.innerHTML = '<span style="color:#94a3b8; font-style:italic;">Sem histórico prévio.</span>';
+                return;
+            }
+
+            listEl.innerHTML = history.map(h => `
+                <div style="padding:6px 8px; border-bottom:1px solid #f8fafc; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="font-weight:700; color:#334155; font-family:monospace;">${escapeHtml(h.classification)}</span>
+                        <span style="color:#64748b; margin-left:6px;">(${escapeHtml(h.level)})</span>
+                    </div>
+                    <span style="font-size:11px; color:#94a3b8;">${formatJiraDate(h.created_at)}</span>
+                </div>
+            `).join('');
+        } catch (e) {
+            // Ignore history fetch errors
+        }
+    }
+
     loadJobs().then(() => {
         startPolling();
         switchView('jira');
     });
+

@@ -1,0 +1,9 @@
+  METHOD GET_FSV.
+
+* Read Financial Statement Version for Company Code
+    CLEAR ET_FIAPPTC_FSV.
+    SELECT * FROM FIAPPTC_FSV
+      INTO TABLE ET_FIAPPTC_FSV
+      WHERE BUKRS EQ IV_BUKRS.
+
+  ENDMETHOD.

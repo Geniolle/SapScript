@@ -154,6 +154,25 @@
 - **API:** `POST /api/sap-agent/chat`, `GET /api/sap-agent/chat-job/{job_id}`, `POST /api/sap-agent/sap-query`
 - **Worker / Integrações:** `web_api/jira_client.py`, `worker/sap_tasks.py` (`sap_agent_analysis`)
 
+#### 4.1 Agente Salsa IT — Análise Passiva de Acessos (Fase 1)
+- **Fluxo:** Leitura passiva, pré-classificação semântica e deteção de dependências operacionais de tickets Jira atribuídos a Clayton Lopes em `CA Acessos` (Zero operações SAP, Zero escrita Jira).
+- **Frontend:** `cockpit.agent.js` (`openSalsaDiagnosticModal`, `triggerSalsaManualReanalyze`, `renderSalsaModalData`), `templates/index.html` (modal `salsa-agent-diagnostic-modal` com badge de status operacional, solicitante, dependência e botão contextual `Agente IA` na tabela de tickets)
+- **API:**
+  - `GET /api/salsa-it-agent/tickets/{ticket_key}/eligibility`
+  - `POST /api/salsa-it-agent/tickets/{ticket_key}/analyze`
+  - `GET /api/salsa-it-agent/tickets/{ticket_key}/analysis`
+  - `GET /api/salsa-it-agent/tickets/{ticket_key}/history`
+  - `GET /api/salsa-it-agent/analyses`
+- **Módulos do Agente:**
+  - `salsa_agent/models.py`: Modelos tipados (`ClassificationCode`, `AnalysisLevel`, `AnalysisStatus`, `OperationalStatus`, `ExtractedEntities`, `AnalysisResult`).
+  - `salsa_agent/classifier.py`: Nível 1 — Classificador determinístico v1.1.0 com suporte a formas clíticas e coloquiais ("criar-me um user", "acesso sap pela primeira vez"), deteção de negações e defesa contra prompt injection.
+  - `salsa_agent/extractor.py`: Extrator estrito de entidades (utilizador SAP, utilizador de referência, solicitante, ambientes, empresa).
+  - `salsa_agent/ai_provider.py`: Nível 2 — Abstração de IA desacoplada com modo passivo `DisabledAIProvider` (`AI_NOT_CONFIGURED`) e `MockAIProvider`.
+  - `salsa_agent/orchestrator.py`: Orquestrador com validação de elegibilidade no backend, deteção de dependências/bloqueios via comentários (`_detect_operational_status`), e idempotência via SHA-256 de conteúdo e versão de regras.
+- **Persistência SQLite:** `web_api/store.py` (`salsa_it_ticket_analysis`, `salsa_it_ticket_analysis_history` com colunas `operational_status` e `identified_dependency`).
+- **Testes:** `tests/test_salsa_it_phase1.py` (20 testes específicos), `tests/run_all.py` (61 testes totais aprovados).
+
+
 ---
 
 ## Projeto Autorizações (Projeto Perfil Desktop)

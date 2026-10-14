@@ -5,7 +5,7 @@ import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 _DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DATA_DIR = Path(os.getenv("DATA_DIR", str(_DEFAULT_DATA_DIR)))
@@ -196,7 +196,523 @@ def init_db() -> None:
             conn.execute("ALTER TABLE agent_context_rules ADD COLUMN subprocesso TEXT")
         except sqlite3.OperationalError:
             pass
+        # ---------------------------------------------------------------------------
+        # Salsa IT Agent - Ticket Analysis & History (Fase 1)
+        # ---------------------------------------------------------------------------
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS salsa_it_ticket_analysis (
+                ticket_key TEXT PRIMARY KEY,
+                classification TEXT NOT NULL,
+                level TEXT NOT NULL,
+                status TEXT NOT NULL,
+                operational_status TEXT DEFAULT 'READY_FOR_REVIEW',
+                identified_dependency TEXT,
+                intent TEXT,
+                justification TEXT,
+                evidences_json TEXT,
+                extracted_data_json TEXT,
+                missing_info_json TEXT,
+                suggested_next_action TEXT,
+                requires_human_review INTEGER DEFAULT 0,
+                confidence REAL DEFAULT 1.0,
+                rules_version TEXT,
+                ai_model_version TEXT,
+                content_hash TEXT NOT NULL,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        try:
+            conn.execute("ALTER TABLE salsa_it_ticket_analysis ADD COLUMN operational_status TEXT DEFAULT 'READY_FOR_REVIEW'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE salsa_it_ticket_analysis ADD COLUMN identified_dependency TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_salsa_it_analysis_status ON salsa_it_ticket_analysis(status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_salsa_it_analysis_classification ON salsa_it_ticket_analysis(classification)"
+            )
+        except sqlite3.OperationalError:
+            pass
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS salsa_it_ticket_analysis_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket_key TEXT NOT NULL,
+                classification TEXT NOT NULL,
+                level TEXT NOT NULL,
+                status TEXT NOT NULL,
+                operational_status TEXT DEFAULT 'READY_FOR_REVIEW',
+                identified_dependency TEXT,
+                intent TEXT,
+                justification TEXT,
+                evidences_json TEXT,
+                extracted_data_json TEXT,
+                missing_info_json TEXT,
+                suggested_next_action TEXT,
+                requires_human_review INTEGER DEFAULT 0,
+                confidence REAL DEFAULT 1.0,
+                rules_version TEXT,
+                ai_model_version TEXT,
+                content_hash TEXT NOT NULL,
+                error_message TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        try:
+            conn.execute("ALTER TABLE salsa_it_ticket_analysis_history ADD COLUMN operational_status TEXT DEFAULT 'READY_FOR_REVIEW'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE salsa_it_ticket_analysis_history ADD COLUMN identified_dependency TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_salsa_it_history_ticket_key ON salsa_it_ticket_analysis_history(ticket_key)"
+            )
+        except sqlite3.OperationalError:
+            pass
+
         conn.commit()
+
+
+def save_salsa_ticket_analysis(analysis: dict[str, Any]) -> None:
+    """
+    Saves or updates current ticket analysis in salsa_it_ticket_analysis,
+    archiving the previous state to salsa_it_ticket_analysis_history if changed.
+    """
+    ticket_key = analysis["ticket_key"].strip().upper()
+    now = utc_now()
+
+    evidences_json = json.dumps(analysis.get("evidences", []), ensure_ascii=False)
+    extracted_data_json = json.dumps(analysis.get("extracted_data", {}), ensure_ascii=False)
+    missing_info_json = json.dumps(analysis.get("missing_info", []), ensure_ascii=False)
+
+    with get_connection() as conn:
+        # Check current existing record
+        cur = conn.execute(
+            "SELECT * FROM salsa_it_ticket_analysis WHERE ticket_key = ?",
+            (ticket_key,),
+        )
+        existing = cur.fetchone()
+
+        if existing:
+            # If content hash or classification changed, archive current record to history
+            if (
+                existing["content_hash"] != analysis.get("content_hash")
+                or existing["classification"] != analysis.get("classification")
+                or existing["status"] != analysis.get("status")
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO salsa_it_ticket_analysis_history (
+                        ticket_key, classification, level, status, operational_status, identified_dependency,
+                        intent, justification, evidences_json, extracted_data_json, missing_info_json,
+                        suggested_next_action, requires_human_review, confidence,
+                        rules_version, ai_model_version, content_hash, error_message, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        existing["ticket_key"],
+                        existing["classification"],
+                        existing["level"],
+                        existing["status"],
+                        existing["operational_status"] if "operational_status" in existing.keys() else "READY_FOR_REVIEW",
+                        existing["identified_dependency"] if "identified_dependency" in existing.keys() else None,
+                        existing["intent"],
+                        existing["justification"],
+                        existing["evidences_json"],
+                        existing["extracted_data_json"],
+                        existing["missing_info_json"],
+                        existing["suggested_next_action"],
+                        existing["requires_human_review"],
+                        existing["confidence"],
+                        existing["rules_version"],
+                        existing["ai_model_version"],
+                        existing["content_hash"],
+                        existing["error_message"],
+                        existing["updated_at"],
+                    ),
+                )
+
+            # Update existing
+            conn.execute(
+                """
+                UPDATE salsa_it_ticket_analysis SET
+                    classification = ?,
+                    level = ?,
+                    status = ?,
+                    operational_status = ?,
+                    identified_dependency = ?,
+                    intent = ?,
+                    justification = ?,
+                    evidences_json = ?,
+                    extracted_data_json = ?,
+                    missing_info_json = ?,
+                    suggested_next_action = ?,
+                    requires_human_review = ?,
+                    confidence = ?,
+                    rules_version = ?,
+                    ai_model_version = ?,
+                    content_hash = ?,
+                    error_message = ?,
+                    updated_at = ?
+                WHERE ticket_key = ?
+                """,
+                (
+                    analysis.get("classification"),
+                    analysis.get("level"),
+                    analysis.get("status"),
+                    analysis.get("operational_status", "READY_FOR_REVIEW"),
+                    analysis.get("identified_dependency"),
+                    analysis.get("intent"),
+                    analysis.get("justification"),
+                    evidences_json,
+                    extracted_data_json,
+                    missing_info_json,
+                    analysis.get("suggested_next_action"),
+                    1 if analysis.get("requires_human_review") else 0,
+                    analysis.get("confidence", 1.0),
+                    analysis.get("rules_version", "1.1.0"),
+                    analysis.get("ai_model_version"),
+                    analysis.get("content_hash"),
+                    analysis.get("error_message"),
+                    now,
+                    ticket_key,
+                ),
+            )
+        else:
+            # Insert new
+            conn.execute(
+                """
+                INSERT INTO salsa_it_ticket_analysis (
+                    ticket_key, classification, level, status, operational_status, identified_dependency,
+                    intent, justification, evidences_json, extracted_data_json, missing_info_json,
+                    suggested_next_action, requires_human_review, confidence,
+                    rules_version, ai_model_version, content_hash, error_message,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ticket_key,
+                    analysis.get("classification"),
+                    analysis.get("level"),
+                    analysis.get("status"),
+                    analysis.get("operational_status", "READY_FOR_REVIEW"),
+                    analysis.get("identified_dependency"),
+                    analysis.get("intent"),
+                    analysis.get("justification"),
+                    evidences_json,
+                    extracted_data_json,
+                    missing_info_json,
+                    analysis.get("suggested_next_action"),
+                    1 if analysis.get("requires_human_review") else 0,
+                    analysis.get("confidence", 1.0),
+                    analysis.get("rules_version", "1.1.0"),
+                    analysis.get("ai_model_version"),
+                    analysis.get("content_hash"),
+                    analysis.get("error_message"),
+                    now,
+                    now,
+                ),
+            )
+
+
+def update_salsa_ticket_environment(ticket_key: str, environments: list[str]) -> Optional[dict[str, Any]]:
+    """
+    Updates the sap_environment list in extracted_data_json for a ticket analysis.
+    Recalculates missing_info_json if environment was previously missing.
+    """
+    clean_key = ticket_key.strip().upper()
+    now = utc_now()
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT * FROM salsa_it_ticket_analysis WHERE ticket_key = ?",
+            (clean_key,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        extracted_data = json.loads(row["extracted_data_json"] or "{}")
+        extracted_data["sap_environment"] = [e.upper().strip() for e in environments if e.strip()]
+        raw_missing = json.loads(row["missing_info_json"] or "[]")
+
+        # Recalculate missing information dynamically based on extracted_data
+        has_user = bool(extracted_data.get("sap_user_id") or extracted_data.get("reference_user") or extracted_data.get("user_name"))
+        has_envs = bool(extracted_data.get("sap_environment"))
+
+        def is_user_missing_item(m: str) -> bool:
+            low = m.lower()
+            return ("utilizador" in low or "user" in low or "id sap" in low or "identificação" in low) and ("referência" not in low and "referencia" not in low)
+
+        def is_ref_missing_item(m: str) -> bool:
+            low = m.lower()
+            return "referência" in low or "referencia" in low
+
+        def is_env_missing_item(m: str) -> bool:
+            low = m.lower()
+            return "ambiente" in low or "prd" in low or "qad" in low or "dev" in low
+
+        new_missing = []
+        for m in raw_missing:
+            if has_user and is_user_missing_item(m):
+                continue
+            if extracted_data.get("reference_user") and is_ref_missing_item(m):
+                continue
+            if has_envs and is_env_missing_item(m):
+                continue
+            new_missing.append(m)
+
+        missing_info = new_missing
+        extracted_data["missing_information"] = list(new_missing)
+
+        extracted_data_json = json.dumps(extracted_data, ensure_ascii=False)
+        missing_info_json = json.dumps(missing_info, ensure_ascii=False)
+        requires_human = 1 if (missing_info or row["requires_human_review"]) else 0
+
+
+        conn.execute(
+            """
+            UPDATE salsa_it_ticket_analysis SET
+                extracted_data_json = ?,
+                missing_info_json = ?,
+                requires_human_review = ?,
+                updated_at = ?
+            WHERE ticket_key = ?
+            """,
+            (
+                extracted_data_json,
+                missing_info_json,
+                requires_human,
+                now,
+                clean_key,
+            ),
+        )
+        conn.commit()
+
+    return get_salsa_ticket_analysis(clean_key)
+
+
+def update_salsa_ticket_extracted_field(ticket_key: str, field_name: str, value: Optional[str]) -> Optional[dict[str, Any]]:
+    """
+    Updates a specific field in extracted_data_json (e.g. sap_user_id, reference_user).
+    Recalculates missing_info_json accordingly.
+    """
+    clean_key = ticket_key.strip().upper()
+    now = utc_now()
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT * FROM salsa_it_ticket_analysis WHERE ticket_key = ?",
+            (clean_key,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        extracted_data = json.loads(row["extracted_data_json"] or "{}")
+        clean_val = value.strip() if (value and value.strip()) else None
+        extracted_data[field_name] = clean_val
+        raw_missing = json.loads(row["missing_info_json"] or "[]")
+
+        # Recalculate missing information dynamically based on extracted_data
+        has_user = bool(extracted_data.get("sap_user_id") or extracted_data.get("reference_user") or extracted_data.get("user_name"))
+        has_envs = bool(extracted_data.get("sap_environment"))
+
+        def is_user_missing_item(m: str) -> bool:
+            low = m.lower()
+            return ("utilizador" in low or "user" in low or "id sap" in low or "identificação" in low) and ("referência" not in low and "referencia" not in low)
+
+        def is_ref_missing_item(m: str) -> bool:
+            low = m.lower()
+            return "referência" in low or "referencia" in low
+
+        def is_env_missing_item(m: str) -> bool:
+            low = m.lower()
+            return "ambiente" in low or "prd" in low or "qad" in low or "dev" in low
+
+        new_missing = []
+        for m in raw_missing:
+            if has_user and is_user_missing_item(m):
+                continue
+            if extracted_data.get("reference_user") and is_ref_missing_item(m):
+                continue
+            if has_envs and is_env_missing_item(m):
+                continue
+            new_missing.append(m)
+
+        missing_info = new_missing
+        extracted_data["missing_information"] = list(new_missing)
+
+        extracted_data_json = json.dumps(extracted_data, ensure_ascii=False)
+        missing_info_json = json.dumps(missing_info, ensure_ascii=False)
+        requires_human = 1 if (missing_info or row["requires_human_review"]) else 0
+
+
+        conn.execute(
+            """
+            UPDATE salsa_it_ticket_analysis SET
+                extracted_data_json = ?,
+                missing_info_json = ?,
+                requires_human_review = ?,
+                updated_at = ?
+            WHERE ticket_key = ?
+            """,
+            (
+                extracted_data_json,
+                missing_info_json,
+                requires_human,
+                now,
+                clean_key,
+            ),
+        )
+        conn.commit()
+
+    return get_salsa_ticket_analysis(clean_key)
+
+
+def get_salsa_ticket_analysis(ticket_key: str) -> Optional[dict[str, Any]]:
+    """Fetches the latest analysis for a ticket, with parsed JSON fields."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT * FROM salsa_it_ticket_analysis WHERE ticket_key = ?",
+            (ticket_key.strip().upper(),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        row_keys = row.keys()
+        return {
+            "ticket_key": row["ticket_key"],
+            "classification": row["classification"],
+            "level": row["level"],
+            "status": row["status"],
+            "operational_status": row["operational_status"] if "operational_status" in row_keys else "READY_FOR_REVIEW",
+            "identified_dependency": row["identified_dependency"] if "identified_dependency" in row_keys else None,
+            "intent": row["intent"],
+            "justification": row["justification"],
+            "evidences": json.loads(row["evidences_json"] or "[]"),
+            "extracted_data": json.loads(row["extracted_data_json"] or "{}"),
+            "missing_info": json.loads(row["missing_info_json"] or "[]"),
+            "suggested_next_action": row["suggested_next_action"],
+            "requires_human_review": bool(row["requires_human_review"]),
+            "confidence": row["confidence"],
+            "rules_version": row["rules_version"],
+            "ai_model_version": row["ai_model_version"],
+            "content_hash": row["content_hash"],
+            "error_message": row["error_message"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+
+def get_salsa_ticket_analysis_history(ticket_key: str) -> list[dict[str, Any]]:
+    """Returns the history of past analyses for a ticket."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            SELECT * FROM salsa_it_ticket_analysis_history
+            WHERE ticket_key = ?
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (ticket_key.strip().upper(),),
+        )
+        history = []
+        for row in cur.fetchall():
+            row_keys = row.keys()
+            history.append({
+                "id": row["id"],
+                "ticket_key": row["ticket_key"],
+                "classification": row["classification"],
+                "level": row["level"],
+                "status": row["status"],
+                "operational_status": row["operational_status"] if "operational_status" in row_keys else "READY_FOR_REVIEW",
+                "identified_dependency": row["identified_dependency"] if "identified_dependency" in row_keys else None,
+                "intent": row["intent"],
+                "justification": row["justification"],
+                "evidences": json.loads(row["evidences_json"] or "[]"),
+                "extracted_data": json.loads(row["extracted_data_json"] or "{}"),
+                "missing_info": json.loads(row["missing_info_json"] or "[]"),
+                "suggested_next_action": row["suggested_next_action"],
+                "requires_human_review": bool(row["requires_human_review"]),
+                "confidence": row["confidence"],
+                "rules_version": row["rules_version"],
+                "ai_model_version": row["ai_model_version"],
+                "content_hash": row["content_hash"],
+                "error_message": row["error_message"],
+                "created_at": row["created_at"],
+            })
+        return history
+
+
+def list_salsa_ticket_analyses(
+    classification: Optional[str] = None,
+    level: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Lists recent analyses with optional filtering."""
+    query = "SELECT * FROM salsa_it_ticket_analysis WHERE 1=1"
+    params: list[Any] = []
+    if classification:
+        query += " AND classification = ?"
+        params.append(classification)
+    if level:
+        query += " AND level = ?"
+        params.append(level)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+
+    query += " ORDER BY updated_at DESC LIMIT ?"
+    params.append(limit)
+
+    with get_connection() as conn:
+        cur = conn.execute(query, tuple(params))
+        results = []
+        for row in cur.fetchall():
+            row_keys = row.keys()
+            results.append({
+                "ticket_key": row["ticket_key"],
+                "classification": row["classification"],
+                "level": row["level"],
+                "status": row["status"],
+                "operational_status": row["operational_status"] if "operational_status" in row_keys else "READY_FOR_REVIEW",
+                "identified_dependency": row["identified_dependency"] if "identified_dependency" in row_keys else None,
+                "intent": row["intent"],
+                "justification": row["justification"],
+                "evidences": json.loads(row["evidences_json"] or "[]"),
+                "extracted_data": json.loads(row["extracted_data_json"] or "{}"),
+                "missing_info": json.loads(row["missing_info_json"] or "[]"),
+                "suggested_next_action": row["suggested_next_action"],
+                "requires_human_review": bool(row["requires_human_review"]),
+                "confidence": row["confidence"],
+                "rules_version": row["rules_version"],
+                "ai_model_version": row["ai_model_version"],
+                "content_hash": row["content_hash"],
+                "error_message": row["error_message"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            })
+        return results
+
 
 
 def row_to_job(row: sqlite3.Row) -> dict[str, Any]:

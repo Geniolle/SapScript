@@ -1,0 +1,177 @@
+*&---------------------------------------------------------------------*
+*&  Include           RFFOPT_CBR_CVP_01
+*&---------------------------------------------------------------------*
+  CONSTANTS:
+        LC_MASK(20)         TYPE C VALUE '####################'.
+  DATA:
+        LT_KNA1_EOP         TYPE TABLE OF KNA1,
+        LS_KNA1_EOP         TYPE KNA1,
+        LT_LFA1_EOP         TYPE TABLE OF LFA1,
+        LS_LFA1_EOP         TYPE LFA1.
+
+  DATA:
+        LT_BUKRS_KUNNR      TYPE CVP_TT_BUKRS_KUNNR,
+        LS_BUKRS_KUNNR      LIKE LINE OF LT_BUKRS_KUNNR,
+        LT_BUKRS_KUNNR_AUTH TYPE CVP_TT_BUKRS_KUNNR_AUTH,
+        LS_BUKRS_KUNNR_AUTH LIKE LINE OF LT_BUKRS_KUNNR_AUTH.
+
+  DATA:
+        LT_BUKRS_LIFNR      TYPE CVP_TT_BUKRS_LIFNR,
+        LS_BUKRS_LIFNR      LIKE LINE OF LT_BUKRS_LIFNR,
+        LT_BUKRS_LIFNR_AUTH TYPE CVP_TT_BUKRS_LIFNR_AUTH,
+        LS_BUKRS_LIFNR_AUTH LIKE LINE OF LT_BUKRS_LIFNR_AUTH.
+
+  DATA:
+        LS_FIAPPTD_BALANCE  TYPE FIAPPTD_BALANCE,
+        LS_FIAPPTD_TRANS    TYPE FIAPPTD_TRANS.
+
+  DATA:
+        LV_AUTH_MASTER      TYPE CVP_AUTH_MASTER, " Authorization
+        LV_XBLCK            TYPE CVP_XBLCK.       " Block indicator
+
+* CVP Check for existing CBR data:
+* Check if EOP Business Function is active
+    IF CL_VS_SWITCH_CHECK=>CMD_VMD_CVP_ILM_SFW_01( ) EQ ABAP_TRUE.
+*     get all vendors from Balance/Trans tables
+      CLEAR: LT_KNA1_EOP,
+             LT_LFA1_EOP.
+
+      LOOP AT ET_FIAPPTD_BALANCE INTO LS_FIAPPTD_BALANCE.
+        CLEAR: LS_KNA1_EOP,
+               LS_LFA1_EOP.
+        IF LS_FIAPPTD_BALANCE-KOART EQ 'D'. " Customers
+          LS_KNA1_EOP-KUNNR = LS_FIAPPTD_BALANCE-ACCOUNT.
+          APPEND LS_KNA1_EOP TO LT_KNA1_EOP.
+        ELSEIF LS_FIAPPTD_BALANCE-KOART EQ 'K'. " Vendor
+          LS_LFA1_EOP-LIFNR = LS_FIAPPTD_BALANCE-ACCOUNT.
+          APPEND LS_LFA1_EOP TO LT_LFA1_EOP.
+        ENDIF.
+      ENDLOOP.
+
+      LOOP AT ET_FIAPPTD_TRANS INTO LS_FIAPPTD_TRANS.
+        CLEAR: LS_KNA1_EOP,
+               LS_LFA1_EOP.
+        IF LS_FIAPPTD_TRANS-KOART EQ 'D'. " Customers
+          LS_KNA1_EOP-KUNNR = LS_FIAPPTD_TRANS-ACCOUNT.
+          APPEND LS_KNA1_EOP TO LT_KNA1_EOP.
+        ELSEIF LS_FIAPPTD_TRANS-KOART EQ 'K'. " Vendor
+          LS_LFA1_EOP-LIFNR = LS_FIAPPTD_TRANS-ACCOUNT.
+          APPEND LS_LFA1_EOP TO LT_LFA1_EOP.
+        ENDIF.
+      ENDLOOP.
+
+      SORT LT_KNA1_EOP BY KUNNR ASCENDING.
+      DELETE ADJACENT DUPLICATES FROM LT_KNA1_EOP.
+
+      SORT LT_LFA1_EOP BY LIFNR ASCENDING.
+      DELETE ADJACENT DUPLICATES FROM LT_LFA1_EOP.
+
+
+* Get the CVP data for customers
+      LS_BUKRS_KUNNR-BUKRS = IV_BUKRS.
+      LOOP AT LT_KNA1_EOP INTO LS_KNA1_EOP.
+        LS_BUKRS_KUNNR-KUNNR = LS_KNA1_EOP-KUNNR.
+        APPEND LS_BUKRS_KUNNR TO LT_BUKRS_KUNNR.
+      ENDLOOP.
+
+      IF LT_BUKRS_KUNNR IS NOT INITIAL.
+        CALL FUNCTION 'CVP_AUTHCHECK_CUST_BUKRS_MASS'
+          EXPORTING
+            IT_BUKRS_KUNNR            = LT_BUKRS_KUNNR
+*           IV_BYPASS_BUFFER          =
+*           IV_KNB1_ONLY              =
+*           IV_CHECK_CHNG_ACTVT       =
+*           IV_REFRESH_BUFFER         =
+         IMPORTING
+            ET_BUKRS_KUNNR_AUTH       = LT_BUKRS_KUNNR_AUTH
+                  .
+** for each customer, read CVP flag and Authorization
+** if customer is blocked or user is not authorized,
+** filter the data from Balance and Transaction tables
+        LOOP AT LT_BUKRS_KUNNR_AUTH INTO LS_BUKRS_KUNNR_AUTH
+            WHERE CVP_XBLCK EQ 'X'.
+          IF LS_BUKRS_KUNNR_AUTH-AUTH_MASTER IS INITIAL.
+            LOOP AT ET_FIAPPTD_BALANCE INTO LS_FIAPPTD_BALANCE
+                 WHERE ACCOUNT = LS_BUKRS_KUNNR_AUTH-KUNNR.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-ACCOUNT.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-BANK_ID.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-NPC2.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-PAIS_ATIVO.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-PAIS_CONTA.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-PAIS_CONTRAPARTE.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-STCEG.
+              MODIFY ET_FIAPPTD_BALANCE FROM LS_FIAPPTD_BALANCE
+                      TRANSPORTING ACCOUNT BANK_ID NPC2 STCEG
+                                   PAIS_ATIVO PAIS_CONTA PAIS_CONTRAPARTE.
+            ENDLOOP.
+            LOOP AT ET_FIAPPTD_TRANS INTO LS_FIAPPTD_TRANS
+                 WHERE ACCOUNT = LS_BUKRS_KUNNR_AUTH-KUNNR.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-ACCOUNT.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-BANK_ID.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-NPC2.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-PAIS_ATIVO.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-PAIS_CONTA.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-PAIS_CONTRAPARTE.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-STCEG.
+              MODIFY ET_FIAPPTD_TRANS FROM LS_FIAPPTD_TRANS
+                      TRANSPORTING ACCOUNT BANK_ID NPC2 STCEG
+                                   PAIS_ATIVO PAIS_CONTA PAIS_CONTRAPARTE.
+            ENDLOOP.
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
+
+* Get the CVP data for vendors
+      LS_BUKRS_LIFNR-BUKRS = IV_BUKRS.
+      LOOP AT LT_LFA1_EOP INTO LS_LFA1_EOP.
+        LS_BUKRS_LIFNR-LIFNR = LS_LFA1_EOP-LIFNR.
+        APPEND LS_BUKRS_LIFNR TO LT_BUKRS_LIFNR.
+      ENDLOOP.
+
+      IF LT_BUKRS_LIFNR IS NOT INITIAL.
+        CALL FUNCTION 'CVP_AUTHCHECK_VEND_BUKRS_MASS'
+          EXPORTING
+            IT_BUKRS_LIFNR            = LT_BUKRS_LIFNR
+*           IV_BYPASS_BUFFER          =
+*           IV_LFB1_ONLY              =
+*           IV_CHECK_CHNG_ACTVT       =
+*           IV_REFRESH_BUFFER         =
+         IMPORTING
+            ET_BUKRS_LIFNR_AUTH       = LT_BUKRS_LIFNR_AUTH
+                  .
+** for each vendor, read CVP flag and Authorization
+** if vendor is blocked or user is not authorized,
+** filter the data from Balance and Transaction tables
+        LOOP AT LT_BUKRS_LIFNR_AUTH INTO LS_BUKRS_LIFNR_AUTH
+            WHERE CVP_XBLCK EQ 'X'.
+          IF LS_BUKRS_LIFNR_AUTH-AUTH_MASTER IS INITIAL.
+            LOOP AT ET_FIAPPTD_BALANCE INTO LS_FIAPPTD_BALANCE
+                 WHERE ACCOUNT = LS_BUKRS_LIFNR_AUTH-LIFNR.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-ACCOUNT.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-BANK_ID.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-NPC2.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-PAIS_ATIVO.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-PAIS_CONTA.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-PAIS_CONTRAPARTE.
+              MOVE LC_MASK TO LS_FIAPPTD_BALANCE-STCEG.
+              MODIFY ET_FIAPPTD_BALANCE FROM LS_FIAPPTD_BALANCE
+                      TRANSPORTING ACCOUNT BANK_ID NPC2 STCEG
+                                   PAIS_ATIVO PAIS_CONTA PAIS_CONTRAPARTE.
+            ENDLOOP.
+            LOOP AT ET_FIAPPTD_TRANS INTO LS_FIAPPTD_TRANS
+                 WHERE ACCOUNT = LS_BUKRS_LIFNR_AUTH-LIFNR.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-ACCOUNT.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-BANK_ID.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-NPC2.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-PAIS_ATIVO.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-PAIS_CONTA.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-PAIS_CONTRAPARTE.
+              MOVE LC_MASK TO LS_FIAPPTD_TRANS-STCEG.
+              MODIFY ET_FIAPPTD_TRANS FROM LS_FIAPPTD_TRANS
+                      TRANSPORTING ACCOUNT BANK_ID NPC2 STCEG
+                                   PAIS_ATIVO PAIS_CONTA PAIS_CONTRAPARTE.
+            ENDLOOP.
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
+    ENDIF.

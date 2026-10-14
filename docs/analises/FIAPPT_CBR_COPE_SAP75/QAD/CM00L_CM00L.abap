@@ -1,0 +1,22 @@
+  METHOD GET_SCB_IND.
+
+    DATA: LS_T015L TYPE T015L,
+          LV_SCB_IND TYPE FIAPPT_SCB_IND.
+    CLEAR EV_SCB_IND.
+*Get the 5 digit SCB indicator
+    SELECT SINGLE * FROM T015L INTO LS_T015L
+      WHERE LZBKZ = IV_LZBKZ.
+    IF SY-SUBRC = 0.
+      LV_SCB_IND = LS_T015L-ZWCK1(5).
+    ELSE.
+*      RAISE not_found.
+    ENDIF.
+
+    IF LV_SCB_IND CA '0123456789' .
+      EV_SCB_IND = LV_SCB_IND.
+    ELSE.
+*      RAISE no_5_scb.
+
+    ENDIF.
+
+  ENDMETHOD.

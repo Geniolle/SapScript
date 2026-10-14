@@ -741,7 +741,7 @@ def fetch_ticket_details(ticket_key: str) -> dict:
             url,
             auth=auth,
             headers=headers,
-            params={"fields": "summary,description,comment,customfield_15845"},
+            params={"fields": "summary,description,comment,customfield_15845,reporter,assignee,status,updated"},
             timeout=15,
         )
         res.raise_for_status()
@@ -755,10 +755,18 @@ def fetch_ticket_details(ticket_key: str) -> dict:
         # Converter comentários ADF para lista de textos simples
         comments_raw = fields.get("comment", {}).get("comments", [])
         comments = []
+        structured_comments = []
         for c in comments_raw:
-            author = c.get("author", {}).get("displayName", "User")
+            author_obj = c.get("author", {})
+            author = author_obj.get("displayName") or author_obj.get("name") or "User"
+            created_dt = c.get("created") or ""
             body = _parse_jira_adf(c.get("body"))
             comments.append(f"{author}: {body}")
+            structured_comments.append({
+                "author": author,
+                "body": body,
+                "created": created_dt,
+            })
 
         # IT SALSA - Categoria SAP (customfield_15845)
         categoria_raw = fields.get("customfield_15845")
@@ -769,11 +777,30 @@ def fetch_ticket_details(ticket_key: str) -> dict:
         else:
             categoria_sap = ""
 
+        # Reporter
+        reporter_obj = fields.get("reporter") or {}
+        reporter = reporter_obj.get("displayName") or reporter_obj.get("emailAddress") or ""
+
+        # Assignee
+        assignee_obj = fields.get("assignee") or {}
+        assignee = assignee_obj.get("displayName") or assignee_obj.get("emailAddress") or ""
+
+        # Status
+        status_obj = fields.get("status") or {}
+        status_name = status_obj.get("name") or ""
+
+        updated_at = fields.get("updated") or ""
+
         return {
             "summary": str(fields.get("summary") or ""),
             "description": description,
             "comments": comments,
+            "structured_comments": structured_comments,
             "categoria_sap": categoria_sap,
+            "reporter": reporter,
+            "assignee": assignee,
+            "status": status_name,
+            "updated_at": updated_at,
         }
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else 0

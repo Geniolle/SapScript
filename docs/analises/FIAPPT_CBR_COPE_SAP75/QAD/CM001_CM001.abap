@@ -1,0 +1,19 @@
+  METHOD CALC_DUEDATE.
+
+    CLEAR: EV_DUEDATE.
+
+    CALL FUNCTION 'J_1B_READ_DUEDATE'
+      EXPORTING
+        WSKTO   = IV_WSKTO
+        ZFBDT   = IV_ZFBDT
+        ZBD1T   = IV_ZBD1T
+        ZBD2T   = IV_ZBD2T
+        ZBD3T   = IV_ZBD3T
+        ZBD1P   = IV_ZBD1P
+        ZBD2P   = IV_ZBD2P
+        BUKRS   = GV_BUKRS
+        TOGRU   = '0000'
+      IMPORTING
+        DUEDATE = EV_DUEDATE.
+
+  ENDMETHOD.
