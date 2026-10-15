@@ -100,10 +100,31 @@ Dentro da pasta [`scripts/`](./scripts/) estão disponíveis ferramentas de diag
 
 ---
 
-## 7. Arquivos ABAP Preservados
+## 8. Incompatibilidade: Sumarização FI (`TTYPV`) vs Split de Fatura (`LFACIFSI`)
+
+Conforme detalhado no documento **[`CONFLITO_SUMARIZACAO_E_SPLIT_LFACIFSI.md`](./CONFLITO_SUMARIZACAO_E_SPLIT_LFACIFSI.md)**, existe uma trava expressa no standard SAP (`LFACIFSI`, linhas 196 a 203):
+
+```abap
+*do not perform this kind of split if summarization in FI is active
+    PERFORM IS_SUMMARIZATION_ACTIVE CHANGING LV_NO_SPLIT.
+    IF NOT LV_NO_SPLIT IS INITIAL.
+      EXIT.
+    ENDIF.
+```
+
+Se a tabela `TTYPV` possuir parametrização ativa para o cenário (`AWTYP = 'VBRK'`, ex.: empresa `2010`, tipo `RY`), a rotina de split é abortada imediatamente. Caso a sumarização não reduza as linhas para menos de 999 (por divergência de campos-chave como `KDPOS`, `HRKFT`, etc.), o documento não passa novamente pelo split e culmina no erro **`F5 727`**.
+
+---
+
+## 9. Arquivos ABAP Preservados
 
 * [`abap/ZCLFI_BILL_ISSUE_SPLIT.abap`](./abap/ZCLFI_BILL_ISSUE_SPLIT.abap): Código consolidado da classe de implementação da BAdI.
-* [`abap/LFACIFSI.abap`](./abap/LFACIFSI.abap): Código standard completo da rotina `SPLIT_INVOICE` (Função `SAPLFACI`).
+* [`abap/LFACIFSI.abap`](./abap/LFACIFSI.abap): Código standard completo da rotina `SPLIT_INVOICE` e `IS_SUMMARIZATION_ACTIVE` (Função `SAPLFACI`).
+* [`abap/LFACIFSP.abap`](./abap/LFACIFSP.abap): Código standard de split para movimentos de mercadorias (`MKPF`) e adiantamentos.
+* [`abap/LFACIF4W.abap`](./abap/LFACIF4W.abap): Rotina `FI_DOCUMENT_COLLECT` com lógica `COLLECT P_ACC` vs `APPEND P_ACC`.
+* [`abap/LFACIF4V.abap`](./abap/LFACIF4V.abap): Rotina `COMPRESS` que efetua a limpeza dos campos configurados na `TTYPV`.
+* [`abap/LFACIF0P.abap`](./abap/LFACIF0P.abap): Rotina `READ_TTYPV` que carrega a parametrização de sumarização.
 * [`abap/LV60BF00.abap`](./abap/LV60BF00.abap): Interface de faturamento SD $\rightarrow$ Contabilidade (`ACCOUNTING_ITEM_LINE`).
 * [`abap/RV60AFZZ.abap`](./abap/RV60AFZZ.abap): Includes de User Exit da faturação SD.
 * [`abap/RV60C901.abap`](./abap/RV60C901.abap): Rotina SD de faturação.
+
