@@ -49,6 +49,8 @@ from app.ui import (
     linha,
 )
 
+from cockpit_contracts import CockpitRunRequest, CockpitRunResult
+
 
 class SapCockpitError(RuntimeError):
     pass
@@ -283,7 +285,12 @@ def _resolve_processo_path(processo: str) -> str:
     caminho = os.path.abspath(caminho)
     processos_abs = os.path.abspath(PROCESSOS_DIR)
 
-    if not caminho.startswith(processos_abs):
+    # commonpath em vez de startswith: "Processos_evil" nao pode passar como "Processos".
+    try:
+        dentro = os.path.normcase(os.path.commonpath([caminho, processos_abs])) == os.path.normcase(processos_abs)
+    except ValueError:  # unidades diferentes no Windows
+        dentro = False
+    if not dentro:
         raise SapCockpitError("Processo fora da pasta PROCESSOS_DIR nao e permitido.")
 
     if not os.path.isdir(caminho):
@@ -292,10 +299,24 @@ def _resolve_processo_path(processo: str) -> str:
     return caminho
 
 
+def _resolve_subprocesso_path(processo_path: str, subprocesso: str) -> str:
+    """Valida o nome de um subprocesso: so ficheiro .py direto dentro da pasta do processo."""
+    nome = str(subprocesso or "").strip()
+    if not nome.lower().endswith(".py"):
+        nome = f"{nome}.py"
+    if os.path.basename(nome) != nome or len(nome) <= len(".py") or nome.startswith("~$"):
+        raise SapCockpitError(f"Nome de subprocesso invalido: {subprocesso!r}")
+
+    pasta_abs = os.path.abspath(processo_path)
+    caminho = os.path.abspath(os.path.join(pasta_abs, nome))
+    if os.path.normcase(os.path.dirname(caminho)) != os.path.normcase(pasta_abs):
+        raise SapCockpitError(f"Subprocesso fora da pasta do processo nao e permitido: {subprocesso!r}")
+    return caminho
+
+
 def _read_subprocess_web_config(processo_path: str, subprocesso: str) -> dict:
     """Lê WEB_CONFIG de um subprocess via AST (sem executar o código)."""
-    nome = subprocesso if subprocesso.lower().endswith(".py") else f"{subprocesso}.py"
-    script_path = os.path.join(processo_path, nome)
+    script_path = _resolve_subprocesso_path(processo_path, subprocesso)
     if not os.path.isfile(script_path):
         return {}
     try:
@@ -705,8 +726,6 @@ def perguntar_opcao_request(
                 minimize=True,
                 close_after=True
             )
-        except TypeError:
-            lista = mod_pesq.listar_requests(system_name=sistema_desejado, max_rows="5000")
         except Exception as e:
             erro(f"Falha ao gerar lista (pesquisar_request.py): {e}")
             return ctx
@@ -877,6 +896,14 @@ def _load_process_module(caminho_script: str):
     return modulo
 
 
+def _validar_argumentos_exec(exec_fn, ambiente_cockpit, kwargs: dict[str, Any], processo: str) -> None:
+    """Falha antes de executar se os argumentos nao encaixam em executar(). Sem nova tentativa."""
+    try:
+        inspect.signature(exec_fn).bind(ambiente_cockpit, **kwargs)
+    except TypeError as exc:
+        raise SapCockpitError(f"Argumentos incompativeis com executar() em '{processo}': {exc}") from exc
+
+
 def _executar_um_script(
     ambiente_cockpit,
     caminho_pasta,
@@ -889,8 +916,8 @@ def _executar_um_script(
     _resetar_env_request()
     ok(f"Processo selecionado: {processo_escolhido}")
 
-    caminho_script = os.path.join(caminho_pasta, processo_escolhido)
-    if not os.path.exists(caminho_script):
+    caminho_script = _resolve_subprocesso_path(caminho_pasta, processo_escolhido)
+    if not os.path.isfile(caminho_script):
         raise SapCockpitError(f"Subprocesso nao encontrado: {caminho_script}")
 
     modulo = _load_process_module(caminho_script)
@@ -908,10 +935,8 @@ def _executar_um_script(
         interactive=interactive,
     )
 
-    try:
-        resultado_exec = exec_fn(ambiente_cockpit, **kwargs)
-    except TypeError:
-        resultado_exec = exec_fn(ambiente_cockpit)
+    _validar_argumentos_exec(exec_fn, ambiente_cockpit, kwargs, processo_escolhido)
+    resultado_exec = exec_fn(ambiente_cockpit, **kwargs)
 
     if isinstance(resultado_exec, dict):
         doc_number = str(
@@ -1396,11 +1421,12 @@ def obter_sessao_sap(ambiente_cockpit: str, interactive: bool = True):
 
 
 def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
-    payload = payload or {}
     log_lines: list[str] = []
     session = None
 
     try:
+        pedido = CockpitRunRequest.from_payload(payload)
+        payload = pedido.payload
         ambiente_cockpit = selecionar_ambiente(payload=payload, interactive=False)
         sistema_desejado = MAPA_SISTEMA.get(ambiente_cockpit)
 
@@ -1409,7 +1435,7 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
         caminho_processo = selecionar_pasta_processo(payload=payload, interactive=False)
 
         # Verificar se o subprocess gere a sua própria sessão SAP
-        subprocesso_payload = str(payload.get("subprocesso") or payload.get("script") or "").strip()
+        subprocesso_payload = pedido.subprocesso
         web_config = _read_subprocess_web_config(caminho_processo, subprocesso_payload) if subprocesso_payload else {}
         manages_own_session = web_config.get("manages_own_session", False)
 
@@ -1432,10 +1458,7 @@ def run_sap_cockpit(payload: dict[str, Any] | None = None) -> dict[str, str]:
         status = status or (read_sbar_status(session) if session is not None else "")
         log_lines.append(f"STATUS: {status}")
 
-        return {
-            "status": status,
-            "log": "\n".join(log_lines),
-        }
+        return CockpitRunResult(status=status, log="\n".join(log_lines)).to_dict()
 
     except Exception as exc:
         status = read_sbar_status(session) if session is not None else str(exc)

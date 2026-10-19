@@ -53,7 +53,8 @@ Matriz completa (requests, credenciais, erros, processos) fica para a fase 2.
 | Fase | Estado |
 |---|---|
 | 1. Inventário e testes de referência | Concluída (esta auditoria + baseline de 65 testes) |
-| 2. Extrair Core partilhado | Pendente |
+| 2. Segurança e contratos | Concluída (ver [SAP_COCKPIT_MIGRATION.md](SAP_COCKPIT_MIGRATION.md)); não commitada |
+| 2b. Extrair Core partilhado | Pendente |
 | 3. Migrar executor e sessões | Pendente |
 | 4. Adaptar o terminal | Pendente |
 | 5. Integrar o worker Web | Pendente |
