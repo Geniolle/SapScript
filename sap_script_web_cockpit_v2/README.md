@@ -32,6 +32,6 @@ Por isso a aplicacao web foi colocada no pacote `web_api`, para nao criar confli
 O Cockpit Web foi migrado para a nuvem. Os dados de acesso e operação encontram-se em:
 - Documentação detalhada: [docs/MIGRACAO_ORACLE_CLOUD.md](../docs/MIGRACAO_ORACLE_CLOUD.md)
 - **URL Web:** [http://140.238.123.30](http://140.238.123.30)
-- **Utilizador:** `Geniolle` | **Senha:** `P@1geniolle.`
+- **Utilizador:** definido fora do repositório (credenciais geridas localmente; não publicar neste README)
 - **Acesso SSH:** `ssh -i "C:\workspace\SapScript\Servidor\ssh-key-2026-10-13.key" ubuntu@140.238.123.30`
 

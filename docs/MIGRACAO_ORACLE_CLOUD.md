@@ -6,7 +6,7 @@
 - **URL Direta:** [http://140.238.123.30](http://140.238.123.30)
 - **Tipo de Autenticação:** HTTP Basic Auth (Protegido por Nginx)
 - **Utilizador:** `Geniolle`
-- **Senha:** `P@1geniolle.`
+- **Senha:** definida fora do repositório (não publicar)
 
 > **Nota de Acesso:** O Cockpit pode ser aberto em qualquer computador, telemóvel ou tablet. Ao aceder, o navegador solicitará o utilizador e a senha acima.
 
