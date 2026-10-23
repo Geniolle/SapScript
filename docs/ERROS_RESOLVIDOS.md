@@ -7,6 +7,29 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-10-21 — SAP Cockpit: pede ENTER para abrir sessão manualmente quando existe sessão de outro sistema
+
+### Sintoma
+- Ao escolher `DEV` (ou outro ambiente) no `SAP Cockpit.py`, aparecia `Existe uma sessão SAP ativa, mas não é do ambiente selecionado` e o script esperava `Pressione ENTER`, em vez de entrar com as credenciais do `.env`.
+
+### Causa raiz
+- O bloco `if session is None:` tinha a condição `if not _tem_alguma_sessao_ativa(application):`. Essa função devolve `True` para **qualquer** sessão aberta (qualquer sistema), não só para o ambiente escolhido. Com outra sessão aberta, o script caía no ramo `else` e pedia ENTER.
+
+### Correção
+- Removida a condição e o ramo `else`. Quando `_encontrar_sessao_do_sistema` não encontra o ambiente escolhido, o script abre sempre a ligação com `SAP_{AMBIENTE}_ASHOST/SYSNR` e `SAP_{AMBIENTE}_USER/PASSWD` do `.env`.
+- `_tem_alguma_sessao_ativa` ficou sem uso (pode ser apagada).
+
+### Como diagnosticar
+- Se aparecer `Existe uma sessão SAP ativa, mas não é do ambiente selecionado`, o código antigo está ativo. Confirmar com `Grep` por essa mensagem em `SAP Cockpit.py`.
+
+### Como prevenir
+- Verificações de "já existe sessão" devem comparar com o sistema alvo (`SystemName`), nunca com a existência de qualquer sessão.
+
+### Ficheiros
+- `SAP Cockpit.py` (bloco `if session is None:`, ~linha 982)
+
+---
+
 ## 2026-10-14 — COPE / Balança Comercial (FIAPPT_CBR): Saldos de contas bancárias em CNY omitem a conta firme (...10) e apresentam apenas a conta movimento (...11)
 
 ### Sintoma

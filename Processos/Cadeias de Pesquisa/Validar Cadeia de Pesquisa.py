@@ -97,35 +97,64 @@ def executar(ambiente):
 
     print(f"🔍 Total de cadeias a verificar: {len(cadeias)}")
 
+    # Inicializar serviço RFC para validação direta sem depender de SE16H
+    svc = None
     try:
-        SapGuiAuto = win32com.client.GetObject("SAPGUI")
-        application = SapGuiAuto.GetScriptingEngine
-        connection = application.Children(0)
-        session = connection.Children(0)
+        from sap_rfc.otpm_validation_service import OtpmValidationService, TpamaStatus
+        svc = OtpmValidationService(environment=ambiente)
     except Exception as e:
-        print("❌ Erro ao conectar ao SAP GUI. Verifique se o SAP está aberto e com sessão ativa.")
-        print(f"Detalhes: {e}")
-        return
+        print(f"⚠️ Aviso: Não foi possível inicializar serviço RFC ({e}). A tentar SAP GUI como contingência...")
 
-    for cadeia in cadeias:
-        existe, status_sap = verificar_cadeia_sap(session, cadeia)
-        status_val = "OK" if existe else "ERRO"
-        msg_val = status_sap if status_sap else ("Cadeia existente" if existe else "Não encontrada na TPAMA")
+    if svc:
+        print("🔗 Validação conectada via RFC (READ-ONLY).")
+        for cadeia in cadeias:
+            res_val = svc.check_tpama(cadeia)
+            if res_val.status == TpamaStatus.EXISTE:
+                status_val = "OK"
+                msg_val = res_val.message or "Cadeia existente"
+                print(f"✅ {cadeia} - {msg_val}")
+            elif res_val.status == TpamaStatus.NAO_EXISTE:
+                status_val = "ERRO"
+                msg_val = res_val.message or "Não encontrada na TPAMA"
+                print(f"❌ {cadeia} - {msg_val}")
+            else: # ERRO_RFC
+                status_val = "ERRO"
+                msg_val = res_val.message or "Erro de validação RFC"
+                print(f"⚠️ {cadeia} - {msg_val}")
 
-        df.loc[df[nome_coluna] == cadeia, "STATUS"] = status_val
-        df.loc[df[nome_coluna] == cadeia, "MSG"] = msg_val
+            df.loc[df[nome_coluna] == cadeia, "STATUS"] = status_val
+            df.loc[df[nome_coluna] == cadeia, "MSG"] = msg_val
+        svc.close()
+    else:
+        try:
+            SapGuiAuto = win32com.client.GetObject("SAPGUI")
+            application = SapGuiAuto.GetScriptingEngine
+            connection = application.Children(0)
+            session = connection.Children(0)
+        except Exception as e:
+            print("❌ Erro ao conectar ao SAP GUI. Verifique se o SAP está aberto e com sessão ativa.")
+            print(f"Detalhes: {e}")
+            return
 
-        print(f"{'✅' if existe else '❌'} {cadeia} - {status_sap}")
+        for cadeia in cadeias:
+            existe, status_sap = verificar_cadeia_sap(session, cadeia)
+            status_val = "OK" if existe else "ERRO"
+            msg_val = status_sap if status_sap else ("Cadeia existente" if existe else "Não encontrada na TPAMA")
 
-    # Dar o comando /n no final da pesquisa em SAP para limpar a sessão
-    try:
-        okcd = _esperar_objeto(session, "wnd[0]/tbar[0]/okcd", timeout=2.0)
-        if okcd:
-            okcd.text = "/n"
-            session.findById("wnd[0]").sendVKey(0)
-            time.sleep(0.2)
-    except Exception as e:
-        print(f"⚠️ Erro ao regressar ao ecrã inicial do SAP (/n): {e}")
+            df.loc[df[nome_coluna] == cadeia, "STATUS"] = status_val
+            df.loc[df[nome_coluna] == cadeia, "MSG"] = msg_val
+
+            print(f"{'✅' if existe else '❌'} {cadeia} - {status_sap}")
+
+        # Dar o comando /n no final da pesquisa em SAP para limpar a sessão
+        try:
+            okcd = _esperar_objeto(session, "wnd[0]/tbar[0]/okcd", timeout=2.0)
+            if okcd:
+                okcd.text = "/n"
+                session.findById("wnd[0]").sendVKey(0)
+                time.sleep(0.2)
+        except Exception as e:
+            print(f"⚠️ Erro ao regressar ao ecrã inicial do SAP (/n): {e}")
 
     try:
         df.to_excel(CAMINHO_EXCEL, index=False)

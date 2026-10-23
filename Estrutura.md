@@ -11,8 +11,8 @@
 
 - **Localização Base:** `C:\workspace\SapScript\sap_script_web_cockpit_v2`
 - **Componentes Centrais de Runtime:**
-  - **Frontend UI:** `web_api/templates/index.html`, `web_api/static/js/cockpit.core.js`, `web_api/static/js/cockpit.agent.js`, `web_api/static/styles.css`
-  - **API Backend (FastAPI):** `web_api/main.py`, `web_api/common.py`, `web_api/pfcg_common.py`, `web_api/user_create_common.py`, `web_api/store.py` (Base SQLite `db.sqlite3`)
+  - **Frontend UI:** `web_api/templates/index.html`, `web_api/static/js/cockpit.core.js`, `web_api/static/js/cockpit.agent.js`, `web_api/static/styles.css`, `web_api/static/favicon.ico`, `web_api/static/favicon-*.png`, `web_api/static/apple-touch-icon.png`, `web_api/static/site.webmanifest`
+  - **API Backend (FastAPI):** `web_api/main.py` (rotas de API e `/favicon.ico`), `web_api/common.py`, `web_api/pfcg_common.py`, `web_api/user_create_common.py`, `web_api/store.py` (Base SQLite `db.sqlite3`)
   - **Worker (Execução SAP Windows):** `worker/worker.py`, `worker/sap_tasks.py` (despacho por dicionário `TASK_HANDLERS`), `worker/start_worker_auto.ps1`
   - **Rede de Segurança & Testes:** `tests/run_all.py`, `tests/js_smoke.py`, `tests/test_salsa_agent_routes.py`, `tests/test_worker_dispatch.py`, `tests/test_worker_reap.py`
 
@@ -104,6 +104,23 @@
   - **Worker:** `worker/sap_tasks.py` (`zterm_interval_analysis`, `zterm_copy_gui`)
   - **Serviço RFC & Automação GUI:** `sap_rfc/zterm_service.py` (`get_zterm_interval_analysis`), `Processos/zterm_copy_gui.py` (`copy_zterm_gui`), `Processos/criar_request.py` (`criar_nova_request_auto`)
   - **Documentação Técnica:** `docs/RELATORIO_TECNICO_OBB8_ZTERM.md`
+
+#### 1.6 Cadeias de Pesquisa (OTPM)
+- **Auditoria RFC, Simulação Dry-Run e Criação/Atribuição (SAP GUI Scripting):**
+  - **Frontend:** `cockpit.agent.js` (`otpm-cadeias-pesquisa`, `otpm-upload-excel`, `otpm-select-excel`, `otpm-dry-run`, `otpm-confirm-create`, `otpm-voltar`)
+  - **API:**
+    - `POST /api/salsa-it-agent/otpm/upload` (Upload seguro de ficheiro Excel com `_safe_upload_filename`)
+    - `POST /api/salsa-it-agent/otpm/validate` & `GET /api/salsa-it-agent/otpm/validate/{job_id}` (Validação RFC exclusiva contra `TPAMA` e `T028P`)
+    - `POST /api/salsa-it-agent/otpm/dry-run` & `GET /api/salsa-it-agent/otpm/dry-run/{job_id}` (Simulação estrita sem escrita)
+    - `POST /api/salsa-it-agent/otpm/confirm` & `GET /api/salsa-it-agent/otpm/confirm/{job_id}` (Despacho seguro para criação no worker)
+  - **Worker:** `worker/sap_tasks.py` (`otpm_excel_validate`, `otpm_dry_run`, `otpm_execute`)
+  - **Serviço RFC & Automação GUI:**
+    - `sap_rfc/otpm_service.py` (`parse_otpm_excel`, `validate_otpm_excel_via_rfc`, `preview_otpm_dry_run`)
+    - `sap_rfc/otpm_validation_service.py` (`OtpmValidationService` — auditoria RFC pura)
+    - `Processos/Cadeias de Pesquisa/Criar Atribuir Cadeias.py` (Automação SAP GUI para criação/atribuição com guards)
+  - **Testes:**
+    - `tests/test_salsa_agent_routes.py` (`test_otpm_validate_create_job_and_states`, `test_otpm_dry_run_and_confirm`)
+    - `tests/test_worker_dispatch.py` (contrato de tasks `otpm_excel_validate`, `otpm_dry_run`, `otpm_execute`)
 
 ---
 

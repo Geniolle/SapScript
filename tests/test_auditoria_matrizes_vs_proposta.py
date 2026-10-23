@@ -10,6 +10,7 @@ Matrizes Departamentais e Sheet Proposta na Tarefa 1.
 import sys
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -25,6 +26,119 @@ spec.loader.exec_module(projeto_perfil)
 auditar_matrizes_departamentais_vs_proposta = projeto_perfil.auditar_matrizes_departamentais_vs_proposta
 REGRAS_ESPECIAIS_TCODE = projeto_perfil.REGRAS_ESPECIAIS_TCODE
 ProjetoPerfilData = projeto_perfil.ProjetoPerfilData
+
+
+def test_cli_reinicia_com_python_rfc_do_sapscript(monkeypatch):
+    import subprocess
+
+    chamadas = []
+    monkeypatch.setattr(projeto_perfil.sys, "executable", r"C:\workspace\SOMA_Direct\.venv\Scripts\python.exe")
+    monkeypatch.setattr(projeto_perfil.sys, "argv", ["Projeto Perfil.py", "--yes"])
+    monkeypatch.setattr(projeto_perfil.os, "execv", lambda *args: (_ for _ in ()).throw(AssertionError("os.execv não deve ser usado")))
+    monkeypatch.setattr(subprocess, "run", lambda argumentos: chamadas.append(argumentos) or type("Resultado", (), {"returncode": 0})())
+
+    with pytest.raises(SystemExit) as saida:
+        projeto_perfil.garantir_ambiente_rfc_do_projeto()
+
+    argumentos = chamadas[0]
+    executavel = argumentos[0]
+    assert executavel.endswith(r"SapScript\.venv-rfc\Scripts\python.exe")
+    assert argumentos[-1] == "--yes"
+    assert saida.value.code == 0
+
+
+def test_cli_nao_reinicia_quando_ja_usa_python_rfc(monkeypatch):
+    import subprocess
+
+    chamadas = []
+    python_rfc = projeto_perfil.PROJECT_ROOT / ".venv-rfc" / "Scripts" / "python.exe"
+    monkeypatch.setattr(projeto_perfil.sys, "executable", str(python_rfc))
+    monkeypatch.setattr(subprocess, "run", lambda argumentos: chamadas.append(argumentos))
+
+    projeto_perfil.garantir_ambiente_rfc_do_projeto()
+
+    assert chamadas == []
+
+
+def test_departamento_proposta_ativa_tem_de_existir_no_controlo():
+    dados = SimpleNamespace(controlo=[{"departamento": "Product"}, {"departamento": "Legal"}])
+
+    assert projeto_perfil.departamento_esta_no_controlo(" product ", dados) is True
+    assert projeto_perfil.departamento_esta_no_controlo("Industry Services", dados) is False
+
+
+def test_preparacao_cua_respeita_departamentos_do_controlo():
+    import inspect
+
+    codigo = inspect.getsource(projeto_perfil.preparar_cua_adicionar)
+    assert "if not departamento_esta_no_controlo(dep_user, dados):" in codigo
+
+
+def test_etapa_3_integrada_respeita_departamentos_do_controlo():
+    import inspect
+
+    codigo = inspect.getsource(projeto_perfil.executar_atualizacao_integrada_excel)
+    assert "if not departamento_esta_no_controlo(dep, dados):" in codigo
+
+
+def test_lista_diferencas_e_permite_continuar_sem_atualizar(monkeypatch, capsys):
+    pendencias = {
+        "S123": {
+            "departamento": "Product",
+            "funcoes_atuais": {"Z_ROLE_A"},
+            "funcoes_em_falta": {"Z_ROLE_B"},
+            "funcoes_resultantes": {"Z_ROLE_A", "Z_ROLE_B"},
+            "tcodes_por_funcao": {"Z_ROLE_B": {"ME23N", "ME22N"}},
+        }
+    }
+    monkeypatch.setattr("builtins.input", lambda _: "N")
+
+    confirmado = projeto_perfil.confirmar_atualizacoes_proposta_ativa(pendencias)
+
+    saida = capsys.readouterr().out
+    assert confirmado is False
+    assert "Utilizador: S123" in saida
+    assert "Departamento: Product" in saida
+    assert "+ Z_ROLE_B" in saida
+    assert "TCODEs com X: ME22N, ME23N" in saida
+    assert "Funções atuais:" not in saida
+    assert "Resultado proposto:" not in saida
+
+
+def test_relatorio_identifica_explicitamente_o_departamento():
+    """O agrupamento de TCODEs pendentes deve nomear o departamento sem ambiguidade."""
+    import inspect
+
+    codigo = inspect.getsource(projeto_perfil.executar_atualizacao_integrada_excel)
+    assert 'print(f"  Departamento: {dep_pend}")' in codigo
+
+
+def test_falha_rfc_nao_classifica_tcodes_como_inexistentes(monkeypatch):
+    """Falha técnica deixa TCODEs não verificadas; nunca as marca como inexistentes."""
+    import builtins
+
+    importar_real = builtins.__import__
+
+    def importar_sem_pyrfc(nome, *args, **kwargs):
+        if nome == "pyrfc":
+            raise ModuleNotFoundError("No module named 'pyrfc'")
+        return importar_real(nome, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", importar_sem_pyrfc)
+
+    resultado = projeto_perfil.verificar_tcodes_prd(["SE16", "SU01"])
+
+    assert resultado["ok"] is False
+    assert resultado["nao_existentes"] == []
+    assert resultado["nao_verificadas"] == ["SE16", "SU01"]
+
+
+def test_atualizacao_integrada_aborta_se_validacao_tstc_falhar():
+    """A etapa 2 deve parar antes de preparar qualquer marcação no Excel."""
+    import inspect
+
+    codigo = inspect.getsource(projeto_perfil.executar_atualizacao_integrada_excel)
+    assert "Falha ao validar TCODEs no SAP PRD" in codigo
 
 
 def simular_auditoria_matriz(

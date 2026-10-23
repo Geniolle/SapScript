@@ -56,3 +56,19 @@ Estado por fase. Ver também [SAP_COCKPIT_REFACTOR_AUDIT.md](SAP_COCKPIT_REFACTO
 ## Fases 3 a 8 (pendentes)
 
 Ver tabela de estado em [SAP_COCKPIT_REFACTOR_AUDIT.md](SAP_COCKPIT_REFACTOR_AUDIT.md#6-estado-das-fases).
+
+## Fase 3b — Segurança do desktop e núcleo de funções puras (concluída, não commitada)
+
+Ver detalhe na secção 7.11 de [SAP_COCKPIT_REFACTOR_AUDIT.md](SAP_COCKPIT_REFACTOR_AUDIT.md).
+
+| Ficheiro | Alteração |
+|---|---|
+| `SAP Cockpit.py` | Sem `except TypeError` em `executar_processo` e `perguntar_opcao_request`; usa `validar_argumentos_exec`; importa `parse_env_line` e `is_scripting_disabled_error` |
+| `sap_script_web_cockpit_v2/sap_cockpit_web_ready.py` | Usa o core para as duas funções puras e para a validação de assinatura; `_validar_argumentos_exec` passa a ser adaptador que converte para `SapCockpitError` |
+| `sap_cockpit_core.py` (novo, raiz) | `parse_env_line`, `is_scripting_disabled_error`, `validar_argumentos_exec`, `ArgumentosExecInvalidos` |
+| `sap_script_web_cockpit_v2/tests/test_sap_cockpit_fase3b.py` (novo) | 13 testes: equivalência, validação de assinatura, sem retry no desktop e na web |
+| `sap_script_web_cockpit_v2/tests/fixtures/sap_cockpit_golden_puras.json` (novo) | Saídas originais de `HEAD` para o corpus de equivalência |
+
+**Não aplicado (decisão pendente):** regra única de credenciais (dependências em `transportar_request.py`, `inspect_dmeex.py` e nos `.env.example`) e obrigatoriedade de `request_type` e `request_desc` (formulário web com defaults). Ver 7.11.
+
+**Compatibilidade:** `SAP Cockpit.py` mantém os mesmos nomes e assinaturas públicas. `run_sap_cockpit` e `main_terminal` não mudaram. Nenhum deploy feito.

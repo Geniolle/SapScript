@@ -590,80 +590,20 @@ def executar(
         if not nome_cadeia:
             return False, "Nome da cadeia vazio."
 
+        # Validação estrita exclusivamente via RFC (READ-ONLY)
+        from sap_rfc.otpm_validation_service import OtpmValidationService, TpamaStatus
+        env_target = str(ambiente_cockpit or "DEV").strip().upper()
         try:
-            sess.findById("wnd[0]/tbar[0]/okcd").text = "/NSE16H"
-            _send_vkey(sess, 0)
-
-            mt, sb = get_statusbar(sess)
-            if mt in ("E", "A") and sb:
-                return None, sb
-
-            if not _try_set_text(sess, [
-                "wnd[0]/usr/ctxtGD-TAB",
-                "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
-                "wnd[0]/usr/ctxtTABNAME",
-            ], "TPAMA"):
-                return None, "Nao consegui preencher a tabela TPAMA na SE16H."
-
-            _send_vkey(sess, 0)
-            mt, sb = get_statusbar(sess)
-            if mt in ("E", "A") and sb:
-                return None, sb
-
-            campo_panam = _esperar_objeto(
-                sess,
-                "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC/ctxtGS_SELFIELDS-LOW[2,2]",
-                timeout=2.5,
-            )
-            if not campo_panam:
-                return None, "Nao consegui localizar o campo PANAM na TPAMA."
-
-            campo_panam.text = nome_cadeia
-
-            if not try_press(sess, ["wnd[0]/tbar[1]/btn[8]"]):
-                return None, "Nao consegui executar a pesquisa na TPAMA."
-
-            nao_encontrou_tokens = (
-                "NO VALUES",
-                "NOT FOUND",
-                "NENHUM",
-                "NAO ENCONTR",
-                "SEM REGIST",
-            )
-            encontrou_tokens = (
-                "SELECION",
-                "SELECTED",
-                "REGIST",
-                "ENTRAD",
-                "VALUES",
-            )
-
-            # A SE16H pode demorar a preencher statusbar/ALV.
-            for _ in range(20):
-                mt, sb = get_statusbar(sess)
-                msg_norm = norm_txt(sb)
-
-                if msg_norm and any(t in msg_norm for t in nao_encontrou_tokens):
-                    return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA."
-                if msg_norm and any(t in msg_norm for t in encontrou_tokens):
-                    return True, sb
-
-                wnd0 = _safe_find(sess, "wnd[0]")
-                wnd_text = norm_txt(getattr(wnd0, "Text", "") if wnd0 else "")
-                if "ENTRADAS ENCONTRADAS" in wnd_text or "ENTRIES FOUND" in wnd_text:
-                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA."
-
-                if _se16h_tem_resultados(sess):
-                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA."
-
-                time.sleep(0.2)
-
-            return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA."
-        except Exception as e:
-            return None, str(e)
-        finally:
-            if not keep_validation_screen:
-                limpar_para_home(sess)
+            with OtpmValidationService(environment=env_target) as svc:
+                res = svc.check_tpama(nome_cadeia)
+                if res.status == TpamaStatus.EXISTE:
+                    return True, res.message or f"Cadeia '{nome_cadeia}' encontrada na TPAMA (RFC)."
+                elif res.status == TpamaStatus.NAO_EXISTE:
+                    return False, res.message or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA (RFC)."
+                else: # ERRO_RFC
+                    return None, f"Erro de validação RFC TPAMA: {res.message}"
+        except Exception as e_rfc:
+            return None, f"Falha na comunicação RFC TPAMA: {e_rfc}"
 
     def _validar_cadeia_na_tpama(sess, nome_cadeia, tentativas=3, pausa=1.0):
         ultima_msg = ""

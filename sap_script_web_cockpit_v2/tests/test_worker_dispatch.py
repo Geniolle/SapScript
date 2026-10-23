@@ -74,6 +74,9 @@ EXPECTED_TASKS = {
     "projeto_perfil_atribuir_su53",
     "zterm_interval_analysis",
     "zterm_copy_gui",
+    "otpm_excel_validate",
+    "otpm_dry_run",
+    "otpm_execute",
     "sap_cockpit",
 }
 # sap_cockpit fica como ramo explicito (streaming/threads/documentacao proprios).

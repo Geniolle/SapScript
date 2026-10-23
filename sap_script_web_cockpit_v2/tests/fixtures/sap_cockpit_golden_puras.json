@@ -1,0 +1,393 @@
+{
+ "parse": [
+  {
+   "in": "",
+   "d": [
+    null,
+    null
+   ],
+   "w": [
+    null,
+    null
+   ]
+  },
+  {
+   "in": "   ",
+   "d": [
+    null,
+    null
+   ],
+   "w": [
+    null,
+    null
+   ]
+  },
+  {
+   "in": "# comentario",
+   "d": [
+    null,
+    null
+   ],
+   "w": [
+    null,
+    null
+   ]
+  },
+  {
+   "in": "SAP_DEV_USER=ABC",
+   "d": [
+    "SAP_DEV_USER",
+    "ABC"
+   ],
+   "w": [
+    "SAP_DEV_USER",
+    "ABC"
+   ]
+  },
+  {
+   "in": "  SAP_DEV_USER = ABC  ",
+   "d": [
+    "SAP_DEV_USER",
+    "ABC"
+   ],
+   "w": [
+    "SAP_DEV_USER",
+    "ABC"
+   ]
+  },
+  {
+   "in": "A=\"x y\"",
+   "d": [
+    "A",
+    "x y"
+   ],
+   "w": [
+    "A",
+    "x y"
+   ]
+  },
+  {
+   "in": "B='z'",
+   "d": [
+    "B",
+    "z"
+   ],
+   "w": [
+    "B",
+    "z"
+   ]
+  },
+  {
+   "in": "C=\"",
+   "d": [
+    "C",
+    "\""
+   ],
+   "w": [
+    "C",
+    "\""
+   ]
+  },
+  {
+   "in": "D=",
+   "d": [
+    "D",
+    ""
+   ],
+   "w": [
+    "D",
+    ""
+   ]
+  },
+  {
+   "in": "=valor",
+   "d": [
+    null,
+    null
+   ],
+   "w": [
+    null,
+    null
+   ]
+  },
+  {
+   "in": "E=a=b=c",
+   "d": [
+    "E",
+    "a=b=c"
+   ],
+   "w": [
+    "E",
+    "a=b=c"
+   ]
+  },
+  {
+   "in": "F=\"\"",
+   "d": [
+    "F",
+    ""
+   ],
+   "w": [
+    "F",
+    ""
+   ]
+  },
+  {
+   "in": "G=''",
+   "d": [
+    "G",
+    ""
+   ],
+   "w": [
+    "G",
+    ""
+   ]
+  },
+  {
+   "in": "H='x\"",
+   "d": [
+    "H",
+    "'x\""
+   ],
+   "w": [
+    "H",
+    "'x\""
+   ]
+  },
+  {
+   "in": "I=\"x'",
+   "d": [
+    "I",
+    "\"x'"
+   ],
+   "w": [
+    "I",
+    "\"x'"
+   ]
+  },
+  {
+   "in": "J=  \"espaco\"  ",
+   "d": [
+    "J",
+    "espaco"
+   ],
+   "w": [
+    "J",
+    "espaco"
+   ]
+  },
+  {
+   "in": "K=1",
+   "d": [
+    "K",
+    "1"
+   ],
+   "w": [
+    "K",
+    "1"
+   ]
+  },
+  {
+   "in": "\tTAB=ok\t",
+   "d": [
+    "TAB",
+    "ok"
+   ],
+   "w": [
+    "TAB",
+    "ok"
+   ]
+  },
+  {
+   "in": "SAP_PASSWORD_S4QCLNT100=valor-teste\"",
+   "d": [
+    "SAP_PASSWORD_S4QCLNT100",
+    "valor-teste\""
+   ],
+   "w": [
+    "SAP_PASSWORD_S4QCLNT100",
+    "valor-teste\""
+   ]
+  },
+  {
+   "in": "X='",
+   "d": [
+    "X",
+    "'"
+   ],
+   "w": [
+    "X",
+    "'"
+   ]
+  },
+  {
+   "in": "Y=\"\"\"",
+   "d": [
+    "Y",
+    "\""
+   ],
+   "w": [
+    "Y",
+    "\""
+   ]
+  },
+  {
+   "in": "Z=\"a\"",
+   "d": [
+    "Z",
+    "a"
+   ],
+   "w": [
+    "Z",
+    "a"
+   ]
+  }
+ ],
+ "disabled": [
+  {
+   "in": [
+    "SAP GUI scripting is disabled",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "SAPGUI not active",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "script inactive",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "erro sapgui desativado",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "scripting nao esta ativo",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "Scripting não está ativo",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "SAPGUI não está ativo",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "nothing relevant",
+    null
+   ],
+   "d": false,
+   "w": false
+  },
+  {
+   "in": [
+    "disabled but no keyword",
+    null
+   ],
+   "d": false,
+   "w": false
+  },
+  {
+   "in": [
+    "scripting",
+    null
+   ],
+   "d": false,
+   "w": false
+  },
+  {
+   "in": [
+    "",
+    null
+   ],
+   "d": false,
+   "w": false
+  },
+  {
+   "in": [
+    "generic",
+    [
+     "SAP scripting not enabled"
+    ]
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    null,
+    [
+     "sapgui",
+     "inativo"
+    ]
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "x",
+    [
+     null,
+     "script",
+     "INACTIVE"
+    ]
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "Script desativado",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "sapgui nao esta ativo",
+    null
+   ],
+   "d": true,
+   "w": true
+  },
+  {
+   "in": [
+    "NOT ENABLED sapgui",
+    null
+   ],
+   "d": true,
+   "w": true
+  }
+ ]
+}

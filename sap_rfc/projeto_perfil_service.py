@@ -440,8 +440,14 @@ def diagnostico_su53(
             "roles_encontradas": roles_encontradas,
         })
 
+    objetos_enriquecidos = [
+        mod_su53.enriquecer_objeto_com_proposta(o, caminho, u_clean)
+        for o in objetos
+    ]
     objetos_detalhes = [
         {
+            "aplicacao": o.get("aplicacao") or "",
+            "nome_aplicacao": o.get("nome_aplicacao") or "",
             "objeto": o.get("objeto"),
             "descricao": o.get("descricao") or "",
             "rc": o.get("rc_mais_recente"),
@@ -453,9 +459,12 @@ def diagnostico_su53(
                 {"campo": f, "valor": v}
                 for f, v in (o.get("campos_relevantes") or [])
             ],
-            "campos_formatados": ", ".join([f"{f} = {v}" for f, v in (o.get("campos_relevantes") or [])])
+            "campos_formatados": ", ".join([f"{f} = {v}" for f, v in (o.get("campos_relevantes") or [])]),
+            "funcoes_proposta": o.get("funcoes_proposta") or [],
+            "funcao_proposta": o.get("funcao_proposta"),
+            "relatorio": mod_su53.formatar_relatorio_erro_aplicacao(o),
         }
-        for o in objetos
+        for o in objetos_enriquecidos
     ]
 
     total_erros_count = len(erros)

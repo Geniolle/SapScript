@@ -51,8 +51,8 @@ class SalsaEntityExtractor:
         re.compile(r"\b(?:empresa|sociedade|company\s*code)\s*(?:nº|n\.º|#)?\s*([0-9]{4}|[A-Z0-9]{2,4})\b", re.IGNORECASE),
     ]
 
-    def extract(self, text: str, summary: str = "", requester: Optional[str] = None) -> ExtractedEntities:
-        combined = f"{summary}\n{text}".strip()
+    def extract(self, text: str, summary: str = "", requester: Optional[str] = None, comments_text: str = "") -> ExtractedEntities:
+        combined = f"{summary}\n{text}\n{comments_text}".strip()
         if not combined:
             return ExtractedEntities(
                 requester=requester,
@@ -62,6 +62,19 @@ class SalsaEntityExtractor:
         sap_user_id, all_users = self._extract_sap_user(combined)
         user_name = self._extract_user_name(combined, sap_user_id)
         reference_user = self._extract_reference_user(combined)
+
+        # Check comment-specific patterns for PERNR / Colaborador
+        if comments_text:
+            pernr_target, pernr_ref = self._extract_pernr_from_comments(comments_text)
+            if pernr_target and not sap_user_id:
+                # Derive SAP username from target PERNR (e.g., 2760 -> S2760)
+                clean_target = str(pernr_target).strip().lstrip("0")
+                sap_user_id = f"S{clean_target}" if clean_target else "S0"
+            if pernr_ref and not reference_user:
+                # Derive SAP username from reference PERNR (e.g., 7539 -> S7539)
+                clean_ref = str(pernr_ref).strip().lstrip("0")
+                reference_user = f"S{clean_ref}" if clean_ref else "S0"
+
         environments = self._extract_environments(combined)
         company_code = self._extract_company_code(combined)
 
@@ -98,7 +111,7 @@ class SalsaEntityExtractor:
         }
 
         # Check explicit S-number or C-number first
-        s_matches = re.findall(r"\b([S|C]\d{5,9})\b", text, re.IGNORECASE)
+        s_matches = re.findall(r"\b([S|C]\d{4,9})\b", text, re.IGNORECASE)
         for m in s_matches:
             upper_m = m.upper()
             if upper_m not in found_users:
@@ -124,6 +137,46 @@ class SalsaEntityExtractor:
                 if len(ref) >= 3 and not ref.lower().startswith("sap"):
                     return ref
         return None
+
+    def _extract_pernr_from_comments(self, comments_text: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Extracts target PERNR and reference PERNR from comments history.
+        e.g.,
+          "colaboradora 7539" -> reference PERNR 7539
+          "Qual o seu número de colaborador? ... 2760" -> target PERNR 2760
+        """
+        target_pernr = None
+        ref_pernr = None
+
+        # 1. Reference collaborator pattern: "colaborador(a) 1234"
+        ref_match = re.search(r"\bcolaborador(?:a)?\s+(\d{3,8})\b", comments_text, re.IGNORECASE)
+        if ref_match:
+            ref_pernr = ref_match.group(1).strip()
+
+        # 2. Target collaborator pattern:
+        # e.g., "Nº Colaborador:\s*(\d{3,8})" or lines where author responds with digits after a question about their number
+        target_patterns = [
+            re.compile(r"(?:n[º°\.]?\s*colaborador|meu\s*colaborador|meu\s*n[úu]mero|sou\s*o)\s*[:\s-]*(\d{3,8})\b", re.IGNORECASE),
+        ]
+        for pat in target_patterns:
+            m = pat.search(comments_text)
+            if m:
+                target_pernr = m.group(1).strip()
+                break
+
+        # If target wasn't found by explicit label, inspect comment lines from requester that contain only a number
+        if not target_pernr:
+            for line in comments_text.splitlines():
+                trimmed = line.strip()
+                # If a comment line is just author: 2760
+                match_author_num = re.search(r"^[^:]+:\s*(\d{3,8})\s*$", trimmed)
+                if match_author_num:
+                    num = match_author_num.group(1).strip()
+                    if num != ref_pernr:
+                        target_pernr = num
+                        break
+
+        return target_pernr, ref_pernr
 
     def _extract_user_name(self, text: str, found_sap_id: Optional[str]) -> Optional[str]:
         # Check patterns like "colaborador Marta Santiago", "utilizador João Silva"

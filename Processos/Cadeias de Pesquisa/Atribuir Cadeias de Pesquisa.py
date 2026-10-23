@@ -258,20 +258,30 @@ def executar(
         return caminho
 
     def abrir_excel_para_dataframe(caminho: str) -> pd.DataFrame:
-        # VersÃ£o segura para avisar se o ficheiro estiver aberto
         try:
-            return pd.read_excel(caminho, sheet_name="Folha2", dtype=str).fillna("")
+            excel_file = pd.ExcelFile(caminho)
+            dfs = []
+            for sname in excel_file.sheet_names:
+                df_sheet = pd.read_excel(excel_file, sheet_name=sname, dtype=str).fillna('')
+                cols_norm = [norm(c) for c in df_sheet.columns]
+                if any('NOME CADEIA' in c or 'NOME DA CADEIA' in c for c in cols_norm):
+                    df_sheet['_ORIGINAL_SHEET_'] = sname
+                    dfs.append(df_sheet)
+            if dfs:
+                df_combined = pd.concat(dfs, ignore_index=True)
+                return df_combined
+            return pd.read_excel(caminho, dtype=str).fillna('')
         except PermissionError:
-            print("\nâŒ ERRO: O ficheiro Excel estÃ¡ ABERTO.")
-            print("ðŸ‘‰ Por favor, feche o ficheiro Excel e execute o script novamente.")
-            sys.exit()
+            print('\n❌ ERRO: O ficheiro Excel está ABERTO.')
+            print('👉 Por favor, feche o ficheiro Excel e execute o script novamente.')
+            sys.exit(1)
         except Exception:
             try:
-                return pd.read_excel(caminho, dtype=str).fillna("")
+                return pd.read_excel(caminho, dtype=str).fillna('')
             except PermissionError:
-                print("\nâŒ ERRO: O ficheiro Excel estÃ¡ ABERTO.")
-                print("ðŸ‘‰ Por favor, feche o ficheiro Excel e execute o script novamente.")
-                sys.exit()
+                print('\n❌ ERRO: O ficheiro Excel está ABERTO.')
+                print('👉 Por favor, feche o ficheiro Excel e execute o script novamente.')
+                sys.exit(1)
 
     def sanitize_paname(v: str, maxlen: int = 20) -> str:
         """Nome da cadeia (PANAM) normalizado para CHAR20."""
@@ -445,112 +455,25 @@ def executar(
         return ""
 
     def _t028p_fetch_keys_by_panam(session, panam):
+        panam = safe_value(panam)
+        if not panam:
+            return None, "PANAM vazio para validacao da T028P.", None, set()
+
+        # Validação estrita exclusivamente via RFC (READ-ONLY)
+        from sap_rfc.otpm_validation_service import OtpmValidationService
+        env_target = str(ambiente_cockpit or "DEV").strip().upper()
         try:
-            session.findById("wnd[0]/tbar[0]/okcd").text = "/NSE16H"
-            session.findById("wnd[0]").sendVKey(0)
-            time.sleep(0.2)
-
-            if not _set_text_any(session, [
-                "wnd[0]/usr/ctxtGD-TAB",
-                "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
-                "wnd[0]/usr/ctxtTABNAME",
-            ], "T028P"):
-                return None, "Nao consegui definir T028P na SE16H."
-
-            session.findById("wnd[0]").sendVKey(0)
-            time.sleep(0.2)
-
-            base = "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC"
-            panam = safe_value(panam)
-            if not panam:
-                return None, "PANAM vazio para validacao da T028P.", None, set()
-
-            ctrl_id = f"{base}/ctxtGS_SELFIELDS-LOW[2,5]"
-            obj = _safe_find(session, ctrl_id)
-            if not obj:
-                return None, "Campo PANAM nao encontrado na selecao da SE16H.", None, set()
-            obj.text = panam
-
-            session.findById("wnd[0]/tbar[1]/btn[8]").press()
-
-            not_found_tokens = ("NO VALUES", "NOT FOUND", "NENHUM", "NAO ENCONTR", "SEM REGIST")
-            found_tokens = ("SELECION", "SELECTED", "REGIST", "ENTRAD", "VALUES")
-            reported_count = None
-            status_msg = ""
-
-            for _ in range(20):
-                sbar = _safe_find(session, "wnd[0]/sbar")
-                sbar_txt = str(getattr(sbar, "Text", "") or "").strip()
-                status_msg = sbar_txt or status_msg
-                sbar_norm = norm(sbar_txt)
-                if sbar_norm and any(token in sbar_norm for token in not_found_tokens):
-                    return False, sbar_txt, 0, set()
-                if sbar_norm and any(token in sbar_norm for token in found_tokens):
-                    reported_count = _extract_first_int(sbar_txt)
-                    break
-
-                wnd0 = _safe_find(session, "wnd[0]")
-                wnd_txt = norm(str(getattr(wnd0, "Text", "") or ""))
-                if "ENTRADAS ENCONTRADAS" in wnd_txt or "ENTRIES FOUND" in wnd_txt:
-                    reported_count = _extract_first_int(sbar_txt or wnd_txt)
-                    break
-
-                if _se16h_tem_resultados(session):
-                    reported_count = _extract_first_int(sbar_txt or wnd_txt)
-                    break
-
-                time.sleep(0.2)
-
-            # Leitura unica do conteudo apresentado na SE16H para comparar com o esperado.
-            extracted_keys = set()
-            grid = _find_first_grid_with_rows(session)
-            if grid:
-                try:
-                    row_count = int(getattr(grid, "RowCount", 0))
-                except Exception:
-                    row_count = 0
-                field_cols = {
-                    "BUKRS": ["BUKRS", "T028P-BUKRS", "V_T028P-BUKRS"],
-                    "HBKID": ["HBKID", "T028P-HBKID", "V_T028P-HBKID"],
-                    "HKTID": ["HKTID", "T028P-HKTID", "V_T028P-HKTID"],
-                    "VGEXT": ["VGEXT", "T028P-VGEXT", "V_T028P-VGEXT"],
-                    "VOZPM": ["VOZPM", "T028P-VOZPM", "V_T028P-VOZPM"],
-                    "PANAM": ["PANAM", "T028P-PANAM", "V_T028P-PANAM"],
-                    "TARGFI": ["TARGFI", "T028P-TARGFI", "V_T028P-TARGFI"],
-                    "PREFIX": ["PREFIX", "T028P-PREFIX", "V_T028P-PREFIX"],
-                }
-                for idx in range(max(0, row_count)):
-                    item = _norm_key_tuple(
-                        [
-                            _grid_get_cell(grid, idx, field_cols["BUKRS"]),
-                            _grid_get_cell(grid, idx, field_cols["HBKID"]),
-                            _grid_get_cell(grid, idx, field_cols["HKTID"]),
-                            _grid_get_cell(grid, idx, field_cols["VGEXT"]),
-                            _grid_get_cell(grid, idx, field_cols["VOZPM"]),
-                            _grid_get_cell(grid, idx, field_cols["PANAM"]),
-                            _grid_get_cell(grid, idx, field_cols["TARGFI"]),
-                            _grid_get_cell(grid, idx, field_cols["PREFIX"]),
-                        ]
-                    )
-                    if any(item):
-                        extracted_keys.add(item)
-
-            if extracted_keys:
-                return True, status_msg or f"Registos lidos na T028P para PANAM={panam}.", reported_count, extracted_keys
-
-            if reported_count and int(reported_count) > 0:
-                return True, status_msg or f"{reported_count} registo(s) encontrado(s) na T028P.", reported_count, set()
-
-            return False, status_msg or "Sem entradas encontradas na T028P.", reported_count or 0, set()
-        except Exception as e:
-            return None, str(e), None, set()
-        finally:
-            if not keep_validation_screen:
-                try:
-                    session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
-                    session.findById("wnd[0]").sendVKey(0)
-                except Exception:
-                    pass
+            with OtpmValidationService(environment=env_target) as svc:
+                recs, msg_rfc = svc.fetch_t028p_by_panam(panam)
+                if recs is not None:
+                    if not recs:
+                        return False, f"Nenhum registo encontrado na T028P para PANAM='{panam}' (RFC).", 0, set()
+                    extracted_keys = set(rec.key_tuple() for rec in recs)
+                    return True, f"{len(recs)} registo(s) lidos na T028P para PANAM='{panam}' (RFC).", len(recs), extracted_keys
+                else:
+                    return None, f"Erro de validação RFC T028P: {msg_rfc}", None, set()
+        except Exception as e_rfc:
+            return None, f"Falha na comunicação RFC T028P: {e_rfc}", None, set()
 
     ###################################################################################
     # BLOCO 2.1: REQUEST RECEBIDA DO PROCESSO PADRÃƒO

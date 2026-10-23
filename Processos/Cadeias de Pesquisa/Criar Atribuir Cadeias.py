@@ -229,7 +229,19 @@ def executar(
 
     def abrir_excel_para_dataframe(caminho: str) -> pd.DataFrame:
         try:
-            return pd.read_excel(caminho, sheet_name="Folha2", dtype=str).fillna("")
+            excel_file = pd.ExcelFile(caminho)
+            dfs = []
+            for sname in excel_file.sheet_names:
+                df_sheet = pd.read_excel(excel_file, sheet_name=sname, dtype=str).fillna("")
+                # Verificar se a folha possui a coluna de nome de cadeia de pesquisa
+                cols_norm = [norm(c) for c in df_sheet.columns]
+                if any("NOME CADEIA" in c or "NOME DA CADEIA" in c for c in cols_norm):
+                    df_sheet["_ORIGINAL_SHEET_"] = sname
+                    dfs.append(df_sheet)
+            if dfs:
+                df_combined = pd.concat(dfs, ignore_index=True)
+                return df_combined
+            return pd.read_excel(caminho, dtype=str).fillna("")
         except PermissionError:
             print("\n❌ ERRO: O ficheiro Excel está ABERTO.")
             print("👉 Por favor, feche o ficheiro Excel e execute o script novamente.")
@@ -506,181 +518,41 @@ def executar(
         if not nome_cadeia:
             return False, "Nome da cadeia vazio.", ""
 
+        # Validação estrita exclusivamente via RFC (READ-ONLY)
+        from sap_rfc.otpm_validation_service import OtpmValidationService, TpamaStatus
+        env_target = str(ambiente_cockpit or "DEV").strip().upper()
         try:
-            sess.findById("wnd[0]/tbar[0]/okcd").text = "/NSE16H"
-            _send_vkey(sess, 0)
-
-            mt, sb = get_statusbar(sess)
-            if mt in ("E", "A") and sb:
-                return None, sb, ""
-
-            if not _try_set_text(sess, [
-                "wnd[0]/usr/ctxtGD-TAB",
-                "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
-                "wnd[0]/usr/ctxtTABNAME",
-            ], "TPAMA"):
-                return None, "Nao consegui preencher a tabela TPAMA na SE16H.", ""
-
-            _send_vkey(sess, 0)
-            mt, sb = get_statusbar(sess)
-            if mt in ("E", "A") and sb:
-                return None, sb, ""
-
-            campo_panam = _esperar_objeto(
-                sess,
-                "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC/ctxtGS_SELFIELDS-LOW[2,2]",
-                timeout=2.5,
-            )
-            if not campo_panam:
-                return None, "Nao consegui localizar o campo PANAM na TPAMA.", ""
-
-            campo_panam.text = nome_cadeia
-
-            if not try_press(sess, ["wnd[0]/tbar[1]/btn[8]"]):
-                return None, "Nao consegui executar a pesquisa na TPAMA.", ""
-
-            nao_encontrou_tokens = ("NO VALUES", "NOT FOUND", "NENHUM", "NAO ENCONTR", "SEM REGIST")
-            encontrou_tokens = ("SELECION", "SELECTED", "REGIST", "ENTRAD", "VALUES")
-
-            scr = ""
-            for _ in range(20):
-                mt, sb = get_statusbar(sess)
-                msg_norm = norm(sb)
-
-                if msg_norm and any(t in msg_norm for t in nao_encontrou_tokens):
-                    return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA.", ""
-                if msg_norm and any(t in msg_norm for t in encontrou_tokens):
-                    scr = capturar_print_sap(sess, f"Validacao_TPAMA_{nome_cadeia}")
-                    return True, sb, scr
-
-                wnd0 = _safe_find(sess, "wnd[0]")
-                wnd_text = norm(getattr(wnd0, "Text", "") if wnd0 else "")
-                if "ENTRADAS ENCONTRADAS" in wnd_text or "ENTRIES FOUND" in wnd_text:
-                    scr = capturar_print_sap(sess, f"Validacao_TPAMA_{nome_cadeia}")
-                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA.", scr
-
-                if _se16h_tem_resultados(sess):
-                    scr = capturar_print_sap(sess, f"Validacao_TPAMA_{nome_cadeia}")
-                    return True, sb or f"Cadeia '{nome_cadeia}' encontrada na TPAMA.", scr
-
-                time.sleep(0.2)
-
-            return False, sb or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA.", ""
-        except Exception as e:
-            return None, str(e), ""
-        finally:
-            if not keep_validation_screen:
-                limpar_para_home(sess)
+            with OtpmValidationService(environment=env_target) as svc:
+                res = svc.check_tpama(nome_cadeia)
+                if res.status == TpamaStatus.EXISTE:
+                    return True, res.message or f"Cadeia '{nome_cadeia}' confirmada na TPAMA (RFC).", ""
+                elif res.status == TpamaStatus.NAO_EXISTE:
+                    return False, res.message or f"Cadeia '{nome_cadeia}' nao encontrada na TPAMA (RFC).", ""
+                else:
+                    return None, f"Erro de validação RFC TPAMA: {res.message}", ""
+        except Exception as e_rfc:
+            return None, f"Falha na comunicação RFC TPAMA: {e_rfc}", ""
 
     def _t028p_fetch_keys_by_panam(sess, panam):
+        panam = safe_value(panam)
+        if not panam:
+            return None, "PANAM vazio para validacao da T028P.", None, set(), ""
+
+        # Validação estrita exclusivamente via RFC (READ-ONLY)
+        from sap_rfc.otpm_validation_service import OtpmValidationService
+        env_target = str(ambiente_cockpit or "DEV").strip().upper()
         try:
-            sess.findById("wnd[0]/tbar[0]/okcd").text = "/NSE16H"
-            sess.findById("wnd[0]").sendVKey(0)
-            time.sleep(0.2)
-
-            if not _try_set_text(sess, [
-                "wnd[0]/usr/ctxtGD-TAB",
-                "wnd[0]/usr/ctxtDATABROWSE-TABLENAME",
-                "wnd[0]/usr/ctxtTABNAME",
-            ], "T028P"):
-                return None, "Nao consegui definir T028P na SE16H.", None, set(), ""
-
-            sess.findById("wnd[0]").sendVKey(0)
-            time.sleep(0.2)
-
-            base = "wnd[0]/usr/subTAB_SUB:SAPLSE16N:0121/tblSAPLSE16NSELFIELDS_TC"
-            panam = safe_value(panam)
-            if not panam:
-                return None, "PANAM vazio para validacao da T028P.", None, set(), ""
-
-            ctrl_id = f"{base}/ctxtGS_SELFIELDS-LOW[2,5]"
-            obj = _safe_find(sess, ctrl_id)
-            if not obj:
-                return None, "Campo PANAM nao encontrado na selecao da SE16H.", None, set(), ""
-            obj.text = panam
-
-            sess.findById("wnd[0]/tbar[1]/btn[8]").press()
-
-            not_found_tokens = ("NO VALUES", "NOT FOUND", "NENHUM", "NAO ENCONTR", "SEM REGIST")
-            found_tokens = ("SELECION", "SELECTED", "REGIST", "ENTRAD", "VALUES")
-            reported_count = None
-            status_msg = ""
-
-            for _ in range(20):
-                mt, sb = get_statusbar(sess)
-                status_msg = sb or status_msg
-                sbar_norm = norm(sb)
-                if sbar_norm and any(token in sbar_norm for token in not_found_tokens):
-                    return False, sb, 0, set(), ""
-                if sbar_norm and any(token in sbar_norm for token in found_tokens):
-                    reported_count = _extract_first_int(sb)
-                    break
-
-                wnd0 = _safe_find(sess, "wnd[0]")
-                wnd_txt = norm(str(getattr(wnd0, "Text", "") or ""))
-                if "ENTRADAS ENCONTRADAS" in wnd_txt or "ENTRIES FOUND" in wnd_txt:
-                    reported_count = _extract_first_int(sb or wnd_txt)
-                    break
-
-                if _se16h_tem_resultados(sess):
-                    reported_count = _extract_first_int(sb or wnd_txt)
-                    break
-
-                time.sleep(0.2)
-
-            extracted_keys = set()
-            grid = _find_first_grid_with_rows(sess)
-            if grid:
-                try:
-                    row_count = int(getattr(grid, "RowCount", 0))
-                except Exception:
-                    row_count = 0
-                field_cols = {
-                    "BUKRS": ["BUKRS", "T028P-BUKRS", "V_T028P-BUKRS"],
-                    "HBKID": ["HBKID", "T028P-HBKID", "V_T028P-HBKID"],
-                    "HKTID": ["HKTID", "T028P-HKTID", "V_T028P-HKTID"],
-                    "VGEXT": ["VGEXT", "T028P-VGEXT", "V_T028P-VGEXT"],
-                    "VOZPM": ["VOZPM", "T028P-VOZPM", "V_T028P-VOZPM"],
-                    "PANAM": ["PANAM", "T028P-PANAM", "V_T028P-PANAM"],
-                    "TARGFI": ["TARGFI", "T028P-TARGFI", "V_T028P-TARGFI"],
-                    "PREFIX": ["PREFIX", "T028P-PREFIX", "V_T028P-PREFIX"],
-                }
-                for idx in range(max(0, row_count)):
-                    item = _norm_key_tuple(
-                        [
-                            _grid_get_cell(grid, idx, field_cols["BUKRS"]),
-                            _grid_get_cell(grid, idx, field_cols["HBKID"]),
-                            _grid_get_cell(grid, idx, field_cols["HKTID"]),
-                            _grid_get_cell(grid, idx, field_cols["VGEXT"]),
-                            _grid_get_cell(grid, idx, field_cols["VOZPM"]),
-                            _grid_get_cell(grid, idx, field_cols["PANAM"]),
-                            _grid_get_cell(grid, idx, field_cols["TARGFI"]),
-                            _grid_get_cell(grid, idx, field_cols["PREFIX"]),
-                        ]
-                    )
-                    if any(item):
-                        extracted_keys.add(item)
-
-            scr = ""
-            if extracted_keys or (reported_count and int(reported_count) > 0):
-                scr = capturar_print_sap(sess, f"Validacao_T028P_{panam}")
-
-            if extracted_keys:
-                return True, status_msg or f"Registos lidos na T028P para PANAM={panam}.", reported_count, extracted_keys, scr
-
-            if reported_count and int(reported_count) > 0:
-                return True, status_msg or f"{reported_count} registo(s) encontrado(s) na T028P.", reported_count, set(), scr
-
-            return False, status_msg or "Sem entradas encontradas na T028P.", reported_count or 0, set(), ""
-        except Exception as e:
-            return None, str(e), None, set(), ""
-        finally:
-            if not keep_validation_screen:
-                try:
-                    sess.findById("wnd[0]/tbar[0]/okcd").text = "/n"
-                    sess.findById("wnd[0]").sendVKey(0)
-                except Exception:
-                    pass
+            with OtpmValidationService(environment=env_target) as svc:
+                recs, msg_rfc = svc.fetch_t028p_by_panam(panam)
+                if recs is not None:
+                    if not recs:
+                        return False, f"Nenhum registo encontrado na T028P para PANAM='{panam}' (RFC).", 0, set(), ""
+                    extracted_keys = set(rec.key_tuple() for rec in recs)
+                    return True, f"{len(recs)} registo(s) lidos na T028P para PANAM='{panam}' (RFC).", len(recs), extracted_keys, ""
+                else:
+                    return None, f"Erro de validação RFC T028P: {msg_rfc}", None, set(), ""
+        except Exception as e_rfc:
+            return None, f"Falha na comunicação RFC T028P: {e_rfc}", None, set(), ""
 
     def _validar_cadeia_na_tpama(sess, nome_cadeia, tentativas=3, pausa=1.0):
         ultima_msg = ""

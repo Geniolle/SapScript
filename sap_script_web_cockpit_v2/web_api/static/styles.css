@@ -14,7 +14,6 @@
   --danger: #ef4444;
   --dark-term: #0d1117;
 }
-
 * { box-sizing: border-box; }
 body { 
   margin: 0; 
@@ -46,7 +45,76 @@ body {
   border-bottom-right-radius: 24px;
   box-shadow: 4px 0 20px rgba(0,0,0,0.05);
   z-index: 10;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  white-space: nowrap;
 }
+
+/* Sidebar Collapsed State (Compact Icon Mode like ChatGPT) */
+.dashboard-layout.sidebar-collapsed .sidebar {
+  width: 72px;
+  min-width: 72px;
+  padding: 24px 10px;
+  align-items: center;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .brand-text,
+.dashboard-layout.sidebar-collapsed .sidebar .nav-item-text,
+.dashboard-layout.sidebar-collapsed .sidebar .nav-toggle-arrow,
+.dashboard-layout.sidebar-collapsed .sidebar .nav-sub-list,
+.dashboard-layout.sidebar-collapsed .sidebar .sidebar-footer-label,
+.dashboard-layout.sidebar-collapsed .sidebar .sidebar-footer-status,
+.dashboard-layout.sidebar-collapsed .sidebar .btn-start-worker-sidebar span:last-child {
+  display: none !important;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .brand {
+  margin-bottom: 28px;
+  padding-left: 0;
+  justify-content: center;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .nav-menu {
+  width: 100%;
+  align-items: center;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .nav-item,
+.dashboard-layout.sidebar-collapsed .sidebar .nav-item-toggle {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 12px;
+  font-size: 1.15rem;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .nav-item-icon {
+  margin-right: 0;
+  font-size: 1.2rem;
+  width: 22px;
+  height: 22px;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .nav-item-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .sidebar-footer {
+  width: 100%;
+  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.dashboard-layout.sidebar-collapsed .sidebar .sidebar-footer-header {
+  margin-bottom: 0;
+  justify-content: center;
+}
+
+
 
 .brand {
   margin-bottom: 40px;
@@ -1449,4 +1517,13 @@ input, select {
     .asi-f110-proposal-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Jira Tickets Table Sticky Header */
+#jira-tickets-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: #f8fafc;
+    box-shadow: 0 1px 0 var(--border-color);
 }

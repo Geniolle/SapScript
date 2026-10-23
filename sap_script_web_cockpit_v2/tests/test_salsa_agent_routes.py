@@ -568,6 +568,92 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         self.assertEqual(got["result"]["total_funcoes_atribuidas"], 1)
         self.assertEqual(got["result"]["total_objetos_atribuidos"], 1)
 
+    def test_otpm_validate_create_job_and_states(self) -> None:
+        # 1. Validação com ambiente inválido é rejeitada
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_otpm_validate(
+                main.OtpmValidateRequest(environment="PRD", excel_path=r"C:\test.xlsx")
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+        # 2. Criar job de validação válido em DEV
+        created = _body(
+            main.api_salsa_it_otpm_validate(
+                main.OtpmValidateRequest(environment="DEV", excel_path=r"C:\test.xlsx")
+            )
+        )
+        self.assertIn("job_id", created)
+        self.assertEqual(created["state"], "pending")
+        self.assertEqual(created["environment"], "DEV")
+
+        # 3. Consultar em running
+        self._mark_running(created["job_id"])
+        running = _body(main.api_salsa_it_otpm_validate_job(created["job_id"]))
+        self.assertEqual(running["state"], "running")
+
+        # 4. Concluir com sucesso
+        payload_result = {
+            "ok": True,
+            "status": "VALIDATED",
+            "environment": "DEV",
+            "file_name": "test.xlsx",
+            "total_chains": 1,
+            "total_actions_needed": 1,
+            "chains": [],
+        }
+        self._complete_job(created["job_id"], "succeeded", json.dumps(payload_result), "")
+        got = _body(main.api_salsa_it_otpm_validate_job(created["job_id"]))
+        self.assertEqual(got["state"], "succeeded")
+        self.assertEqual(got["result"]["total_chains"], 1)
+
+    def test_otpm_dry_run_and_confirm(self) -> None:
+        # 1. Criar job de dry-run
+        created = _body(
+            main.api_salsa_it_otpm_dry_run(
+                main.OtpmDryRunRequest(environment="DEV", excel_path=r"C:\test.xlsx")
+            )
+        )
+        job_id = created["job_id"]
+        self.assertEqual(created["state"], "pending")
+
+        # 2. Concluir dry-run com sucesso
+        payload_dry_run = {
+            "ok": True,
+            "status": "DRY_RUN_COMPLETED",
+            "dry_run": True,
+            "environment": "DEV",
+            "file_name": "test.xlsx",
+            "excel_path": r"C:\test.xlsx",
+            "total_chains": 1,
+            "total_actions_needed": 1,
+            "chains": [],
+            "dry_run_actions": [{"panam": "TEST", "action": "CRIAR"}],
+        }
+        self._complete_job(job_id, "succeeded", json.dumps(payload_dry_run), "")
+        res_dry_run = _body(main.api_salsa_it_otpm_dry_run_job(job_id))
+        self.assertEqual(res_dry_run["state"], "succeeded")
+        self.assertTrue(res_dry_run["result"]["ok"])
+
+        # 3. Confirmar a partir do dry-run
+        confirm = _body(
+            main.api_salsa_it_otpm_confirm(
+                main.OtpmConfirmRequest(dry_run_job_id=job_id, request_number="S4QK900123")
+            )
+        )
+        self.assertIn("job_id", confirm)
+        self.assertEqual(confirm["state"], "pending")
+
+        # 4. Concluir execução real
+        self._complete_job(
+            confirm["job_id"],
+            "succeeded",
+            json.dumps({"ok": True, "status": "COMPLETED", "message": "Sucesso"}),
+            "",
+        )
+        got_confirm = _body(main.api_salsa_it_otpm_confirm_job(confirm["job_id"]))
+        self.assertEqual(got_confirm["state"], "succeeded")
+        self.assertTrue(got_confirm["result"]["ok"])
+
 
 def tearDownModule() -> None:
     shutil.rmtree(_TMPDIR, ignore_errors=True)

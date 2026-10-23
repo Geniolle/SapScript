@@ -80,6 +80,8 @@ class SalsaLevel1Classifier:
         r"\bsolicito\s+acesso\s+sap\s+para\s+novo\b",
         r"\bcreate\s+(?:new\s+)?user\b",
         r"\bcreate\s+sap\s+account\b",
+        r"\b(?:utilizar|atribuir)\s+por\s+c[oó]pia\s+(?:das\s+)?(?:autoriza[çc][oõ]es|transa[çc][oõ]es|perfis)\b",
+        r"\bmesmas\s+(?:transa[çc][oõ]es|autoriza[çc][oõ]es|permiss[oõ]es)\s+em\s+sap\b",
     ]
 
     UNLOCK_USER_SIGNALS = [
@@ -112,22 +114,24 @@ class SalsaLevel1Classifier:
         description: str,
         process_category: str = "",
         requester: Optional[str] = None,
+        comments_text: str = "",
     ) -> AnalysisResult:
         """Executes Level 1 deterministic analysis."""
-        combined_text = f"{summary or ''}\n{description or ''}".strip()
-        content_hash = self.compute_content_hash(summary or "", description or "", process_category or "")
+        combined_text = f"{summary or ''}\n{description or ''}\n{comments_text or ''}".strip()
+        content_hash = self.compute_content_hash(summary or "", description or "", process_category or "", comments_text or "")
 
         # 1. Check for empty or insufficient description
         clean_desc = (description or "").strip()
         clean_sum = (summary or "").strip()
-        if not clean_desc and not clean_sum:
+        clean_comments = (comments_text or "").strip()
+        if not clean_desc and not clean_sum and not clean_comments:
             return AnalysisResult(
                 ticket_key=ticket_key,
                 classification=ClassificationCode.INSUFFICIENT_INFORMATION,
                 level=AnalysisLevel.LEVEL_1,
                 status=AnalysisStatus.REVISION_REQUIRED,
                 intent="Conteúdo vazio ou sem dados",
-                justification="O ticket não possui título nem descrição preenchidos.",
+                justification="O ticket não possui título, descrição nem comentários preenchidos.",
                 missing_info=["Resumo e descrição detalhada do pedido"],
                 suggested_next_action="Solicitar detalhe do pedido ao requerente.",
                 requires_human_review=True,
@@ -155,7 +159,8 @@ class SalsaLevel1Classifier:
 
         norm_summary = normalize_text_for_search(clean_sum)
         norm_desc = normalize_text_for_search(clean_desc)
-        norm_combined = f"{norm_summary}\n{norm_desc}"
+        norm_comments = normalize_text_for_search(clean_comments)
+        norm_combined = f"{norm_summary}\n{norm_desc}\n{norm_comments}".strip()
 
         # 3. Check for obvious miscategorization (e.g. IZ-55652: budget, CJ30, franchisadas)
         for pat, reason in self.MISCATEGORIZATION_PATTERNS:
@@ -180,7 +185,7 @@ class SalsaLevel1Classifier:
         for pat, reason in self.OTHER_ACCESS_PATTERNS:
             if re.search(pat, norm_combined):
                 evidences = [f"Encontrado padrão de autorizações: {reason}"]
-                extracted = self.extractor.extract(clean_desc, clean_sum, requester=requester)
+                extracted = self.extractor.extract(clean_desc, clean_sum, requester=requester, comments_text=clean_comments)
                 return AnalysisResult(
                     ticket_key=ticket_key,
                     classification=ClassificationCode.OTHER_ACCESS,
@@ -199,13 +204,13 @@ class SalsaLevel1Classifier:
 
         # 5. Extract core operations while respecting negation & multi-operation
         has_create, create_evidences = self._detect_intent(
-            norm_desc, norm_summary, self.CREATE_USER_SIGNALS, "CREATE_USER"
+            norm_desc, norm_summary, self.CREATE_USER_SIGNALS, "CREATE_USER", norm_comments=norm_comments
         )
         has_unlock, unlock_evidences = self._detect_intent(
-            norm_desc, norm_summary, self.UNLOCK_USER_SIGNALS, "UNLOCK_USER"
+            norm_desc, norm_summary, self.UNLOCK_USER_SIGNALS, "UNLOCK_USER", norm_comments=norm_comments
         )
         has_reset, reset_evidences = self._detect_intent(
-            norm_desc, norm_summary, self.RESET_PASSWORD_SIGNALS, "RESET_PASSWORD"
+            norm_desc, norm_summary, self.RESET_PASSWORD_SIGNALS, "RESET_PASSWORD", norm_comments=norm_comments
         )
 
         detected_operations = []
@@ -216,7 +221,7 @@ class SalsaLevel1Classifier:
         if has_reset:
             detected_operations.append((ClassificationCode.RESET_PASSWORD, reset_evidences))
 
-        extracted_entities = self.extractor.extract(clean_desc, clean_sum, requester=requester)
+        extracted_entities = self.extractor.extract(clean_desc, clean_sum, requester=requester, comments_text=clean_comments)
 
         # Multi-operation detection -> AMBIGUOUS
         if len(detected_operations) > 1:
@@ -308,17 +313,21 @@ class SalsaLevel1Classifier:
         )
 
     def _detect_intent(
-        self, norm_desc: str, norm_summary: str, signals: List[str], op_type: str
+        self, norm_desc: str, norm_summary: str, signals: List[str], op_type: str, norm_comments: str = ""
     ) -> Tuple[bool, List[str]]:
         """
         Detects an operation intent while taking negations into account.
-        Checks description first (higher priority), then summary.
+        Checks description first (higher priority), then summary, then comments.
         """
         evidences: List[str] = []
         matched = False
 
+        combined_search = f"{norm_desc}\n{norm_summary}"
+        if norm_comments:
+            combined_search = f"{combined_search}\n{norm_comments}"
+
         # Check in sentences to inspect negation scope
-        sentences = re.split(r"[\.\n;!\?]+", f"{norm_desc}\n{norm_summary}")
+        sentences = re.split(r"[\.\n;!\?]+", combined_search)
         for s in sentences:
             s_clean = s.strip()
             if not s_clean:
@@ -359,7 +368,7 @@ class SalsaLevel1Classifier:
         return False
 
     @staticmethod
-    def compute_content_hash(summary: str, description: str, process_category: str) -> str:
-        """Computes a SHA-256 hash of the relevant ticket content."""
-        payload = f"{summary.strip()}|{description.strip()}|{process_category.strip()}".encode("utf-8")
+    def compute_content_hash(summary: str, description: str, process_category: str, comments_text: str = "") -> str:
+        """Computes a SHA-256 hash of the relevant ticket content including comments."""
+        payload = f"{summary.strip()}|{description.strip()}|{process_category.strip()}|{comments_text.strip()}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()

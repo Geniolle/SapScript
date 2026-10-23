@@ -44,16 +44,22 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
-# Auto-deteção e re-execução no ambiente virtual .venv-rfc se pandas não estiver presente
-try:
-    import pandas
-except ImportError:
-    project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    venv_python = os.path.join(project_root_dir, ".venv-rfc", "Scripts", "python.exe")
-    if __name__ == "__main__" and os.path.exists(venv_python) and sys.executable.lower() != venv_python.lower():
-        import subprocess
-        res = subprocess.run([venv_python, os.path.abspath(__file__)] + sys.argv[1:])
-        sys.exit(res.returncode)
+def garantir_ambiente_rfc_do_projeto() -> None:
+    """Reinicia o CLI com a .venv-rfc do SapScript quando necessário."""
+    python_rfc = PROJECT_ROOT / ".venv-rfc" / "Scripts" / "python.exe"
+    if not python_rfc.is_file():
+        raise RuntimeError(f"Ambiente RFC do SapScript não encontrado: {python_rfc}")
+    if os.path.normcase(str(Path(sys.executable).resolve())) == os.path.normcase(str(python_rfc.resolve())):
+        return
+    import subprocess
+
+    executavel = str(python_rfc)
+    resultado = subprocess.run([executavel, str(Path(__file__).resolve()), *sys.argv[1:]])
+    raise SystemExit(resultado.returncode)
+
+
+if __name__ == "__main__":
+    garantir_ambiente_rfc_do_projeto()
 
 # Suporte a cores no terminal (Colorama / ANSI)
 try:
@@ -93,6 +99,48 @@ def normalizar_texto(valor: Any) -> str:
 def normalizar_nome_coluna(col: Any) -> str:
     """Normaliza nome de coluna/sheet para identificação independente de formatação e pontuação."""
     return re.sub(r"[^A-Z0-9]", "", normalizar_texto(col))
+
+
+def departamento_esta_no_controlo(departamento: Any, dados: Any) -> bool:
+    """Aceita apenas departamentos explicitamente listados na sheet CONTROLO."""
+    departamento_norm = normalizar_texto(departamento)
+    return bool(departamento_norm) and any(
+        normalizar_texto(item.get("departamento")) == departamento_norm
+        for item in getattr(dados, "controlo", [])
+    )
+
+
+def confirmar_atualizacoes_proposta_ativa(
+    pendencias: Dict[str, Dict[str, Any]],
+    assumir_sim: bool = False,
+) -> bool:
+    """Lista diferenças por utilizador e pede autorização para atualizar a Proposta Ativa."""
+    if not pendencias:
+        return False
+
+    print("\n" + "=" * 78)
+    print("  [3/8] DIFERENÇAS ENCONTRADAS NA PROPOSTA ATIVA")
+    print("=" * 78)
+    for utilizador, detalhe in sorted(
+        pendencias.items(),
+        key=lambda item: (normalizar_texto(item[1].get("departamento")), item[0]),
+    ):
+        print(f"  Departamento: {detalhe.get('departamento') or '(não informado)'}")
+        print(f"  Utilizador: {utilizador}")
+        print("  Funções em falta:")
+        for role in sorted(detalhe.get("funcoes_em_falta", set())):
+            tcodes = sorted(detalhe.get("tcodes_por_funcao", {}).get(role, set()))
+            origem = f" | TCODEs com X: {', '.join(tcodes)}" if tcodes else ""
+            print(f"    + {role}{origem}")
+        if not detalhe.get("funcoes_em_falta"):
+            print("    + Nenhuma função em falta; apenas reorganização das células")
+        print("-" * 78)
+
+    if assumir_sim:
+        print("  [Auto-confirmado --yes] Atualização da Proposta Ativa autorizada.")
+        return True
+    resposta = input("  Deseja atualizar estes utilizadores na Proposta Ativa? [S/N]: ").strip().upper()
+    return resposta in ("S", "SIM", "Y", "YES")
 
 
 def encontrar_coluna_funcoes_individuais_ws(ws: Any, default_col: int = 11) -> int:
@@ -1136,9 +1184,10 @@ def verificar_tcodes_prd(tcodes: List[str]) -> Dict[str, Any]:
             "erro": str(err),
             "total": len(tcodes_unicas),
             "total_existentes": 0,
-            "total_nao_existentes": len(tcodes_unicas),
+            "total_nao_existentes": 0,
             "existentes": [],
-            "nao_existentes": tcodes_unicas,
+            "nao_existentes": [],
+            "nao_verificadas": tcodes_unicas,
             "todas_existem": False,
             "textos": {},
         }
@@ -1900,6 +1949,8 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
         d_val = str(r.get(col_dep, "")).strip() if pd.notna(r.get(col_dep)) else ""
         dd_val = str(r.get(col_dep_dir, "")).strip() if pd.notna(r.get(col_dep_dir)) else ""
         dep = d_val if d_val and d_val.lower() != "nan" else dd_val
+        if not departamento_esta_no_controlo(dep, dados):
+            continue
 
         total_users_avaliados += 1
         funcoes_existentes = set()
@@ -2520,6 +2571,8 @@ def preparar_cua_adicionar(
         d2 = str(r_at.get(col_dep_dir_at, "")).strip() if pd.notna(r_at.get(col_dep_dir_at)) else ""
         dep_raw = (d1 if d1 and d1.lower() != "nan" else d2).strip().upper()
         dep_user = mapa_dep_sheet.get(dep_raw, dep_raw).upper()
+        if not departamento_esta_no_controlo(dep_user, dados):
+            continue
 
         total_users_analisados += 1
 
@@ -2669,7 +2722,7 @@ def executar_atualizacao_integrada_excel(
         print(f"  {CLR_AMARELO}⚠️ Foram encontradas TCODEs utilizadas nas matrizes departamentais\n    sem mapeamento na sheet Proposta.{CLR_RESET}\n")
 
         for dep_pend, lista_tc in res_auditoria["pendencias_por_dep"].items():
-            print(f"  {dep_pend}:")
+            print(f"  Departamento: {dep_pend}")
             for item_tc in lista_tc:
                 print(f"     - {item_tc['tcode']:<20} | {item_tc['descricao']}")
             print()
@@ -2719,6 +2772,12 @@ def executar_atualizacao_integrada_excel(
 
     if validar_tcodes_rfc and todos_tcodes:
         res_tc = verificar_tcodes_prd(todos_tcodes)
+        if not res_tc.get("ok"):
+            print_status_error(
+                f"  ✗ [2/8] Falha ao validar TCODEs no SAP PRD: {res_tc.get('erro', 'erro RFC desconhecido')}.\n"
+                "     Processamento abortado; nenhuma TCODE foi marcada como descontinuada."
+            )
+            return dados
         nao_existentes = set(res_tc.get("nao_existentes", []))
         if nao_existentes:
             role_atual = ""
@@ -2793,6 +2852,8 @@ def executar_atualizacao_integrada_excel(
         d_val = str(r.get(col_dep, "")).strip() if pd.notna(r.get(col_dep)) else ""
         dd_val = str(r.get(col_dep_dir, "")).strip() if pd.notna(r.get(col_dep_dir)) else ""
         dep = d_val if d_val and d_val.lower() != "nan" else dd_val
+        if not departamento_esta_no_controlo(dep, dados):
+            continue
 
         total_users_avaliados += 1
         funcoes_existentes = set()
@@ -2830,11 +2891,13 @@ def executar_atualizacao_integrada_excel(
                         tcodes_marcados_user.append(tc)
 
         roles_esperadas = set()
+        tcodes_por_funcao = defaultdict(set)
         for tc in tcodes_marcados_user:
             if tc in tcodes_ignoradas_por_sem_mapeamento:
                 continue
             for mr in tcode_to_roles.get(tc, []):
                 roles_esperadas.add(mr)
+                tcodes_por_funcao[mr].add(tc)
 
         roles_faltam_matriz = roles_esperadas - funcoes_existentes
         precisa_limpar_celulas = (celulas_originais != funcoes_existentes)
@@ -2843,17 +2906,44 @@ def executar_atualizacao_integrada_excel(
             users_em_falta_matriz[u_val] = {
                 "linha": idx + 2,
                 "user": u_val,
+                "departamento": dep,
                 "composite": c_val,
                 "roles_esperadas": set(roles_unificadas),
+                "funcoes_atuais": set(funcoes_existentes),
+                "funcoes_em_falta": set(roles_faltam_matriz),
+                "funcoes_resultantes": set(roles_unificadas),
+                "tcodes_por_funcao": {
+                    role: set(tcodes_por_funcao.get(role, set()))
+                    for role in roles_faltam_matriz
+                },
             }
             roles_por_user_finais[u_val] = (idx + 2, c_val, set(roles_unificadas))
         else:
             roles_por_user_finais[u_val] = (idx + 2, c_val, set(funcoes_existentes))
 
     if users_em_falta_matriz:
-        print_status_error(f"  ✗ [3/8] Proposta Ativa: {len(users_em_falta_matriz)} utilizador(es) atualizados com funções em falta das matrizes.")
+        atualizacao_confirmada = confirmar_atualizacoes_proposta_ativa(
+            users_em_falta_matriz,
+            assumir_sim=assumir_sim,
+        )
+        if atualizacao_confirmada:
+            print_status_warning(
+                f"  ⚠️ [3/8] Proposta Ativa: atualização preparada para {len(users_em_falta_matriz)} utilizador(es)."
+            )
+        else:
+            for u_val, detalhe in users_em_falta_matriz.items():
+                roles_por_user_finais[u_val] = (
+                    detalhe["linha"],
+                    detalhe["composite"],
+                    set(detalhe["funcoes_atuais"]),
+                )
+            users_em_falta_matriz = {}
+            print_status_info("  ℹ [3/8] Proposta Ativa: atualização recusada; etapas seguintes mantidas.")
     else:
-        print_status_success(f"  ✓ [3/8] Proposta Ativa: Reconciliar utilizadores e funções das matrizes ({total_users_avaliados}/{total_users_avaliados} utilizadores).")
+        print_status_success(
+            f"  ✓ [3/8] Proposta Ativa: utilizadores dos departamentos em CONTROLO reconciliados "
+            f"({total_users_avaliados}/{total_users_avaliados} utilizadores)."
+        )
 
     # -------------------------------------------------------------
     # ETAPA [4/8]: Catálogo Vivo (SAP PRD -> 'Proposta Ativa')

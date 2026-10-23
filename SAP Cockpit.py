@@ -12,6 +12,17 @@ import msvcrt
 import inspect
 import re
 
+# Auto-deteção e re-execução no ambiente virtual .venv-rfc se pyrfc não estiver presente
+try:
+    import pyrfc  # noqa: F401
+except ImportError:
+    venv_rfc_python = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv-rfc", "Scripts", "python.exe")
+    )
+    if os.path.exists(venv_rfc_python) and sys.executable.lower() != venv_rfc_python.lower():
+        res = subprocess.run([venv_rfc_python, os.path.abspath(__file__)] + sys.argv[1:])
+        sys.exit(res.returncode)
+
 import pythoncom
 import pywintypes
 
@@ -43,6 +54,8 @@ from app.ui import (
     destaque,
     linha,
 )
+
+from sap_cockpit_core import is_scripting_disabled_error as _is_scripting_disabled_error, parse_env_line as _parse_env_line, validar_argumentos_exec
 
 
 ###################################################################################
@@ -88,38 +101,6 @@ def ler_texto(prompt: str, oculto: bool = False) -> str:
 
         buf.append(ch)
         print("*" if oculto else ch, end="", flush=True)
-
-
-def _parse_env_line(linha: str):
-    """
-    Faz parse simples de uma linha KEY=VALUE.
-    Ignora linhas vazias e comentários.
-    Mantém o valor como texto literal, removendo apenas aspas externas simples/duplas.
-    """
-    if not linha:
-        return None, None
-
-    linha = linha.strip()
-    if not linha or linha.startswith("#"):
-        return None, None
-
-    if "=" not in linha:
-        return None, None
-
-    chave, valor = linha.split("=", 1)
-    chave = chave.strip()
-    valor = valor.strip()
-
-    if not chave:
-        return None, None
-
-    if len(valor) >= 2 and (
-        (valor.startswith('"') and valor.endswith('"'))
-        or (valor.startswith("'") and valor.endswith("'"))
-    ):
-        valor = valor[1:-1]
-
-    return chave, valor
 
 
 def _carregar_dotenv_manual():
@@ -673,10 +654,6 @@ def perguntar_opcao_request(sistema_desejado: str, session) -> dict:
                 minimize=True,
                 close_after=True,
             )
-        except TypeError:
-            lista = mod_pesq.listar_requests(
-                system_name=sistema_desejado, max_rows="5000"
-            )
         except Exception as e:
             erro(f"Falha ao gerar lista (pesquisar_request.py): {e}")
             return ctx
@@ -857,9 +834,8 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
                 ]
 
         try:
+            validar_argumentos_exec(exec_fn, ambiente_cockpit, kwargs, processo_escolhido)
             exec_fn(ambiente_cockpit, **kwargs)
-        except TypeError:
-            exec_fn(ambiente_cockpit)
         except Exception as e:
             erro(f"Erro ao executar '{processo_escolhido}': {e}")
             continue
@@ -868,32 +844,6 @@ def executar_processo(ambiente_cockpit, caminho_pasta, sistema_desejado, session
 ###################################################################################
 # Scripting / sessão SAP
 ###################################################################################
-
-
-def _is_scripting_disabled_error(exc: Exception) -> bool:
-    parts = [str(exc)]
-    try:
-        if hasattr(exc, "excepinfo") and exc.excepinfo:
-            parts.append(" ".join([str(p) for p in exc.excepinfo if p]))
-    except Exception:
-        pass
-
-    hay = " ".join(parts).lower()
-    has_scripting = any(k in hay for k in ["scripting", "sapgui", "script"])
-    has_disabled = any(
-        k in hay
-        for k in [
-            "disabled",
-            "not enabled",
-            "not active",
-            "inactive",
-            "desativ",
-            "inativ",
-            "não está ativo",
-            "nao esta ativo",
-        ]
-    )
-    return has_scripting and has_disabled
 
 
 def _log_alerta_rz11():
@@ -1041,107 +991,90 @@ except Exception as e:
 session, connection = _encontrar_sessao_do_sistema(application, sistema_desejado)
 
 if session is None:
-    if not _tem_alguma_sessao_ativa(application):
-        try:
-            usuario, senha, idioma, chave_password = _obter_credenciais_env(
-                ambiente_cockpit=ambiente_cockpit
-            )
-            info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
+    try:
+        usuario, senha, idioma, chave_password = _obter_credenciais_env(
+            ambiente_cockpit=ambiente_cockpit
+        )
+        info(f"Credenciais carregadas do .env | CHAVE_PASSWORD={chave_password}")
 
-            ashost, sysnr = _obter_conexao_env(ambiente_cockpit=ambiente_cockpit)
-        except Exception as e:
-            erro(f"Falha ao carregar credenciais/ligação do .env: {e}")
-            sys.exit(1)
+        ashost, sysnr = _obter_conexao_env(ambiente_cockpit=ambiente_cockpit)
+    except Exception as e:
+        erro(f"Falha ao carregar credenciais/ligação do .env: {e}")
+        sys.exit(1)
 
-        try:
-            connection_string = f"/H/{ashost}/S/32{sysnr.zfill(2)}"
-            info(f"Abrindo conexão: {nome_logon} ({connection_string})...")
-            connection = application.OpenConnectionByConnectionString(
-                connection_string, True
-            )
+    try:
+        connection_string = f"/H/{ashost}/S/32{sysnr.zfill(2)}"
+        info(f"Abrindo conexão: {nome_logon} ({connection_string})...")
+        connection = application.OpenConnectionByConnectionString(
+            connection_string, True
+        )
 
-            tentativas = 0
-            while connection.Children.Count == 0 and tentativas < 40:
-                time.sleep(0.5)
-                tentativas += 1
-
-            if connection.Children.Count == 0:
-                erro("A sessão SAP não foi iniciada corretamente.")
-                _log_alerta_rz11()
-                sys.exit(1)
-
-            session = connection.Children(0)
-
-            try:
-                if (
-                    str(session.Info.SystemName).upper()
-                    != str(sistema_desejado).upper()
-                ):
-                    erro(
-                        f"A sessão SAP aberta não pertence ao ambiente '{ambiente_cockpit}'."
-                    )
-                    sys.exit(1)
-            except Exception:
-                pass
-
-            try:
-                wnd0 = session.findById("wnd[0]")
-                wnd0.maximize()
-                wnd0.setFocus()
-            except Exception:
-                pass
+        tentativas = 0
+        while connection.Children.Count == 0 and tentativas < 40:
             time.sleep(0.5)
+            tentativas += 1
 
-            session.findById("wnd[0]/usr/txtRSYST-MANDT").text = cliente_esperado
-            session.findById("wnd[0]/usr/txtRSYST-BNAME").text = usuario
+        if connection.Children.Count == 0:
+            erro("A sessão SAP não foi iniciada corretamente.")
+            _log_alerta_rz11()
+            sys.exit(1)
 
-            try:
-                pwd_fld = session.findById("wnd[0]/usr/pwdRSYST-BCODE")
-                pwd_fld.setFocus()
-            except Exception:
-                pass
+        session = connection.Children(0)
 
-            session.findById("wnd[0]/usr/pwdRSYST-BCODE").text = senha
-            session.findById("wnd[0]/usr/txtRSYST-LANGU").text = idioma
-            session.findById("wnd[0]").sendVKey(0)
-
-        except Exception as e:
-            if _is_scripting_disabled_error(e):
-                _erro_scripting_inativo(e)
-            else:
-                erro("Erro ao tentar abrir a ligação SAP.")
-                erro("Verifique se o servidor SAP está ligado e disponível.")
-                erro(f"Detalhes técnicos: {e}")
+        try:
+            if (
+                str(session.Info.SystemName).upper()
+                != str(sistema_desejado).upper()
+            ):
+                erro(
+                    f"A sessão SAP aberta não pertence ao ambiente '{ambiente_cockpit}'."
+                )
                 sys.exit(1)
+        except Exception:
+            pass
 
-        if not _aguardar_login(session, cliente_esperado, timeout_s=20):
-            sbar_text = ""
-            try:
-                sbar_text = str(session.findById("wnd[0]/sbar").Text).strip()
-            except Exception:
-                pass
-            msg = "Login não foi confirmado (User/Client não disponíveis)."
-            if sbar_text:
-                msg += f" [Status SAP: {sbar_text}]"
-            erro(msg)
-            warn("Verifique se o SAP pediu pop-up, senha extra, ou se o login falhou.")
+        try:
+            wnd0 = session.findById("wnd[0]")
+            wnd0.maximize()
+            wnd0.setFocus()
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+        session.findById("wnd[0]/usr/txtRSYST-MANDT").text = cliente_esperado
+        session.findById("wnd[0]/usr/txtRSYST-BNAME").text = usuario
+
+        try:
+            pwd_fld = session.findById("wnd[0]/usr/pwdRSYST-BCODE")
+            pwd_fld.setFocus()
+        except Exception:
+            pass
+
+        session.findById("wnd[0]/usr/pwdRSYST-BCODE").text = senha
+        session.findById("wnd[0]/usr/txtRSYST-LANGU").text = idioma
+        session.findById("wnd[0]").sendVKey(0)
+
+    except Exception as e:
+        if _is_scripting_disabled_error(e):
+            _erro_scripting_inativo(e)
+        else:
+            erro("Erro ao tentar abrir a ligação SAP.")
+            erro("Verifique se o servidor SAP está ligado e disponível.")
+            erro(f"Detalhes técnicos: {e}")
             sys.exit(1)
 
-    else:
-        warn("Existe uma sessão SAP ativa, mas não é do ambiente selecionado.")
-        info(
-            f"Abra manualmente a ligação do ambiente '{nome_logon}' no SAP Logon e faça login (se necessário)."
-        )
-        input("Pressione ENTER quando a sessão do ambiente estiver aberta...")
-
-        session, connection = _encontrar_sessao_do_sistema(
-            application, sistema_desejado
-        )
-        if session is None:
-            erro(
-                "Não foi encontrada uma sessão do ambiente selecionado após confirmação. A encerrar."
-            )
-            sys.exit(1)
+    if not _aguardar_login(session, cliente_esperado, timeout_s=20):
+        sbar_text = ""
+        try:
+            sbar_text = str(session.findById("wnd[0]/sbar").Text).strip()
+        except Exception:
+            pass
+        msg = "Login não foi confirmado (User/Client não disponíveis)."
+        if sbar_text:
+            msg += f" [Status SAP: {sbar_text}]"
+        erro(msg)
+        warn("Verifique se o SAP pediu pop-up, senha extra, ou se o login falhou.")
+        sys.exit(1)
 
 if not _is_sap_logado(session, cliente_esperado):
     warn(

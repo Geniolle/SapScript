@@ -207,7 +207,13 @@
         'condicao-pagamento',
         'condicao-pagamento-pesquisar-intervalo',
         'condicao-pagamento-criar-copia',
-        'condicao-pagamento-criar-individual'
+        'condicao-pagamento-criar-individual',
+        'otpm-cadeias-pesquisa',
+        'otpm-select-excel',
+        'otpm-upload-excel',
+        'otpm-dry-run',
+        'otpm-confirm-create',
+        'otpm-voltar'
     ]);
 
     function asiDefaultConversationState() {
@@ -232,6 +238,15 @@
             obycExcelHeaders: [],
             obycExcelRows: [],
             obycExcelRowCount: 0,
+            otpmEnvironment: 'DEV',
+            otpmSelectionId: '',
+            otpmExcelFileName: '',
+            otpmExcelPath: '',
+            otpmValidationResult: null,
+            otpmDryRunResult: null,
+            otpmValidateJobId: '',
+            otpmDryRunJobId: '',
+            otpmExecuteJobId: '',
             awaitingInput: '',
             pendingJobId: '',
             pendingRoleName: '',
@@ -606,6 +621,15 @@
                             children: []
                         }
                     ]
+                },
+                {
+                    id: 'otpm-cadeias-pesquisa',
+                    label: 'Cadeias de Pesquisa',
+                    icon: 'settings',
+                    prompt: 'Quero trabalhar com Cadeias de Pesquisa (OTPM).',
+                    followupText: 'Escolha a operação de Cadeias de Pesquisa (OTPM):',
+                    followupActionsSource: 'children',
+                    children: []
                 },
                 {
                     id: 'gl-account',
@@ -7296,8 +7320,12 @@
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             ${objetosList.map(o => {
+                                const aplicacao = escapeHtml(o.aplicacao || 'Não identificada');
+                                const nomeAplicacao = escapeHtml(o.nome_aplicacao || 'Descrição não encontrada');
                                 const objNome = escapeHtml(o.objeto || '');
                                 const objDesc = escapeHtml(o.descricao || '');
+                                const dataHora = escapeHtml(o.data_hora || '');
+                                const funcoesProposta = Array.isArray(o.funcoes_proposta) ? o.funcoes_proposta : [];
                                 const rcTxt = o.rc !== undefined ? ` (RC=${escapeHtml(String(o.rc))})` : '';
                                 let camposContent = '';
                                 if (o.campos_formatados) {
@@ -7307,11 +7335,20 @@
                                 }
                                 return `
                                     <div style="padding: 5px 8px; background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 6px; font-size: 0.8rem;">
+                                        <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">Aplicação: <code>${aplicacao}</code> - ${nomeAplicacao}</div>
                                         <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700; color: #b45309;">
                                             <span>${objNome}${objDesc ? ` <span style="font-weight: 500; font-size: 0.74rem; color: #64748b;">- ${objDesc}</span>` : ''}</span>
                                             ${rcTxt ? `<span style="font-size: 0.72rem; color: #64748b;">${rcTxt}</span>` : ''}
                                         </div>
                                         ${camposContent ? `<div style="font-size: 0.75rem; color: #475569; margin-top: 2px;">• <strong>Campo:</strong> <code style="font-size: 0.75rem; background: rgba(0,0,0,0.04); padding: 1px 4px; border-radius: 4px;">${camposContent}</code></div>` : ''}
+                                        ${dataHora ? `<div style="font-size: 0.75rem; color: #475569; margin-top: 2px;">• <strong>Horário:</strong> ${dataHora}</div>` : ''}
+                                        <div style="font-size: 0.75rem; color: #475569; margin-top: 4px;"><strong>Função na Proposta:</strong></div>
+                                        ${funcoesProposta.length > 0 ? funcoesProposta.map(f => `
+                                            <div style="font-size: 0.75rem; color: #0f766e; margin-top: 2px;">
+                                                <code>${escapeHtml(f.role || '')}</code>${f.descricao ? ` - ${escapeHtml(f.descricao)}` : ''}
+                                                ${f.linha_funcao && f.linha_transacao ? `<span style="color: #64748b;"> (função: linha ${escapeHtml(String(f.linha_funcao))}; transação: linha ${escapeHtml(String(f.linha_transacao))})</span>` : ''}
+                                            </div>
+                                        `).join('') : '<div style="font-size: 0.75rem; color: #b45309;">Não encontrada na sheet Proposta</div>'}
                                     </div>
                                 `;
                             }).join('')}
@@ -8762,6 +8799,573 @@
             asiUpdateComposerState();
             if (input) input.focus();
         }
+    }
+
+    // ==========================================
+    // CADEIAS DE PESQUISA (OTPM) - WORKFLOW E UI
+    // ==========================================
+
+    function asiStartOtpmWorkflow() {
+        const breadcrumb = ['Configurações', 'Cadeias de Pesquisa (OTPM)'];
+        asiConfigContext = 'otpm';
+        asiConversationState = {
+            ...asiConversationState,
+            otpmEnvironment: 'DEV',
+            otpmSelectionId: '',
+            otpmExcelFileName: '',
+            otpmExcelPath: '',
+            otpmValidationResult: null,
+            otpmDryRunResult: null,
+            otpmValidateJobId: '',
+            otpmDryRunJobId: '',
+            otpmExecuteJobId: '',
+            isBusy: false
+        };
+
+        asiAppendMessage(asiCreateMessage('user', 'Cadeias de Pesquisa'));
+        asiAppendMessage(asiCreateMessage('assistant', 'Gestão de Cadeias de Pesquisa (OTPM) em ambiente **DEV**.\nCarregue o ficheiro Excel com as cadeias para validar via RFC ou selecione via worker Windows:', {
+            breadcrumb,
+            actions: [
+                { id: 'otpm-upload-excel', label: 'Carregar Ficheiro Excel', icon: 'upload', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-file-select' },
+                { id: 'otpm-select-excel', label: 'Selecionar no Worker', icon: 'upload', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-file-select' },
+                { id: 'otpm-voltar', label: '← Voltar', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-file-select' }
+            ],
+            actionLevel: 0,
+            parentActionId: 'otpm-cadeias-pesquisa',
+            selectionGroupKey: 'otpm-file-select'
+        }));
+        asiUpdateComposerState();
+    }
+
+    function asiTriggerOtpmFileUpload() {
+        let fileInput = document.getElementById('asi-otpm-file-input');
+        if (!fileInput) {
+            fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.id = 'asi-otpm-file-input';
+            fileInput.accept = '.xlsx,.xls';
+            fileInput.style.display = 'none';
+            document.body.appendChild(fileInput);
+        }
+
+        fileInput.value = '';
+        fileInput.onchange = async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            await asiUploadOtpmFile(file);
+        };
+        fileInput.click();
+    }
+
+    async function asiUploadOtpmFile(file) {
+        const breadcrumb = ['Configurações', 'Cadeias de Pesquisa (OTPM)', 'Upload'];
+        const pm = asiCreateMessage('assistant', `A enviar ficheiro **${file.name}**...`, {
+            breadcrumb,
+            html: asiBuildPfcgGenericProcessingHtml(`A enviar ficheiro **${escapeHtml(file.name)}**...`),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/salsa-it-agent/otpm/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+
+            const selectionId = String(data.selection_id || '').trim();
+            const fileName = String(data.file_name || file.name).trim();
+
+            asiConversationState = {
+                ...asiConversationState,
+                otpmSelectionId: selectionId,
+                otpmExcelFileName: fileName,
+                otpmExcelPath: data.windows_path || '',
+                isBusy: false
+            };
+
+            asiUpdateMessage(pm.id, {
+                text: `Ficheiro **${fileName}** carregado com sucesso. A iniciar validação RFC em DEV...`,
+                html: asiBuildPfcgGenericProcessingHtml(`Ficheiro **${escapeHtml(fileName)}** pronto. A iniciar validação RFC em DEV...`),
+                isProcessing: true
+            });
+
+            await asiStartOtpmValidation(selectionId, fileName, pm.id);
+        } catch (error) {
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateMessage(pm.id, {
+                text: `Falha no upload do Excel: ${error.message}`,
+                breadcrumb,
+                html: asiBuildPfcgErrorHtml('Falha no upload do Excel', error.message),
+                isProcessing: false,
+                actions: [
+                    { id: 'otpm-upload-excel', label: 'Tentar Novamente', icon: 'upload', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-file-select' },
+                    { id: 'otpm-voltar', label: '← Voltar', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-file-select' }
+                ],
+                selectionGroupKey: 'otpm-file-select'
+            });
+            asiUpdateComposerState();
+        }
+    }
+
+    async function asiStartOtpmWindowsFileSelect() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const breadcrumb = ['Configurações', 'Cadeias de Pesquisa (OTPM)', 'Seleção no Worker'];
+        const pm = asiCreateMessage('assistant', 'A abrir seletor de ficheiros no worker Windows...', {
+            breadcrumb,
+            html: asiBuildPfcgGenericProcessingHtml('Abra a janela do worker para escolher o ficheiro Excel...'),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/pfcg/create/select-excel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: '{}'
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job_id para seleção de ficheiro.');
+
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < 120000) {
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const pollRes = await fetch(`/api/salsa-it-agent/pfcg/create/select-excel/${encodeURIComponent(jobId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pollData = await pollRes.json().catch(() => ({}));
+                if (!pollRes.ok) throw new Error((pollData && pollData.detail) || `Erro HTTP ${pollRes.status}`);
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state === 'failed') throw new Error(pollData.message || 'Seleção do ficheiro cancelada ou com erro.');
+
+                const fileName = String(pollData.file_name || '').trim();
+                const selectionId = String(pollData.selection_id || jobId).trim();
+
+                asiConversationState = {
+                    ...asiConversationState,
+                    otpmSelectionId: selectionId,
+                    otpmExcelFileName: fileName,
+                    isBusy: false
+                };
+
+                asiUpdateMessage(pm.id, {
+                    text: `Ficheiro **${fileName}** selecionado. A iniciar validação RFC em DEV...`,
+                    html: asiBuildPfcgGenericProcessingHtml(`Ficheiro **${escapeHtml(fileName)}** pronto. A iniciar validação RFC em DEV...`),
+                    isProcessing: true
+                });
+
+                await asiStartOtpmValidation(selectionId, fileName, pm.id);
+                return;
+            }
+            throw new Error('Seleção de ficheiro expirou.');
+        } catch (error) {
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateMessage(pm.id, {
+                text: `Erro na seleção do ficheiro: ${error.message}`,
+                breadcrumb,
+                html: asiBuildPfcgErrorHtml('Erro na seleção de ficheiro', error.message),
+                isProcessing: false,
+                actions: [
+                    { id: 'otpm-select-excel', label: 'Tentar Novamente', icon: 'upload', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-file-select' },
+                    { id: 'otpm-voltar', label: '← Voltar', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-file-select' }
+                ],
+                selectionGroupKey: 'otpm-file-select'
+            });
+            asiUpdateComposerState();
+        }
+    }
+
+    async function asiStartOtpmValidation(selectionId, fileName, messageId) {
+        const breadcrumb = ['Configurações', 'Cadeias de Pesquisa (OTPM)', 'Validação RFC'];
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/otpm/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    selection_id: selectionId,
+                    environment: 'DEV'
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job_id de validação.');
+
+            asiConversationState = { ...asiConversationState, otpmValidateJobId: jobId };
+
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < 120000) {
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const pollRes = await fetch(`/api/salsa-it-agent/otpm/validate/${encodeURIComponent(jobId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pollData = await pollRes.json().catch(() => ({}));
+                if (!pollRes.ok) throw new Error((pollData && pollData.detail) || `Erro HTTP ${pollRes.status}`);
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state === 'failed') throw new Error(pollData.message || 'Validação RFC falhou.');
+
+                const result = pollData.result || {};
+                asiConversationState = {
+                    ...asiConversationState,
+                    otpmValidationResult: result,
+                    isBusy: false
+                };
+
+                asiUpdateMessage(messageId, {
+                    text: `Validação RFC concluída para **${fileName}**.`,
+                    breadcrumb,
+                    html: asiBuildOtpmValidationResultHtml(result),
+                    isProcessing: false,
+                    wide: false,
+                    actions: [
+                        { id: 'otpm-dry-run', label: 'Simular Criação (Dry-Run)', icon: 'shield-plus', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-action' },
+                        { id: 'otpm-voltar', label: '← Voltar ao Menu', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-action' }
+                    ],
+                    selectionGroupKey: 'otpm-action'
+                });
+                asiUpdateComposerState();
+                return;
+            }
+            throw new Error('A validação RFC demorou mais que o esperado (timeout).');
+        } catch (error) {
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateMessage(messageId, {
+                text: `Erro na validação RFC: ${error.message}`,
+                breadcrumb,
+                html: asiBuildPfcgErrorHtml('Erro na validação RFC de Cadeias OTPM', error.message),
+                isProcessing: false,
+                wide: false,
+                actions: [
+                    { id: 'otpm-voltar', label: '← Voltar', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-action' }
+                ],
+                selectionGroupKey: 'otpm-action'
+            });
+            asiUpdateComposerState();
+        }
+    }
+
+    async function asiStartOtpmDryRun() {
+        const selectionId = String(asiConversationState.otpmSelectionId || '').trim();
+        const fileName = String(asiConversationState.otpmExcelFileName || 'Excel').trim();
+        if (!selectionId) {
+            asiAppendMessage(asiCreateMessage('assistant', 'Seleção de ficheiro não encontrada. Inicie novamente o fluxo.'));
+            return;
+        }
+
+        const breadcrumb = ['Configurações', 'Cadeias de Pesquisa (OTPM)', 'Simulação Dry-Run'];
+        asiAppendMessage(asiCreateMessage('user', 'Simular Criação (Dry-Run)'));
+
+        const pm = asiCreateMessage('assistant', 'A preparar simulação de criação (Dry-Run)...', {
+            breadcrumb,
+            html: asiBuildPfcgGenericProcessingHtml('A simular criação e atribuição em modo seguro (Dry-Run)...'),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/otpm/dry-run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    selection_id: selectionId,
+                    environment: 'DEV'
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job_id de Dry-Run.');
+
+            asiConversationState = { ...asiConversationState, otpmDryRunJobId: jobId };
+
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < 120000) {
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const pollRes = await fetch(`/api/salsa-it-agent/otpm/dry-run/${encodeURIComponent(jobId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pollData = await pollRes.json().catch(() => ({}));
+                if (!pollRes.ok) throw new Error((pollData && pollData.detail) || `Erro HTTP ${pollRes.status}`);
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state === 'failed') throw new Error(pollData.message || 'Simulação Dry-Run falhou.');
+
+                const result = pollData.result || {};
+                asiConversationState = {
+                    ...asiConversationState,
+                    otpmDryRunResult: result,
+                    isBusy: false
+                };
+
+                asiUpdateMessage(pm.id, {
+                    text: 'Simulação Dry-Run concluída.',
+                    breadcrumb,
+                    html: asiBuildOtpmDryRunResultHtml(result),
+                    isProcessing: false,
+                    wide: false,
+                    actions: [
+                        { id: 'otpm-confirm-create', label: 'Aprovar e Executar Criação', icon: 'shield-plus', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-confirm' },
+                        { id: 'otpm-voltar', label: '← Cancelar / Voltar', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-confirm' }
+                    ],
+                    selectionGroupKey: 'otpm-confirm'
+                });
+                asiUpdateComposerState();
+                return;
+            }
+            throw new Error('A simulação Dry-Run demorou mais que o esperado (timeout).');
+        } catch (error) {
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateMessage(pm.id, {
+                text: `Erro no Dry-Run: ${error.message}`,
+                breadcrumb,
+                html: asiBuildPfcgErrorHtml('Erro na Simulação Dry-Run', error.message),
+                isProcessing: false,
+                wide: false,
+                actions: [
+                    { id: 'otpm-voltar', label: '← Voltar', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-confirm' }
+                ],
+                selectionGroupKey: 'otpm-confirm'
+            });
+            asiUpdateComposerState();
+        }
+    }
+
+    async function asiStartOtpmExecute() {
+        if (!(await asiEnsureWorkerOnlineOrWarn())) return;
+        const dryRunJobId = String(asiConversationState.otpmDryRunJobId || '').trim();
+        const selectionId = String(asiConversationState.otpmSelectionId || '').trim();
+        if (!dryRunJobId) {
+            asiAppendMessage(asiCreateMessage('assistant', 'Simulação Dry-Run não localizada. Execute a simulação primeiro.'));
+            return;
+        }
+
+        const breadcrumb = ['Configurações', 'Cadeias de Pesquisa (OTPM)', 'Execução Aprovada'];
+        asiAppendMessage(asiCreateMessage('user', 'Aprovar e Executar Criação'));
+
+        const pm = asiCreateMessage('assistant', 'A submeter criação para o worker Windows (SAP GUI)...', {
+            breadcrumb,
+            html: asiBuildPfcgGenericProcessingHtml('Criação aprovada. A executar no worker SAP em DEV...'),
+            isProcessing: true
+        });
+        asiAppendMessage(pm);
+        asiConversationState = { ...asiConversationState, isBusy: true };
+        asiUpdateComposerState();
+
+        try {
+            const response = await fetch('/api/salsa-it-agent/otpm/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    dry_run_job_id: dryRunJobId,
+                    selection_id: selectionId,
+                    environment: 'DEV'
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
+
+            const jobId = String(data.job_id || '').trim();
+            if (!jobId) throw new Error('Sem job_id de execução.');
+
+            asiConversationState = { ...asiConversationState, otpmExecuteJobId: jobId };
+
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < 180000) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                const pollRes = await fetch(`/api/salsa-it-agent/otpm/confirm/${encodeURIComponent(jobId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pollData = await pollRes.json().catch(() => ({}));
+                if (!pollRes.ok) throw new Error((pollData && pollData.detail) || `Erro HTTP ${pollRes.status}`);
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state === 'failed') throw new Error(pollData.message || 'Execução no worker falhou.');
+
+                const result = pollData.result || {};
+                asiConversationState = { ...asiConversationState, isBusy: false };
+
+                asiUpdateMessage(pm.id, {
+                    text: 'Processo concluído pelo worker SAP.',
+                    breadcrumb,
+                    html: asiBuildOtpmExecutionResultHtml(result),
+                    isProcessing: false,
+                    wide: false,
+                    actions: [
+                        { id: 'otpm-voltar', label: '← Voltar ao Menu', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-done' }
+                    ],
+                    selectionGroupKey: 'otpm-done'
+                });
+                asiUpdateComposerState();
+                return;
+            }
+            throw new Error('A execução demorou mais que o esperado (timeout).');
+        } catch (error) {
+            asiConversationState = { ...asiConversationState, isBusy: false };
+            asiUpdateMessage(pm.id, {
+                text: `Erro na execução: ${error.message}`,
+                breadcrumb,
+                html: asiBuildPfcgErrorHtml('Erro na Execução SAP', error.message),
+                isProcessing: false,
+                wide: false,
+                actions: [
+                    { id: 'otpm-voltar', label: '← Voltar', icon: 'analysis', level: 0, parentActionId: 'otpm-cadeias-pesquisa', selectionGroupKey: 'otpm-done' }
+                ],
+                selectionGroupKey: 'otpm-done'
+            });
+            asiUpdateComposerState();
+        }
+    }
+
+    function asiBuildOtpmValidationResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const summary = result.summary || {};
+        const totalChains = summary.total_chains_in_excel || 0;
+        const totalAssigns = summary.total_assignments_in_excel || 0;
+        const missingTpama = summary.tpama_missing || 0;
+        const missingT028p = summary.t028p_missing || 0;
+        const ignoredChains = summary.ignored_chains || 0;
+
+        const chains = Array.isArray(result.chains) ? result.chains : [];
+
+        const chainItemsHtml = chains.map(c => {
+            const panam = escapeHtml(c.panam || '');
+            const tpamaStatus = String(c.tpama_status || 'NÃO EXISTE').toUpperCase();
+            const t028pStatus = String(c.t028p_status || 'NÃO EXISTE').toUpperCase();
+
+            const isTpamaOk = tpamaStatus === 'EXISTE';
+            const isT028pOk = t028pStatus === 'EXISTE';
+            const isT028pPartial = t028pStatus.indexOf('PARCIAL') >= 0;
+
+            const tpamaPill = `<span class="asi-pfcg-result-pill ${isTpamaOk ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning'}" style="font-size:10px;padding:1px 6px;">TPAMA: ${tpamaStatus}</span>`;
+            const t028pPillClass = isT028pOk ? 'asi-pfcg-result-pill--success' : (isT028pPartial ? 'asi-pfcg-result-pill--warning' : 'asi-pfcg-result-pill--warning');
+            const t028pPill = `<span class="asi-pfcg-result-pill ${t028pPillClass}" style="font-size:10px;padding:1px 6px;">T028P: ${t028pStatus}</span>`;
+
+            const assignments = Array.isArray(c.assignments) ? c.assignments : [];
+            const assignRows = assignments.map(a => {
+                const b = escapeHtml(a.bukrs || '');
+                const h = escapeHtml(a.hbkid || '');
+                const k = escapeHtml(a.hktid || '');
+                const v = escapeHtml(a.vgext || '');
+                const r = escapeHtml(a.intag || '');
+                const st = a.status === 'EXISTE' ? '✓' : '✗';
+                const stCol = a.status === 'EXISTE' ? '#16a34a' : '#d97706';
+                return `<div style="font-size:11px;color:#475569;display:flex;justify-content:space-between;padding:2px 0;">
+                    <span>${b} · ${h}${k ? '/' + k : ''} · ${v} · Regra: ${r}</span>
+                    <span style="color:${stCol};font-weight:600;">${st} ${escapeHtml(a.status || '')}</span>
+                </div>`;
+            }).join('');
+
+            return `
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;margin-bottom:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <span style="font-weight:700;font-size:12px;color:#1e293b;">${panam}</span>
+                        <div style="display:flex;gap:4px;">${tpamaPill}${t028pPill}</div>
+                    </div>
+                    <div style="font-size:11px;color:#64748b;margin-bottom:4px;">
+                        Padrão: <code>${escapeHtml(c.regex || '-')}</code> | Destino: <code>${escapeHtml(c.mapex || '-')}</code>
+                    </div>
+                    ${assignments.length ? `<div style="border-top:1px dashed #cbd5e1;padding-top:4px;margin-top:4px;">${assignRows}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#0284c7;">✓ Auditoria RFC OTPM (DEV)</div>
+                    <span class="asi-pfcg-result-pill asi-pfcg-result-pill--success">VALIDADO</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px;">
+                        <div><strong style="font-size:11px;color:#64748b;">Cadeias no Ficheiro:</strong> <span style="font-size:12px;font-weight:600;">${totalChains}</span></div>
+                        <div><strong style="font-size:11px;color:#64748b;">Atribuições:</strong> <span style="font-size:12px;font-weight:600;">${totalAssigns}</span></div>
+                        <div><strong style="font-size:11px;color:#64748b;">Em falta TPAMA:</strong> <span style="font-size:12px;font-weight:600;color:${missingTpama ? '#d97706' : '#16a34a'};">${missingTpama}</span></div>
+                        <div><strong style="font-size:11px;color:#64748b;">Em falta T028P:</strong> <span style="font-size:12px;font-weight:600;color:${missingT028p ? '#d97706' : '#16a34a'};">${missingT028p}</span></div>
+                    </div>
+                    ${ignoredChains ? `<div style="font-size:11px;color:#64748b;margin-bottom:8px;"><em>Linhas ignoradas (exemplo / fidelidade): ${ignoredChains}</em></div>` : ''}
+                    <div style="max-height:220px;overflow-y:auto;padding-right:4px;">
+                        ${chainItemsHtml || '<div style="font-size:12px;color:#64748b;">Nenhuma cadeia encontrada no ficheiro.</div>'}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildOtpmDryRunResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const totalCreateChains = Number(result.total_chains_to_create || 0);
+        const totalCreateAssigns = Number(result.total_assignments_to_create || 0);
+        const actions = Array.isArray(result.actions) ? result.actions : [];
+
+        const actionRows = actions.slice(0, 10).map(a => {
+            const typePill = a.action_type === 'CREATE_CHAIN' ? 'CRIAR CADEIA' : 'ATRIBUIR REGRA';
+            const col = a.action_type === 'CREATE_CHAIN' ? '#0284c7' : '#059669';
+            return `<div style="font-size:11px;color:#334155;display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #f1f5f9;">
+                <span style="font-weight:600;color:${col};">${typePill}: ${escapeHtml(a.panam || '')}</span>
+                <span style="color:#64748b;">${escapeHtml(a.rule || a.target || '')}</span>
+            </div>`;
+        }).join('');
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:#16a34a;">✓ Simulação Dry-Run Concluída</div>
+                    <span class="asi-pfcg-result-pill asi-pfcg-result-pill--success">DRY-RUN OK</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div class="asi-pfcg-result-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px;">
+                        <div><strong style="font-size:11px;color:#64748b;">Novas Cadeias (TPAMA):</strong> <span style="font-size:12px;font-weight:600;color:#0284c7;">${totalCreateChains}</span></div>
+                        <div><strong style="font-size:11px;color:#64748b;">Novas Atribuições (T028P):</strong> <span style="font-size:12px;font-weight:600;color:#059669;">${totalCreateAssigns}</span></div>
+                    </div>
+                    <div style="font-size:11px;color:#475569;margin-bottom:6px;"><strong>Prévia de Ações a Executar no SAP DEV:</strong></div>
+                    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px;max-height:160px;overflow-y:auto;">
+                        ${actionRows || '<div style="font-size:11px;color:#64748b;">Nenhuma ação necessária (todas já existem).</div>'}
+                    </div>
+                    <div style="margin-top:8px;padding:6px;background:#fef3c7;border-left:3px solid #d97706;border-radius:4px;font-size:11px;color:#92400e;">
+                        <strong>Atenção:</strong> A execução irá automatizar a criação via SAP GUI no ambiente DEV. Confirme para prosseguir.
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function asiBuildOtpmExecutionResultHtml(result) {
+        asiEnsurePfcgResultStyles();
+        const ok = result.ok === true || result.status === 'SUCCESS';
+        const accent = ok ? '#16a34a' : '#d97706';
+        const statusText = ok ? 'CONCLUÍDO' : 'ATENÇÃO';
+        const pillClass = ok ? 'asi-pfcg-result-pill--success' : 'asi-pfcg-result-pill--warning';
+
+        return `
+            <div class="asi-pfcg-result-card">
+                <div class="asi-pfcg-result-heading-row">
+                    <div class="asi-pfcg-result-heading" style="color:${accent};">✓ Execução OTPM Concluída</div>
+                    <span class="asi-pfcg-result-pill ${pillClass}">${statusText}</span>
+                </div>
+                <div class="asi-pfcg-result-shell">
+                    <div style="font-size:12px;color:#1e293b;margin-bottom:6px;">${escapeHtml(result.message || 'Processamento concluído pelo worker SAP.')}</div>
+                    ${result.created_chains ? `<div style="font-size:11px;color:#475569;">Cadeias criadas: <strong>${result.created_chains}</strong></div>` : ''}
+                    ${result.created_assignments ? `<div style="font-size:11px;color:#475569;">Atribuições criadas: <strong>${result.created_assignments}</strong></div>` : ''}
+                </div>
+            </div>
+        `;
     }
 
     async function asiPollPfcgDeletePreview(jobId, messageId) {
@@ -11180,6 +11784,42 @@
             }
         }
 
+        if (typeof actionId === 'string' && actionId.indexOf('otpm-') === 0) {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+
+            if (actionId === 'otpm-cadeias-pesquisa') {
+                asiStartOtpmWorkflow();
+                return;
+            }
+
+            if (actionId === 'otpm-upload-excel') {
+                asiTriggerOtpmFileUpload();
+                return;
+            }
+
+            if (actionId === 'otpm-select-excel') {
+                await asiStartOtpmWindowsFileSelect();
+                return;
+            }
+
+            if (actionId === 'otpm-dry-run') {
+                await asiStartOtpmDryRun();
+                return;
+            }
+
+            if (actionId === 'otpm-confirm-create') {
+                await asiStartOtpmExecute();
+                return;
+            }
+
+            if (actionId === 'otpm-voltar') {
+                asiAppendMessage(asiCreateMessage('user', 'Voltar ao menu'));
+                asiPresentConfiguracoesMenu();
+                asiUpdateComposerState();
+                return;
+            }
+        }
+
         if (typeof actionId === 'string' && actionId.indexOf('pfcg-system-') === 0) {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             try {
@@ -12813,8 +13453,7 @@
         'jira-filter-team',
         'jira-filter-stream',
         'jira-filter-ticket-type',
-        'jira-filter-priority',
-        'jira-filter-process'
+        'jira-filter-priority'
     ];
     staticFilterIds.forEach(id => {
         const el = document.getElementById(id);
@@ -12832,7 +13471,7 @@
             'jira-filter-stream': { key: 'stream', defaultText: 'Todos os streams', isStatic: true },
             'jira-filter-ticket-type': { key: 'ticket_type', defaultText: 'Todos os tipos', isStatic: true },
             'jira-filter-priority': { key: 'priority', defaultText: 'Todas as prioridades', isStatic: true },
-            'jira-filter-process': { key: 'process', defaultText: 'Todos os processos', isStatic: true },
+            'jira-filter-process': { key: 'process', defaultText: 'Todos os processos' },
             'jira-filter-supplier': { key: 'supplier', defaultText: 'Todos os suppliers' },
             'jira-filter-assignee': { key: 'assignee', defaultText: 'Todos os responsáveis' },
             'jira-filter-creator': { key: 'creator', defaultText: 'Todos os criadores' }

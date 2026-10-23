@@ -4,7 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SAP Script Cockpit</title>
-  <link rel="stylesheet" href="/static/styles.css?v=7">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=20261016">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=20261016">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=20261016">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=20261016">
+  <link rel="manifest" href="/static/site.webmanifest?v=20261016">
+  <meta name="theme-color" content="#0b0f1a">
+  <link rel="stylesheet" href="/static/styles.css?v=10">
   <style>
     .custom-scroll::-webkit-scrollbar {
       width: 4px;
@@ -1019,16 +1025,21 @@
         </div>
       </div>
       <nav class="nav-menu">
-        <a class="nav-item active" id="nav-item-jira" onclick="switchView('jira')">🎫 Tickets</a>
+        <a class="nav-item active" id="nav-item-jira" onclick="switchView('jira')" title="Tickets">
+          <span class="nav-item-icon">🎫</span>
+          <span class="nav-item-text">Tickets</span>
+        </a>
         <div class="nav-sub-wrapper">
-          <a class="nav-item-toggle" id="nav-sap-toggle" onclick="toggleSapMenu()">
-            <span>SAP</span>
+          <a class="nav-item-toggle" id="nav-sap-toggle" onclick="toggleSapMenu()" title="SAP">
+            <span class="nav-item-icon" style="font-size: 0.95rem;">⚡</span>
+            <span class="nav-item-text">SAP</span>
             <span class="nav-toggle-arrow">&#9660;</span>
           </a>
           <div class="nav-sub-list" id="nav-sap-sub">
             <div class="nav-sub-wrapper" style="margin: 0;">
-              <a class="nav-item-toggle" id="nav-processos-toggle" onclick="toggleProcessosMenu()" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;">
-                <span>📁 Processos</span>
+              <a class="nav-item-toggle" id="nav-processos-toggle" onclick="toggleProcessosMenu()" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 8px;" title="Processos">
+                <span class="nav-item-icon">📁</span>
+                <span class="nav-item-text">Processos</span>
                 <span class="nav-toggle-arrow">&#9660;</span>
               </a>
               <div class="nav-sub-list" id="nav-processos-sub">
@@ -1037,7 +1048,7 @@
             </div>
           </div>
         </div>
-        <a class="nav-item" id="nav-item-agent-salsa-it" onclick="switchView('agent-salsa-it')">
+        <a class="nav-item" id="nav-item-agent-salsa-it" onclick="switchView('agent-salsa-it')" title="Agente Salsa IT">
           <span class="nav-item-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <rect x="7" y="7" width="10" height="10" rx="3"></rect>
@@ -1050,12 +1061,24 @@
               <path d="M10 14c.6.45 1.27.67 2 .67s1.4-.22 2-.67"></path>
             </svg>
           </span>
-          <span>Agente Salsa IT</span>
+          <span class="nav-item-text">Agente Salsa IT</span>
         </a>
-        <a class="nav-item" id="nav-item-jira-dashboard" onclick="switchView('jira-dashboard')">📊 Dashboard</a>
-        <a class="nav-item" id="nav-item-visao-geral" onclick="switchView('visao-geral')">Visão geral</a>
-        <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')">Histórico</a>
-        <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')">⚙️ Definições</a>
+        <a class="nav-item" id="nav-item-jira-dashboard" onclick="switchView('jira-dashboard')" title="Dashboard">
+          <span class="nav-item-icon">📊</span>
+          <span class="nav-item-text">Dashboard</span>
+        </a>
+        <a class="nav-item" id="nav-item-visao-geral" onclick="switchView('visao-geral')" title="Visão geral">
+          <span class="nav-item-icon">👁️</span>
+          <span class="nav-item-text">Visão geral</span>
+        </a>
+        <a class="nav-item" id="nav-item-historico" onclick="switchView('historico')" title="Histórico">
+          <span class="nav-item-icon">📜</span>
+          <span class="nav-item-text">Histórico</span>
+        </a>
+        <a class="nav-item" id="nav-item-definicoes" onclick="switchView('definicoes')" title="Definições">
+          <span class="nav-item-icon">⚙️</span>
+          <span class="nav-item-text">Definições</span>
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-footer-header">
@@ -1078,9 +1101,17 @@
       
       <!-- Top Header -->
       <header class="top-header">
-        <div class="header-titles">
-          <h2>Fila de Tickets</h2>
-          <p>Tickets em aberto e sincronização automática.</p>
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <button type="button" id="btn-toggle-sidebar" class="btn-icon" onclick="toggleSidebar()" title="Alternar barra lateral" style="width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--border-color); background: #ffffff; color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+          <div class="header-titles">
+            <h2>Fila de Tickets</h2>
+            <p>Tickets em aberto e sincronização automática.</p>
+          </div>
         </div>
         <div class="header-actions" style="display: flex; align-items: center; gap: 16px;">
           <div id="jira-sync-wrapper" style="display: inline-flex; align-items: center; gap: 10px;">
@@ -2131,8 +2162,8 @@
       jiraBase: {{ jira_base | tojson }}
     };
   </script>
-  <script src="/static/js/cockpit.core.js?v=p5i"></script>
-  <script src="/static/js/cockpit.agent.js?v=salsa_v6"></script>
+  <script src="/static/js/cockpit.core.js?v=p5j"></script>
+  <script src="/static/js/cockpit.agent.js?v=salsa_v9"></script>
 
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">

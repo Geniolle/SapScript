@@ -148,6 +148,15 @@ class SalsaAgentOrchestrator:
         status = str(details.get("status") or (ticket_record.get("status") if ticket_record else "Open"))
         requester = str(details.get("reporter") or (ticket_record.get("creator") if ticket_record else "") or "")
         comments = list(details.get("comments") or details.get("structured_comments") or [])
+        all_comment_texts = []
+        for c in comments:
+            if isinstance(c, dict):
+                body = c.get("body", "")
+                author = c.get("author", "")
+                all_comment_texts.append(f"{author}: {body}")
+            elif isinstance(c, str):
+                all_comment_texts.append(c)
+        combined_comments = "\n".join(all_comment_texts)
 
         ticket_context = {
             "key": clean_key,
@@ -161,7 +170,7 @@ class SalsaAgentOrchestrator:
 
         # 3. Backend eligibility validation
         is_eligible, reason = self.check_eligibility(ticket_context)
-        if not is_eligible:
+        if not is_eligible and not force_reanalyze:
             # Not eligible
             return AnalysisResult(
                 ticket_key=clean_key,
@@ -172,11 +181,11 @@ class SalsaAgentOrchestrator:
                 justification=reason,
                 suggested_next_action="Rever filtros de atribuição ou categoria no Jira.",
                 requires_human_review=True,
-                content_hash=self.classifier.compute_content_hash(summary, description, process_category),
+                content_hash=self.classifier.compute_content_hash(summary, description, process_category, combined_comments),
             )
 
         # 4. Check idempotency (unless forced)
-        content_hash = self.classifier.compute_content_hash(summary, description, process_category)
+        content_hash = self.classifier.compute_content_hash(summary, description, process_category, combined_comments)
         if not force_reanalyze:
             cached = get_salsa_ticket_analysis(clean_key)
             if cached:
@@ -193,6 +202,7 @@ class SalsaAgentOrchestrator:
             description=description,
             process_category=process_category,
             requester=requester or None,
+            comments_text=combined_comments,
         )
 
         final_result = l1_result
@@ -263,8 +273,10 @@ class SalsaAgentOrchestrator:
             re.compile(r"(?:aguard(?:a|ar|ando)?|esper(?:a|ar|ando)?|à espera|a aguardar)\s+(?:(?:de\s+)?(?:feedback|resposta|validação|informação|confirmação)\s+)?(?:d[eoa]|da|do|de|por)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)", re.IGNORECASE),
         ]
 
+        # Inspect comments in reverse order so that latest state dominates
+        last_comment_text = all_comment_texts[-1] if all_comment_texts else ""
         for pat in feedback_patterns:
-            m = pat.search(combined_comments)
+            m = pat.search(last_comment_text)
             if m:
                 person = m.group(1).strip()
                 dep_desc = f"resposta de {person}"

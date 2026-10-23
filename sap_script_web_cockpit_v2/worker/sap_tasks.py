@@ -850,7 +850,7 @@ def _run_sap_search_requests(params: dict[str, Any]) -> tuple[str, str]:
     ambiente = str(params.get("ambiente") or "DEV").upper()
     mapa_sistema = {"DEV": "S4D", "QAD": "S4Q", "PRD": "S4P"}
     sistema_desejado = mapa_sistema.get(ambiente, "S4D")
-    
+
     try:
         lista = mod.listar_requests(
             system_name=sistema_desejado,
@@ -2581,10 +2581,126 @@ def _run_projeto_perfil_task(action: str, params: dict[str, Any]) -> tuple[str, 
         f"Python RFC: {rfc_python}",
         f"Status: {status_tag}",
     ]
-    if payload.get("message"):
-        log_lines.append(f"Mensagem: {payload['message']}")
-
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
+def _run_otpm_excel_validate(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    from sap_rfc.otpm_service import validate_otpm_excel_via_rfc
+
+    file_path = str(params.get("excel_path") or params.get("file_path") or "").strip()
+    environment = str(params.get("environment") or "DEV").strip().upper()
+
+    if not file_path or not os.path.isfile(file_path):
+        raise SapExecutionError(f"Ficheiro Excel não encontrado: {file_path}")
+
+    res = validate_otpm_excel_via_rfc(file_path=file_path, environment=environment)
+    status_json = json.dumps(res, ensure_ascii=False)
+    log = (
+        f"Validação RFC OTPM concluída.\n"
+        f"Ambiente: {environment}\n"
+        f"Ficheiro: {Path(file_path).name}\n"
+        f"Cadeias encontradas: {res.get('total_chains', 0)}\n"
+        f"Ações necessárias: {res.get('total_actions_needed', 0)}"
+    )
+    return status_json, log
+
+
+def _run_otpm_dry_run(params: dict[str, Any]) -> tuple[str, str]:
+    _prepare_project_imports()
+    from sap_rfc.otpm_service import validate_otpm_excel_via_rfc
+
+    file_path = str(params.get("excel_path") or params.get("file_path") or "").strip()
+    environment = str(params.get("environment") or "DEV").strip().upper()
+
+    if not file_path or not os.path.isfile(file_path):
+        raise SapExecutionError(f"Ficheiro Excel não encontrado: {file_path}")
+
+    res = validate_otpm_excel_via_rfc(file_path=file_path, environment=environment)
+
+    # Preparar simulação detalhada (dry-run)
+    dry_run_actions = []
+    for chain in res.get("chains", []):
+        panam = chain["panam"]
+        action = chain["action_needed"]
+        dry_run_actions.append({
+            "panam": panam,
+            "action": action,
+            "simulated_tpama_creation": chain["tpama"]["status"] == "NÃO EXISTE",
+            "simulated_assignments_count": sum(1 for a in chain.get("assignments", []) if a.get("action_needed") != "NENHUMA"),
+            "ready_for_execution": True,
+        })
+
+    payload = {
+        "ok": res.get("ok", False),
+        "status": "DRY_RUN_COMPLETED",
+        "dry_run": True,
+        "environment": environment,
+        "file_name": Path(file_path).name,
+        "excel_path": file_path,
+        "total_chains": res.get("total_chains", 0),
+        "total_actions_needed": res.get("total_actions_needed", 0),
+        "chains": res.get("chains", []),
+        "dry_run_actions": dry_run_actions,
+        "message": "Simulação de criação e atribuição (Dry-Run) concluída com sucesso. Nenhuma alteração efetuada no SAP.",
+    }
+    status_json = json.dumps(payload, ensure_ascii=False)
+    log = (
+        f"Simulação Dry-Run OTPM concluída.\n"
+        f"Ambiente: {environment}\n"
+        f"Cadeias simuladas: {len(dry_run_actions)}\n"
+        f"Estado: Aguarda aprovação explícita do utilizador."
+    )
+    return status_json, log
+
+
+def _run_otpm_execute(params: dict[str, Any]) -> tuple[str, str]:
+    """Execução da criação e atribuição OTPM via SAP GUI através do worker Windows."""
+    _prepare_project_imports()
+    project_dir = _get_project_dir()
+    file_path = str(params.get("excel_path") or "").strip()
+    environment = str(params.get("environment") or "DEV").strip().upper()
+    req_number = str(params.get("request_number") or "").strip()
+
+    if not file_path or not os.path.isfile(file_path):
+        raise SapExecutionError(f"Ficheiro Excel não encontrado: {file_path}")
+
+    # Re-validação de segurança antes da escrita
+    from sap_rfc.otpm_service import validate_otpm_excel_via_rfc
+    pre_val = validate_otpm_excel_via_rfc(file_path=file_path, environment=environment)
+    if not pre_val.get("ok"):
+        raise SapExecutionError(f"Re-validação RFC de segurança falhou: {pre_val.get('message')}")
+
+    # Executar script Criar Atribuir Cadeias.py
+    import importlib.util
+    script_path = project_dir / "Processos" / "Cadeias de Pesquisa" / "Criar Atribuir Cadeias.py"
+    if not script_path.exists():
+        raise SapExecutionError(f"Script Criar Atribuir Cadeias.py não encontrado em {script_path}")
+
+    spec = importlib.util.spec_from_file_location("criar_atribuir_cadeias", str(script_path))
+    if not spec or not spec.loader:
+        raise SapExecutionError("Não foi possível carregar o módulo Criar Atribuir Cadeias.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Executar em modo não interativo
+    status_exec = mod.executar(
+        ambiente_cockpit=environment,
+        request_ctx="COCKPIT",
+        request_transporte=req_number or None,
+        caminho_ficheiro=file_path,
+        modo_nao_interativo=True,
+        pedir_confirmacao=False,
+    )
+
+    payload = {
+        "ok": True,
+        "status": "COMPLETED",
+        "environment": environment,
+        "file_name": Path(file_path).name,
+        "message": "Criação e atribuição de cadeias de pesquisa OTPM concluída com sucesso.",
+    }
+    return json.dumps(payload, ensure_ascii=False), f"Execução OTPM finalizada.\nStatus: {status_exec}"
 
 
 # Dispatch das tasks simples: task -> callable(job, params) -> (status, log).
@@ -2626,6 +2742,9 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "obyc_excel_preview": lambda job, params: _run_obyc_excel_preview(params),
     "obyc_excel_validate": lambda job, params: _run_obyc_excel_validate(params),
     "select_excel_file": lambda job, params: select_excel_file_on_windows(params),
+    "otpm_excel_validate": lambda job, params: _run_otpm_excel_validate(params),
+    "otpm_dry_run": lambda job, params: _run_otpm_dry_run(params),
+    "otpm_execute": lambda job, params: _run_otpm_execute(params),
     "ping_status": _handle_ping_status,
     "open_transaction": lambda job, params: _open_transaction(params),
     "sap_gui_chat_action": lambda job, params: _run_sap_gui_chat_action(params),

@@ -135,6 +135,26 @@
     let isConnectingWorker = false;
     let connectingTimeout = null;
 
+    // --- Sidebar: Toggle Collapse ---
+    const STORAGE_KEY_SIDEBAR_COLLAPSED = 'sap_script_sidebar_collapsed';
+
+    function toggleSidebar() {
+      const layout = document.querySelector('.dashboard-layout');
+      if (!layout) return;
+      const isCollapsed = layout.classList.toggle('sidebar-collapsed');
+      try {
+        localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, isCollapsed ? '1' : '0');
+      } catch (e) {}
+    }
+
+    // Inicializar estado salvo da sidebar
+    try {
+      if (localStorage.getItem(STORAGE_KEY_SIDEBAR_COLLAPSED) === '1') {
+        const layout = document.querySelector('.dashboard-layout');
+        if (layout) layout.classList.add('sidebar-collapsed');
+      }
+    } catch (e) {}
+
     // --- Sidebar: SAP Dropdown ---
     let sapMenuOpen = false;
 

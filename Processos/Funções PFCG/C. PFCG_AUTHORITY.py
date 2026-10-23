@@ -524,17 +524,24 @@ def executar(
                 print("  ├─ [SAP] A função já existe.")
 
         def update_mass_values_dynamic(self, nome, objeto, row_data):
+            modo_objeto = str(row_data.get("MODO_OBJETO", "CRIAR") or "CRIAR").strip().upper()
             self.audit_step("Chamar transação /nPFCGMASSVAL", "wnd[0]/tbar[0]/okcd", "text", "/nPFCGMASSVAL")
             self.audit_step("Enter (Ir para MASSVAL)", "wnd[0]", "sendVKey", vkey=0)
             
             self.audit_step("Selecionar Execução Direta", "wnd[0]/usr/radMOD_EXE", "select")
-            self.audit_step("Selecionar Inserção Manual", "wnd[0]/usr/radSEL_NAU", "select")
+            if modo_objeto == "ATUALIZAR":
+                self.audit_step("Selecionar alteração do objeto existente", "wnd[0]/usr/radSEL_OBJ", "select")
+            else:
+                self.audit_step("Selecionar Inserção Manual", "wnd[0]/usr/radSEL_NAU", "select")
             self.audit_step("ENTER Crucial do VBS para atualizar tela", "wnd[0]", "sendVKey", vkey=0)
             
             self.audit_step("Preencher ROLE-LOW por segurança", "wnd[0]/usr/ctxtROLE-LOW", "text", nome)
             
             self.audit_step("Preencher OBJOBJ (Objeto de Autorização)", "wnd[0]/usr/ctxtOBJOBJ", "text", objeto)
             self.audit_step("Enter após OBJOBJ (A carregar campos...)", "wnd[0]", "sendVKey", vkey=0)
+
+            if modo_objeto == "ATUALIZAR" and object_exists("wnd[0]/usr/cmbOBJACT"):
+                self.sess.findById("wnd[0]/usr/cmbOBJACT").key = "A"
             
             time.sleep(0.5)
 

@@ -48,3 +48,16 @@ Os mesmos 17 testes foram executados contra `sap_cockpit_web_ready.py` de `HEAD`
 - Testes de integração SAP GUI, RFC e worker Windows com o SAP real.
 - Validação HTTP do container `sap-script-web` (sem deployment nesta fase).
 - Comparação de corpos das funções duplicadas (Fase 3).
+
+## Fase 3b — Segurança do desktop e núcleo de funções puras
+
+| Comando | Ambiente | Resultado |
+|---|---|---|
+| `.venv\Scripts\python.exe testsun_all.py` | venv do cockpit | 95 executados: 77 OK, 18 saltados (dependências do worker em falta), `RESULTADO: OK` |
+| `worker\.venv\Scripts\python.exe -m unittest tests.test_sap_cockpit_core tests.test_sap_cockpit_fase3b` | venv do worker | 30 OK |
+
+Regressão: `DesktopSemRetryTest` e `DesktopListarRequestsSemRetryTest` executados contra `SAP Cockpit.py` de `HEAD` falham (2 ERROR, 1 FAIL). Contra o código novo passam.
+
+Equivalência: 22 casos de `parse_env_line` e 17 de `is_scripting_disabled_error`, com saídas geradas a partir de `HEAD` (fixture `tests/fixtures/sap_cockpit_golden_puras.json`). Desktop, web e core coincidem em todos.
+
+Não executado: testes SAP/RFC/GUI reais; nenhum teste liga ao SAP. O desktop não é importado pelos testes (executa código de topo); é lido por AST.

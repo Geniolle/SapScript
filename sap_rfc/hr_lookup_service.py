@@ -48,7 +48,9 @@ def validate_pernr(raw: str) -> str:
 
 
 def derive_username(pernr: str) -> str:
-    return f"S{pernr}"
+    # O username SAP sugerido não deve ter zeros à esquerda (ex.: S2760 e não S00002760)
+    clean_digits = str(pernr or "").strip().lstrip("0")
+    return f"S{clean_digits}" if clean_digits else "S0"
 
 
 def _error_result(pernr: str, error_type: str, message: str, *, details: str | None = None) -> dict[str, Any]:

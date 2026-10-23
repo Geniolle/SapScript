@@ -51,6 +51,8 @@ from app.ui import (
 
 from cockpit_contracts import CockpitRunRequest, CockpitRunResult
 
+from sap_cockpit_core import ArgumentosExecInvalidos, is_scripting_disabled_error as _is_scripting_disabled_error, parse_env_line as _parse_env_line, validar_argumentos_exec
+
 
 class SapCockpitError(RuntimeError):
     pass
@@ -119,33 +121,6 @@ def ler_texto(prompt: str, oculto: bool = False) -> str:
 
         buf.append(ch)
         print("*" if oculto else ch, end="", flush=True)
-
-
-def _parse_env_line(linha_txt: str):
-    if not linha_txt:
-        return None, None
-
-    linha_txt = linha_txt.strip()
-    if not linha_txt or linha_txt.startswith("#"):
-        return None, None
-
-    if "=" not in linha_txt:
-        return None, None
-
-    chave, valor = linha_txt.split("=", 1)
-    chave = chave.strip()
-    valor = valor.strip()
-
-    if not chave:
-        return None, None
-
-    if len(valor) >= 2 and (
-        (valor.startswith('"') and valor.endswith('"')) or
-        (valor.startswith("'") and valor.endswith("'"))
-    ):
-        valor = valor[1:-1]
-
-    return chave, valor
 
 
 def _carregar_dotenv_manual():
@@ -897,11 +872,11 @@ def _load_process_module(caminho_script: str):
 
 
 def _validar_argumentos_exec(exec_fn, ambiente_cockpit, kwargs: dict[str, Any], processo: str) -> None:
-    """Falha antes de executar se os argumentos nao encaixam em executar(). Sem nova tentativa."""
+    """Adaptador web: falha antes de executar se os argumentos nao encaixam em executar(). Sem nova tentativa."""
     try:
-        inspect.signature(exec_fn).bind(ambiente_cockpit, **kwargs)
-    except TypeError as exc:
-        raise SapCockpitError(f"Argumentos incompativeis com executar() em '{processo}': {exc}") from exc
+        validar_argumentos_exec(exec_fn, ambiente_cockpit, kwargs, processo)
+    except ArgumentosExecInvalidos as exc:
+        raise SapCockpitError(str(exc)) from exc
 
 
 def _executar_um_script(
@@ -1015,23 +990,6 @@ def executar_processo(
 ###################################################################################
 # Scripting / sessao SAP
 ###################################################################################
-
-
-def _is_scripting_disabled_error(exc: Exception) -> bool:
-    parts = [str(exc)]
-    try:
-        if hasattr(exc, "excepinfo") and exc.excepinfo:
-            parts.append(" ".join([str(p) for p in exc.excepinfo if p]))
-    except Exception:
-        pass
-
-    hay = " ".join(parts).lower()
-    has_scripting = any(k in hay for k in ["scripting", "sapgui", "script"])
-    has_disabled = any(k in hay for k in [
-        "disabled", "not enabled", "not active", "inactive",
-        "desativ", "inativ", "nao esta ativo", "não está ativo"
-    ])
-    return has_scripting and has_disabled
 
 
 def _log_alerta_rz11():

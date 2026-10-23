@@ -76,7 +76,7 @@ def _get_jira_base_url() -> str:
 _load_project_env()
 
 from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -113,6 +113,15 @@ from web_api.user_create_common import (
     _safe_user_create_result,
     _safe_hr_lookup_failed_message,
     _safe_hr_lookup_result,
+)
+from web_api.otpm_common import (
+    OTPM_EXCEL_SELECTIONS,
+    OTPM_DRY_RUN_PREVIEWS,
+    OtpmValidateRequest,
+    OtpmDryRunRequest,
+    OtpmConfirmRequest,
+    validate_otpm_environment_or_400,
+    safe_otpm_failed_message,
 )
 import asyncio
 
@@ -165,6 +174,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="SAP Script Web", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="web_api/static"), name="static")
 templates = Jinja2Templates(directory="web_api/templates")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    return FileResponse("web_api/static/favicon.ico")
 
 
 @app.get("/health")
@@ -2100,6 +2114,243 @@ def api_salsa_it_pfcg_create_analyze_job(job_id: str) -> JSONResponse:
 
 
 
+
+
+
+# ==============================================================================
+# FLUXO CADEIAS DE PESQUISA (OTPM) - AGENTE SALSA IT
+# ==============================================================================
+
+@app.post("/api/salsa-it-agent/otpm/upload")
+async def api_salsa_it_otpm_upload(file: UploadFile = File(...)) -> JSONResponse:
+    """Upload seguro de ficheiro Excel para validação e execução OTPM."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Ficheiro sem nome.")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in {".xlsx", ".xlsm"}:
+        raise HTTPException(status_code=400, detail="Apenas ficheiros Excel (.xlsx, .xlsm) são suportados.")
+
+    saved_name = _safe_upload_filename(file.filename)
+    container_path = UPLOADS_DIR / saved_name
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        content = await file.read()
+        with open(container_path, "wb") as f:
+            f.write(content)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao guardar ficheiro: {exc}")
+
+    # Determinar caminho para o worker Windows
+    worker_path = _windows_upload_path(saved_name)
+    selection_id = uuid4().hex
+    OTPM_EXCEL_SELECTIONS[selection_id] = {
+        "excel_path": worker_path,
+        "container_path": str(container_path),
+        "file_name": file.filename,
+    }
+
+    return _json_no_store({
+        "ok": True,
+        "selection_id": selection_id,
+        "file_name": file.filename,
+        "excel_path": worker_path,
+    })
+
+
+@app.post("/api/salsa-it-agent/otpm/validate")
+def api_salsa_it_otpm_validate(payload: OtpmValidateRequest) -> JSONResponse:
+    """Inicia a validação RFC das cadeias de pesquisa do Excel."""
+    env = validate_otpm_environment_or_400(payload.environment)
+
+    excel_path = ""
+    file_name = ""
+    if payload.selection_id:
+        selection = OTPM_EXCEL_SELECTIONS.get(payload.selection_id)
+        if not selection:
+            raise HTTPException(status_code=404, detail="Sessão de upload não encontrada.")
+        excel_path = selection["excel_path"]
+        file_name = selection["file_name"]
+    elif payload.excel_path:
+        excel_path = str(payload.excel_path).strip()
+        file_name = Path(excel_path).name
+    else:
+        raise HTTPException(status_code=400, detail="Informe selection_id ou excel_path.")
+
+    try:
+        job = create_job("otpm_excel_validate", {"excel_path": excel_path, "environment": env, "file_name": file_name})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar job de validação: {exc}")
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "file_name": file_name,
+        "environment": env,
+    })
+
+
+@app.get("/api/salsa-it-agent/otpm/validate/{job_id}")
+def api_salsa_it_otpm_validate_job(job_id: str) -> JSONResponse:
+    """Consulta o progresso e resultado da validação RFC."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+    if job.get("task") != "otpm_excel_validate":
+        raise HTTPException(status_code=400, detail="Job não pertence à validação OTPM.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        failure_msg = str(job.get("status") or safe_otpm_failed_message()).strip()
+        return _json_no_store({"state": "failed", "message": failure_msg})
+
+    status_raw = job.get("status")
+    try:
+        result = json.loads(status_raw) if isinstance(status_raw, str) else status_raw
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": "Resultado inválido recebido do worker."})
+
+    return _json_no_store({"state": "succeeded", "result": result})
+
+
+@app.post("/api/salsa-it-agent/otpm/dry-run")
+def api_salsa_it_otpm_dry_run(payload: OtpmDryRunRequest) -> JSONResponse:
+    """Executa a simulação (Dry-Run) sem alterações no SAP."""
+    env = validate_otpm_environment_or_400(payload.environment)
+
+    excel_path = ""
+    file_name = ""
+    if payload.selection_id:
+        selection = OTPM_EXCEL_SELECTIONS.get(payload.selection_id)
+        if not selection:
+            raise HTTPException(status_code=404, detail="Sessão de upload não encontrada.")
+        excel_path = selection["excel_path"]
+        file_name = selection["file_name"]
+    elif payload.excel_path:
+        excel_path = str(payload.excel_path).strip()
+        file_name = Path(excel_path).name
+    else:
+        raise HTTPException(status_code=400, detail="Informe selection_id ou excel_path.")
+
+    try:
+        job = create_job("otpm_dry_run", {"excel_path": excel_path, "environment": env, "file_name": file_name})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar job de dry-run: {exc}")
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "file_name": file_name,
+        "environment": env,
+    })
+
+
+@app.get("/api/salsa-it-agent/otpm/dry-run/{job_id}")
+def api_salsa_it_otpm_dry_run_job(job_id: str) -> JSONResponse:
+    """Consulta o resultado da simulação Dry-Run."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+    if job.get("task") != "otpm_dry_run":
+        raise HTTPException(status_code=400, detail="Job não pertence ao dry-run OTPM.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        failure_msg = str(job.get("status") or safe_otpm_failed_message()).strip()
+        return _json_no_store({"state": "failed", "message": failure_msg})
+
+    status_raw = job.get("status")
+    try:
+        result = json.loads(status_raw) if isinstance(status_raw, str) else status_raw
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": "Resultado de dry-run inválido."})
+
+    # Guardar no mapa de dry-runs aprováveis
+    if result.get("ok"):
+        OTPM_DRY_RUN_PREVIEWS[job_id] = {
+            "environment": result.get("environment") or "DEV",
+            "excel_path": result.get("excel_path"),
+            "file_name": result.get("file_name"),
+            "total_actions_needed": result.get("total_actions_needed", 0),
+        }
+
+    return _json_no_store({"state": "succeeded", "result": result})
+
+
+@app.post("/api/salsa-it-agent/otpm/confirm")
+def api_salsa_it_otpm_confirm(payload: OtpmConfirmRequest) -> JSONResponse:
+    """Submete a criação aprovada via worker Windows (SAP GUI)."""
+    dry_run_job_id = str(payload.dry_run_job_id or "").strip()
+    preview = OTPM_DRY_RUN_PREVIEWS.get(dry_run_job_id)
+    if not preview:
+        raise HTTPException(
+            status_code=404,
+            detail="Simulação Dry-Run não encontrada ou expirada. Execute a simulação antes de confirmar.",
+        )
+
+    env = validate_otpm_environment_or_400(preview.get("environment", "DEV"))
+    excel_path = preview.get("excel_path")
+    if not excel_path:
+        raise HTTPException(status_code=400, detail="Caminho do Excel indisponível na simulação.")
+
+    try:
+        job = create_job("otpm_execute", {
+            "excel_path": excel_path,
+            "environment": env,
+            "request_number": str(payload.request_number or "").strip(),
+            "request_description": str(payload.request_description or "").strip(),
+        })
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao despachar job de criação OTPM: {exc}")
+
+    return _json_no_store({
+        "job_id": job["id"],
+        "state": job["state"],
+        "file_name": preview.get("file_name"),
+        "environment": env,
+    })
+
+
+@app.get("/api/salsa-it-agent/otpm/confirm/{job_id}")
+def api_salsa_it_otpm_confirm_job(job_id: str) -> JSONResponse:
+    """Consulta o resultado final da execução de criação e atribuição OTPM."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+    if job.get("task") != "otpm_execute":
+        raise HTTPException(status_code=400, detail="Job não pertence à execução OTPM.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+
+    if state != "succeeded":
+        failure_msg = str(job.get("status") or safe_otpm_failed_message()).strip()
+        return _json_no_store({"state": "failed", "message": failure_msg})
+
+    status_raw = job.get("status")
+    try:
+        result = json.loads(status_raw) if isinstance(status_raw, str) else status_raw
+    except Exception:
+        result = None
+
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": "Resultado de execução inválido."})
+
+    return _json_no_store({"state": "succeeded", "result": result})
 
 
 @app.post("/api/salsa-it-agent/pfcg/delete/rfc/preview")
