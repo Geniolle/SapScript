@@ -27,6 +27,7 @@ import os
 import sys
 import re
 import shutil
+import importlib.util
 import unicodedata
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -194,7 +195,26 @@ def consultar_erros_su53_rfc(usuario: str, target_env: str = "PRD") -> List[Dict
             })
 
     erros.sort(key=lambda x: x["timestamp"], reverse=True)
-    return erros
+    return filtrar_erros_atuais(erros)
+
+
+def filtrar_erros_atuais(
+    erros: List[Dict[str, Any]],
+    data_local: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Mantém as falhas de hoje na instância da ocorrência mais recente."""
+    if not erros:
+        return []
+
+    data_alvo = data_local or datetime.now().astimezone().strftime("%d.%m.%Y")
+    erros_hoje = [e for e in erros if str(e.get("data_hora", "")).startswith(data_alvo)]
+    if not erros_hoje:
+        return []
+
+    instancia_atual = erros_hoje[0].get("servidor", "")
+    if not instancia_atual:
+        return erros_hoje
+    return [e for e in erros_hoje if e.get("servidor", "") == instancia_atual]
 
 
 def obter_descricao_objeto_sap(objeto: str) -> str:
@@ -218,6 +238,30 @@ def obter_descricao_objeto_sap(objeto: str) -> str:
     except Exception:
         pass
     return ""
+
+
+def obter_descricao_transacao_sap(tcode: str) -> str:
+    """Obtém a descrição da transação na TSTCT, preferindo português."""
+    tc_norm = str(tcode or "").strip().upper()
+    if not tc_norm:
+        return ""
+    try:
+        load_project_env(find_project_root())
+        conn = Connection(**build_connection_params_for("PRD"))
+        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("TSTCT",))
+        rows = read_table(
+            conn,
+            guard,
+            table_name="TSTCT",
+            fields=["SPRSL", "TCODE", "TTEXT"],
+            options=[{"TEXT": f"TCODE = '{tc_norm}'"}],
+            rowcount=10,
+        )
+        conn.close()
+        textos = {str(r[0]).strip(): str(r[2]).strip() for r in rows if len(r) >= 3 and str(r[2]).strip()}
+        return textos.get("P") or textos.get("E") or next(iter(textos.values()), "")
+    except Exception:
+        return ""
 
 
 def exibir_tabela_erros(erros: List[Dict[str, Any]], usuario: str, target_env: str = "PRD"):
@@ -273,12 +317,13 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
             if tc and tc not in transacoes_map:
                 transacoes_map[tc] = e
         else:
-            objetos_map[obj].append(e)
+            aplicacao = (e.get("tcode_app") or e.get("nome_servico") or "").strip().upper()
+            objetos_map[(aplicacao, obj)].append(e)
 
     lista_transacoes = list(transacoes_map.values())
 
     lista_objetos = []
-    for obj_name, ocorrencias in objetos_map.items():
+    for (aplicacao, obj_name), ocorrencias in objetos_map.items():
         mais_recente = ocorrencias[0]
         # Consolidar campos testados distintos
         campos_relevantes = []
@@ -288,6 +333,7 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
                     campos_relevantes.append((f, v))
 
         lista_objetos.append({
+            "aplicacao": aplicacao,
             "objeto": obj_name,
             "descricao": obter_descricao_objeto_sap(obj_name),
             "rc_mais_recente": mais_recente["rc"],
@@ -299,6 +345,63 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
         })
 
     return lista_transacoes, lista_objetos
+
+
+def enriquecer_objeto_com_proposta(
+    objeto: Dict[str, Any],
+    caminho_excel: str,
+    usuario: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Adiciona descrição da aplicação e funções mapeadas na sheet Proposta."""
+    resultado = dict(objeto)
+    aplicacao = str(resultado.get("aplicacao") or "").strip().upper()
+    resultado["nome_aplicacao"] = obter_descricao_transacao_sap(aplicacao)
+    roles = buscar_funcao_individual_para_transacao(caminho_excel, aplicacao, usuario) if aplicacao else []
+    funcoes_proposta = [r for r in roles if r.get("fonte") == "Folha 'Proposta'" and not r.get("candidata")]
+    resultado["funcoes_proposta"] = funcoes_proposta
+    resultado["funcao_proposta"] = funcoes_proposta[0] if funcoes_proposta else None
+    return resultado
+
+
+def formatar_relatorio_erro_aplicacao(
+    objeto: Dict[str, Any],
+    funcoes_proposta: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """Formata o diagnóstico SU53 com aplicação e função da sheet Proposta."""
+    aplicacao = objeto.get("aplicacao") or "Não identificada"
+    nome_aplicacao = objeto.get("nome_aplicacao") or "Descrição não encontrada"
+    atividade = next((v for f, v in objeto.get("campos_relevantes", []) if f == "ACTVT"), "")
+    atividade_txt = f"{atividade} — visualizar" if atividade == "03" else (atividade or "Não indicada")
+    linhas = [
+        "A aplicação registada no erro é:",
+        "",
+        f"- Transação/aplicação: {aplicacao}",
+        f"- Nome: {nome_aplicacao}",
+        f"- Objeto recusado: {objeto.get('objeto', '')}",
+        f"- Atividade: {atividade_txt}",
+        f"- Horário: {objeto.get('data_hora_recente', '')}",
+        "",
+        f"Na sheet Proposta, a transação {aplicacao} pertence à função:",
+        "",
+    ]
+    roles = funcoes_proposta if funcoes_proposta is not None else objeto.get("funcoes_proposta", [])
+    if not roles:
+        linhas.append("- Função: Não encontrada na sheet Proposta")
+        return "\n".join(linhas)
+
+    for idx, role in enumerate(roles):
+        linhas.append(
+            f"- Função: {role.get('role', '')} - Descrição: {role.get('descricao', '')}"
+        )
+        linha_funcao = role.get("linha_funcao")
+        linha_transacao = role.get("linha_transacao")
+        if linha_funcao and linha_transacao:
+            linhas.append(
+                f"A função começa na linha {linha_funcao}; {aplicacao} está na linha {linha_transacao}."
+            )
+        if idx < len(roles) - 1:
+            linhas.append("")
+    return "\n".join(linhas)
 
 
 def exibir_analise_sintese(
@@ -362,11 +465,16 @@ def exibir_analise_sintese(
     # SECÇÃO 2: OBJETOS DE AUTORIZAÇÃO
     print(f"\n{CLR_C}[B] OUTROS OBJETOS DE AUTORIZAÇÃO COM FALHA:{CLR_RST}")
     if objetos:
-        for o in objetos:
+        for indice_objeto, objeto in enumerate(objetos):
+            if indice_objeto:
+                print(f"\n{'.' * 95}\n")
+            o = enriquecer_objeto_com_proposta(objeto, caminho_excel, usuario)
             desc = f" ({o['descricao']})" if o["descricao"] else ""
             campos_str = ", ".join([f"{f}={v}" for f, v in o["campos_relevantes"]]) if o["campos_relevantes"] else "Verificação de existência"
             print(f"  [{CLR_Y}{num_item}{CLR_RST}] {CLR_W}Objeto:    {CLR_M}{o['objeto']:<20}{CLR_RST}{desc}")
             print(f"       -> RC={o['rc_mais_recente']} | Falhas: {o['total_ocorrencias']}x | Campos: {campos_str} | Prog: {o['programa']}")
+            print()
+            print(formatar_relatorio_erro_aplicacao(o))
             opcoes_selecao.append({
                 "tipo": "OBJETO",
                 "valor": o["objeto"],
@@ -376,110 +484,451 @@ def exibir_analise_sintese(
     else:
         print("  (Nenhum outro objeto de autorização com falha identificado)")
 
-    print("-" * 95)
-    print("  [O] Introduzir manualmente outra Transação ou Objeto")
-    print("  [0] Cancelar e sair")
-    print("-" * 95)
-
     return opcoes_selecao
 
 
 
 # =====================================================================
-# 3. DIAGNÓSTICO E ANÁLISE APROFUNDADA DE OBJETO DE AUTORIZAÇÃO
+# 3. ATUALIZAÇÃO DE OBJETO DE AUTORIZAÇÃO NAS FUNÇÕES INDICADAS
 # =====================================================================
 
-def diagnosticar_objeto_autorizacao(usuario: str, obj_info: Dict[str, Any], caminho_excel: str):
-    """
-    Executa diagnóstico do Objeto de Autorização:
-      - Autorizações atuais do utilizador para esse objeto via RFC (SUSR_USER_AUTH_FOR_OBJ_GET).
-      - Funções PFCG que contêm o objeto no SAP PRD (AGR_1251) ou na folha PFCG_AUTHORITY.
-    """
-    obj_nome = obj_info["objeto"]
-    u_norm = usuario.strip().upper()
+def preparar_atualizacao_objeto(obj_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Consolida roles e valores SU53 que serão aplicados via PFCGMASSVAL."""
+    objeto = str(obj_info.get("objeto") or "").strip().upper()
+    roles = list(dict.fromkeys(
+        str(item.get("role") or "").strip().upper()
+        for item in obj_info.get("funcoes_proposta", [])
+        if str(item.get("role") or "").strip()
+    ))
+    valores_por_campo: Dict[str, List[str]] = {}
+    for campo, valor in obj_info.get("campos_relevantes", []):
+        campo_norm = str(campo or "").strip().upper()
+        valor_norm = str(valor or "").strip().upper()
+        if not campo_norm or not valor_norm or campo_norm == "DUMMYFIELD":
+            continue
+        valores = valores_por_campo.setdefault(campo_norm, [])
+        if valor_norm not in valores:
+            valores.append(valor_norm)
+    campos = {campo: ",".join(valores) for campo, valores in valores_por_campo.items()}
+    if not objeto or not roles or not campos:
+        return None
+    return {"objeto": objeto, "roles": roles, "campos": campos}
+
+
+def classificar_modo_objeto(registos: List[Dict[str, Any]]) -> str:
+    """Atualiza somente autorizações ativas; nunca reativa entradas eliminadas."""
+    if any(str(item.get("DELETED") or "").strip().upper() != "X" for item in registos):
+        return "ATUALIZAR"
+    return "CRIAR"
+
+
+def valor_autorizacao_cobre(valor_existente: str, valor_pedido: str) -> bool:
+    """Reconhece autorização total como cobertura de qualquer valor específico."""
+    existente = str(valor_existente or "").strip().upper()
+    pedido = str(valor_pedido or "").strip().upper()
+    return existente == "*" or existente == pedido
+
+
+def _criar_ficheiro_execucao_objeto(plano: Dict[str, Any], target_env: str) -> Path:
+    """Cria artefacto isolado para reutilizar o executor PFCGMASSVAL existente."""
+    output_dir = PROJECT_ROOT / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    caminho = output_dir / (
+        f"SU53_PFCG_AUTHORITY_{target_env}_{plano['objeto']}_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+    )
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "PFCG_AUTHORITY"
+    campos = list(plano["campos"])
+    ws.append(["AGR_NAME", "OBJETO DE AUTORIZACAO", "MODO_OBJETO", *campos, "STATUS", "MSG", "TIMESTAMP"])
+    for role in plano["roles"]:
+        modo = plano.get("modos", {}).get(role, "CRIAR")
+        ws.append([role, plano["objeto"], modo, *[plano["campos"][c] for c in campos], "", "", ""])
+    wb.save(caminho)
+    return caminho
+
+
+def _carregar_executor_pfcg_authority():
+    caminho = PROJECT_ROOT / "Processos" / "Funções PFCG" / "C. PFCG_AUTHORITY.py"
+    spec = importlib.util.spec_from_file_location("pfcg_authority_executor", caminho)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Não foi possível carregar o executor: {caminho}")
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+def garantir_scripting_gui_qad_rfc() -> str:
+    """Ativa dinamicamente sapgui/user_scripting na instância QAD e confirma a alteração."""
+    parametro = "sapgui/user_scripting"
+    load_project_env(find_project_root())
+    conn = Connection(**build_connection_params_for("QAD"))
+    try:
+        atual = str(conn.call("TH_GET_PARAMETER", PARAMETER_NAME=parametro).get("PARAMETER_VALUE") or "").strip().upper()
+        if atual not in ("TRUE", "1", "X"):
+            conn.call(
+                "TH_CHANGE_PARAMETER",
+                PARAMETER_NAME=parametro,
+                PARAMETER_VALUE="TRUE",
+                CHECK_PARAMETER=1,
+            )
+        confirmado = str(conn.call("TH_GET_PARAMETER", PARAMETER_NAME=parametro).get("PARAMETER_VALUE") or "").strip().upper()
+        if confirmado not in ("TRUE", "1", "X"):
+            raise RuntimeError(f"{parametro} permaneceu com o valor '{confirmado or atual}'")
+        return confirmado
+    finally:
+        conn.close()
+
+
+def _validar_roles_existentes_rfc(roles: List[str], target_env: str) -> List[str]:
+    """Impede que o executor crie por engano uma role indicada apenas no Excel."""
+    load_project_env(find_project_root())
+    conn = Connection(**build_connection_params_for(target_env))
+    try:
+        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_DEFINE",))
+        existentes = set()
+        for role in roles:
+            linhas = read_table(
+                conn,
+                guard,
+                table_name="AGR_DEFINE",
+                fields=["AGR_NAME"],
+                options=[{"TEXT": f"AGR_NAME = '{role}'"}],
+                rowcount=1,
+            )
+            if linhas:
+                existentes.add(role)
+        return [role for role in roles if role not in existentes]
+    finally:
+        conn.close()
+
+
+def _obter_modos_objeto_rfc(plano: Dict[str, Any], target_env: str) -> Dict[str, str]:
+    """Consulta AGR_1250 para impedir criação duplicada do objeto na role."""
+    load_project_env(find_project_root())
+    conn = Connection(**build_connection_params_for(target_env))
+    try:
+        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_1250",))
+        modos = {}
+        for role in plano["roles"]:
+            linhas = read_table(
+                conn,
+                guard,
+                table_name="AGR_1250",
+                fields=["AUTH", "DELETED"],
+                options=[
+                    {"TEXT": f"AGR_NAME = '{role}'"},
+                    {"TEXT": f"AND OBJECT = '{plano['objeto']}'"},
+                ],
+                rowcount=0,
+            )
+            registos = [{"AUTH": r[0], "DELETED": r[1]} for r in linhas]
+            modos[role] = classificar_modo_objeto(registos)
+        return modos
+    finally:
+        conn.close()
+
+
+def _validar_objeto_funcoes_rfc(plano: Dict[str, Any], target_env: str) -> List[str]:
+    """Relê AGR_1251 e devolve roles sem todos os valores ativos solicitados."""
+    load_project_env(find_project_root())
+    conn = Connection(**build_connection_params_for(target_env))
+    try:
+        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_1251",))
+        falhas = []
+        esperados = [(campo, valor) for campo, valores in plano["campos"].items() for valor in valores.split(",")]
+        for role in plano["roles"]:
+            linhas = read_table(
+                conn,
+                guard,
+                table_name="AGR_1251",
+                fields=["FIELD", "LOW", "DELETED"],
+                options=[
+                    {"TEXT": f"AGR_NAME = '{role}'"},
+                    {"TEXT": f"AND OBJECT = '{plano['objeto']}'"},
+                ],
+                rowcount=0,
+            )
+            ativos = [(r[0].strip().upper(), r[1].strip().upper()) for r in linhas if len(r) > 2 and r[2].strip() != "X"]
+            if any(
+                not any(campo_ativo == campo and valor_autorizacao_cobre(valor_ativo, valor) for campo_ativo, valor_ativo in ativos)
+                for campo, valor in esperados
+            ):
+                falhas.append(role)
+        return falhas
+    finally:
+        conn.close()
+
+
+def diagnosticar_objeto_autorizacao(
+    usuario: str,
+    obj_info: Dict[str, Any],
+    caminho_excel: str,
+    target_env: str = "PRD",
+    pedir_confirmacao: bool = True,
+):
+    """Atualiza o objeto nas roles indicadas pela Proposta e valida o resultado via RFC."""
+    obj_enriquecido = enriquecer_objeto_com_proposta(obj_info, caminho_excel, usuario)
+    plano = preparar_atualizacao_objeto(obj_enriquecido)
+    if not plano:
+        print(f"\n{CLR_R}[ERRO] Faltam funções da Proposta ou campos/valores SU53; nenhuma alteração foi feita.{CLR_RST}")
+        return False
+
+    env = "QAD" if str(target_env).upper() in ("QAD", "QAS") else "PRD"
+    try:
+        roles_inexistentes = _validar_roles_existentes_rfc(plano["roles"], env)
+    except Exception as exc:
+        print(f"\n{CLR_R}[ERRO] Falha na pré-validação RFC do SAP {env}: {exc}{CLR_RST}")
+        return False
+    if roles_inexistentes:
+        print(f"\n{CLR_R}[ERRO] Funções inexistentes no SAP {env}: {', '.join(roles_inexistentes)}.{CLR_RST}")
+        print("Nenhuma alteração foi feita.")
+        return False
+    try:
+        plano["modos"] = _obter_modos_objeto_rfc(plano, env)
+    except Exception as exc:
+        print(f"\n{CLR_R}[ERRO] Falha ao verificar se o objeto já existe: {exc}{CLR_RST}")
+        return False
 
     print("\n" + "=" * 95)
-    print(f"  {CLR_W}DIAGNÓSTICO TÉCNICO DO OBJETO DE AUTORIZAÇÃO: {CLR_M}{obj_nome}{CLR_RST}")
+    print(f"  {CLR_W}ATUALIZAÇÃO DO OBJETO {CLR_M}{plano['objeto']}{CLR_W} EM {env}{CLR_RST}")
     print("=" * 95)
+    print(f"  Utilizador origem: {usuario.strip().upper()}")
+    print(f"  Campos: {', '.join(f'{c}={v}' for c, v in plano['campos'].items())}")
+    print("  Funções a alterar:")
+    for role in plano["roles"]:
+        print(f"    - {role} | {plano['modos'][role]}")
+    print("-" * 95)
+    if pedir_confirmacao:
+        confirmacao = input(f"Confirma a atualização destas funções no SAP {env}? [S/N] [N]: ").strip().upper()
+        if confirmacao not in ("S", "SIM", "Y", "YES", "1"):
+            print("Operação cancelada; nenhuma função foi alterada.")
+            return False
 
-    desc = obj_info.get("descricao") or obter_descricao_objeto_sap(obj_nome)
-    if desc:
-        print(f"  Descrição SAP:  {CLR_W}{desc}{CLR_RST}")
-    print(f"  Código Retorno: {CLR_R}RC = {obj_info['rc_mais_recente']}{CLR_RST} (Sem autorização suficiente)")
-    print(f"  Última Falha:   {obj_info['data_hora_recente']} no programa {obj_info['programa']} (linha {obj_info['linha']})")
+    if env == "QAD":
+        try:
+            valor_scripting = garantir_scripting_gui_qad_rfc()
+            print(f"{CLR_G}[OK] QAD: sapgui/user_scripting={valor_scripting}.{CLR_RST}")
+        except Exception as exc:
+            print(f"{CLR_R}[ERRO] Não foi possível ativar sapgui/user_scripting em QAD via RFC: {exc}{CLR_RST}")
+            return False
 
-    if obj_info.get("campos_relevantes"):
-        campos_txt = ", ".join([f"{f}={v}" for f, v in obj_info["campos_relevantes"]])
-        print(f"  Campos/Valores: {CLR_Y}{campos_txt}{CLR_RST}")
-
-    # 1. Consultar se o utilizador tem autorizações atuais para este objeto
-    print(f"\n{CLR_C}1. A verificar buffer atual do utilizador '{u_norm}' para {obj_nome}...{CLR_RST}")
+    artefacto = _criar_ficheiro_execucao_objeto(plano, env)
     try:
-        load_project_env(find_project_root())
-        conn = Connection(**build_connection_params_for("PRD"))
-        res_auth = conn.call("SUSR_USER_AUTH_FOR_OBJ_GET", USER_NAME=u_norm, SEL_OBJECT=obj_nome)
-        conn.close()
-        valores = res_auth.get("VALUES", [])
-        if valores:
-            print(f"  {CLR_G}[OK] O utilizador possui {len(valores)} registo(s) de autorização no buffer:{CLR_RST}")
-            for v in valores[:5]:
-                print(f"     - Perfil: {v.get('AUTH')} | Campo: {v.get('FIELD')} | De: {v.get('VON')} Até: {v.get('BIS')}")
-        else:
-            print(f"  {CLR_R}[ATENÇÃO] O utilizador '{u_norm}' tem 0 autorizações atribuídas para o objeto '{obj_nome}'.{CLR_RST}")
-    except Exception as exc:
-        print(f"  {CLR_Y}[AVISO] Objeto não configurado no perfil atual: {exc}{CLR_RST}")
-
-    # 2. Pesquisar roles no SAP PRD (AGR_1251) que contêm o objeto
-    print(f"\n{CLR_C}2. A pesquisar funções PFCG no SAP PRD que concedem o objeto {obj_nome}...{CLR_RST}")
-    try:
-        load_project_env(find_project_root())
-        conn = Connection(**build_connection_params_for("PRD"))
-        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_1251", "AGR_FLAGS"))
-        rows_agr = read_table(
-            conn, guard, table_name="AGR_1251", fields=["AGR_NAME", "FIELD", "LOW"],
-            options=[{"TEXT": f"OBJECT = '{obj_nome}'"}],
-            rowcount=10
+        executor = _carregar_executor_pfcg_authority()
+        resultado = executor.executar(
+            env,
+            caminho_ficheiro=str(artefacto),
+            request_transporte=None,
+            modo_nao_interativo=True,
+            pedir_confirmacao=False,
         )
-        conn.close()
-        roles_distintas = sorted(list({r[0].strip().upper() for r in rows_agr if r and r[0].strip().startswith("Z_")}))
-        if roles_distintas:
-            print(f"  {CLR_G}Funções Z encontradas no SAP PRD com o objeto {obj_nome}:{CLR_RST}")
-            for r in roles_distintas[:8]:
-                print(f"    - {CLR_Y}{r}{CLR_RST}")
-        else:
-            print(f"  (Nenhuma função Z direta identificada no PRD com filtros básicos)")
-    except Exception:
-        pass
-
-    # 3. Pesquisar na folha PFCG_AUTHORITY do Excel
-    print(f"\n{CLR_C}3. A consultar folha 'PFCG_AUTHORITY' no Excel...{CLR_RST}")
-    try:
-        df_auth = pd.read_excel(caminho_excel, sheet_name="PFCG_AUTHORITY")
-        col_obj = next((c for c in df_auth.columns if "OBJETO" in str(c).upper()), None)
-        if col_obj:
-            m_auth = df_auth[df_auth[col_obj].astype(str).str.strip().str.upper() == obj_nome]
-            if not m_auth.empty:
-                print(f"  {CLR_G}Encontrados {len(m_auth)} registo(s) na folha 'PFCG_AUTHORITY':{CLR_RST}")
-                for _, row_a in m_auth.head(5).iterrows():
-                    comp = row_a.get("AGR_NAME_COMPOSTA", "")
-                    sgl = row_a.get("AGR_NAME", "")
-                    actvt = row_a.get("ACTVT", "")
-                    print(f"    - Composta: {comp} | Individual: {sgl} | ACTVT: {actvt}")
-            else:
-                print(f"  (O objeto '{obj_nome}' não se encontra atualmente mapeado na folha PFCG_AUTHORITY)")
     except Exception as exc:
-        print(f"  (Erro ao ler folha PFCG_AUTHORITY: {exc})")
+        print(f"{CLR_R}[ERRO] Falha na atualização PFCGMASSVAL: {exc}{CLR_RST}")
+        print(f"Artefacto preservado: {artefacto}")
+        return False
+    if not resultado:
+        print(f"{CLR_R}[ERRO] O executor PFCGMASSVAL não concluiu a atualização.{CLR_RST}")
+        return False
+
+    try:
+        falhas = _validar_objeto_funcoes_rfc(plano, env)
+    except Exception as exc:
+        print(f"{CLR_R}[ERRO] Atualização executada, mas a validação RFC falhou: {exc}{CLR_RST}")
+        return False
+    if falhas:
+        print(f"{CLR_R}[ERRO] Valores não confirmados por RFC em: {', '.join(falhas)}.{CLR_RST}")
+        return False
+
+    print(f"{CLR_G}[OK] Objeto e valores confirmados por RFC no SAP {env}.{CLR_RST}")
+    print(f"Artefacto e resultado: {artefacto}")
+    return True
+
+
+def executar_todos_objetos_autorizacao(
+    usuario: str,
+    objetos: List[Dict[str, Any]],
+    caminho_excel: str,
+    target_env: str = "PRD",
+) -> Dict[str, int]:
+    """Confirma uma vez e processa cada falha de objeto de forma independente."""
+    env = "QAD" if str(target_env).upper() in ("QAD", "QAS") else "PRD"
+    print("\n" + "=" * 95)
+    print(f"  {CLR_W}ATUALIZAÇÃO DE TODOS OS OBJETOS EM {env} - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
+    print("=" * 95)
+    for indice, objeto in enumerate(objetos, 1):
+        aplicacao = objeto.get("aplicacao") or "Não indicada"
+        print(f"  [{indice}] {aplicacao} | {objeto.get('objeto', '')}")
+    print("-" * 95)
+
+    confirmacao = input(
+        f"Confirma a atualização sequencial dos {len(objetos)} objetos no SAP {env}? [S/N] [N]: "
+    ).strip().upper()
+    if confirmacao not in ("S", "SIM", "Y", "YES", "1"):
+        print("Operação cancelada; nenhum objeto foi processado.")
+        return {"sucessos": 0, "falhas": 0}
+
+    sucessos = 0
+    falhas = 0
+    for indice, objeto in enumerate(objetos, 1):
+        aplicacao = objeto.get("aplicacao") or "Não indicada"
+        nome_objeto = objeto.get("objeto", "")
+        print(f"\n[{indice}/{len(objetos)}] {aplicacao} | {nome_objeto}")
+        try:
+            concluido = diagnosticar_objeto_autorizacao(
+                usuario=usuario,
+                obj_info=objeto,
+                caminho_excel=caminho_excel,
+                target_env=target_env,
+                pedir_confirmacao=False,
+            )
+        except Exception as exc:
+            print(f"{CLR_R}[ERRO] Falha inesperada em {aplicacao} | {nome_objeto}: {exc}{CLR_RST}")
+            concluido = False
+        if concluido:
+            sucessos += 1
+        else:
+            falhas += 1
 
     print("\n" + "-" * 95)
-    print(f"  {CLR_Y}[NOTA INFORMATIVA]{CLR_RST} A análise técnica do objeto {CLR_M}{obj_nome}{CLR_RST} foi concluída.")
-    print("      A lógica de atribuição automatizada de campos/objetos de autorização adicionais")
-    print("      em 'PFCG_AUTHORITY' será estruturada e ativada na próxima etapa.")
+    print(f"  RESUMO: {sucessos} sucesso(s) | {falhas} falha(s)")
     print("-" * 95)
+    return {"sucessos": sucessos, "falhas": falhas}
 
 
 # =====================================================================
 # 4. ANÁLISE NO FICHEIRO EXCEL (PROPOSTA ATIVA, DEPARTAMENTO, PROPOSTA)
 # =====================================================================
+
+def _coluna_por_chave(df: pd.DataFrame, *chaves: str) -> Optional[Any]:
+    chaves_normalizadas = {normalizar_chave(chave) for chave in chaves}
+    return next((coluna for coluna in df.columns if normalizar_chave(coluna) in chaves_normalizadas), None)
+
+
+def listar_utilizadores_departamento(caminho_excel: str, departamento: str) -> List[Dict[str, str]]:
+    """Lê utilizador SAP e nome da Proposta Ativa para um departamento."""
+    df_ativa = pd.read_excel(caminho_excel, sheet_name="Proposta Ativa")
+    col_user = _coluna_por_chave(df_ativa, "USUARIO", "USER", "USER SAP")
+    col_nome = _coluna_por_chave(df_ativa, "NOME COMPLETO", "NOME", "COLABORADOR")
+    col_dep = _coluna_por_chave(df_ativa, "DEPARTAMENTO")
+    if col_user is None or col_nome is None or col_dep is None:
+        raise ValueError("A sheet 'Proposta Ativa' não contém as colunas Utilizador, Nome Completo e Departamento.")
+
+    departamento_norm = normalizar_texto(departamento)
+    utilizadores = []
+    vistos = set()
+    for _, row in df_ativa.iterrows():
+        if normalizar_texto(row.get(col_dep)) != departamento_norm:
+            continue
+        usuario = normalizar_texto(row.get(col_user))
+        if not usuario or usuario in vistos:
+            continue
+        vistos.add(usuario)
+        utilizadores.append({
+            "usuario": usuario,
+            "nome": str(row.get(col_nome) or "").strip(),
+        })
+    return utilizadores
+
+
+def listar_departamentos_controlo(caminho_excel: str) -> List[Dict[str, Any]]:
+    """Mantém a ordem da CONTROLO e conta utilizadores correspondentes na Proposta Ativa."""
+    df_controlo = pd.read_excel(caminho_excel, sheet_name="CONTROLO")
+    col_dep = _coluna_por_chave(df_controlo, "DEPARTAMENTO")
+    col_status = _coluna_por_chave(df_controlo, "STATUS")
+    if col_dep is None:
+        raise ValueError("A sheet 'CONTROLO' não contém a coluna DEPARTAMENTO.")
+
+    departamentos = []
+    vistos = set()
+    for _, row in df_controlo.iterrows():
+        departamento = str(row.get(col_dep) or "").strip()
+        chave = normalizar_texto(departamento)
+        if not chave or chave in vistos:
+            continue
+        vistos.add(chave)
+        departamentos.append({
+            "departamento": departamento,
+            "status": str(row.get(col_status) or "").strip() if col_status is not None else "",
+            "utilizadores": len(listar_utilizadores_departamento(caminho_excel, departamento)),
+        })
+    return departamentos
+
+
+def pesquisar_departamento_su53(
+    departamento: str,
+    utilizadores: List[Dict[str, str]],
+    caminho_excel: str,
+    target_env: str = "PRD",
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Consulta SU53 sequencialmente sem executar qualquer alteração SAP."""
+    resultado = {"com_erros": [], "sem_erros": [], "falhas_rfc": []}
+    print("\n" + "=" * 95)
+    print(f"  PESQUISA SU53 DO DEPARTAMENTO: {departamento} [{target_env}]")
+    print("=" * 95)
+
+    for indice, pessoa in enumerate(utilizadores, 1):
+        usuario = pessoa["usuario"]
+        nome = pessoa.get("nome", "")
+        print(f"  [{indice}/{len(utilizadores)}] {usuario} - {nome}")
+        try:
+            erros = consultar_erros_su53_rfc(usuario, target_env=target_env)
+        except Exception as exc:
+            resultado["falhas_rfc"].append({"usuario": usuario, "nome": nome, "erro": str(exc)})
+            continue
+
+        if not erros:
+            resultado["sem_erros"].append({"usuario": usuario, "nome": nome})
+            continue
+
+        try:
+            transacoes, objetos = agrupar_erros_para_analise(erros)
+            objetos_enriquecidos = [
+                enriquecer_objeto_com_proposta(objeto, caminho_excel, usuario)
+                for objeto in objetos
+            ]
+        except Exception as exc:
+            resultado["falhas_rfc"].append({"usuario": usuario, "nome": nome, "erro": str(exc)})
+            continue
+        resultado["com_erros"].append({
+            "usuario": usuario,
+            "nome": nome,
+            "total_registos": len(erros),
+            "transacoes": transacoes,
+            "objetos": objetos_enriquecidos,
+        })
+
+    print("\n" + "=" * 95)
+    print(f"  RESUMO SU53 - {departamento} [{target_env}]")
+    print("=" * 95)
+    for pessoa in resultado["com_erros"]:
+        print(f"\n  {pessoa['usuario']} - {pessoa['nome']} | {pessoa['total_registos']} falha(s)")
+        for transacao in pessoa["transacoes"]:
+            tcode = transacao.get("tcode_falha", "")
+            roles = [
+                role
+                for role in buscar_funcao_individual_para_transacao(caminho_excel, tcode, pessoa["usuario"])
+                if role.get("fonte") == "Folha 'Proposta'" and not role.get("candidata")
+            ]
+            nomes_roles = ", ".join(role.get("role", "") for role in roles) or "Não encontrada na Proposta"
+            print(f"    - S_TCODE | {tcode} | Função: {nomes_roles}")
+        for objeto in pessoa["objetos"]:
+            campos = ", ".join(f"{campo}={valor}" for campo, valor in objeto.get("campos_relevantes", []))
+            roles = ", ".join(role.get("role", "") for role in objeto.get("funcoes_proposta", [])) or "Não encontrada na Proposta"
+            print(f"    - {objeto.get('aplicacao') or 'Não identificada'} | {objeto.get('objeto', '')} | {campos} | Função: {roles}")
+
+    for pessoa in resultado["falhas_rfc"]:
+        print(f"\n  [ERRO RFC] {pessoa['usuario']} - {pessoa['nome']}: {pessoa['erro']}")
+
+    print("\n" + "-" * 95)
+    print(
+        f"  {len(resultado['com_erros'])} com erro(s) | "
+        f"{len(resultado['sem_erros'])} sem erros | "
+        f"{len(resultado['falhas_rfc'])} falha(s) RFC"
+    )
+    print("-" * 95)
+    return resultado
+
 
 def obter_dados_utilizador_proposta_ativa(caminho_excel: str, usuario: str) -> Optional[Dict[str, Any]]:
     """Localiza o utilizador na folha 'Proposta Ativa' e devolve os seus metadados."""
@@ -545,13 +994,15 @@ def buscar_funcao_individual_para_transacao(
         current_role = None
         current_desc = ""
 
-        for _, row in df_prop.iterrows():
+        current_role_row = None
+        for idx, row in df_prop.iterrows():
             f_val = str(row.get("FUNÇÃO", "")).strip() if pd.notna(row.get("FUNÇÃO")) else ""
             d_val = str(row.get("DESCRIÇÃO", "")).strip() if pd.notna(row.get("DESCRIÇÃO")) else ""
 
             if f_val.startswith("Z_") and d_val and "TRANSACAO NAO EXISTE" not in d_val.upper():
                 current_role = f_val
                 current_desc = d_val
+                current_role_row = int(idx) + 2
             elif f_val and current_role:
                 for t in f_val.replace(";", " ").split():
                     if t.strip().upper() == tc_norm:
@@ -560,7 +1011,9 @@ def buscar_funcao_individual_para_transacao(
                                 "role": current_role,
                                 "descricao": current_desc,
                                 "fonte": "Folha 'Proposta'",
-                                "candidata": False
+                                "candidata": False,
+                                "linha_funcao": current_role_row,
+                                "linha_transacao": int(idx) + 2,
                             })
     except Exception:
         pass
@@ -1351,7 +1804,7 @@ def main():
         print(f"{CLR_R}[ERRO] Ficheiro mestre Excel não encontrado: {caminho_excel}{CLR_RST}")
         return
 
-    # 1. Solicitação do utilizador e ambiente
+    # 1. Solicitação do âmbito e ambiente
     cli_user = None
     cli_env = None
     for arg in sys.argv[1:]:
@@ -1361,14 +1814,64 @@ def main():
         elif not cli_user:
             cli_user = a_up
 
-    default_user = "ITSALSA" if any("ITSALSA" in str(a).upper() for a in sys.argv) else "CSILVA"
-    try:
-        user_input = cli_user or input(f"\n{CLR_W}Informe o utilizador SAP a analisar [{CLR_Y}{default_user}{CLR_W}]: {CLR_RST}").strip().upper()
-    except (KeyboardInterrupt, EOFError):
-        print("\nOperação cancelada.")
-        return
+    departamento_selecionado = None
+    utilizadores_departamento = []
+    if cli_user:
+        usuario = cli_user
+    else:
+        try:
+            print(f"\n  [{CLR_Y}1{CLR_RST}] Utilizador")
+            print(f"  [{CLR_Y}2{CLR_RST}] Departamento")
+            modo = input("Selecione o tipo de pesquisa [1-2] [Padrão: 1]: ").strip().upper()
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperação cancelada.")
+            return
 
-    usuario = user_input or default_user
+        if modo == "2":
+            try:
+                departamentos = listar_departamentos_controlo(caminho_excel)
+            except Exception as exc:
+                print(f"{CLR_R}[ERRO] Falha ao ler departamentos do Excel: {exc}{CLR_RST}")
+                return
+            if not departamentos:
+                print(f"{CLR_Y}[AVISO] Nenhum departamento encontrado na sheet CONTROLO.{CLR_RST}")
+                return
+
+            print("\n" + "=" * 95)
+            print("  DEPARTAMENTOS DA SHEET CONTROLO")
+            print("=" * 95)
+            for indice, item in enumerate(departamentos, 1):
+                print(
+                    f"  [{indice}] {item['departamento']} | "
+                    f"{item['utilizadores']} utilizador(es) | {item['status'] or 'Sem status'}"
+                )
+            try:
+                escolha_dep = input(f"Selecione o departamento [1-{len(departamentos)}] [Padrão: 1]: ").strip()
+                indice_dep = int(escolha_dep or "1") - 1
+            except (ValueError, KeyboardInterrupt, EOFError):
+                print("Operação cancelada: departamento inválido.")
+                return
+            if not 0 <= indice_dep < len(departamentos):
+                print("Operação cancelada: departamento fora do intervalo válido.")
+                return
+
+            departamento_selecionado = departamentos[indice_dep]["departamento"]
+            utilizadores_departamento = listar_utilizadores_departamento(caminho_excel, departamento_selecionado)
+            if not utilizadores_departamento:
+                print(f"{CLR_Y}[AVISO] Nenhum utilizador encontrado para {departamento_selecionado}.{CLR_RST}")
+                return
+            print(f"\nUtilizadores de {departamento_selecionado}:")
+            for pessoa in utilizadores_departamento:
+                print(f"  - {pessoa['usuario']} | {pessoa['nome']}")
+            usuario = ""
+        else:
+            default_user = "ITSALSA" if any("ITSALSA" in str(a).upper() for a in sys.argv) else "CSILVA"
+            try:
+                user_input = input(f"\n{CLR_W}Informe o utilizador SAP a analisar [{CLR_Y}{default_user}{CLR_W}]: {CLR_RST}").strip().upper()
+            except (KeyboardInterrupt, EOFError):
+                print("\nOperação cancelada.")
+                return
+            usuario = user_input or default_user
 
     default_env_opt = "2" if any(k in str(a).upper() for a in sys.argv for k in ("QAS", "QAD", "ITSALSA")) else "1"
     try:
@@ -1381,6 +1884,32 @@ def main():
         target_env = "QAD"
     else:
         target_env = "PRD"
+
+    if departamento_selecionado:
+        resultado_departamento = pesquisar_departamento_su53(
+            departamento=departamento_selecionado,
+            utilizadores=utilizadores_departamento,
+            caminho_excel=caminho_excel,
+            target_env=target_env,
+        )
+        utilizadores_com_erros = resultado_departamento["com_erros"]
+        if not utilizadores_com_erros:
+            return
+
+        print("\nSelecionar um utilizador com erros para abrir o fluxo individual:")
+        for indice, pessoa in enumerate(utilizadores_com_erros, 1):
+            print(f"  [{indice}] {pessoa['usuario']} | {pessoa['nome']}")
+        print("  [0] Sair sem efetuar alterações")
+        try:
+            escolha_user = input(f"Selecione o utilizador [1-{len(utilizadores_com_erros)}, 0] [Padrão: 0]: ").strip()
+            indice_user = int(escolha_user or "0") - 1
+        except (ValueError, KeyboardInterrupt, EOFError):
+            print("Operação concluída sem efetuar alterações.")
+            return
+        if not 0 <= indice_user < len(utilizadores_com_erros):
+            print("Operação concluída sem efetuar alterações.")
+            return
+        usuario = utilizadores_com_erros[indice_user]["usuario"]
 
     # 2. Leitura do buffer SU53 via RFC
     try:
@@ -1436,13 +1965,14 @@ def main():
 
             elif escolha in ("N", "NAO", "NO"):
                 if objetos:
-                    resp_obj = input(f"\nDeseja diagnosticar um dos outros {len(objetos)} objetos de autorização com falha? [S/N] [S]: ").strip().upper()
+                    resp_obj = input(f"\nDeseja atualizar um dos outros {len(objetos)} objetos de autorização com falha? [S/N] [S]: ").strip().upper()
                     if resp_obj in ("", "S", "SIM", "Y", "YES", "1"):
                         # Tratar objeto
                         diagnosticar_objeto_autorizacao(
                             usuario=usuario,
                             obj_info=objetos[0],
-                            caminho_excel=caminho_excel
+                            caminho_excel=caminho_excel,
+                            target_env=target_env,
                         )
                         return
                 print("Operação concluída sem efetuar alterações.")
@@ -1468,7 +1998,8 @@ def main():
                                 "linha": 0,
                                 "campos_relevantes": []
                             },
-                            caminho_excel=caminho_excel
+                            caminho_excel=caminho_excel,
+                            target_env=target_env,
                         )
                 else:
                     tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
@@ -1493,7 +2024,7 @@ def main():
                             )
                             return
                         elif item_sel["tipo"] == "OBJETO":
-                            diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=item_sel["detalhes"], caminho_excel=caminho_excel)
+                            diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=item_sel["detalhes"], caminho_excel=caminho_excel, target_env=target_env)
                             return
                 except ValueError:
                     print("[AVISO] Opção não reconhecida.")
@@ -1503,43 +2034,29 @@ def main():
             print("\n" + "=" * 95)
             print(f"  {CLR_W}AÇÃO PROPOSTA PARA RESOLUÇÃO DAS FALHAS SU53 - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
             print("=" * 95)
-            print(f"Foram detetadas {len(transacoes)} transações bloqueadas na SU53:")
-            for i, t in enumerate(transacoes, 1):
-                tc = t["tcode_falha"]
-                opc_item = next((op for op in opcoes if op["tipo"] == "TRANSACAO" and op["valor"] == tc), {})
-                sug = opc_item.get("sugestao_role") or "Manual"
-                print(f"  [{CLR_Y}{i}{CLR_RST}] Adicionar {CLR_Y}{tc:<20}{CLR_RST} (Função: {CLR_G}{sug}{CLR_RST}) ao perfil de {CLR_Y}{usuario}{CLR_RST}")
+            print(f"Foram detetadas {len(opcoes)} falhas agrupadas na SU53:")
+            for i, opc_item in enumerate(opcoes, 1):
+                if opc_item["tipo"] == "TRANSACAO":
+                    sug = opc_item.get("sugestao_role") or "Manual"
+                    print(f"  [{CLR_Y}{i}{CLR_RST}] Transação {CLR_Y}{opc_item['valor']:<20}{CLR_RST} (Função: {CLR_G}{sug}{CLR_RST})")
+                else:
+                    aplicacao = opc_item["detalhes"].get("aplicacao") or "Não identificada"
+                    print(f"  [{CLR_Y}{i}{CLR_RST}] Objeto {CLR_M}{opc_item['valor']:<20}{CLR_RST} (Aplicação: {aplicacao})")
             print(f"  [{CLR_Y}T{CLR_RST}] Adicionar TODAS as {len(transacoes)} transações acima ao perfil de {CLR_Y}{usuario}{CLR_RST}")
             if objetos:
-                print(f"  [{CLR_Y}B{CLR_RST}] Diagnosticar outros Objetos de Autorização detetados")
+                print(f"  [{CLR_Y}B{CLR_RST}] Atualizar TODOS os {len(objetos)} objetos de autorização")
             print(f"  [{CLR_Y}O{CLR_RST}] Introduzir manualmente outra Transação ou Objeto")
             print(f"  [{CLR_Y}0{CLR_RST}] Sair sem efetuar alterações")
             print("-" * 95)
 
-            escolha = input(f"Selecione a opção pretendida [1-{len(transacoes)}, T, B, O, 0] [Padrão: 1]: ").strip().upper()
+            escolha = input(f"Selecione a opção pretendida [1-{len(opcoes)}, T, B, O, 0] [Padrão: 1]: ").strip().upper() or "1"
 
-            if escolha in ("", "1"):
-                t_item = transacoes[0]
-                tc = t_item["tcode_falha"]
-                opc_item = next((op for op in opcoes if op["tipo"] == "TRANSACAO" and op["valor"] == tc), {})
-                executar_atribuicao_transacao(
-                    caminho_excel=caminho_excel,
-                    usuario=usuario,
-                    tcode_escolhido=tc,
-                    sugestao_role=opc_item.get("sugestao_role"),
-                    roles_previamente_encontradas=opc_item.get("roles_encontradas"),
-                    target_env=target_env
-                )
-                return
-
-            elif escolha == "T":
-                for t in transacoes:
-                    tc = t["tcode_falha"]
-                    opc_item = next((op for op in opcoes if op["tipo"] == "TRANSACAO" and op["valor"] == tc), {})
+            if escolha == "T":
+                for opc_item in (opcao for opcao in opcoes if opcao["tipo"] == "TRANSACAO"):
                     executar_atribuicao_transacao(
                         caminho_excel=caminho_excel,
                         usuario=usuario,
-                        tcode_escolhido=tc,
+                        tcode_escolhido=opc_item["valor"],
                         sugestao_role=opc_item.get("sugestao_role"),
                         roles_previamente_encontradas=opc_item.get("roles_encontradas"),
                         target_env=target_env
@@ -1551,9 +2068,15 @@ def main():
                 return
 
             elif escolha in ("B", "OBJETOS"):
-                if objetos:
-                    diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[0], caminho_excel=caminho_excel)
-                    continue
+                objetos_opcoes = [opcao["detalhes"] for opcao in opcoes if opcao["tipo"] == "OBJETO"]
+                if objetos_opcoes:
+                    executar_todos_objetos_autorizacao(
+                        usuario=usuario,
+                        objetos=objetos_opcoes,
+                        caminho_excel=caminho_excel,
+                        target_env=target_env,
+                    )
+                return
 
             elif escolha in ("O", "OUTRA", "M", "MANUAL"):
                 tipo_manual = input("Deseja introduzir uma [T]ransação ou um [O]bjeto? [T/O]: ").strip().upper()
@@ -1571,7 +2094,8 @@ def main():
                                 "linha": 0,
                                 "campos_relevantes": []
                             },
-                            caminho_excel=caminho_excel
+                            caminho_excel=caminho_excel,
+                            target_env=target_env,
                         )
                 else:
                     tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
@@ -1582,18 +2106,24 @@ def main():
             else:
                 try:
                     idx_sel = int(escolha) - 1
-                    if 0 <= idx_sel < len(transacoes):
-                        t_item = transacoes[idx_sel]
-                        tc = t_item["tcode_falha"]
-                        opc_item = next((op for op in opcoes if op["tipo"] == "TRANSACAO" and op["valor"] == tc), {})
-                        executar_atribuicao_transacao(
-                            caminho_excel=caminho_excel,
-                            usuario=usuario,
-                            tcode_escolhido=tc,
-                            sugestao_role=opc_item.get("sugestao_role"),
-                            roles_previamente_encontradas=opc_item.get("roles_encontradas"),
-                            target_env=target_env
-                        )
+                    if 0 <= idx_sel < len(opcoes):
+                        opc_item = opcoes[idx_sel]
+                        if opc_item["tipo"] == "TRANSACAO":
+                            executar_atribuicao_transacao(
+                                caminho_excel=caminho_excel,
+                                usuario=usuario,
+                                tcode_escolhido=opc_item["valor"],
+                                sugestao_role=opc_item.get("sugestao_role"),
+                                roles_previamente_encontradas=opc_item.get("roles_encontradas"),
+                                target_env=target_env,
+                            )
+                        else:
+                            diagnosticar_objeto_autorizacao(
+                                usuario=usuario,
+                                obj_info=opc_item["detalhes"],
+                                caminho_excel=caminho_excel,
+                                target_env=target_env,
+                            )
                         return
                     else:
                         print("[AVISO] Opção fora do intervalo válido.")
@@ -1604,18 +2134,29 @@ def main():
         else:
             if objetos:
                 print("\n" + "=" * 95)
-                print(f"  {CLR_W}DIAGNÓSTICO DE OBJETOS DE AUTORIZAÇÃO - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
+                print(f"  {CLR_W}ATUALIZAÇÃO DE OBJETOS DE AUTORIZAÇÃO - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
                 print("=" * 95)
                 for i, o in enumerate(objetos, 1):
                     desc = f" ({o['descricao']})" if o["descricao"] else ""
                     print(f"  [{CLR_Y}{i}{CLR_RST}] Objeto: {CLR_M}{o['objeto']:<20}{CLR_RST}{desc}")
+                if len(objetos) > 1:
+                    print(f"  [{CLR_Y}T{CLR_RST}] Atualizar TODOS os {len(objetos)} objetos acima")
                 print("  [O] Introduzir manualmente outra Transação ou Objeto")
                 print("  [0] Sair sem efetuar alterações")
                 print("-" * 95)
 
-                escolha = input(f"Selecione o objeto a diagnosticar [1-{len(objetos)}, O, 0] [Padrão: 1]: ").strip().upper()
+                opcoes_menu = f"1-{len(objetos)}, T, O, 0" if len(objetos) > 1 else "1, O, 0"
+                escolha = input(f"Selecione o objeto a atualizar [{opcoes_menu}] [Padrão: 1]: ").strip().upper()
                 if escolha in ("", "1"):
-                    diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[0], caminho_excel=caminho_excel)
+                    diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[0], caminho_excel=caminho_excel, target_env=target_env)
+                    return
+                elif escolha == "T" and len(objetos) > 1:
+                    executar_todos_objetos_autorizacao(
+                        usuario=usuario,
+                        objetos=objetos,
+                        caminho_excel=caminho_excel,
+                        target_env=target_env,
+                    )
                     return
                 elif escolha == "0":
                     print("Saindo sem efetuar alterações.")
@@ -1636,7 +2177,8 @@ def main():
                                     "linha": 0,
                                     "campos_relevantes": []
                                 },
-                                caminho_excel=caminho_excel
+                                caminho_excel=caminho_excel,
+                                target_env=target_env,
                             )
                     else:
                         tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
@@ -1647,7 +2189,7 @@ def main():
                     try:
                         idx_sel = int(escolha) - 1
                         if 0 <= idx_sel < len(objetos):
-                            diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[idx_sel], caminho_excel=caminho_excel)
+                            diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[idx_sel], caminho_excel=caminho_excel, target_env=target_env)
                             return
                     except ValueError:
                         print("[AVISO] Opção inválida.")
