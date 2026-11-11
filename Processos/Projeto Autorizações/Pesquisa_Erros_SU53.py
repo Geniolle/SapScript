@@ -983,6 +983,18 @@ def diagnosticar_objeto_autorizacao(
     obj_enriquecido = enriquecer_objeto_com_proposta(obj_info, caminho_excel, usuario)
     plano = preparar_atualizacao_objeto(obj_enriquecido)
     if not plano:
+        # Se não há roles mapeadas automaticamente para a aplicação, permite introduzir a Single Role manualmente
+        nome_obj = str(obj_info.get("objeto") or "").strip().upper()
+        campos_relevantes = obj_info.get("campos_relevantes", [])
+        if nome_obj and campos_relevantes:
+            print(f"\n{CLR_Y}[AVISO] O objeto {nome_obj} ocorreu em '{obj_info.get('aplicacao')}' e não possui uma Role mapeada na folha Proposta.{CLR_RST}")
+            role_manual = input(f"Informe a Single Role onde deseja aplicar o objeto {nome_obj} (ex: Z_BASIS_BASE) [0 para cancelar]: ").strip().upper()
+            if role_manual and role_manual != "0":
+                obj_manual_info = dict(obj_enriquecido)
+                obj_manual_info["funcoes_proposta"] = [{"role": role_manual, "descricao": "Manual", "fonte": "Manual"}]
+                plano = preparar_atualizacao_objeto(obj_manual_info)
+
+    if not plano:
         print(f"\n{CLR_R}[ERRO] Faltam funções da Proposta ou campos/valores SU53; nenhuma alteração foi feita.{CLR_RST}")
         return False
 
