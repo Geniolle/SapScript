@@ -611,7 +611,7 @@ def formatar_relatorio_erro_aplicacao(
     ])
     roles = funcoes_proposta if funcoes_proposta is not None else objeto.get("funcoes_proposta", [])
     if not roles:
-        linhas.append("- Função: Não encontrada no catálogo de funções")
+        linhas.append(f"- Função: {CLR_Y}Não encontrada na Proposta{CLR_RST} (ao selecionar este item, poderá indicar a Single Role manualmente)")
         return "\n".join(linhas)
 
     for idx, role in enumerate(roles):
@@ -983,16 +983,19 @@ def diagnosticar_objeto_autorizacao(
     obj_enriquecido = enriquecer_objeto_com_proposta(obj_info, caminho_excel, usuario)
     plano = preparar_atualizacao_objeto(obj_enriquecido)
     if not plano:
-        # Se não há roles mapeadas automaticamente para a aplicação, permite introduzir a Single Role manualmente
+        # Se não há roles mapeadas automaticamente para a aplicação, solicita ao utilizador indicar a Single Role
         nome_obj = str(obj_info.get("objeto") or "").strip().upper()
         campos_relevantes = obj_info.get("campos_relevantes", [])
+        app_origem = obj_info.get("aplicacao") or "Desconhecida"
         if nome_obj and campos_relevantes:
-            print(f"\n{CLR_Y}[AVISO] O objeto {nome_obj} ocorreu em '{obj_info.get('aplicacao')}' e não possui uma Role mapeada na folha Proposta.{CLR_RST}")
-            role_manual = input(f"Informe a Single Role onde deseja aplicar o objeto {nome_obj} (ex: Z_BASIS_BASE) [0 para cancelar]: ").strip().upper()
-            if role_manual and role_manual != "0":
-                obj_manual_info = dict(obj_enriquecido)
-                obj_manual_info["funcoes_proposta"] = [{"role": role_manual, "descricao": "Manual", "fonte": "Manual"}]
-                plano = preparar_atualizacao_objeto(obj_manual_info)
+            print(f"\n{CLR_Y}[AVISO] O objeto {nome_obj} ocorreu em '{app_origem}' e a sua função não foi encontrada na Proposta.{CLR_RST}")
+            resp_ind = input(f"Deseja indicar manualmente a Single Role para o objeto {nome_obj}? [S/N] [S]: ").strip().upper()
+            if resp_ind in ("", "S", "SIM", "Y", "YES", "1"):
+                role_manual = input(f"Informe a Single Role onde deseja aplicar {nome_obj} (ex: Z_BASIS_BASE) [0 para cancelar]: ").strip().upper()
+                if role_manual and role_manual != "0":
+                    obj_manual_info = dict(obj_enriquecido)
+                    obj_manual_info["funcoes_proposta"] = [{"role": role_manual, "descricao": "Manual", "fonte": "Manual"}]
+                    plano = preparar_atualizacao_objeto(obj_manual_info)
 
     if not plano:
         print(f"\n{CLR_R}[ERRO] Faltam funções da Proposta ou campos/valores SU53; nenhuma alteração foi feita.{CLR_RST}")
