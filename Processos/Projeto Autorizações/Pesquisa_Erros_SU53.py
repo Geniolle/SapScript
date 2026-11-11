@@ -178,7 +178,7 @@ def converter_utc_para_local(ts_dec: Any) -> str:
 # 1. CONSULTA RFC DO BUFFER DE ERROS SU53
 # =====================================================================
 
-def consultar_erros_su53_rfc(usuario: str, target_env: str = "PRD") -> List[Dict[str, Any]]:
+def consultar_erros_su53_rfc(usuario: str, target_env: str = "PRD", silencioso: bool = False) -> List[Dict[str, Any]]:
     """
     Consulta todas as falhas de autorização registadas no buffer da SU53
     (SUSR_USER_SU53_READ) para o utilizador indicado em todos os servidores aplicacionais.
@@ -187,7 +187,8 @@ def consultar_erros_su53_rfc(usuario: str, target_env: str = "PRD") -> List[Dict
     params = build_connection_params_for(target_env)
     u_norm = usuario.strip().upper()
 
-    print(f"\n{CLR_C}>>> Ligando ao SAP {target_env} via RFC para ler buffer da SU53 do user '{u_norm}'...{CLR_RST}")
+    if not silencioso:
+        print(f"\n{CLR_C}>>> Ligando ao SAP {target_env} via RFC para ler buffer da SU53 do user '{u_norm}'...{CLR_RST}")
     conn = Connection(**params)
     try:
         res = conn.call(
@@ -463,45 +464,32 @@ def exibir_tabela_erros(erros: List[Dict[str, Any]], usuario: str, target_env: s
     erros_pendentes = [e for e in erros if not e.get("resolvido", False)]
     erros_atribuidos = [e for e in erros if e.get("resolvido", False)]
 
-    # Ordenar agrupados: primeiro pendentes, depois atribuídos (ambos preservando ordem temporal decrescente)
-    erros_agrupados = erros_pendentes + erros_atribuidos
+    # Se houver pendências, mostrar detalhe das pendências e resumir o que já está atribuído
+    if erros_pendentes:
+        print(f"{'#':<3} | {'DATA/HORA (LOCAL)':<19} | {'OBJETO':<12} | {'RC':<3} | {'DETALHES / VALORES VERIFICADOS':<40} | {'ESTADO ATUAL'}")
+        print("-" * 105)
 
-    print(f"{'#':<3} | {'DATA/HORA (LOCAL)':<19} | {'OBJETO':<12} | {'RC':<3} | {'DETALHES / VALORES VERIFICADOS':<40} | {'ESTADO ATUAL'}")
-    print("-" * 105)
+        for idx, err in enumerate(erros_pendentes, 1):
+            campos_txt = ", ".join([f"{f}={v}" for f, v in err["campos"]])
+            if err["objeto"] == "S_TCODE" and err["tcode_falha"]:
+                detalhes = f"TRANSAÇÃO: {err['tcode_falha']}"
+            else:
+                detalhes = campos_txt
 
-    num_exibir = min(len(erros_agrupados), 25)
-    grupo_atual = None
+            if len(detalhes) > 40:
+                detalhes = detalhes[:37] + "..."
 
-    for idx, err in enumerate(erros_agrupados[:num_exibir], 1):
-        is_resolvido = err.get("resolvido", False)
-
-        # Divisor visual subtil quando transita de PENDENTE para JÁ ATRIBUÍDO
-        if grupo_atual is not None and grupo_atual != is_resolvido:
-            print("." * 105)
-        grupo_atual = is_resolvido
-
-        campos_txt = ", ".join([f"{f}={v}" for f, v in err["campos"]])
-        if err["objeto"] == "S_TCODE" and err["tcode_falha"]:
-            detalhes = f"TRANSAÇÃO: {err['tcode_falha']}"
-        else:
-            detalhes = campos_txt
-
-        if len(detalhes) > 40:
-            detalhes = detalhes[:37] + "..."
-
-        role_cobre = err.get("role_resolvido", "")
-        if is_resolvido:
-            estado_txt = f"{CLR_G}✓ JÁ ATRIBUÍDO ({role_cobre}){CLR_RST}"
-        else:
             estado_txt = f"{CLR_R}❌ PENDENTE (Falta autorização){CLR_RST}"
+            cor_obj = CLR_R if err["objeto"] == "S_TCODE" else CLR_Y
+            print(f"{idx:<3} | {err['data_hora']:<19} | {cor_obj}{err['objeto']:<12}{CLR_RST} | {err['rc']:<3} | {detalhes:<40} | {estado_txt}")
 
-        cor_obj = CLR_R if err["objeto"] == "S_TCODE" else CLR_Y
-        print(f"{idx:<3} | {err['data_hora']:<19} | {cor_obj}{err['objeto']:<12}{CLR_RST} | {err['rc']:<3} | {detalhes:<40} | {estado_txt}")
+        if erros_atribuidos:
+            roles_cobertas = sorted(list(set(e.get("role_resolvido") for e in erros_atribuidos if e.get("role_resolvido"))))
+            txt_roles = f" ({', '.join(roles_cobertas)})" if roles_cobertas else ""
+            print(f"\n  {CLR_G}✓ Nota:{CLR_RST} {len(erros_atribuidos)} verificação(ões) anterior(es) já estão autorizadas pelas roles ativas{txt_roles}.")
+    else:
+        print(f"  {CLR_G}✓ Todas as {len(erros_atribuidos)} falhas registadas já se encontram autorizadas no SAP!{CLR_RST}")
 
-    if len(erros_agrupados) > 25:
-        total_pendentes = len(erros_pendentes)
-        total_atribuidos = len(erros_atribuidos)
-        print(f"... e mais {len(erros_agrupados) - 25} registos anteriores no buffer (Total: {total_pendentes} pendente(s), {total_atribuidos} já atribuído(s)).")
     print("-" * 105)
 
 
@@ -1173,18 +1161,25 @@ def pesquisar_departamento_su53(
     caminho_excel: str,
     target_env: str = "PRD",
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Consulta SU53 sequencialmente sem executar qualquer alteração SAP."""
+    """Consulta SU53 sequencialmente com barra de progresso compacta e resumo executivo."""
     resultado = {"com_erros": [], "sem_erros": [], "falhas_rfc": []}
-    print("\n" + "=" * 95)
-    print(f"  PESQUISA SU53 DO DEPARTAMENTO: {departamento} [{target_env}]")
-    print("=" * 95)
+    total_users = len(utilizadores)
+    print(f"\n{CLR_C}>>> A consultar SU53 de {total_users} utilizadores em {departamento} [{target_env}]...{CLR_RST}")
 
+    largura_barra = 28
     for indice, pessoa in enumerate(utilizadores, 1):
         usuario = pessoa["usuario"]
         nome = pessoa.get("nome", "")
-        print(f"  [{indice}/{len(utilizadores)}] {usuario} - {nome}")
+        
+        # Atualizar barra de progresso em linha única
+        progresso = int((indice / total_users) * largura_barra)
+        barra = "█" * progresso + " " * (largura_barra - progresso)
+        percentual = int((indice / total_users) * 100)
+        sys.stdout.write(f"\r  [{CLR_G}{barra}{CLR_RST}] {indice}/{total_users} ({percentual}%) - {CLR_Y}{usuario:<10}{CLR_RST}")
+        sys.stdout.flush()
+
         try:
-            erros = consultar_erros_su53_rfc(usuario, target_env=target_env)
+            erros = consultar_erros_su53_rfc(usuario, target_env=target_env, silencioso=True)
         except Exception as exc:
             resultado["falhas_rfc"].append({"usuario": usuario, "nome": nome, "erro": str(exc)})
             continue
@@ -1229,12 +1224,18 @@ def pesquisar_departamento_su53(
             "objetos": objetos_enriquecidos,
         })
 
+    # Concluir linha de progresso
+    barra_completa = "█" * largura_barra
+    total_com_pend = len(resultado["com_erros"])
+    total_sem_erros = len(resultado["sem_erros"])
+    sys.stdout.write(f"\r  [{CLR_G}{barra_completa}{CLR_RST}] {total_users}/{total_users} (100%) Concluído ({total_com_pend} com pendências | {total_sem_erros} sem erros)\n")
+    sys.stdout.flush()
 
     print("\n" + "=" * 95)
-    print(f"  RESUMO SU53 - {departamento} [{target_env}]")
+    print(f"  {CLR_W}RESUMO DE PENDÊNCIAS SU53 - {departamento.upper()} [{target_env}]{CLR_RST}")
     print("=" * 95)
     for pessoa in resultado["com_erros"]:
-        print(f"\n  {pessoa['usuario']} - {pessoa['nome']} | {pessoa['total_registos']} falha(s)")
+        itens_pendentes = []
         for transacao in pessoa["transacoes"]:
             tcode = transacao.get("tcode_falha", "")
             roles = [
@@ -1242,22 +1243,24 @@ def pesquisar_departamento_su53(
                 for role in buscar_funcao_individual_para_transacao(caminho_excel, tcode, pessoa["usuario"])
                 if role.get("fonte") == "Folha 'Proposta'" and not role.get("candidata")
             ]
-            nomes_roles = ", ".join(role.get("role", "") for role in roles) or "Não encontrada na Proposta"
-            print(f"    - S_TCODE | {tcode} | Função: {nomes_roles}")
+            nomes_roles = roles[0].get("role", "") if roles else ""
+            if nomes_roles:
+                itens_pendentes.append(f"{CLR_Y}{tcode}{CLR_RST} ({CLR_G}{nomes_roles}{CLR_RST})")
+            else:
+                itens_pendentes.append(f"{CLR_Y}{tcode}{CLR_RST}")
+
         for objeto in pessoa["objetos"]:
-            campos = ", ".join(f"{campo}={valor}" for campo, valor in objeto.get("campos_relevantes", []))
-            roles = ", ".join(role.get("role", "") for role in objeto.get("funcoes_proposta", [])) or "Não encontrada na Proposta"
-            print(f"    - {objeto.get('aplicacao') or 'Não identificada'} | {objeto.get('objeto', '')} | {campos} | Função: {roles}")
+            obj_name = objeto.get("objeto", "")
+            roles = [r.get("role", "") for r in objeto.get("funcoes_proposta", []) if r.get("role")]
+            role_txt = f" ({CLR_G}{roles[0]}{CLR_RST})" if roles else ""
+            itens_pendentes.append(f"{CLR_M}{obj_name}{CLR_RST}{role_txt}")
+
+        resumo_itens = ", ".join(itens_pendentes)
+        print(f"  {CLR_W}{pessoa['usuario']:<10}{CLR_RST} | {pessoa['nome']:<24} ({pessoa['total_registos']}): {resumo_itens}")
 
     for pessoa in resultado["falhas_rfc"]:
-        print(f"\n  [ERRO RFC] {pessoa['usuario']} - {pessoa['nome']}: {pessoa['erro']}")
+        print(f"\n  {CLR_R}[ERRO RFC] {pessoa['usuario']} - {pessoa['nome']}: {pessoa['erro']}{CLR_RST}")
 
-    print("\n" + "-" * 95)
-    print(
-        f"  {len(resultado['com_erros'])} com erro(s) | "
-        f"{len(resultado['sem_erros'])} sem erros | "
-        f"{len(resultado['falhas_rfc'])} falha(s) RFC"
-    )
     print("-" * 95)
     return resultado
 
@@ -2228,22 +2231,8 @@ def executar_atribuicao_transacao(
     env_primary = "QAD" if target_env in ("QAD", "QAS") else "PRD"
     env_secondary = "PRD" if env_primary == "QAD" else "QAD"
 
-    print("\n" + "=" * 95)
-    print(f"  {CLR_W}PLANO DE EXECUÇÃO E ATRIBUIÇÃO AO PERFIL DO UTILIZADOR {CLR_Y}{usuario}{CLR_RST}:")
-    print("=" * 95)
-    print(f"  1. Folha Departamental [{CLR_Y}{nome_sheet_dep}{CLR_RST}]:")
-    print(f"     -> Marcar 'X' para {CLR_Y}{usuario}{CLR_RST} na transação {CLR_Y}{tcode_escolhido}{CLR_RST}")
-    print(f"  2. Folha 'Proposta Ativa':")
-    print(f"     -> Adicionar {CLR_Y}{single_role_escolhida}{CLR_RST} na linha do utilizador (próxima coluna disponível)")
-    print(f"  3. Folha 'PFCG_COMPOSTA':")
-    print(f"     -> Associar {CLR_Y}{comp_role}{CLR_RST} -> {CLR_Y}{single_role_escolhida}{CLR_RST}")
-    print(f"  4. SAP {env_primary} via RFC:")
-    print(f"     -> Atribuir Função + Efetuar Ajuste de Utilizadores (User Comparison)")
-    print("=" * 95)
-
-    # Execução direta e obrigatória no Excel e no SAP (sem confirmação redundante)
-    # Executar no Excel
-    print(f"\n{CLR_C}1/2. Atualizando livro Excel (obrigatório)...{CLR_RST}")
+    print(f"\n{CLR_C}>>> A APLICAR ATUALIZAÇÕES:{CLR_RST}")
+    # 1. Excel
     res_excel = aplicar_alteracoes_excel(
         caminho_excel=caminho_excel,
         dados_user=dados_user,
@@ -2252,32 +2241,37 @@ def executar_atribuicao_transacao(
         nome_sheet_dep=nome_sheet_dep
     )
     if not res_excel.get("ok"):
-        print(f"{CLR_R}[ERRO EXCEL] {res_excel.get('erro')}{CLR_RST}")
+        print(f"    1. EXCEL: {CLR_R}ERRO - {res_excel.get('erro')}{CLR_RST}")
         return "SKIP"
-    print(f"{CLR_G}[OK] Livro Excel atualizado com sucesso!{CLR_RST}")
+    print(f"    1. EXCEL: {nome_sheet_dep} ('X'), Proposta Ativa, PFCG_COMPOSTA, PFCG_CREATE {CLR_G}✔{CLR_RST}")
 
-    # Executar no SAP principal
-    print(f"\n{CLR_C}2/2. Aplicando alterações no SAP {env_primary} via RFC...{CLR_RST}")
+    # 2. SAP Principal
     res_prim = sincronizar_sap_rfc(env_primary, comp_role, single_role_escolhida, usuario=usuario, tcode=tcode_escolhido)
     if res_prim.get("ok"):
-        print(f"{CLR_G}[OK] Alterações concluídas no SAP {env_primary}!{CLR_RST}")
+        print(f"    2. SAP {env_primary}: Menu + Role associada + Perfis gerados {CLR_G}🟢 GREEN{CLR_RST}")
     else:
-        print(f"{CLR_R}[AVISO SAP {env_primary}] {res_prim.get('erro')}{CLR_RST}")
+        print(f"    2. SAP {env_primary}: {CLR_R}{res_prim.get('erro')}{CLR_RST}")
 
-    # Sincronização secundária opcional
+    # 3. Sincronização secundária
+    executar_sec = False
     if env_primary == "QAD":
         resp_sec = input(f"\nDeseja também aplicar as alterações no SAP {env_secondary} (Produção)? [S/N] [N]: ").strip().upper()
         if resp_sec in ("S", "SIM", "Y", "YES", "1"):
-            print(f"\n{CLR_C}>>> Aplicando alterações no SAP {env_secondary} via RFC...{CLR_RST}")
-            sincronizar_sap_rfc(env_secondary, comp_role, single_role_escolhida, usuario=usuario, tcode=tcode_escolhido)
+            executar_sec = True
     else:
         resp_sec = input(f"\nDeseja também aplicar as alterações no SAP {env_secondary} (QAS / Teste)? [S/N] [S]: ").strip().upper()
         if resp_sec in ("", "S", "SIM", "Y", "YES", "1"):
-            print(f"\n{CLR_C}>>> Aplicando alterações no SAP {env_secondary} via RFC...{CLR_RST}")
-            sincronizar_sap_rfc(env_secondary, comp_role, single_role_escolhida, usuario=usuario, tcode=tcode_escolhido)
+            executar_sec = True
+
+    if executar_sec:
+        res_sec = sincronizar_sap_rfc(env_secondary, comp_role, single_role_escolhida, usuario=usuario, tcode=tcode_escolhido)
+        if res_sec.get("ok"):
+            print(f"    3. SAP {env_secondary}: Menu + Role associada + Perfis gerados {CLR_G}🟢 GREEN{CLR_RST}")
+        else:
+            print(f"    3. SAP {env_secondary}: {CLR_R}{res_sec.get('erro')}{CLR_RST}")
 
     print("\n" + "=" * 95)
-    print(f"  {CLR_G}PROCESSO DE RESOLUÇÃO SU53 PARA {tcode_escolhido} CONCLUÍDO COM SUCESSO!{CLR_RST}")
+    print(f"  {CLR_G}[OK] RESOLUÇÃO CONCLUÍDA COM SUCESSO PARA {tcode_escolhido}!{CLR_RST}")
     print("=" * 95)
     return "OK"
 
