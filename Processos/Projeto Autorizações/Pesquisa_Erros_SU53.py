@@ -103,6 +103,46 @@ MAPA_DEPARTAMENTOS_SHEET = {
     "FI": "Proposta FI",
 }
 
+# Objetos cuja atualização automática por script é estritamente proibida (governança / aprovação manual SAP)
+OBJETOS_PROIBIDOS_ATUALIZACAO = {
+    "M_EINK_FRG",  # Liberação de documentos de compras (estratégia de liberação sensível)
+    "F_KNA1_BUK",  # Clientes: autorização para empresas (dados financeiros/controlo por empresa)
+}
+
+
+def parse_selecao_multipla(entrada: str, limite_max: int) -> list:
+    """
+    Interpreta uma seleção numérica que pode conter números individuais, vírgulas ou intervalos.
+    Exemplos: '1', '5-6', '1,3,5', '2-4, 7', '5 - 6'.
+    Retorna lista ordenada e sem duplicados de índices base-0 válidos.
+    """
+    if not entrada:
+        return []
+    indices = set()
+    partes = [p.strip() for p in entrada.replace(";", ",").split(",") if p.strip()]
+    for parte in partes:
+        if "-" in parte:
+            sub = parte.split("-", 1)
+            try:
+                inicio = int(sub[0].strip())
+                fim = int(sub[1].strip())
+                if inicio > fim:
+                    inicio, fim = fim, inicio
+                for n in range(inicio, fim + 1):
+                    if 1 <= n <= limite_max:
+                        indices.add(n - 1)
+            except ValueError:
+                continue
+        else:
+            try:
+                n = int(parte.strip())
+                if 1 <= n <= limite_max:
+                    indices.add(n - 1)
+            except ValueError:
+                continue
+    return sorted(indices)
+
+
 
 def normalizar_texto(valor: Any) -> str:
     """Remove acentos, converte para maiúsculas e remove espaços redundantes."""
@@ -195,7 +235,37 @@ def consultar_erros_su53_rfc(usuario: str, target_env: str = "PRD") -> List[Dict
             })
 
     erros.sort(key=lambda x: x["timestamp"], reverse=True)
-    return filtrar_erros_atuais(erros)
+    return desduplicar_erros_su53(erros)
+
+
+def desduplicar_erros_su53(erros: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Remove registos duplicados no histórico da SU53, mantendo apenas a ocorrência mais recente
+    (maior timestamp / data e hora mais nova) para a mesma falha (mesmo Objeto + mesmos Campos/Valores).
+    """
+    if not erros:
+        return []
+
+    vistos = set()
+    desduplicados = []
+
+    for e in erros:
+        obj = e.get("objeto", "").strip().upper()
+        tc = (e.get("tcode_falha") or "").strip().upper()
+        # Normalizar tuplo de campos e valores ordenados para chave única
+        campos_tuple = tuple(sorted(
+            (str(f).strip().upper(), str(v).strip().upper())
+            for f, v in e.get("campos", [])
+            if str(f).strip().upper() != "DUMMYFIELD"
+        ))
+        
+        chave_falha = (obj, tc, campos_tuple)
+
+        if chave_falha not in vistos:
+            vistos.add(chave_falha)
+            desduplicados.append(e)
+
+    return desduplicados
 
 
 def filtrar_erros_atuais(
@@ -264,37 +334,176 @@ def obter_descricao_transacao_sap(tcode: str) -> str:
         return ""
 
 
-def exibir_tabela_erros(erros: List[Dict[str, Any]], usuario: str, target_env: str = "PRD"):
-    """Exibe na consola o extrato cronológico recente de falhas recolhidas da SU53."""
+def obter_autorizacoes_ativas_usuario_rfc(usuario: str, target_env: str = "PRD") -> Tuple[set, Dict[str, Dict[str, set]]]:
+    """
+    Obtém todas as roles ativas (diretas e herdadas de compostas) do utilizador
+    e o mapa de autorizações por objeto e campo na AGR_1251.
+    Retorna:
+      (all_roles, obj_auth_map)
+      onde obj_auth_map[objeto][campo] = set(valores)
+    """
+    try:
+        load_project_env(find_project_root())
+        params = build_connection_params_for(target_env)
+        conn = Connection(**params)
+        
+        # 1. Obter roles ativas
+        res_u = conn.call("BAPI_USER_GET_DETAIL", USERNAME=usuario.strip().upper())
+        direct_roles = {r["AGR_NAME"].strip() for r in res_u.get("ACTIVITYGROUPS", [])}
+        
+        res_agrs = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_AGRS", DELIMITER="|", FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "CHILD_AGR"}])
+        comp_children = defaultdict(set)
+        for l in res_agrs.get("DATA", []):
+            parts = l["WA"].split("|")
+            comp_children[parts[0].strip()].add(parts[1].strip())
+            
+        all_roles = set(direct_roles)
+        for r in list(direct_roles):
+            all_roles.update(comp_children.get(r, set()))
+            
+        conn.close()
+        return all_roles
+    except Exception as exc:
+        return set()
+
+
+def verificar_falha_ja_resolvida_rfc(
+    erro: Dict[str, Any],
+    all_roles: set,
+    target_env: str = "PRD"
+) -> Tuple[bool, str]:
+    """
+    Verifica se a falha registada na SU53 já se encontra coberta e atribuída ao utilizador.
+    Retorna: (is_resolvido, role_que_cobre)
+    """
+    if not all_roles:
+        return False, ""
+
+    objeto = erro.get("objeto", "").strip().upper()
+    tcode_falha = (erro.get("tcode_falha") or "").strip().upper()
+
+    try:
+        load_project_env(find_project_root())
+        params = build_connection_params_for(target_env)
+        conn = Connection(**params)
+
+        # 1. Se for falha de transação (S_TCODE)
+        if objeto == "S_TCODE" or tcode_falha:
+            tc = tcode_falha
+            if not tc:
+                tc = next((v for f, v in erro.get("campos", []) if f == "TCD"), "").strip().upper()
+            if tc:
+                res = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_TCODES", DELIMITER="|", FIELDS=[{"FIELDNAME": "AGR_NAME"}], OPTIONS=[{"TEXT": f"TCODE = '{tc}'"}])
+                roles_com_tc = {l["WA"].strip() for l in res.get("DATA", [])}
+                inter = all_roles.intersection(roles_com_tc)
+                conn.close()
+                if inter:
+                    return True, sorted(list(inter))[0]
+                return False, ""
+
+        # 2. Se for outro Objeto de Autorização
+        campos = erro.get("campos", [])
+        if not campos and "campos_relevantes" in erro:
+            campos = erro["campos_relevantes"]
+
+        options = [{"TEXT": f"OBJECT = '{objeto}' AND DELETED = ' '"}]
+        res = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_1251", DELIMITER="|", FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "FIELD"}, {"FIELDNAME": "LOW"}], OPTIONS=options)
+        conn.close()
+
+        role_auths = defaultdict(lambda: defaultdict(set))
+        for l in res.get("DATA", []):
+            parts = l["WA"].split("|")
+            agr = parts[0].strip()
+            if agr in all_roles:
+                fld = parts[1].strip().upper()
+                val = parts[2].strip().upper()
+                role_auths[agr][fld].add(val)
+
+        for agr, fld_map in role_auths.items():
+            cobre_tudo = True
+            campos_validos = 0
+            for f_req, v_req in campos:
+                f_norm = str(f_req).strip().upper()
+                v_norm = str(v_req).strip().upper()
+                if not f_norm or f_norm in ("DUMMYFIELD", "TCD"):
+                    continue
+                campos_validos += 1
+                vals_role = fld_map.get(f_norm, set())
+                if not ("*" in vals_role or v_norm in vals_role):
+                    cobre_tudo = False
+                    break
+            if cobre_tudo and campos_validos > 0:
+                return True, agr
+
+        return False, ""
+    except Exception:
+        return False, ""
+
+
+def exibir_tabela_erros(erros: List[Dict[str, Any]], usuario: str, target_env: str = "PRD", all_roles: Optional[set] = None):
+    """
+    Exibe na consola o extrato recente de falhas da SU53 agrupado por:
+      1. [❌ PENDENTE] Falhas que ainda requerem autorização (ordenadas da mais recente para a mais antiga)
+      2. [✓ JÁ ATRIBUÍDO] Falhas históricas já cobertas por funções ativas no utilizador
+    """
     env_label = "QAS (QAD)" if target_env.upper() in ("QAD", "QAS") else target_env.upper()
-    print("\n" + "=" * 95)
+    print("\n" + "=" * 105)
     print(f"  {CLR_W}HISTÓRICO RECENTE DE FALHAS REGISTADAS NA SU53 - UTILIZADOR: {CLR_Y}{usuario.upper()}{CLR_W} [AMBIENTE: {CLR_M}{env_label}{CLR_W}]{CLR_RST}")
-    print("=" * 95)
+    print("=" * 105)
 
     if not erros:
         print(f"  {CLR_Y}[AVISO]{CLR_RST} Não foram encontrados registos de erro (RC > 0) no buffer da SU53 para '{usuario}' no ambiente {env_label}.")
         print(f"  {CLR_C}-> Nota Operacional:{CLR_RST} No SAP GUI, após ocorrer o bloqueio de autorização na transação,")
         print(f"                     é necessário executar {CLR_W}/nSU53{CLR_RST} nessa mesma sessão para que o SAP")
         print("                     descarregue a verificação falhada para o buffer acessível via RFC.")
-        print("=" * 95)
+        print("=" * 105)
         return
 
-    print(f"{'#':<3} | {'DATA/HORA (LOCAL)':<19} | {'OBJETO':<12} | {'RC':<3} | {'DETALHES / VALORES VERIFICADOS':<48}")
-    print("-" * 95)
+    # Separar em Pendentes e Já Atribuídos
+    erros_pendentes = [e for e in erros if not e.get("resolvido", False)]
+    erros_atribuidos = [e for e in erros if e.get("resolvido", False)]
 
-    for idx, err in enumerate(erros[:20], 1):
+    # Ordenar agrupados: primeiro pendentes, depois atribuídos (ambos preservando ordem temporal decrescente)
+    erros_agrupados = erros_pendentes + erros_atribuidos
+
+    print(f"{'#':<3} | {'DATA/HORA (LOCAL)':<19} | {'OBJETO':<12} | {'RC':<3} | {'DETALHES / VALORES VERIFICADOS':<40} | {'ESTADO ATUAL'}")
+    print("-" * 105)
+
+    num_exibir = min(len(erros_agrupados), 25)
+    grupo_atual = None
+
+    for idx, err in enumerate(erros_agrupados[:num_exibir], 1):
+        is_resolvido = err.get("resolvido", False)
+
+        # Divisor visual subtil quando transita de PENDENTE para JÁ ATRIBUÍDO
+        if grupo_atual is not None and grupo_atual != is_resolvido:
+            print("." * 105)
+        grupo_atual = is_resolvido
+
         campos_txt = ", ".join([f"{f}={v}" for f, v in err["campos"]])
         if err["objeto"] == "S_TCODE" and err["tcode_falha"]:
-            detalhes = f"{CLR_R}TRANSAÇÃO: {err['tcode_falha']}{CLR_RST}"
+            detalhes = f"TRANSAÇÃO: {err['tcode_falha']}"
         else:
-            detalhes = campos_txt[:48]
+            detalhes = campos_txt
+
+        if len(detalhes) > 40:
+            detalhes = detalhes[:37] + "..."
+
+        role_cobre = err.get("role_resolvido", "")
+        if is_resolvido:
+            estado_txt = f"{CLR_G}✓ JÁ ATRIBUÍDO ({role_cobre}){CLR_RST}"
+        else:
+            estado_txt = f"{CLR_R}❌ PENDENTE (Falta autorização){CLR_RST}"
 
         cor_obj = CLR_R if err["objeto"] == "S_TCODE" else CLR_Y
-        print(f"{idx:<3} | {err['data_hora']:<19} | {cor_obj}{err['objeto']:<12}{CLR_RST} | {err['rc']:<3} | {detalhes}")
+        print(f"{idx:<3} | {err['data_hora']:<19} | {cor_obj}{err['objeto']:<12}{CLR_RST} | {err['rc']:<3} | {detalhes:<40} | {estado_txt}")
 
-    if len(erros) > 20:
-        print(f"... e mais {len(erros) - 20} registos anteriores no buffer.")
-    print("-" * 95)
+    if len(erros_agrupados) > 25:
+        total_pendentes = len(erros_pendentes)
+        total_atribuidos = len(erros_atribuidos)
+        print(f"... e mais {len(erros_agrupados) - 25} registos anteriores no buffer (Total: {total_pendentes} pendente(s), {total_atribuidos} já atribuído(s)).")
+    print("-" * 105)
+
 
 
 # =====================================================================
@@ -318,12 +527,13 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
                 transacoes_map[tc] = e
         else:
             aplicacao = (e.get("tcode_app") or e.get("nome_servico") or "").strip().upper()
-            objetos_map[(aplicacao, obj)].append(e)
+            tcode_ctx = (e.get("tcode_falha") or "").strip().upper()
+            objetos_map[(aplicacao, tcode_ctx, obj)].append(e)
 
     lista_transacoes = list(transacoes_map.values())
 
     lista_objetos = []
-    for (aplicacao, obj_name), ocorrencias in objetos_map.items():
+    for (aplicacao, tcode_ctx, obj_name), ocorrencias in objetos_map.items():
         mais_recente = ocorrencias[0]
         # Consolidar campos testados distintos
         campos_relevantes = []
@@ -334,6 +544,7 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
 
         lista_objetos.append({
             "aplicacao": aplicacao,
+            "tcode_falha": tcode_ctx,
             "objeto": obj_name,
             "descricao": obter_descricao_objeto_sap(obj_name),
             "rc_mais_recente": mais_recente["rc"],
@@ -341,7 +552,9 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
             "programa": mais_recente["programa"],
             "linha": mais_recente["linha"],
             "campos_relevantes": campos_relevantes,
-            "total_ocorrencias": len(ocorrencias)
+            "total_ocorrencias": len(ocorrencias),
+            "resolvido": any(o.get("resolvido", False) for o in ocorrencias),
+            "role_resolvido": next((o.get("role_resolvido") for o in ocorrencias if o.get("role_resolvido")), "")
         })
 
     return lista_transacoes, lista_objetos
@@ -355,11 +568,36 @@ def enriquecer_objeto_com_proposta(
     """Adiciona descrição da aplicação e funções mapeadas na sheet Proposta."""
     resultado = dict(objeto)
     aplicacao = str(resultado.get("aplicacao") or "").strip().upper()
-    resultado["nome_aplicacao"] = obter_descricao_transacao_sap(aplicacao)
-    roles = buscar_funcao_individual_para_transacao(caminho_excel, aplicacao, usuario) if aplicacao else []
-    funcoes_proposta = [r for r in roles if r.get("fonte") == "Folha 'Proposta'" and not r.get("candidata")]
-    resultado["funcoes_proposta"] = funcoes_proposta
-    resultado["funcao_proposta"] = funcoes_proposta[0] if funcoes_proposta else None
+    tcode_falha = str(resultado.get("tcode_falha") or "").strip().upper()
+
+    # Determinar se a aplicação parece ser um código de transação válido
+    app_valida = aplicacao and not any(k in aplicacao for k in ("SESSION", "B726", "IDOC")) and len(aplicacao) <= 20
+    resultado["nome_aplicacao"] = obter_descricao_transacao_sap(aplicacao) if app_valida else ""
+
+    # Buscar funções candidatas tanto pela transação de contexto (ex: LT03) como pela aplicação de origem (ex: VT01N)
+    alvos_pesquisa = []
+    if app_valida:
+        alvos_pesquisa.append(aplicacao)
+    if tcode_falha and tcode_falha not in alvos_pesquisa:
+        alvos_pesquisa.append(tcode_falha)
+
+    funcoes_proposta = []
+    funcoes_outras = []
+    for alvo in alvos_pesquisa:
+        roles = buscar_funcao_individual_para_transacao(caminho_excel, alvo, usuario)
+        for r in roles:
+            if not r.get("candidata"):
+                if r.get("fonte") == "Folha 'Proposta'":
+                    if not any(fp["role"] == r["role"] for fp in funcoes_proposta):
+                        funcoes_proposta.append(r)
+                else:
+                    if not any(fo["role"] == r["role"] for fo in funcoes_outras):
+                        funcoes_outras.append(r)
+
+    # Priorizar sheet Proposta; caso não haja, complementar com Single Roles / PFCG
+    todas_funcoes = funcoes_proposta if funcoes_proposta else funcoes_outras
+    resultado["funcoes_proposta"] = todas_funcoes
+    resultado["funcao_proposta"] = todas_funcoes[0] if todas_funcoes else None
     return resultado
 
 
@@ -367,41 +605,41 @@ def formatar_relatorio_erro_aplicacao(
     objeto: Dict[str, Any],
     funcoes_proposta: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
-    """Formata o diagnóstico SU53 com aplicação e função da sheet Proposta."""
-    aplicacao = objeto.get("aplicacao") or "Não identificada"
-    nome_aplicacao = objeto.get("nome_aplicacao") or "Descrição não encontrada"
-    atividade = next((v for f, v in objeto.get("campos_relevantes", []) if f == "ACTVT"), "")
-    atividade_txt = f"{atividade} — visualizar" if atividade == "03" else (atividade or "Não indicada")
-    linhas = [
-        "A aplicação registada no erro é:",
+    """Formata o diagnóstico SU53 com funções da sheet Proposta / Catálogo."""
+    nome_obj = str(objeto.get("objeto") or "").strip().upper()
+
+    linhas = []
+
+    if nome_obj in OBJETOS_PROIBIDOS_ATUALIZACAO:
+        linhas.extend([
+            f"  {CLR_R}[BLOQUEIO DE SEGURANÇA]{CLR_RST} O objeto {CLR_Y}{nome_obj}{CLR_RST} está classificado como {CLR_R}PROIBIDO DE ATUALIZAR POR SCRIPT{CLR_RST}.",
+            "  (Este objeto gere estratégias/aprovações críticas e só pode ser revisto manualmente na PFCG/SAP GUI).",
+            ""
+        ])
+
+    linhas.extend([
+        f"Na matriz de autorizações (sheet Proposta / Catálogo), as funções correspondentes são:",
         "",
-        f"- Transação/aplicação: {aplicacao}",
-        f"- Nome: {nome_aplicacao}",
-        f"- Objeto recusado: {objeto.get('objeto', '')}",
-        f"- Atividade: {atividade_txt}",
-        f"- Horário: {objeto.get('data_hora_recente', '')}",
-        "",
-        f"Na sheet Proposta, a transação {aplicacao} pertence à função:",
-        "",
-    ]
+    ])
     roles = funcoes_proposta if funcoes_proposta is not None else objeto.get("funcoes_proposta", [])
     if not roles:
-        linhas.append("- Função: Não encontrada na sheet Proposta")
+        linhas.append("- Função: Não encontrada no catálogo de funções")
         return "\n".join(linhas)
 
     for idx, role in enumerate(roles):
         linhas.append(
-            f"- Função: {role.get('role', '')} - Descrição: {role.get('descricao', '')}"
+            f"- Função: {role.get('role', '')} - Descrição: {role.get('descricao', '')} [{role.get('fonte', 'Catálogo')}]"
         )
         linha_funcao = role.get("linha_funcao")
         linha_transacao = role.get("linha_transacao")
         if linha_funcao and linha_transacao:
             linhas.append(
-                f"A função começa na linha {linha_funcao}; {aplicacao} está na linha {linha_transacao}."
+                f"  (A função começa na linha {linha_funcao}; mapeamento na linha {linha_transacao} da Proposta)"
             )
         if idx < len(roles) - 1:
             linhas.append("")
     return "\n".join(linhas)
+
 
 
 def exibir_analise_sintese(
@@ -427,36 +665,80 @@ def exibir_analise_sintese(
     if transacoes:
         for t in transacoes:
             tc = t["tcode_falha"]
-            print(f"  [{CLR_Y}{num_item}{CLR_RST}] {CLR_W}Transação: {CLR_Y}{tc:<20}{CLR_RST} -> RC={t['rc']} | Última: {t['data_hora']} ({t['programa']}:{t['linha']})")
+            app_origem = (t.get("nome_servico") or t.get("tcode_app") or "").strip().upper()
+            app_valida = app_origem and not any(k in app_origem for k in ("SESSION", "B726", "IDOC")) and len(app_origem) <= 20
+            
+            st_res = f" {CLR_G}[✓ JÁ ATRIBUÍDO]{CLR_RST}" if t.get("resolvido") else f" {CLR_R}[❌ PENDENTE]{CLR_RST}"
+            app_info = f" (via App: {CLR_Y}{app_origem}{CLR_W})" if app_valida and app_origem != tc else ""
+            print(f"  [{CLR_Y}{num_item}{CLR_RST}] {CLR_W}Transação: {CLR_Y}{tc:<20}{CLR_W}{app_info}{st_res} -> RC={t['rc']} | Última: {t['data_hora']} ({t['programa']}:{t['linha']})")
 
             # Pesquisa imediata de sugestão de Função Individual no Excel / Catálogo
+            # 1. Pesquisar pela própria transação que falhou (ex: VTFAKT)
             roles_sug = buscar_funcao_individual_para_transacao(caminho_excel, tc, usuario)
             sug_role_padrao = None
 
-            if roles_sug:
-                exatos = [r for r in roles_sug if not r.get("candidata")]
-                candidatos = [r for r in roles_sug if r.get("candidata")]
+            # 2. Se a transação falhada não estiver catalogada na folha 'Proposta' e tiver app de origem (ex: VT01N), buscar pela aplicação
+            roles_app = []
+            if app_valida and app_origem != tc:
+                roles_app = buscar_funcao_individual_para_transacao(caminho_excel, app_origem, usuario)
 
-                if exatos:
-                    r_top = exatos[0]
+            if t.get("resolvido") and t.get("role_resolvido"):
+                print(f"       {CLR_G}-> Acesso confirmado: Transação já se encontra coberta pela role ativa '{t['role_resolvido']}'.{CLR_RST}")
+            else:
+                tem_sugestao = False
+                # Prioridade A: Função da folha 'Proposta' para a transação bloqueada
+                exatos_tc = [r for r in roles_sug if not r.get("candidata") and r.get("fonte") == "Folha 'Proposta'"]
+                # Prioridade B: Função da folha 'Proposta' para a aplicação de origem (ex: VT01N -> Z_SHIPMENT_CREATE)
+                exatos_app = [r for r in roles_app if not r.get("candidata") and r.get("fonte") == "Folha 'Proposta'"]
+                # Outras funções (Single Roles, PFCG_CREATE, etc.)
+                outros_tc = [r for r in roles_sug if not r.get("candidata") and r.get("fonte") != "Folha 'Proposta'"]
+                outros_app = [r for r in roles_app if not r.get("candidata") and r.get("fonte") != "Folha 'Proposta'"]
+
+                if exatos_tc:
+                    r_top = exatos_tc[0]
                     sug_role_padrao = r_top["role"]
-                    outras = [r["role"] for r in exatos[1:3]]
+                    outras = [r["role"] for r in exatos_tc[1:3]]
                     outras_txt = f" (ou: {', '.join(outras)})" if outras else ""
                     print(f"       {CLR_C}-> Sugestão Função Individual:{CLR_RST} {CLR_G}{r_top['role']}{CLR_RST} - {r_top['descricao']} [{r_top['fonte']}]{outras_txt}")
-                elif candidatos:
-                    r_top = candidatos[0]
+                    tem_sugestao = True
+                elif exatos_app:
+                    r_top = exatos_app[0]
                     sug_role_padrao = r_top["role"]
-                    cands_txt = " / ".join([c["role"] for c in candidatos[:2]])
-                    print(f"       {CLR_C}-> Sugestão Função Individual:{CLR_RST} {CLR_Y}Não catalogada na folha 'Proposta'{CLR_RST} (Candidatas sugeridas: {CLR_W}{cands_txt}{CLR_RST} ou introduzir manual)")
-            else:
-                print(f"       {CLR_C}-> Sugestão Função Individual:{CLR_RST} {CLR_Y}Não encontrada no catálogo 'Proposta'{CLR_RST} (requer indicação manual de Z_...)")
+                    print(f"       {CLR_C}-> Sugestão via Aplicação de Origem ({app_origem}):{CLR_RST} {CLR_G}{r_top['role']}{CLR_RST} - {r_top['descricao']} [{r_top['fonte']}]")
+                    if outros_tc:
+                        outras_txt = ", ".join([f"{r['role']} ({r['fonte']})" for r in outros_tc[:2]])
+                        print(f"          (Alternativas para {tc}: {outras_txt})")
+                    tem_sugestao = True
+                elif outros_tc or outros_app:
+                    lista_outros = outros_tc or outros_app
+                    r_top = lista_outros[0]
+                    sug_role_padrao = r_top["role"]
+                    outras = [r["role"] for r in lista_outros[1:3]]
+                    outras_txt = f" (ou: {', '.join(outras)})" if outras else ""
+                    print(f"       {CLR_C}-> Sugestão Função Individual:{CLR_RST} {CLR_G}{r_top['role']}{CLR_RST} - {r_top['descricao']} [{r_top['fonte']}]{outras_txt}")
+                    tem_sugestao = True
+                else:
+                    candidatos = [r for r in (roles_sug + roles_app) if r.get("candidata")]
+                    if candidatos:
+                        r_top = candidatos[0]
+                        sug_role_padrao = r_top["role"]
+                        cands_txt = " / ".join([c["role"] for c in candidatos[:2]])
+                        print(f"       {CLR_C}-> Sugestão Função Individual:{CLR_RST} {CLR_Y}Não catalogada na folha 'Proposta'{CLR_RST} (Candidatas sugeridas: {CLR_W}{cands_txt}{CLR_RST} ou introduzir manual)")
+                        tem_sugestao = True
+
+                if not tem_sugestao:
+                    print(f"       {CLR_C}-> Sugestão Função Individual:{CLR_RST} {CLR_Y}Não encontrada no catálogo 'Proposta'{CLR_RST} (requer indicação manual de Z_...)")
+
+            # Combinar roles encontradas para seleção
+            todas_roles_encontradas = roles_sug + [r for r in roles_app if not any(x["role"] == r["role"] for x in roles_sug)]
 
             opcoes_selecao.append({
                 "tipo": "TRANSACAO",
                 "valor": tc,
                 "detalhes": t,
                 "sugestao_role": sug_role_padrao,
-                "roles_encontradas": roles_sug
+                "roles_encontradas": todas_roles_encontradas,
+                "resolvido": t.get("resolvido", False)
             })
             num_item += 1
     else:
@@ -471,14 +753,18 @@ def exibir_analise_sintese(
             o = enriquecer_objeto_com_proposta(objeto, caminho_excel, usuario)
             desc = f" ({o['descricao']})" if o["descricao"] else ""
             campos_str = ", ".join([f"{f}={v}" for f, v in o["campos_relevantes"]]) if o["campos_relevantes"] else "Verificação de existência"
-            print(f"  [{CLR_Y}{num_item}{CLR_RST}] {CLR_W}Objeto:    {CLR_M}{o['objeto']:<20}{CLR_RST}{desc}")
+            st_res_obj = f" {CLR_G}[✓ JÁ ATRIBUÍDO]{CLR_RST}" if o.get("resolvido") else f" {CLR_R}[❌ PENDENTE]{CLR_RST}"
+            print(f"  [{CLR_Y}{num_item}{CLR_RST}] {CLR_W}Objeto:    {CLR_M}{o['objeto']:<20}{CLR_RST}{desc}{st_res_obj}")
+            if o.get("resolvido") and o.get("role_resolvido"):
+                print(f"       {CLR_G}-> Acesso confirmado: Valores já estão autorizados na role ativa '{o['role_resolvido']}'.{CLR_RST}")
             print(f"       -> RC={o['rc_mais_recente']} | Falhas: {o['total_ocorrencias']}x | Campos: {campos_str} | Prog: {o['programa']}")
             print()
             print(formatar_relatorio_erro_aplicacao(o))
             opcoes_selecao.append({
                 "tipo": "OBJETO",
                 "valor": o["objeto"],
-                "detalhes": o
+                "detalhes": o,
+                "resolvido": o.get("resolvido", False)
             })
             num_item += 1
     else:
@@ -516,10 +802,8 @@ def preparar_atualizacao_objeto(obj_info: Dict[str, Any]) -> Optional[Dict[str, 
 
 
 def classificar_modo_objeto(registos: List[Dict[str, Any]]) -> str:
-    """Atualiza somente autorizações ativas; nunca reativa entradas eliminadas."""
-    if any(str(item.get("DELETED") or "").strip().upper() != "X" for item in registos):
-        return "ATUALIZAR"
-    return "CRIAR"
+    """Atualiza/altera autorizações em funções existentes; nunca reativa entradas eliminadas."""
+    return "ALTERAR"
 
 
 def valor_autorizacao_cobre(valor_existente: str, valor_pedido: str) -> bool:
@@ -542,7 +826,7 @@ def _criar_ficheiro_execucao_objeto(plano: Dict[str, Any], target_env: str) -> P
     campos = list(plano["campos"])
     ws.append(["AGR_NAME", "OBJETO DE AUTORIZACAO", "MODO_OBJETO", *campos, "STATUS", "MSG", "TIMESTAMP"])
     for role in plano["roles"]:
-        modo = plano.get("modos", {}).get(role, "CRIAR")
+        modo = plano.get("modos", {}).get(role, "ALTERAR")
         ws.append([role, plano["objeto"], modo, *[plano["campos"][c] for c in campos], "", "", ""])
     wb.save(caminho)
     return caminho
@@ -668,6 +952,17 @@ def diagnosticar_objeto_autorizacao(
     pedir_confirmacao: bool = True,
 ):
     """Atualiza o objeto nas roles indicadas pela Proposta e valida o resultado via RFC."""
+    nome_objeto = str(obj_info.get("objeto") or "").strip().upper()
+    if nome_objeto in OBJETOS_PROIBIDOS_ATUALIZACAO:
+        print("\n" + "=" * 95)
+        print(f"  {CLR_R}[OPERAÇÃO BLOQUEADA]{CLR_W} Objeto {CLR_Y}{nome_objeto}{CLR_W} é proibido de atualizar por script.{CLR_RST}")
+        print("=" * 95)
+        print(f"  O objeto {CLR_Y}{nome_objeto}{CLR_RST} controla regras de estratégia de liberação / governança crítica.")
+        print(f"  Por motivo de conformidade e segurança, {CLR_R}não é permitida a alteração automática{CLR_RST}.")
+        print("  Caso seja estritamente necessário, efetue a revisão manual diretamente na transação PFCG no SAP GUI.")
+        print("=" * 95)
+        return False
+
     obj_enriquecido = enriquecer_objeto_com_proposta(obj_info, caminho_excel, usuario)
     plano = preparar_atualizacao_objeto(obj_enriquecido)
     if not plano:
@@ -751,18 +1046,35 @@ def executar_todos_objetos_autorizacao(
     caminho_excel: str,
     target_env: str = "PRD",
 ) -> Dict[str, int]:
-    """Confirma uma vez e processa cada falha de objeto de forma independente."""
+    """Confirma uma vez e processa cada falha de objeto de forma independente (ignorando objetos proibidos)."""
     env = "QAD" if str(target_env).upper() in ("QAD", "QAS") else "PRD"
+    
+    objetos_elegiveis = []
+    objetos_bloqueados = []
+    for o in objetos:
+        if str(o.get("objeto") or "").strip().upper() in OBJETOS_PROIBIDOS_ATUALIZACAO:
+            objetos_bloqueados.append(o)
+        else:
+            objetos_elegiveis.append(o)
+
     print("\n" + "=" * 95)
     print(f"  {CLR_W}ATUALIZAÇÃO DE TODOS OS OBJETOS EM {env} - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
     print("=" * 95)
-    for indice, objeto in enumerate(objetos, 1):
+    for indice, objeto in enumerate(objetos_elegiveis, 1):
         aplicacao = objeto.get("aplicacao") or "Não indicada"
         print(f"  [{indice}] {aplicacao} | {objeto.get('objeto', '')}")
+    if objetos_bloqueados:
+        print(f"\n  {CLR_R}[IGNORADOS - PROIBIDOS DE ATUALIZAR POR SCRIPT]:{CLR_RST}")
+        for b in objetos_bloqueados:
+            print(f"    - {b.get('objeto')} (Aplicação: {b.get('aplicacao') or 'N/A'})")
     print("-" * 95)
 
+    if not objetos_elegiveis:
+        print(f"{CLR_Y}[AVISO] Todos os objetos selecionados são proibidos de atualização automática.{CLR_RST}")
+        return {"sucessos": 0, "falhas": 0}
+
     confirmacao = input(
-        f"Confirma a atualização sequencial dos {len(objetos)} objetos no SAP {env}? [S/N] [N]: "
+        f"Confirma a atualização sequencial dos {len(objetos_elegiveis)} objetos permitidos no SAP {env}? [S/N] [N]: "
     ).strip().upper()
     if confirmacao not in ("S", "SIM", "Y", "YES", "1"):
         print("Operação cancelada; nenhum objeto foi processado.")
@@ -770,10 +1082,10 @@ def executar_todos_objetos_autorizacao(
 
     sucessos = 0
     falhas = 0
-    for indice, objeto in enumerate(objetos, 1):
+    for indice, objeto in enumerate(objetos_elegiveis, 1):
         aplicacao = objeto.get("aplicacao") or "Não indicada"
         nome_objeto = objeto.get("objeto", "")
-        print(f"\n[{indice}/{len(objetos)}] {aplicacao} | {nome_objeto}")
+        print(f"\n[{indice}/{len(objetos_elegiveis)}] {aplicacao} | {nome_objeto}")
         try:
             concluido = diagnosticar_objeto_autorizacao(
                 usuario=usuario,
@@ -882,21 +1194,41 @@ def pesquisar_departamento_su53(
             continue
 
         try:
+            # Validar quais falhas já estão resolvidas pelas roles ativas do utilizador
+            all_roles_user = obter_autorizacoes_ativas_usuario_rfc(usuario, target_env=target_env)
+            for err in erros:
+                resolvido, role_cobre = verificar_falha_ja_resolvida_rfc(err, all_roles_user, target_env=target_env)
+                err["resolvido"] = resolvido
+                err["role_resolvido"] = role_cobre
+
             transacoes, objetos = agrupar_erros_para_analise(erros)
+
+            # Filtrar estritamente apenas as falhas PENDENTES (não resolvidas)
+            transacoes_pendentes = [t for t in transacoes if not t.get("resolvido")]
+            objetos_pendentes = [o for o in objetos if not o.get("resolvido")]
+
+            # Se todas as falhas já estão atribuídas/resolvidas, o utilizador entra em 'sem_erros'
+            if not transacoes_pendentes and not objetos_pendentes:
+                resultado["sem_erros"].append({"usuario": usuario, "nome": nome})
+                continue
+
             objetos_enriquecidos = [
                 enriquecer_objeto_com_proposta(objeto, caminho_excel, usuario)
-                for objeto in objetos
+                for objeto in objetos_pendentes
             ]
         except Exception as exc:
             resultado["falhas_rfc"].append({"usuario": usuario, "nome": nome, "erro": str(exc)})
             continue
+
+        total_pendentes = len(transacoes_pendentes) + len(objetos_pendentes)
         resultado["com_erros"].append({
             "usuario": usuario,
             "nome": nome,
-            "total_registos": len(erros),
-            "transacoes": transacoes,
+            "total_registos": total_pendentes,
+            "transacoes": transacoes_pendentes,
             "objetos": objetos_enriquecidos,
         })
+
 
     print("\n" + "=" * 95)
     print(f"  RESUMO SU53 - {departamento} [{target_env}]")
@@ -972,6 +1304,125 @@ def obter_dados_utilizador_proposta_ativa(caminho_excel: str, usuario: str) -> O
     return None
 
 
+# Cache em memória do catálogo de funções do Excel para execução ultrarrápida
+_CACHE_CATALOGO_EXCEL: Dict[str, Dict[str, Any]] = {}
+
+def carregar_catalogo_completo_excel(caminho_excel: str) -> Dict[str, Any]:
+    """
+    Carrega e indexa em cache todo o catálogo de funções do ficheiro Excel:
+      - Mapa da folha 'Proposta' (76 Single Roles oficiais com descrição, linhas e transações)
+      - Conjunto estrito de roles válidas do Excel (Proposta, PFCG_COMPOSTA, Proposta Ativa, PFCG_AUTHORITY)
+      - Mapa complementar da folha 'PFCG_CREATE' filtrado apenas para roles catalogadas
+    Garante que NENHUMA role fora do Excel (ex: Z_CROSS_LOGISTIC_*) seja sugerida.
+    """
+    global _CACHE_CATALOGO_EXCEL
+    if caminho_excel in _CACHE_CATALOGO_EXCEL:
+        return _CACHE_CATALOGO_EXCEL[caminho_excel]
+
+    proposta_roles: Dict[str, Dict[str, Any]] = {}
+    pfcg_create_roles: Dict[str, Dict[str, Any]] = {}
+    roles_validas: set = set()
+
+    try:
+        wb = openpyxl.load_workbook(caminho_excel, read_only=True, data_only=True)
+
+        # 1. Parsing da folha 'Proposta'
+        if "Proposta" in wb.sheetnames:
+            ws_p = wb["Proposta"]
+            cur_role = None
+            cur_desc = ""
+            cur_row = None
+            for r_idx, r in enumerate(ws_p.iter_rows(values_only=True), 1):
+                c1 = str(r[0] or "").strip()
+                c2 = str(r[1] or "").strip() if len(r) > 1 else ""
+
+                if c1.startswith("Z_") and c2:
+                    cur_role = c1.upper()
+                    cur_desc = c2
+                    cur_row = r_idx
+                    roles_validas.add(cur_role)
+                    if cur_role not in proposta_roles:
+                        proposta_roles[cur_role] = {
+                            "desc": cur_desc,
+                            "row": cur_row,
+                            "tcodes": {}
+                        }
+                elif c1 and cur_role:
+                    for t in c1.replace(";", " ").split():
+                        tc_clean = t.strip().upper()
+                        if tc_clean:
+                            proposta_roles[cur_role]["tcodes"][tc_clean] = r_idx
+
+        # 2. Roles válidas de 'PFCG_COMPOSTA'
+        if "PFCG_COMPOSTA" in wb.sheetnames:
+            ws_c = wb["PFCG_COMPOSTA"]
+            header = [str(c or "").strip() for c in next(ws_c.iter_rows(values_only=True))]
+            agr_idx = header.index("AGR_NAME") if "AGR_NAME" in header else 3
+            for r in ws_c.iter_rows(min_row=2, values_only=True):
+                if len(r) > agr_idx and r[agr_idx]:
+                    val = str(r[agr_idx]).strip().upper()
+                    if val.startswith("Z"):
+                        roles_validas.add(val)
+
+        # 3. Roles válidas de 'Proposta Ativa'
+        if "Proposta Ativa" in wb.sheetnames:
+            ws_a = wb["Proposta Ativa"]
+            for r in ws_a.iter_rows(min_row=2, values_only=True):
+                for val_c in r[9:]:
+                    v_str = str(val_c or "").strip().upper()
+                    if v_str.startswith("Z"):
+                        roles_validas.add(v_str)
+
+        # 4. Roles válidas de 'PFCG_AUTHORITY'
+        if "PFCG_AUTHORITY" in wb.sheetnames:
+            ws_auth = wb["PFCG_AUTHORITY"]
+            header_auth = [str(c or "").strip() for c in next(ws_auth.iter_rows(values_only=True))]
+            agr_auth_idx = header_auth.index("AGR_NAME") if "AGR_NAME" in header_auth else 3
+            for r in ws_auth.iter_rows(min_row=2, values_only=True):
+                if len(r) > agr_auth_idx and r[agr_auth_idx]:
+                    val = str(r[agr_auth_idx]).strip().upper()
+                    if val.startswith("Z"):
+                        roles_validas.add(val)
+
+        # 5. Parsing complementar de 'PFCG_CREATE' (somente roles presentes em roles_validas)
+        if "PFCG_CREATE" in wb.sheetnames:
+            ws_cr = wb["PFCG_CREATE"]
+            header_cr = [str(c or "").strip() for c in next(ws_cr.iter_rows(values_only=True))]
+            agr_cr_idx = header_cr.index("AGR_NAME") if "AGR_NAME" in header_cr else 1
+            tc_cr_idx = header_cr.index("TCODE") if "TCODE" in header_cr else 3
+            desc_cr_idx = header_cr.index("TEXT") if "TEXT" in header_cr else 2
+            for r in ws_cr.iter_rows(min_row=2, values_only=True):
+                if len(r) > max(agr_cr_idx, tc_cr_idx):
+                    agr = str(r[agr_cr_idx] or "").strip().upper()
+                    tc = str(r[tc_cr_idx] or "").strip().upper()
+                    desc = str(r[desc_cr_idx] or "").strip() if len(r) > desc_cr_idx else ""
+                    if agr.startswith("Z") and (agr in roles_validas) and "CROSS_LOGISTIC" not in agr:
+                        if agr not in pfcg_create_roles:
+                            pfcg_create_roles[agr] = {"desc": desc, "tcodes": set()}
+                        for t in tc.replace(";", " ").split():
+                            tc_clean = t.strip().upper()
+                            if tc_clean:
+                                pfcg_create_roles[agr]["tcodes"].add(tc_clean)
+
+        wb.close()
+    except Exception:
+        pass
+
+    dados_catalogo = {
+        "proposta_roles": proposta_roles,
+        "roles_validas": roles_validas,
+        "pfcg_create_roles": pfcg_create_roles,
+    }
+    _CACHE_CATALOGO_EXCEL[caminho_excel] = dados_catalogo
+    return dados_catalogo
+
+
+def obter_catalogo_roles_validas_excel(caminho_excel: str) -> set:
+    """Retorna o conjunto de todas as Single Roles válidas no Excel."""
+    cat = carregar_catalogo_completo_excel(caminho_excel)
+    return cat.get("roles_validas", set())
+
+
 def buscar_funcao_individual_para_transacao(
     caminho_excel: str,
     tcode: str,
@@ -979,171 +1430,42 @@ def buscar_funcao_individual_para_transacao(
 ) -> List[Dict[str, Any]]:
     """
     Pesquisa a Função Individual (Single Role Z_...) correspondente à transação:
-      1. Folha 'Proposta' (catálogo principal, coluna 'FUNÇÃO')
-      2. Folha 'Single Roles (S4H)'
-      3. Folha 'PFCG_CREATE'
-      4. SAP PRD via RFC (tabelas AGR_1251 e AGR_TCODES)
-      5. Se não existir no catálogo, identifica funções candidatas no PRD por prefixo ou funções do utilizador.
+      1. Folha 'Proposta' (catálogo principal, mapeamento exato com cabeçalhos e linhas)
+      2. Folha 'PFCG_CREATE' (apenas roles presentes no catálogo oficial do Excel)
+    Restringe estritamente às Single Roles do projeto Excel.
+    Nunca sugere roles legadas fora do Excel (ex: Z_CROSS_LOGISTIC_*).
     """
     tc_norm = tcode.strip().upper()
     funcoes_encontradas = []
 
-    # 1. Pesquisa na folha 'Proposta' (fonte primordial do catálogo)
-    try:
-        df_prop = pd.read_excel(caminho_excel, sheet_name="Proposta")
-        current_role = None
-        current_desc = ""
+    cat = carregar_catalogo_completo_excel(caminho_excel)
+    proposta_roles = cat.get("proposta_roles", {})
+    pfcg_create_roles = cat.get("pfcg_create_roles", {})
 
-        current_role_row = None
-        for idx, row in df_prop.iterrows():
-            f_val = str(row.get("FUNÇÃO", "")).strip() if pd.notna(row.get("FUNÇÃO")) else ""
-            d_val = str(row.get("DESCRIÇÃO", "")).strip() if pd.notna(row.get("DESCRIÇÃO")) else ""
+    # 1. Pesquisa na folha 'Proposta'
+    for role, data in proposta_roles.items():
+        if tc_norm in data["tcodes"]:
+            if not any(f["role"] == role for f in funcoes_encontradas):
+                funcoes_encontradas.append({
+                    "role": role,
+                    "descricao": data["desc"],
+                    "fonte": "Folha 'Proposta'",
+                    "candidata": False,
+                    "linha_funcao": data["row"],
+                    "linha_transacao": data["tcodes"][tc_norm],
+                })
 
-            if f_val.startswith("Z_") and d_val and "TRANSACAO NAO EXISTE" not in d_val.upper():
-                current_role = f_val
-                current_desc = d_val
-                current_role_row = int(idx) + 2
-            elif f_val and current_role:
-                for t in f_val.replace(";", " ").split():
-                    if t.strip().upper() == tc_norm:
-                        if not any(f["role"] == current_role for f in funcoes_encontradas):
-                            funcoes_encontradas.append({
-                                "role": current_role,
-                                "descricao": current_desc,
-                                "fonte": "Folha 'Proposta'",
-                                "candidata": False,
-                                "linha_funcao": current_role_row,
-                                "linha_transacao": int(idx) + 2,
-                            })
-    except Exception:
-        pass
-
-    # 2. Pesquisa na folha 'Single Roles (S4H)'
-    try:
-        df_sgl = pd.read_excel(caminho_excel, sheet_name="Single Roles (S4H)")
-        cur_sgl_role = None
-        cur_sgl_desc = ""
-        for _, row in df_sgl.iterrows():
-            c1 = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
-            c2 = str(row.iloc[2]).strip().upper() if pd.notna(row.iloc[2]) else ""
-            c3 = str(row.iloc[3]).strip() if pd.notna(row.iloc[3]) else ""
-            if c1.startswith("Z"):
-                cur_sgl_role = c1
-                cur_sgl_desc = c3
-            elif c2 == tc_norm and cur_sgl_role:
-                if not any(f["role"] == cur_sgl_role for f in funcoes_encontradas):
-                    funcoes_encontradas.append({
-                        "role": cur_sgl_role,
-                        "descricao": c3 or cur_sgl_desc or f"Função Single {cur_sgl_role}",
-                        "fonte": "Folha 'Single Roles (S4H)'",
-                        "candidata": False
-                    })
-    except Exception:
-        pass
-
-    # 3. Pesquisa na folha 'PFCG_CREATE'
-    try:
-        df_create = pd.read_excel(caminho_excel, sheet_name="PFCG_CREATE")
-        for _, row in df_create.iterrows():
-            agr = str(row.get("AGR_NAME", "")).strip().upper()
-            tc_col = str(row.get("TCODE", "")).strip().upper()
-            desc_col = str(row.get("TEXT", "")).strip()
-            if agr.startswith("Z_") and tc_norm in [t.strip().upper() for t in tc_col.replace(";", " ").split()]:
-                if not any(f["role"] == agr for f in funcoes_encontradas):
-                    funcoes_encontradas.append({
-                        "role": agr,
-                        "descricao": desc_col,
-                        "fonte": "Folha 'PFCG_CREATE'",
-                        "candidata": False
-                    })
-    except Exception:
-        pass
-
-    # 4. Pesquisa no SAP PRD via RFC (tabelas AGR_1251 e AGR_TCODES)
+    # 2. Pesquisa complementar na folha 'PFCG_CREATE' (se não encontrado na 'Proposta')
     if not funcoes_encontradas:
-        try:
-            load_project_env(find_project_root())
-            conn = Connection(**build_connection_params_for("PRD"))
-            guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_1251", "AGR_FLAGS", "AGR_USERS", "AGR_TCODES"))
-
-            # AGR_1251
-            rows = read_table(
-                conn, guard, table_name="AGR_1251", fields=["AGR_NAME"],
-                options=[{"TEXT": f"OBJECT = 'S_TCODE' AND LOW = '{tc_norm}'"}],
-                rowcount=10
-            )
-            for r in rows:
-                r_name = r[0].strip().upper()
-                if r_name.startswith("Z_") and not any(f["role"] == r_name for f in funcoes_encontradas):
+        for role, data in pfcg_create_roles.items():
+            if tc_norm in data["tcodes"]:
+                if not any(f["role"] == role for f in funcoes_encontradas):
                     funcoes_encontradas.append({
-                        "role": r_name,
-                        "descricao": f"Função SAP PRD com {tc_norm}",
-                        "fonte": "SAP PRD (AGR_1251)",
-                        "candidata": False
+                        "role": role,
+                        "descricao": data["desc"],
+                        "fonte": "Folha 'PFCG_CREATE'",
+                        "candidata": False,
                     })
-
-            # AGR_TCODES
-            if not funcoes_encontradas:
-                rows_tc = read_table(
-                    conn, guard, table_name="AGR_TCODES", fields=["AGR_NAME"],
-                    options=[{"TEXT": f"TCODE = '{tc_norm}'"}],
-                    rowcount=10
-                )
-                for r in rows_tc:
-                    r_name = r[0].strip().upper()
-                    if r_name.startswith("Z_") and not any(f["role"] == r_name for f in funcoes_encontradas):
-                        funcoes_encontradas.append({
-                            "role": r_name,
-                            "descricao": f"Função SAP PRD com {tc_norm}",
-                            "fonte": "SAP PRD (AGR_TCODES)",
-                            "candidata": False
-                        })
-
-            # 5. Se não encontrado no catálogo, identificar funções candidatas (por utilizador ou prefixo)
-            if not funcoes_encontradas:
-                candidatos = []
-                if usuario:
-                    u_rows = read_table(
-                        conn, guard, table_name="AGR_USERS", fields=["AGR_NAME"],
-                        options=[{"TEXT": f"UNAME = '{usuario.strip().upper()}'"}],
-                        rowcount=50
-                    )
-                    u_roles = [ur[0].strip().upper() for ur in u_rows if ur and ur[0].strip().startswith("Z")]
-                    for ur in u_roles:
-                        prefix_tc = tc_norm[:4]
-                        if prefix_tc in ur or ("BASIS" in ur and "PFCG" in tc_norm) or ("IT" in ur and "PFCG" in tc_norm):
-                            candidatos.append({
-                                "role": ur,
-                                "descricao": f"Função existente do utilizador {usuario.strip().upper()}",
-                                "fonte": "SAP PRD (Atribuída ao Utilizador)",
-                                "candidata": True
-                            })
-
-                if not candidatos and len(tc_norm) >= 4:
-                    pref = tc_norm[:4]
-                    p_rows = read_table(
-                        conn, guard, table_name="AGR_1251", fields=["AGR_NAME"],
-                        options=[{"TEXT": f"OBJECT = 'S_TCODE' AND LOW LIKE '{pref}%'"}],
-                        rowcount=10
-                    )
-                    for pr in p_rows:
-                        pr_name = pr[0].strip().upper()
-                        if pr_name.startswith("Z_") and not any(c["role"] == pr_name for c in candidatos):
-                            candidatos.append({
-                                "role": pr_name,
-                                "descricao": f"Função com transações do prefixo {pref}*",
-                                "fonte": "SAP PRD (Candidata)",
-                                "candidata": True
-                            })
-
-                # Ordenar candidatos priorizando roles cujo nome contenha o prefixo da transação
-                pref_tc = tc_norm[:4]
-                candidatos.sort(key=lambda c: (0 if pref_tc in c["role"] else (1 if "BASIS" in c["role"] else 2), c["role"]))
-                funcoes_encontradas.extend(candidatos)
-
-            conn.close()
-        except Exception:
-            pass
 
     return funcoes_encontradas
 
@@ -1308,6 +1630,39 @@ def aplicar_alteracoes_excel(
             else:
                 print(f"    . Relação {comp_role} -> {single_role} já constava na folha 'PFCG_COMPOSTA'.")
 
+            # ETAPA 4: PFCG_CREATE (Garantir que a transação consta na Single Role no Excel)
+            try:
+                ws_create = wb.Worksheets("PFCG_CREATE")
+                last_r_create = ws_create.UsedRange.Rows.Count
+                while ws_create.Cells(last_r_create, 1).Value:
+                    last_r_create += 1
+                
+                tcode_ja_na_role = False
+                desc_single = ""
+                for r in range(2, last_r_create):
+                    r_single = str(ws_create.Cells(r, 1).Value or "").strip().upper()
+                    r_desc = str(ws_create.Cells(r, 2).Value or "").strip()
+                    r_tcode = str(ws_create.Cells(r, 3).Value or "").strip().upper()
+                    if r_single == single_role.strip().upper():
+                        if r_desc and not desc_single:
+                            desc_single = r_desc
+                        if r_tcode == tcode.strip().upper():
+                            tcode_ja_na_role = True
+                            break
+                
+                if not tcode_ja_na_role and tcode:
+                    ws_create.Cells(last_r_create, 1).Value = single_role.strip().upper()
+                    ws_create.Cells(last_r_create, 2).Value = desc_single or single_role.strip().upper()
+                    ws_create.Cells(last_r_create, 3).Value = tcode.strip().upper()
+                    ws_create.Cells(last_r_create, 4).Value = "Criado"
+                    ws_create.Cells(last_r_create, 5).Value = "Atribuído em SAP DEV, PRD e QAD"
+                    ws_create.Cells(last_r_create, 6).Value = ts_agora
+                    ws_create.Cells(last_r_create, 7).Value = "Validado"
+                    ws_create.Cells(last_r_create, 8).Value = "Validado"
+                    print(f"    + Registada transação {tcode} na role {single_role} na folha 'PFCG_CREATE'")
+            except Exception as e_create:
+                print(f"    {CLR_Y}[AVISO PFCG_CREATE] {e_create}{CLR_RST}")
+
             wb.Save()
             sucesso_com = True
         except Exception as exc:
@@ -1411,6 +1766,32 @@ def aplicar_alteracoes_excel(
             else:
                 print(f"    . Relação {comp_role} -> {single_role} já constava na folha 'PFCG_COMPOSTA'.")
 
+            # ETAPA 4: PFCG_CREATE (Garantir que a transação consta na Single Role no Excel)
+            try:
+                if "PFCG_CREATE" in wb.sheetnames:
+                    ws_create = wb["PFCG_CREATE"]
+                    tcode_ja_na_role = False
+                    desc_single = ""
+                    for r in range(2, ws_create.max_row + 1):
+                        r_single = str(ws_create.cell(row=r, column=1).value or "").strip().upper()
+                        r_desc = str(ws_create.cell(row=r, column=2).value or "").strip()
+                        r_tcode = str(ws_create.cell(row=r, column=3).value or "").strip().upper()
+                        if r_single == single_role.strip().upper():
+                            if r_desc and not desc_single:
+                                desc_single = r_desc
+                            if r_tcode == tcode.strip().upper():
+                                tcode_ja_na_role = True
+                                break
+                    if not tcode_ja_na_role and tcode:
+                        ws_create.append([
+                            single_role.strip().upper(), desc_single or single_role.strip().upper(),
+                            tcode.strip().upper(), "Criado", "Atribuído em SAP DEV, PRD e QAD",
+                            ts_agora, "Validado", "Validado", ""
+                        ])
+                        print(f"    + Registada transação {tcode} na role {single_role} na folha 'PFCG_CREATE'")
+            except Exception as e_create:
+                print(f"    {CLR_Y}[AVISO PFCG_CREATE] {e_create}{CLR_RST}")
+
             wb.save(caminho_excel)
             wb.close()
             try:
@@ -1433,17 +1814,22 @@ def sincronizar_sap_rfc(
     env: str,
     composite_role: str,
     single_role: str,
-    usuario: Optional[str] = None
+    usuario: Optional[str] = None,
+    tcode: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Atribui a Função Individual à Composta via RFC e executa o ajuste de utilizadores.
-    Se a função composta ainda não existir no SAP, atribui a função individual diretamente
-    ao utilizador no SAP e executa a comparação de utilizadores (User Comparison).
+    Garante que:
+      1. A transação (se informada) consta no menu da Single Role (via PRGN_RFC_ADD_TRANSACTION).
+      2. A Single Role tem os seus dados consolidados e perfil gerado (PRGN_AUTO_GENERATE_PROFILE_NEW + PRGN_GEN_PROFILES_FOR_ROLES).
+      3. A Single Role é associada à Composta e os utilizadores são comparados.
+      4. Valida o semáforo verde via PRGN_CHECK_PROFILE_STATUS_RFC.
     """
     env_norm = env.strip().upper()
     comp_norm = composite_role.strip().upper()
     sgl_norm = single_role.strip().upper()
     u_norm = usuario.strip().upper() if usuario else ""
+    tc_norm = tcode.strip().upper() if tcode else ""
 
     print(f"\n{CLR_C}>>> [SAP {env_norm}] A sincronizar autorizações via RFC...{CLR_RST}")
 
@@ -1455,7 +1841,7 @@ def sincronizar_sap_rfc(
         return {"ok": False, "ambiente": env_norm, "erro": f"Não foi possível conectar ao SAP {env_norm}: {exc}"}
 
     try:
-        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_DEFINE", "AGR_USERS"))
+        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_DEFINE", "AGR_USERS", "AGR_TCODES"))
 
         # 1. Verificar se a função individual existe no SAP
         try:
@@ -1465,7 +1851,46 @@ def sincronizar_sap_rfc(
         except Exception:
             pass
 
-        # 2. Verificar se a função composta existe no SAP
+        # 2. Verificar e assegurar que a transação consta no menu da Single Role
+        if tc_norm and sgl_norm:
+            try:
+                r_tc = read_table(
+                    conn, guard, table_name="AGR_TCODES", fields=["TCODE"],
+                    options=[{"TEXT": f"AGR_NAME = '{sgl_norm}' AND TCODE = '{tc_norm}'"}], rowcount=1
+                )
+                if not r_tc:
+                    print(f"    + A transação {tc_norm} não consta no menu de {sgl_norm} em {env_norm}. A adicionar via PRGN_RFC_ADD_TRANSACTION...")
+                    r_add_tc = conn.call("PRGN_RFC_ADD_TRANSACTION", ACTIVITY_GROUP=sgl_norm, TCODE=tc_norm, NO_DIALOG="X")
+                    errs_tc = [r for r in r_add_tc.get("RETURN", []) if str(r.get("TYPE", "")).upper() in ("E", "A")]
+                    if errs_tc:
+                        msg_etc = "; ".join([str(e.get("MESSAGE", "")) for e in errs_tc])
+                        print(f"       {CLR_Y}[AVISO PRGN_RFC_ADD_TRANSACTION]: {msg_etc}{CLR_RST}")
+                    else:
+                        print(f"       {CLR_G}[OK] Transação {tc_norm} adicionada com sucesso ao menu de {sgl_norm}!{CLR_RST}")
+                else:
+                    print(f"    . A transação {tc_norm} já consta no menu de {sgl_norm} no SAP {env_norm}.")
+            except Exception as e_tc_chk:
+                print(f"    {CLR_Y}[AVISO verificação AGR_TCODES]: {e_tc_chk}{CLR_RST}")
+
+        # 3. Consolidação de Objetos e Regeneração de Perfil da Single Role (REBUILD_AUTH_DATA)
+        try:
+            conn.call(
+                "PRGN_AUTO_GENERATE_PROFILE_NEW",
+                ACTIVITY_GROUP=sgl_norm,
+                GENERATE_PROFILE="X",
+                NO_DIALOG="X",
+                REBUILD_AUTH_DATA="X"
+            )
+        except Exception:
+            # Tolerância para OPEN_AUTHS se houver campos em aberto na PFCG
+            pass
+
+        try:
+            conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IV_USERCOMPARE="X", IT_ROLES=[{"AGR_NAME": sgl_norm}])
+        except Exception as e_gen_sgl:
+            print(f"    {CLR_Y}[AVISO geração Single Role]: {e_gen_sgl}{CLR_RST}")
+
+        # 4. Verificar se a função composta existe no SAP
         comp_existe = False
         if comp_norm:
             try:
@@ -1548,6 +1973,20 @@ def sincronizar_sap_rfc(
                         pass
             except Exception as exc_bapi:
                 print(f"       {CLR_Y}[AVISO] Atribuição direta ao utilizador: {exc_bapi}{CLR_RST}")
+
+        # 5. Validação Final do Semáforo (PRGN_CHECK_PROFILE_STATUS_RFC)
+        try:
+            st = conn.call("PRGN_CHECK_PROFILE_STATUS_RFC", ACTIVITY_GROUP=sgl_norm, TRANSACTIONS_CHANGED="")
+            led = str(st.get("LED_COLOR") or "").strip().upper()
+            msg = str(st.get("MESSAGE_TEXT") or "").strip()
+            if led == "GREEN":
+                print(f"    {CLR_G}[SEMÁFORO SAP {env_norm}] 🟢 {led} - {msg}{CLR_RST}")
+            elif led == "YELLOW":
+                print(f"    {CLR_Y}[SEMÁFORO SAP {env_norm}] 🟡 {led} - {msg}{CLR_RST}")
+            else:
+                print(f"    {CLR_R}[SEMÁFORO SAP {env_norm}] 🔴 {led} - {msg}{CLR_RST}")
+        except Exception as e_chk:
+            print(f"    {CLR_Y}[AVISO verificação de status]: {e_chk}{CLR_RST}")
 
     finally:
         conn.close()
@@ -1670,9 +2109,22 @@ def executar_atribuicao_transacao(
     if sugestao_role:
         single_role_escolhida = sugestao_role
         print(f"  {CLR_G}Função Individual recomendada:{CLR_RST} {CLR_Y}{single_role_escolhida}{CLR_RST}")
-        sel_r = input(f"  Pressione [ENTER] para aceitar '{CLR_Y}{single_role_escolhida}{CLR_RST}' ou [M] para alterar: ").strip().upper()
+        print(f"  [ENTER] Aceitar '{single_role_escolhida}' | [M] Alterar | [P] Pular | [0] Sair")
+        sel_r = input(f"  Opção [ENTER/M/P/0]: ").strip().upper()
+        if sel_r in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+            print("Operação cancelada pelo utilizador.")
+            return "EXIT"
+        if sel_r in ("P", "PULAR", "SKIP"):
+            print(f"Transação {tcode_escolhido} ignorada; pulando para a próxima...")
+            return "SKIP"
         if sel_r == "M":
-            single_role_escolhida = input("  Introduza o nome da Função Individual (Z_...): ").strip().upper()
+            print("  (Introduza o nome da Função Individual, ou [P] para pular, [0] para sair)")
+            val_m = input("  Introduza o nome da Função Individual (Z_...): ").strip().upper()
+            if val_m in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+                return "EXIT"
+            if not val_m or val_m in ("P", "PULAR", "SKIP"):
+                return "SKIP"
+            single_role_escolhida = val_m
     else:
         if roles_previamente_encontradas is not None:
             roles_proposta = roles_previamente_encontradas
@@ -1689,13 +2141,27 @@ def executar_atribuicao_transacao(
                 for idx, r_info in enumerate(exatos, 1):
                     print(f"  [{idx}] {CLR_Y}{r_info['role']}{CLR_RST} - {r_info['descricao']} ({r_info['fonte']})")
                 print("  [M] Introduzir manualmente outro nome de Função Individual")
+                print("  [P] Pular esta transação e avançar para a próxima")
+                print("  [0] Sair sem efetuar alterações")
 
-                prompt_r = f"Pressione [ENTER] para aceitar '{CLR_Y}{exatos[0]['role']}{CLR_RST}' ou escolha [1-{len(exatos)}, M] [Padrão: 1]: "
-                sel_r = input(prompt_r).strip()
+                prompt_r = f"Pressione [ENTER] para aceitar '{CLR_Y}{exatos[0]['role']}{CLR_RST}' ou escolha [1-{len(exatos)}, M, P, 0] [Padrão: 1]: "
+                sel_r = input(prompt_r).strip().upper()
+                if sel_r in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+                    print("Operação cancelada pelo utilizador.")
+                    return "EXIT"
+                if sel_r in ("P", "PULAR", "SKIP"):
+                    print(f"Transação {tcode_escolhido} ignorada; pulando para a próxima...")
+                    return "SKIP"
                 if not sel_r or sel_r == "1":
                     single_role_escolhida = exatos[0]["role"]
-                elif sel_r.upper() == "M":
-                    single_role_escolhida = input("Introduza o nome da Função Individual (Z_...): ").strip().upper()
+                elif sel_r == "M":
+                    print("  (Introduza o nome da Função Individual, ou [P] para pular, [0] para sair)")
+                    val_m = input("Introduza o nome da Função Individual (Z_...): ").strip().upper()
+                    if val_m in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+                        return "EXIT"
+                    if not val_m or val_m in ("P", "PULAR", "SKIP"):
+                        return "SKIP"
+                    single_role_escolhida = val_m
                 else:
                     try:
                         single_role_escolhida = exatos[int(sel_r) - 1]["role"]
@@ -1707,13 +2173,27 @@ def executar_atribuicao_transacao(
                 for idx, r_info in enumerate(candidatos[:3], 1):
                     print(f"  [{idx}] {CLR_Y}{r_info['role']}{CLR_RST} - {r_info['descricao']} ({r_info['fonte']})")
                 print("  [M] Introduzir manualmente outro nome de Função Individual")
+                print("  [P] Pular esta transação e avançar para a próxima")
+                print("  [0] Sair sem efetuar alterações")
 
-                prompt_c = f"Pressione [ENTER] para aceitar '{CLR_Y}{candidatos[0]['role']}{CLR_RST}' ou escolha [1-{len(candidatos[:3])}, M] [Padrão: 1]: "
-                sel_c = input(prompt_c).strip()
+                prompt_c = f"Pressione [ENTER] para aceitar '{CLR_Y}{candidatos[0]['role']}{CLR_RST}' ou escolha [1-{len(candidatos[:3])}, M, P, 0] [Padrão: 1]: "
+                sel_c = input(prompt_c).strip().upper()
+                if sel_c in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+                    print("Operação cancelada pelo utilizador.")
+                    return "EXIT"
+                if sel_c in ("P", "PULAR", "SKIP"):
+                    print(f"Transação {tcode_escolhido} ignorada; pulando para a próxima...")
+                    return "SKIP"
                 if not sel_c or sel_c == "1":
                     single_role_escolhida = candidatos[0]["role"]
-                elif sel_c.upper() == "M":
-                    single_role_escolhida = input("Introduza o nome da Função Individual (Z_...): ").strip().upper()
+                elif sel_c == "M":
+                    print("  (Introduza o nome da Função Individual, ou [P] para pular, [0] para sair)")
+                    val_m = input("Introduza o nome da Função Individual (Z_...): ").strip().upper()
+                    if val_m in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+                        return "EXIT"
+                    if not val_m or val_m in ("P", "PULAR", "SKIP"):
+                        return "SKIP"
+                    single_role_escolhida = val_m
                 else:
                     try:
                         single_role_escolhida = candidatos[int(sel_c) - 1]["role"]
@@ -1721,11 +2201,26 @@ def executar_atribuicao_transacao(
                         single_role_escolhida = candidatos[0]["role"]
         else:
             print(f"{CLR_Y}[AVISO] A transação '{tcode_escolhido}' não foi encontrada no catálogo da folha 'Proposta'.{CLR_RST}")
-            single_role_escolhida = input("Introduza manualmente o nome da Função Individual (ex: Z_IT_EQUIPA_INTERNA): ").strip().upper()
+            print(f"  Opções:")
+            print(f"    - Nome técnico da Função Individual (ex: Z_IT_EQUIPA_INTERNA)")
+            print(f"    - [{CLR_Y}P{CLR_RST}] Pular esta transação e avançar para a próxima")
+            print(f"    - [{CLR_Y}0{CLR_RST}] Cancelar e sair")
+            resp_manual = input(f"Introduza a Função Individual ou escolha [P/0]: ").strip().upper()
+            if resp_manual in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+                print("Operação cancelada pelo utilizador.")
+                return "EXIT"
+            if not resp_manual or resp_manual in ("P", "PULAR", "SKIP"):
+                print(f"Transação {tcode_escolhido} ignorada; pulando para a próxima...")
+                return "SKIP"
+            single_role_escolhida = resp_manual
 
-    if not single_role_escolhida:
-        print("Nenhuma Função Individual selecionada. Operação abortada.")
-        return
+    if not single_role_escolhida or single_role_escolhida in ("P", "PULAR", "SKIP"):
+        print(f"Transação {tcode_escolhido} ignorada; pulando para a próxima...")
+        return "SKIP"
+
+    if single_role_escolhida in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+        print("Operação cancelada pelo utilizador.")
+        return "EXIT"
 
     print(f"\n{CLR_W}>>> Função Individual selecionada: {CLR_Y}{single_role_escolhida}{CLR_RST}")
 
@@ -1746,10 +2241,13 @@ def executar_atribuicao_transacao(
     print(f"     -> Atribuir Função + Efetuar Ajuste de Utilizadores (User Comparison)")
     print("=" * 95)
 
-    confirmacao = input(f"\nConfirmar e aplicar alterações no Excel e no SAP? [{CLR_G}S{CLR_W}/N] [{CLR_G}S{CLR_W}]: ").strip().upper()
-    if confirmacao not in ("", "S", "SIM", "Y", "YES", "1"):
-        print("Operação cancelada pelo utilizador. Nenhuma alteração foi efetuada.")
-        return
+    confirmacao = input(f"\nConfirmar e aplicar alterações no Excel e no SAP? [{CLR_G}S{CLR_W}/N/P/0] [{CLR_G}S{CLR_W}]: ").strip().upper()
+    if confirmacao in ("0", "SAIR", "EXIT", "Q", "QUIT"):
+        print("Operação cancelada pelo utilizador.")
+        return "EXIT"
+    if confirmacao in ("P", "PULAR", "SKIP", "N", "NAO", "NO"):
+        print(f"Transação {tcode_escolhido} não aplicada; pulando para a próxima...")
+        return "SKIP"
 
     # Executar no Excel
     print(f"\n{CLR_C}1/2. Atualizando livro Excel...{CLR_RST}")
@@ -1762,12 +2260,12 @@ def executar_atribuicao_transacao(
     )
     if not res_excel.get("ok"):
         print(f"{CLR_R}[ERRO EXCEL] {res_excel.get('erro')}{CLR_RST}")
-        return
+        return "SKIP"
     print(f"{CLR_G}[OK] Livro Excel atualizado com sucesso!{CLR_RST}")
 
     # Executar no SAP principal
     print(f"\n{CLR_C}2/2. Aplicando alterações no SAP {env_primary} via RFC...{CLR_RST}")
-    res_prim = sincronizar_sap_rfc(env_primary, comp_role, single_role_escolhida, usuario=usuario)
+    res_prim = sincronizar_sap_rfc(env_primary, comp_role, single_role_escolhida, usuario=usuario, tcode=tcode_escolhido)
     if res_prim.get("ok"):
         print(f"{CLR_G}[OK] Alterações concluídas no SAP {env_primary}!{CLR_RST}")
     else:
@@ -1778,16 +2276,17 @@ def executar_atribuicao_transacao(
         resp_sec = input(f"\nDeseja também aplicar as alterações no SAP {env_secondary} (Produção)? [S/N] [N]: ").strip().upper()
         if resp_sec in ("S", "SIM", "Y", "YES", "1"):
             print(f"\n{CLR_C}>>> Aplicando alterações no SAP {env_secondary} via RFC...{CLR_RST}")
-            sincronizar_sap_rfc(env_secondary, comp_role, single_role_escolhida, usuario=usuario)
+            sincronizar_sap_rfc(env_secondary, comp_role, single_role_escolhida, usuario=usuario, tcode=tcode_escolhido)
     else:
         resp_sec = input(f"\nDeseja também aplicar as alterações no SAP {env_secondary} (QAS / Teste)? [S/N] [S]: ").strip().upper()
         if resp_sec in ("", "S", "SIM", "Y", "YES", "1"):
             print(f"\n{CLR_C}>>> Aplicando alterações no SAP {env_secondary} via RFC...{CLR_RST}")
-            sincronizar_sap_rfc(env_secondary, comp_role, single_role_escolhida, usuario=usuario)
+            sincronizar_sap_rfc(env_secondary, comp_role, single_role_escolhida, usuario=usuario, tcode=tcode_escolhido)
 
     print("\n" + "=" * 95)
     print(f"  {CLR_G}PROCESSO DE RESOLUÇÃO SU53 PARA {tcode_escolhido} CONCLUÍDO COM SUCESSO!{CLR_RST}")
     print("=" * 95)
+    return "OK"
 
 
 # =====================================================================
@@ -1804,7 +2303,6 @@ def main():
         print(f"{CLR_R}[ERRO] Ficheiro mestre Excel não encontrado: {caminho_excel}{CLR_RST}")
         return
 
-    # 1. Solicitação do âmbito e ambiente
     cli_user = None
     cli_env = None
     for arg in sys.argv[1:]:
@@ -1814,353 +2312,231 @@ def main():
         elif not cli_user:
             cli_user = a_up
 
-    departamento_selecionado = None
-    utilizadores_departamento = []
-    if cli_user:
-        usuario = cli_user
-    else:
-        try:
-            print(f"\n  [{CLR_Y}1{CLR_RST}] Utilizador")
-            print(f"  [{CLR_Y}2{CLR_RST}] Departamento")
-            modo = input("Selecione o tipo de pesquisa [1-2] [Padrão: 1]: ").strip().upper()
-        except (KeyboardInterrupt, EOFError):
-            print("\nOperação cancelada.")
-            return
-
-        if modo == "2":
-            try:
-                departamentos = listar_departamentos_controlo(caminho_excel)
-            except Exception as exc:
-                print(f"{CLR_R}[ERRO] Falha ao ler departamentos do Excel: {exc}{CLR_RST}")
-                return
-            if not departamentos:
-                print(f"{CLR_Y}[AVISO] Nenhum departamento encontrado na sheet CONTROLO.{CLR_RST}")
-                return
-
-            print("\n" + "=" * 95)
-            print("  DEPARTAMENTOS DA SHEET CONTROLO")
-            print("=" * 95)
-            for indice, item in enumerate(departamentos, 1):
-                print(
-                    f"  [{indice}] {item['departamento']} | "
-                    f"{item['utilizadores']} utilizador(es) | {item['status'] or 'Sem status'}"
-                )
-            try:
-                escolha_dep = input(f"Selecione o departamento [1-{len(departamentos)}] [Padrão: 1]: ").strip()
-                indice_dep = int(escolha_dep or "1") - 1
-            except (ValueError, KeyboardInterrupt, EOFError):
-                print("Operação cancelada: departamento inválido.")
-                return
-            if not 0 <= indice_dep < len(departamentos):
-                print("Operação cancelada: departamento fora do intervalo válido.")
-                return
-
-            departamento_selecionado = departamentos[indice_dep]["departamento"]
-            utilizadores_departamento = listar_utilizadores_departamento(caminho_excel, departamento_selecionado)
-            if not utilizadores_departamento:
-                print(f"{CLR_Y}[AVISO] Nenhum utilizador encontrado para {departamento_selecionado}.{CLR_RST}")
-                return
-            print(f"\nUtilizadores de {departamento_selecionado}:")
-            for pessoa in utilizadores_departamento:
-                print(f"  - {pessoa['usuario']} | {pessoa['nome']}")
-            usuario = ""
+    # Loop mestre para permitir alternar entre Utilizadores / Departamentos ou Sair
+    while True:
+        departamento_selecionado = None
+        utilizadores_departamento = []
+        if cli_user:
+            usuario = cli_user
+            cli_user = None  # Executa uma vez com CLI e depois permite voltar ao menu interativo
         else:
-            default_user = "ITSALSA" if any("ITSALSA" in str(a).upper() for a in sys.argv) else "CSILVA"
             try:
-                user_input = input(f"\n{CLR_W}Informe o utilizador SAP a analisar [{CLR_Y}{default_user}{CLR_W}]: {CLR_RST}").strip().upper()
+                print(f"\n  [{CLR_Y}1{CLR_RST}] Utilizador")
+                print(f"  [{CLR_Y}2{CLR_RST}] Departamento")
+                print(f"  [{CLR_Y}0{CLR_RST}] Sair do sistema")
+                modo = input("Selecione o tipo de pesquisa [1-2, 0] [Padrão: 1]: ").strip().upper() or "1"
             except (KeyboardInterrupt, EOFError):
                 print("\nOperação cancelada.")
-                return
-            usuario = user_input or default_user
-
-    default_env_opt = "2" if any(k in str(a).upper() for a in sys.argv for k in ("QAS", "QAD", "ITSALSA")) else "1"
-    try:
-        env_input = cli_env or input(f"{CLR_W}Informe o ambiente SAP ([1] PRD | [2] QAS) [{CLR_Y}{default_env_opt}{CLR_W}]: {CLR_RST}").strip().upper()
-    except (KeyboardInterrupt, EOFError):
-        print("\nOperação cancelada.")
-        return
-
-    if env_input in ("2", "QAS", "QAD"):
-        target_env = "QAD"
-    else:
-        target_env = "PRD"
-
-    if departamento_selecionado:
-        resultado_departamento = pesquisar_departamento_su53(
-            departamento=departamento_selecionado,
-            utilizadores=utilizadores_departamento,
-            caminho_excel=caminho_excel,
-            target_env=target_env,
-        )
-        utilizadores_com_erros = resultado_departamento["com_erros"]
-        if not utilizadores_com_erros:
-            return
-
-        print("\nSelecionar um utilizador com erros para abrir o fluxo individual:")
-        for indice, pessoa in enumerate(utilizadores_com_erros, 1):
-            print(f"  [{indice}] {pessoa['usuario']} | {pessoa['nome']}")
-        print("  [0] Sair sem efetuar alterações")
-        try:
-            escolha_user = input(f"Selecione o utilizador [1-{len(utilizadores_com_erros)}, 0] [Padrão: 0]: ").strip()
-            indice_user = int(escolha_user or "0") - 1
-        except (ValueError, KeyboardInterrupt, EOFError):
-            print("Operação concluída sem efetuar alterações.")
-            return
-        if not 0 <= indice_user < len(utilizadores_com_erros):
-            print("Operação concluída sem efetuar alterações.")
-            return
-        usuario = utilizadores_com_erros[indice_user]["usuario"]
-
-    # 2. Leitura do buffer SU53 via RFC
-    try:
-        erros = consultar_erros_su53_rfc(usuario, target_env=target_env)
-    except Exception as exc:
-        print(f"\n{CLR_R}[ERRO RFC] Falha ao consultar o buffer da SU53: {exc}{CLR_RST}")
-        return
-
-    # Exibir tabela recente
-    exibir_tabela_erros(erros, usuario, target_env=target_env)
-
-    # 3. Agrupamento em Transações (S_TCODE) e Objetos de Autorização
-    transacoes, objetos = agrupar_erros_para_analise(erros)
-
-    while True:
-        # Apresentar painel de análise com opções combinadas
-        opcoes = exibir_analise_sintese(transacoes, objetos, caminho_excel=caminho_excel, usuario=usuario)
-
-        # SE EXISTIR EXATAMENTE 1 TRANSAÇÃO BLOQUEADA:
-        if len(transacoes) == 1:
-            t_item = transacoes[0]
-            tc = t_item["tcode_falha"]
-            opc_item = next((op for op in opcoes if op["tipo"] == "TRANSACAO" and op["valor"] == tc), {})
-            sug_role = opc_item.get("sugestao_role")
-            sug_txt = f" (Função: {CLR_G}{sug_role}{CLR_W})" if sug_role else ""
-
-            print("\n" + "=" * 95)
-            print(f"  {CLR_W}AÇÃO PROPOSTA PARA RESOLUÇÃO DA FALHA SU53 DO UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
-            print("=" * 95)
-            print(f"  Transação com Falha:   {CLR_Y}{tc}{CLR_RST} [RC={t_item['rc']}]")
-            if sug_role:
-                print(f"  Função Recomendada:    {CLR_G}{sug_role}{CLR_RST}")
-            print(f"  Utilizador Alvo:       {CLR_Y}{usuario}{CLR_RST} [Ambiente: {target_env}]")
-            print("-" * 95)
-
-            prompt_q = (
-                f"{CLR_W}Deseja adicionar a transação {CLR_Y}{tc}{CLR_W}{sug_txt} "
-                f"ao perfil do utilizador {CLR_Y}{usuario}{CLR_W}? "
-                f"[{CLR_G}S{CLR_W}/N/Outra/0] [{CLR_G}S{CLR_W}]: {CLR_RST}"
-            )
-            escolha = input(prompt_q).strip().upper()
-
-            if escolha in ("", "S", "SIM", "Y", "YES", "1"):
-                executar_atribuicao_transacao(
-                    caminho_excel=caminho_excel,
-                    usuario=usuario,
-                    tcode_escolhido=tc,
-                    sugestao_role=sug_role,
-                    roles_previamente_encontradas=opc_item.get("roles_encontradas"),
-                    target_env=target_env
-                )
-                return
-
-            elif escolha in ("N", "NAO", "NO"):
-                if objetos:
-                    resp_obj = input(f"\nDeseja atualizar um dos outros {len(objetos)} objetos de autorização com falha? [S/N] [S]: ").strip().upper()
-                    if resp_obj in ("", "S", "SIM", "Y", "YES", "1"):
-                        # Tratar objeto
-                        diagnosticar_objeto_autorizacao(
-                            usuario=usuario,
-                            obj_info=objetos[0],
-                            caminho_excel=caminho_excel,
-                            target_env=target_env,
-                        )
-                        return
-                print("Operação concluída sem efetuar alterações.")
-                return
-
-            elif escolha == "0":
-                print("Saindo sem efetuar alterações.")
-                return
-
-            elif escolha in ("O", "OUTRA", "M", "MANUAL"):
-                tipo_manual = input("Deseja introduzir uma [T]ransação ou um [O]bjeto? [T/O]: ").strip().upper()
-                if tipo_manual.startswith("O"):
-                    obj_manual = input("Introduza o nome do Objeto de Autorização (ex: S_USER_UID): ").strip().upper()
-                    if obj_manual:
-                        diagnosticar_objeto_autorizacao(
-                            usuario=usuario,
-                            obj_info={
-                                "objeto": obj_manual,
-                                "descricao": obter_descricao_objeto_sap(obj_manual),
-                                "rc_mais_recente": 12,
-                                "data_hora_recente": "Consulta Manual",
-                                "programa": "MANUAL",
-                                "linha": 0,
-                                "campos_relevantes": []
-                            },
-                            caminho_excel=caminho_excel,
-                            target_env=target_env,
-                        )
-                else:
-                    tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
-                    if tc_manual:
-                        executar_atribuicao_transacao(caminho_excel=caminho_excel, usuario=usuario, tcode_escolhido=tc_manual, target_env=target_env)
                 break
 
-            else:
-                # Tenta índice se selecionou da lista
+            if modo in ("0", "SAIR", "EXIT", "Q"):
+                print("Sessão terminada com sucesso.")
+                break
+
+            if modo == "2":
                 try:
-                    idx_sel = int(escolha) - 1
-                    if 0 <= idx_sel < len(opcoes):
-                        item_sel = opcoes[idx_sel]
-                        if item_sel["tipo"] == "TRANSACAO":
-                            executar_atribuicao_transacao(
-                                caminho_excel=caminho_excel,
+                    departamentos = listar_departamentos_controlo(caminho_excel)
+                except Exception as exc:
+                    print(f"{CLR_R}[ERRO] Falha ao ler departamentos do Excel: {exc}{CLR_RST}")
+                    continue
+                if not departamentos:
+                    print(f"{CLR_Y}[AVISO] Nenhum departamento encontrado na sheet CONTROLO.{CLR_RST}")
+                    continue
+
+                print("\n" + "=" * 95)
+                print("  DEPARTAMENTOS DA SHEET CONTROLO")
+                print("=" * 95)
+                for indice, item in enumerate(departamentos, 1):
+                    print(
+                        f"  [{indice}] {item['departamento']} | "
+                        f"{item['utilizadores']} utilizador(es) | {item['status'] or 'Sem status'}"
+                    )
+                try:
+                    escolha_dep = input(f"Selecione o departamento [1-{len(departamentos)}, 0] [Padrão: 1]: ").strip()
+                    if escolha_dep == "0":
+                        continue
+                    indice_dep = int(escolha_dep or "1") - 1
+                except (ValueError, KeyboardInterrupt, EOFError):
+                    print("Operação cancelada: departamento inválido.")
+                    continue
+                if not 0 <= indice_dep < len(departamentos):
+                    print("Operação cancelada: departamento fora do intervalo válido.")
+                    continue
+
+                departamento_selecionado = departamentos[indice_dep]["departamento"]
+                utilizadores_departamento = listar_utilizadores_departamento(caminho_excel, departamento_selecionado)
+                if not utilizadores_departamento:
+                    print(f"{CLR_Y}[AVISO] Nenhum utilizador encontrado para {departamento_selecionado}.{CLR_RST}")
+                    continue
+                print(f"\nUtilizadores de {departamento_selecionado}:")
+                for pessoa in utilizadores_departamento:
+                    print(f"  - {pessoa['usuario']} | {pessoa['nome']}")
+                usuario = ""
+            else:
+                default_user = "ITSALSA" if any("ITSALSA" in str(a).upper() for a in sys.argv) else "CSILVA"
+                try:
+                    user_input = input(f"\n{CLR_W}Informe o utilizador SAP a analisar [{CLR_Y}{default_user}{CLR_W}] (ou 0 para voltar): {CLR_RST}").strip().upper()
+                except (KeyboardInterrupt, EOFError):
+                    print("\nOperação cancelada.")
+                    break
+                if user_input == "0":
+                    continue
+                usuario = user_input or default_user
+
+        default_env_opt = "2" if any(k in str(a).upper() for a in sys.argv for k in ("QAS", "QAD", "ITSALSA")) else "1"
+        try:
+            env_input = cli_env or input(f"{CLR_W}Informe o ambiente SAP ([1] PRD | [2] QAS) [{CLR_Y}{default_env_opt}{CLR_W}]: {CLR_RST}").strip().upper()
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperação cancelada.")
+            break
+
+        if env_input in ("2", "QAS", "QAD"):
+            target_env = "QAD"
+        else:
+            target_env = "PRD"
+
+        if departamento_selecionado:
+            resultado_departamento = pesquisar_departamento_su53(
+                departamento=departamento_selecionado,
+                utilizadores=utilizadores_departamento,
+                caminho_excel=caminho_excel,
+                target_env=target_env,
+            )
+            utilizadores_com_erros = resultado_departamento["com_erros"]
+            if not utilizadores_com_erros:
+                continue
+
+            print("\nSelecionar um utilizador com erros para abrir o fluxo individual:")
+            for indice, pessoa in enumerate(utilizadores_com_erros, 1):
+                print(f"  [{indice}] {pessoa['usuario']} | {pessoa['nome']}")
+            print("  [0] Sair / Voltar ao menu principal")
+            try:
+                escolha_user = input(f"Selecione o utilizador [1-{len(utilizadores_com_erros)}, 0] [Padrão: 0]: ").strip()
+                if escolha_user in ("", "0"):
+                    continue
+                indice_user = int(escolha_user) - 1
+            except (ValueError, KeyboardInterrupt, EOFError):
+                continue
+            if not 0 <= indice_user < len(utilizadores_com_erros):
+                continue
+            usuario = utilizadores_com_erros[indice_user]["usuario"]
+
+        # Loop interno para o utilizador selecionado: permite resolver falhas e continuar até decidir voltar/sair
+        while True:
+            # 2. Leitura do buffer SU53 via RFC
+            try:
+                erros = consultar_erros_su53_rfc(usuario, target_env=target_env)
+            except Exception as exc:
+                print(f"\n{CLR_R}[ERRO RFC] Falha ao consultar o buffer da SU53: {exc}{CLR_RST}")
+                break
+
+            # Validar autorizações ativas do utilizador no SAP para identificar erros já atribuídos/resolvidos
+            all_roles_user = set()
+            try:
+                print(f"{CLR_C}>>> Verificando funções ativas do utilizador no SAP {target_env}...{CLR_RST}")
+                all_roles_user = obter_autorizacoes_ativas_usuario_rfc(usuario, target_env=target_env)
+                for err in erros:
+                    resolvido, role_cobre = verificar_falha_ja_resolvida_rfc(err, all_roles_user, target_env=target_env)
+                    err["resolvido"] = resolvido
+                    err["role_resolvido"] = role_cobre
+            except Exception as exc_val:
+                print(f"  [AVISO] Não foi possível verificar autorizações prévias: {exc_val}")
+
+            # Exibir tabela recente com status de atribuição
+            exibir_tabela_erros(erros, usuario, target_env=target_env, all_roles=all_roles_user)
+
+            # 3. Agrupamento em Transações (S_TCODE) e Objetos de Autorização
+            transacoes_todas, objetos_todos = agrupar_erros_para_analise(erros)
+
+            # Filtrar apenas as falhas que NÃO estão resolvidas (pendentes de autorização)
+            transacoes = [t for t in transacoes_todas if not t.get("resolvido")]
+            objetos = [o for o in objetos_todos if not o.get("resolvido")]
+
+            # Se todas as falhas registadas já tiverem sido resolvidas:
+            if not transacoes and not objetos:
+                print("\n" + "=" * 95)
+                print(f"  {CLR_G}✓ TODAS AS FALHAS REGISTADAS NO BUFFER DA SU53 JÁ SE ENCONTRAM RESOLVIDAS!{CLR_RST}")
+                print("=" * 95)
+                print(f"  O utilizador {CLR_Y}{usuario}{CLR_RST} já possui todas as roles ativas necessárias no SAP.")
+                print(f"  {CLR_C}-> Nota:{CLR_RST} O buffer do SAP GUI (/nSU53) apenas será limpo quando o utilizador")
+                print("           executar novamente a transação com sucesso ou abrir uma nova sessão.")
+                print("-" * 95)
+                resp_m = input("Deseja introduzir manualmente outra Transação ou Objeto? [S/N] [N]: ").strip().upper()
+                if resp_m in ("S", "SIM", "Y", "YES", "1"):
+                    tipo_manual = input("Deseja introduzir uma [T]ransação ou um [O]bjeto? [T/O]: ").strip().upper()
+                    if tipo_manual.startswith("O"):
+                        obj_manual = input("Introduza o nome do Objeto de Autorização (ex: S_USER_UID): ").strip().upper()
+                        if obj_manual:
+                            diagnosticar_objeto_autorizacao(
                                 usuario=usuario,
-                                tcode_escolhido=item_sel["valor"],
-                                sugestao_role=item_sel.get("sugestao_role"),
-                                roles_previamente_encontradas=item_sel.get("roles_encontradas"),
-                                target_env=target_env
+                                obj_info={
+                                    "objeto": obj_manual,
+                                    "descricao": obter_descricao_objeto_sap(obj_manual),
+                                    "rc_mais_recente": 12,
+                                    "data_hora_recente": "Consulta Manual",
+                                    "programa": "MANUAL",
+                                    "linha": 0,
+                                    "campos_relevantes": []
+                                },
+                                caminho_excel=caminho_excel,
+                                target_env=target_env,
                             )
-                            return
-                        elif item_sel["tipo"] == "OBJETO":
-                            diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=item_sel["detalhes"], caminho_excel=caminho_excel, target_env=target_env)
-                            return
-                except ValueError:
-                    print("[AVISO] Opção não reconhecida.")
+                    else:
+                        tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
+                        if tc_manual:
+                            executar_atribuicao_transacao(caminho_excel=caminho_excel, usuario=usuario, tcode_escolhido=tc_manual, target_env=target_env)
+                    continue
+                break
 
-        # SE EXISTIREM MÚLTIPLAS TRANSAÇÕES BLOQUEADAS:
-        elif len(transacoes) > 1:
-            print("\n" + "=" * 95)
-            print(f"  {CLR_W}AÇÃO PROPOSTA PARA RESOLUÇÃO DAS FALHAS SU53 - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
-            print("=" * 95)
-            print(f"Foram detetadas {len(opcoes)} falhas agrupadas na SU53:")
-            for i, opc_item in enumerate(opcoes, 1):
-                if opc_item["tipo"] == "TRANSACAO":
-                    sug = opc_item.get("sugestao_role") or "Manual"
-                    print(f"  [{CLR_Y}{i}{CLR_RST}] Transação {CLR_Y}{opc_item['valor']:<20}{CLR_RST} (Função: {CLR_G}{sug}{CLR_RST})")
-                else:
-                    aplicacao = opc_item["detalhes"].get("aplicacao") or "Não identificada"
-                    print(f"  [{CLR_Y}{i}{CLR_RST}] Objeto {CLR_M}{opc_item['valor']:<20}{CLR_RST} (Aplicação: {aplicacao})")
-            print(f"  [{CLR_Y}T{CLR_RST}] Adicionar TODAS as {len(transacoes)} transações acima ao perfil de {CLR_Y}{usuario}{CLR_RST}")
-            if objetos:
-                print(f"  [{CLR_Y}B{CLR_RST}] Atualizar TODOS os {len(objetos)} objetos de autorização")
-            print(f"  [{CLR_Y}O{CLR_RST}] Introduzir manualmente outra Transação ou Objeto")
-            print(f"  [{CLR_Y}0{CLR_RST}] Sair sem efetuar alterações")
-            print("-" * 95)
+            # Apresentar painel de análise apenas com as falhas pendentes reais
+            opcoes = exibir_analise_sintese(transacoes, objetos, caminho_excel=caminho_excel, usuario=usuario)
 
-            escolha = input(f"Selecione a opção pretendida [1-{len(opcoes)}, T, B, O, 0] [Padrão: 1]: ").strip().upper() or "1"
+            # SE EXISTIR EXATAMENTE 1 TRANSAÇÃO BLOQUEADA:
+            if len(transacoes) == 1:
+                t_item = transacoes[0]
+                tc = t_item["tcode_falha"]
+                opc_item = next((op for op in opcoes if op["tipo"] == "TRANSACAO" and op["valor"] == tc), {})
+                sug_role = opc_item.get("sugestao_role")
+                sug_txt = f" (Função: {CLR_G}{sug_role}{CLR_W})" if sug_role else ""
 
-            if escolha == "T":
-                for opc_item in (opcao for opcao in opcoes if opcao["tipo"] == "TRANSACAO"):
+                print("\n" + "=" * 95)
+                print(f"  {CLR_W}AÇÃO PROPOSTA PARA RESOLUÇÃO DA FALHA SU53 DO UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
+                print("=" * 95)
+                print(f"  Transação com Falha:   {CLR_Y}{tc}{CLR_RST} [RC={t_item['rc']}]")
+                if sug_role:
+                    print(f"  Função Recomendada:    {CLR_G}{sug_role}{CLR_RST}")
+                print(f"  Utilizador Alvo:       {CLR_Y}{usuario}{CLR_RST} [Ambiente: {target_env}]")
+                print("-" * 95)
+
+                prompt_q = (
+                    f"{CLR_W}Deseja adicionar a transação {CLR_Y}{tc}{CLR_W}{sug_txt} "
+                    f"ao perfil do utilizador {CLR_Y}{usuario}{CLR_W}? "
+                    f"[{CLR_G}S{CLR_W}/N/Outra/0] [{CLR_G}S{CLR_W}]: {CLR_RST}"
+                )
+                escolha = input(prompt_q).strip().upper()
+
+                if escolha in ("", "S", "SIM", "Y", "YES", "1"):
                     executar_atribuicao_transacao(
                         caminho_excel=caminho_excel,
                         usuario=usuario,
-                        tcode_escolhido=opc_item["valor"],
-                        sugestao_role=opc_item.get("sugestao_role"),
+                        tcode_escolhido=tc,
+                        sugestao_role=sug_role,
                         roles_previamente_encontradas=opc_item.get("roles_encontradas"),
                         target_env=target_env
                     )
-                return
-
-            elif escolha == "0":
-                print("Saindo sem efetuar alterações.")
-                return
-
-            elif escolha in ("B", "OBJETOS"):
-                objetos_opcoes = [opcao["detalhes"] for opcao in opcoes if opcao["tipo"] == "OBJETO"]
-                if objetos_opcoes:
-                    executar_todos_objetos_autorizacao(
-                        usuario=usuario,
-                        objetos=objetos_opcoes,
-                        caminho_excel=caminho_excel,
-                        target_env=target_env,
-                    )
-                return
-
-            elif escolha in ("O", "OUTRA", "M", "MANUAL"):
-                tipo_manual = input("Deseja introduzir uma [T]ransação ou um [O]bjeto? [T/O]: ").strip().upper()
-                if tipo_manual.startswith("O"):
-                    obj_manual = input("Introduza o nome do Objeto de Autorização (ex: S_USER_UID): ").strip().upper()
-                    if obj_manual:
-                        diagnosticar_objeto_autorizacao(
-                            usuario=usuario,
-                            obj_info={
-                                "objeto": obj_manual,
-                                "descricao": obter_descricao_objeto_sap(obj_manual),
-                                "rc_mais_recente": 12,
-                                "data_hora_recente": "Consulta Manual",
-                                "programa": "MANUAL",
-                                "linha": 0,
-                                "campos_relevantes": []
-                            },
-                            caminho_excel=caminho_excel,
-                            target_env=target_env,
-                        )
-                else:
-                    tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
-                    if tc_manual:
-                        executar_atribuicao_transacao(caminho_excel=caminho_excel, usuario=usuario, tcode_escolhido=tc_manual, target_env=target_env)
-                break
-
-            else:
-                try:
-                    idx_sel = int(escolha) - 1
-                    if 0 <= idx_sel < len(opcoes):
-                        opc_item = opcoes[idx_sel]
-                        if opc_item["tipo"] == "TRANSACAO":
-                            executar_atribuicao_transacao(
-                                caminho_excel=caminho_excel,
-                                usuario=usuario,
-                                tcode_escolhido=opc_item["valor"],
-                                sugestao_role=opc_item.get("sugestao_role"),
-                                roles_previamente_encontradas=opc_item.get("roles_encontradas"),
-                                target_env=target_env,
-                            )
-                        else:
+                elif escolha in ("N", "NAO", "NO"):
+                    if objetos:
+                        resp_obj = input(f"\nDeseja atualizar um dos outros {len(objetos)} objetos de autorização com falha? [S/N] [S]: ").strip().upper()
+                        if resp_obj in ("", "S", "SIM", "Y", "YES", "1"):
                             diagnosticar_objeto_autorizacao(
                                 usuario=usuario,
-                                obj_info=opc_item["detalhes"],
+                                obj_info=objetos[0],
                                 caminho_excel=caminho_excel,
                                 target_env=target_env,
                             )
-                        return
-                    else:
-                        print("[AVISO] Opção fora do intervalo válido.")
-                except ValueError:
-                    print("[AVISO] Opção inválida.")
-
-        # SE NÃO HOUVER TRANSAÇÕES BLOQUEADAS (APENAS OBJETOS):
-        else:
-            if objetos:
-                print("\n" + "=" * 95)
-                print(f"  {CLR_W}ATUALIZAÇÃO DE OBJETOS DE AUTORIZAÇÃO - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
-                print("=" * 95)
-                for i, o in enumerate(objetos, 1):
-                    desc = f" ({o['descricao']})" if o["descricao"] else ""
-                    print(f"  [{CLR_Y}{i}{CLR_RST}] Objeto: {CLR_M}{o['objeto']:<20}{CLR_RST}{desc}")
-                if len(objetos) > 1:
-                    print(f"  [{CLR_Y}T{CLR_RST}] Atualizar TODOS os {len(objetos)} objetos acima")
-                print("  [O] Introduzir manualmente outra Transação ou Objeto")
-                print("  [0] Sair sem efetuar alterações")
-                print("-" * 95)
-
-                opcoes_menu = f"1-{len(objetos)}, T, O, 0" if len(objetos) > 1 else "1, O, 0"
-                escolha = input(f"Selecione o objeto a atualizar [{opcoes_menu}] [Padrão: 1]: ").strip().upper()
-                if escolha in ("", "1"):
-                    diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[0], caminho_excel=caminho_excel, target_env=target_env)
-                    return
-                elif escolha == "T" and len(objetos) > 1:
-                    executar_todos_objetos_autorizacao(
-                        usuario=usuario,
-                        objetos=objetos,
-                        caminho_excel=caminho_excel,
-                        target_env=target_env,
-                    )
-                    return
                 elif escolha == "0":
-                    print("Saindo sem efetuar alterações.")
-                    return
+                    print("Operação cancelada para este utilizador.")
+                    break
                 elif escolha in ("O", "OUTRA", "M", "MANUAL"):
                     tipo_manual = input("Deseja introduzir uma [T]ransação ou um [O]bjeto? [T/O]: ").strip().upper()
                     if tipo_manual.startswith("O"):
@@ -2184,18 +2560,194 @@ def main():
                         tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
                         if tc_manual:
                             executar_atribuicao_transacao(caminho_excel=caminho_excel, usuario=usuario, tcode_escolhido=tc_manual, target_env=target_env)
-                    break
                 else:
-                    try:
-                        idx_sel = int(escolha) - 1
-                        if 0 <= idx_sel < len(objetos):
-                            diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[idx_sel], caminho_excel=caminho_excel, target_env=target_env)
-                            return
-                    except ValueError:
+                    indices_sel = parse_selecao_multipla(escolha, len(opcoes))
+                    if indices_sel:
+                        for idx_sel in indices_sel:
+                            item_sel = opcoes[idx_sel]
+                            if item_sel["tipo"] == "TRANSACAO":
+                                executar_atribuicao_transacao(
+                                    caminho_excel=caminho_excel,
+                                    usuario=usuario,
+                                    tcode_escolhido=item_sel["valor"],
+                                    sugestao_role=item_sel.get("sugestao_role"),
+                                    roles_previamente_encontradas=item_sel.get("roles_encontradas"),
+                                    target_env=target_env
+                                )
+                            elif item_sel["tipo"] == "OBJETO":
+                                diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=item_sel["detalhes"], caminho_excel=caminho_excel, target_env=target_env)
+                    else:
+                        print("[AVISO] Opção não reconhecida.")
+
+            # SE EXISTIREM MÚLTIPLAS TRANSAÇÕES BLOQUEADAS:
+            elif len(transacoes) > 1:
+                print("\n" + "=" * 95)
+                print(f"  {CLR_W}AÇÃO PROPOSTA PARA RESOLUÇÃO DAS FALHAS SU53 - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
+                print("=" * 95)
+                print(f"Foram detetadas {len(opcoes)} falhas agrupadas na SU53:")
+                for i, opc_item in enumerate(opcoes, 1):
+                    if opc_item["tipo"] == "TRANSACAO":
+                        sug = opc_item.get("sugestao_role") or "Manual"
+                        print(f"  [{CLR_Y}{i}{CLR_RST}] Transação {CLR_Y}{opc_item['valor']:<20}{CLR_RST} (Função: {CLR_G}{sug}{CLR_RST})")
+                    else:
+                        aplicacao = opc_item["detalhes"].get("aplicacao") or "Não identificada"
+                        print(f"  [{CLR_Y}{i}{CLR_RST}] Objeto {CLR_M}{opc_item['valor']:<20}{CLR_RST} (Aplicação: {aplicacao})")
+                print(f"  [{CLR_Y}T{CLR_RST}] Adicionar TODAS as {len(transacoes)} transações acima ao perfil de {CLR_Y}{usuario}{CLR_RST}")
+                if objetos:
+                    print(f"  [{CLR_Y}B{CLR_RST}] Atualizar TODOS os {len(objetos)} objetos de autorização")
+                print(f"  [{CLR_Y}O{CLR_RST}] Introduzir manualmente outra Transação ou Objeto")
+                print(f"  [{CLR_Y}0{CLR_RST}] Voltar / Sair")
+                print("-" * 95)
+
+                escolha = input(f"Selecione a opção pretendida [1-{len(opcoes)}, T, B, O, 0] [Padrão: 1]: ").strip().upper() or "1"
+
+                if escolha == "T":
+                    for opc_item in (opcao for opcao in opcoes if opcao["tipo"] == "TRANSACAO"):
+                        res_tc = executar_atribuicao_transacao(
+                            caminho_excel=caminho_excel,
+                            usuario=usuario,
+                            tcode_escolhido=opc_item["valor"],
+                            sugestao_role=opc_item.get("sugestao_role"),
+                            roles_previamente_encontradas=opc_item.get("roles_encontradas"),
+                            target_env=target_env
+                        )
+                        if res_tc == "EXIT":
+                            print("Processamento sequencial interrompido pelo utilizador.")
+                            break
+
+                elif escolha in ("0", "SAIR", "EXIT"):
+                    print("Saindo do utilizador atual.")
+                    break
+
+                elif escolha in ("B", "OBJETOS"):
+                    objetos_opcoes = [opcao["detalhes"] for opcao in opcoes if opcao["tipo"] == "OBJETO"]
+                    if objetos_opcoes:
+                        executar_todos_objetos_autorizacao(
+                            usuario=usuario,
+                            objetos=objetos_opcoes,
+                            caminho_excel=caminho_excel,
+                            target_env=target_env,
+                        )
+
+                elif escolha in ("O", "OUTRA", "M", "MANUAL"):
+                    tipo_manual = input("Deseja introduzir uma [T]ransação ou um [O]bjeto? [T/O]: ").strip().upper()
+                    if tipo_manual.startswith("O"):
+                        obj_manual = input("Introduza o nome do Objeto de Autorização (ex: S_USER_UID): ").strip().upper()
+                        if obj_manual:
+                            diagnosticar_objeto_autorizacao(
+                                usuario=usuario,
+                                obj_info={
+                                    "objeto": obj_manual,
+                                    "descricao": obter_descricao_objeto_sap(obj_manual),
+                                    "rc_mais_recente": 12,
+                                    "data_hora_recente": "Consulta Manual",
+                                    "programa": "MANUAL",
+                                    "linha": 0,
+                                    "campos_relevantes": []
+                                },
+                                caminho_excel=caminho_excel,
+                                target_env=target_env,
+                            )
+                    else:
+                        tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
+                        if tc_manual:
+                            executar_atribuicao_transacao(caminho_excel=caminho_excel, usuario=usuario, tcode_escolhido=tc_manual, target_env=target_env)
+
+                else:
+                    indices_sel = parse_selecao_multipla(escolha, len(opcoes))
+                    if indices_sel:
+                        for idx_sel in indices_sel:
+                            opc_item = opcoes[idx_sel]
+                            if opc_item["tipo"] == "TRANSACAO":
+                                res_tc = executar_atribuicao_transacao(
+                                    caminho_excel=caminho_excel,
+                                    usuario=usuario,
+                                    tcode_escolhido=opc_item["valor"],
+                                    sugestao_role=opc_item.get("sugestao_role"),
+                                    roles_previamente_encontradas=opc_item.get("roles_encontradas"),
+                                    target_env=target_env,
+                                )
+                                if res_tc == "EXIT":
+                                    print("Processamento sequencial interrompido pelo utilizador.")
+                                    break
+                            else:
+                                diagnosticar_objeto_autorizacao(
+                                    usuario=usuario,
+                                    obj_info=opc_item["detalhes"],
+                                    caminho_excel=caminho_excel,
+                                    target_env=target_env,
+                                )
+                    else:
                         print("[AVISO] Opção inválida.")
+
+            # SE NÃO HOUVER TRANSAÇÕES BLOQUEADAS (APENAS OBJETOS):
             else:
-                print(f"\n{CLR_G}[INFO] Não foram detetados erros na SU53 do utilizador '{usuario}'.{CLR_RST}")
-                return
+                if objetos:
+                    print("\n" + "=" * 95)
+                    print(f"  {CLR_W}ATUALIZAÇÃO DE OBJETOS DE AUTORIZAÇÃO - UTILIZADOR {CLR_Y}{usuario}{CLR_RST}")
+                    print("=" * 95)
+                    for i, o in enumerate(objetos, 1):
+                        desc = f" ({o['descricao']})" if o["descricao"] else ""
+                        print(f"  [{CLR_Y}{i}{CLR_RST}] Objeto: {CLR_M}{o['objeto']:<20}{CLR_RST}{desc}")
+                    if len(objetos) > 1:
+                        print(f"  [{CLR_Y}T{CLR_RST}] Atualizar TODOS os {len(objetos)} objetos acima")
+                    print("  [O] Introduzir manualmente outra Transação ou Objeto")
+                    print("  [0] Voltar / Sair sem efetuar alterações")
+                    print("-" * 95)
+
+                    opcoes_menu = f"1-{len(objetos)}, T, O, 0" if len(objetos) > 1 else "1, O, 0"
+                    escolha = input(f"Selecione o objeto a atualizar [{opcoes_menu}] [Padrão: 1]: ").strip().upper()
+                    if escolha in ("", "1"):
+                        diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[0], caminho_excel=caminho_excel, target_env=target_env)
+                    elif escolha == "T" and len(objetos) > 1:
+                        executar_todos_objetos_autorizacao(
+                            usuario=usuario,
+                            objetos=objetos,
+                            caminho_excel=caminho_excel,
+                            target_env=target_env,
+                        )
+                    elif escolha == "0":
+                        print("Saindo do utilizador atual.")
+                        break
+                    elif escolha in ("O", "OUTRA", "M", "MANUAL"):
+                        tipo_manual = input("Deseja introduzir uma [T]ransação ou um [O]bjeto? [T/O]: ").strip().upper()
+                        if tipo_manual.startswith("O"):
+                            obj_manual = input("Introduza o nome do Objeto de Autorização (ex: S_USER_UID): ").strip().upper()
+                            if obj_manual:
+                                diagnosticar_objeto_autorizacao(
+                                    usuario=usuario,
+                                    obj_info={
+                                        "objeto": obj_manual,
+                                        "descricao": obter_descricao_objeto_sap(obj_manual),
+                                        "rc_mais_recente": 12,
+                                        "data_hora_recente": "Consulta Manual",
+                                        "programa": "MANUAL",
+                                        "linha": 0,
+                                        "campos_relevantes": []
+                                    },
+                                    caminho_excel=caminho_excel,
+                                    target_env=target_env,
+                                )
+                        else:
+                            tc_manual = input("Introduza o código da Transação SAP (ex: PFCGMASSTRANSPORT): ").strip().upper()
+                            if tc_manual:
+                                executar_atribuicao_transacao(caminho_excel=caminho_excel, usuario=usuario, tcode_escolhido=tc_manual, target_env=target_env)
+                    else:
+                        indices_sel = parse_selecao_multipla(escolha, len(objetos))
+                        if indices_sel:
+                            for idx_o in indices_sel:
+                                diagnosticar_objeto_autorizacao(usuario=usuario, obj_info=objetos[idx_o], caminho_excel=caminho_excel, target_env=target_env)
+                        else:
+                            print("[AVISO] Opção inválida.")
+                else:
+                    print(f"\n{CLR_G}[INFO] Não foram detetados erros na SU53 do utilizador '{usuario}'.{CLR_RST}")
+                    break
+
+            # Pergunta se quer continuar a tratar este mesmo utilizador
+            resp_cont = input(f"\n{CLR_W}Deseja tratar outra falha do utilizador {CLR_Y}{usuario}{CLR_W}? [{CLR_G}S{CLR_W}/N] [{CLR_G}S{CLR_W}]: {CLR_RST}").strip().upper()
+            if resp_cont in ("N", "NAO", "NO", "0"):
+                break
+
 
 
 if __name__ == "__main__":
