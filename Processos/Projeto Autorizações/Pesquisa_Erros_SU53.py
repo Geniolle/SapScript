@@ -939,11 +939,28 @@ def executar_atualizacao_objeto_rfc(
             except Exception as e_gen:
                 print(f"     {CLR_Y}[AVISO geração]: {e_gen}{CLR_RST}")
 
-            # Validar semáforo
+            # Validar semáforo e auto-regenerar caso permaneça amarelo
             try:
                 st = conn.call("PRGN_CHECK_PROFILE_STATUS_RFC", ACTIVITY_GROUP=role, TRANSACTIONS_CHANGED="")
                 led = str(st.get("LED_COLOR") or "").strip().upper()
                 msg = str(st.get("MESSAGE_TEXT") or "").strip()
+                if led != "GREEN":
+                    # Tentativa de consolidação e regeneração de perfil em background
+                    try:
+                        conn.call(
+                            "PRGN_AUTO_GENERATE_PROFILE_NEW",
+                            ACTIVITY_GROUP=role,
+                            GENERATE_PROFILE="X",
+                            NO_DIALOG="X",
+                            REBUILD_AUTH_DATA="X"
+                        )
+                        conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IV_USERCOMPARE="X", IT_ROLES=[{"AGR_NAME": role}])
+                        st = conn.call("PRGN_CHECK_PROFILE_STATUS_RFC", ACTIVITY_GROUP=role, TRANSACTIONS_CHANGED="")
+                        led = str(st.get("LED_COLOR") or "").strip().upper()
+                        msg = str(st.get("MESSAGE_TEXT") or "").strip()
+                    except Exception:
+                        pass
+
                 if led == "GREEN":
                     print(f"     {CLR_G}[SEMÁFORO {env}] 🟢 {led} - {msg}{CLR_RST}")
                 else:
