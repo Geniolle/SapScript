@@ -795,10 +795,12 @@ def classificar_modo_objeto(registos: List[Dict[str, Any]]) -> str:
 
 
 def valor_autorizacao_cobre(valor_existente: str, valor_pedido: str) -> bool:
-    """Reconhece autorização total como cobertura de qualquer valor específico."""
+    """Reconhece autorização total ou variável organizacional como cobertura de qualquer valor específico."""
     existente = str(valor_existente or "").strip().upper()
     pedido = str(valor_pedido or "").strip().upper()
-    return existente == "*" or existente == pedido
+    if existente in ("*", "$WERKS", "$BUKRS", "$EKORG", "$VKORG", "$VTWEG", "$SPART", "$KOKRS", "$PRCTR"):
+        return True
+    return existente == pedido
 
 
 def _validar_roles_existentes_rfc(roles: List[str], target_env: str) -> List[str]:
