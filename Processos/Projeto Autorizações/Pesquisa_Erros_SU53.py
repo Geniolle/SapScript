@@ -2241,16 +2241,9 @@ def executar_atribuicao_transacao(
     print(f"     -> Atribuir Função + Efetuar Ajuste de Utilizadores (User Comparison)")
     print("=" * 95)
 
-    confirmacao = input(f"\nConfirmar e aplicar alterações no Excel e no SAP? [{CLR_G}S{CLR_W}/N/P/0] [{CLR_G}S{CLR_W}]: ").strip().upper()
-    if confirmacao in ("0", "SAIR", "EXIT", "Q", "QUIT"):
-        print("Operação cancelada pelo utilizador.")
-        return "EXIT"
-    if confirmacao in ("P", "PULAR", "SKIP", "N", "NAO", "NO"):
-        print(f"Transação {tcode_escolhido} não aplicada; pulando para a próxima...")
-        return "SKIP"
-
+    # Execução direta e obrigatória no Excel e no SAP (sem confirmação redundante)
     # Executar no Excel
-    print(f"\n{CLR_C}1/2. Atualizando livro Excel...{CLR_RST}")
+    print(f"\n{CLR_C}1/2. Atualizando livro Excel (obrigatório)...{CLR_RST}")
     res_excel = aplicar_alteracoes_excel(
         caminho_excel=caminho_excel,
         dados_user=dados_user,
