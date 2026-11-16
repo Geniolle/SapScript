@@ -12001,6 +12001,27 @@
             }
         }
 
+        if (actionId === 'user-search-by-username' || actionId === 'user-search-by-name' || actionId === 'user-search-by-email') {
+            if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
+            if (actionId === 'user-search-by-username') {
+                asiAppendMessage(asiCreateMessage('user', 'Pesquisar por User SAP'));
+                asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP? (ex.: CLOPES)'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT_DIRECT, isBusy: false };
+            } else if (actionId === 'user-search-by-name') {
+                asiAppendMessage(asiCreateMessage('user', 'Pesquisar por Nome do colaborador'));
+                asiAppendMessage(asiCreateMessage('assistant', 'Escreva o nome do colaborador (ou parte) a pesquisar no SAP:'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT_NAME, isBusy: false };
+            } else if (actionId === 'user-search-by-email') {
+                asiAppendMessage(asiCreateMessage('user', 'Pesquisar por Email'));
+                asiAppendMessage(asiCreateMessage('assistant', 'Escreva o email do colaborador a pesquisar no SAP:'));
+                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT_EMAIL, isBusy: false };
+            }
+            asiUpdateComposerState();
+            const { input } = asiGetElements();
+            if (input) input.focus();
+            return;
+        }
+
         const action = asiFindQuickAction(actionId, salsaAgentActions);
         if (!action) return;
 
@@ -12365,22 +12386,14 @@
         if (action.id === 'user-individual-password') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             asiAppendMessage(asiCreateMessage('user', action.prompt));
-            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP a quem quer alterar a senha? (ex.: CLOPES)'));
-            asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_PASSWORD_CHANGE_USER_INPUT };
-            asiUpdateComposerState();
-            const { input } = asiGetElements();
-            if (input) input.focus();
+            asiPresentUserSearchOptions('user-individual-password', 'Para alterar a senha, como deseja identificar o utilizador?');
             return;
         }
 
         if (action.id === 'user-individual-unlock') {
             if (asiChatMockTimer) { clearTimeout(asiChatMockTimer); asiChatMockTimer = null; }
             asiAppendMessage(asiCreateMessage('user', action.prompt));
-            asiAppendMessage(asiCreateMessage('assistant', 'Qual é o utilizador SAP a desbloquear? (ex.: CLOPES)'));
-            asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_UNLOCK_USER_INPUT };
-            asiUpdateComposerState();
-            const { input } = asiGetElements();
-            if (input) input.focus();
+            asiPresentUserSearchOptions('user-individual-unlock', 'Para desbloquear o utilizador, como deseja identificá-lo?');
             return;
         }
 
@@ -12610,6 +12623,17 @@
 
         if (!messages.dataset.bound) {
             messages.addEventListener('click', function(event) {
+                const pickUserBtn = event.target.closest('.asi-btn-pick-user');
+                if (pickUserBtn) {
+                    const pickedUsername = pickUserBtn.getAttribute('data-username') || '';
+                    if (pickedUsername) {
+                        const targetAction = asiConversationState.userSearchTargetAction || 'user-individual-password';
+                        asiAppendMessage(asiCreateMessage('user', `Selecionado: ${pickedUsername}`));
+                        asiExecuteUserTargetAction(targetAction, pickedUsername);
+                        return;
+                    }
+                }
+
                 const quickAction = event.target.closest('[data-agent-action-id]');
                 if (!quickAction) return;
                 const actionId = quickAction.getAttribute('data-agent-action-id') || '';
