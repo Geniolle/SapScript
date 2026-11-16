@@ -380,7 +380,7 @@ def _fetch_single_issue(
         return None
 
 
-def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list[dict]:
+def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None, max_results_limit: int = None) -> list[dict]:
     jira_base = _get_jira_base_url()
     jira_email = os.getenv("JIRA_EMAIL", "").strip()
     jira_token = os.getenv("JIRA_TOKEN", "").strip()
@@ -396,6 +396,10 @@ def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list
     # O filtro por responsável foi removido para que o browser faça o recorte final.
     if not jql:
         jql = os.getenv("JIRA_SYNC_JQL") or build_project_scope_jql("statusCategory != Done")
+
+    page_size = 100
+    if max_results_limit and max_results_limit < 100:
+        page_size = max_results_limit
 
     url = f"{jira_base}/{jira_api_path}/search/jql"
     auth = (jira_email, jira_token)
@@ -423,7 +427,7 @@ def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list
             "issuelinks",
             "resolutiondate",
         ],
-        "maxResults": 100,
+        "maxResults": page_size,
     }
 
     tickets = []
@@ -454,12 +458,17 @@ def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list
             parsed_ticket = _parse_issue(issue)
             tickets.append(parsed_ticket)
             page_tickets.append(parsed_ticket)
+            if max_results_limit and len(tickets) >= max_results_limit:
+                break
 
         if on_page_fetched and page_tickets:
             try:
                 on_page_fetched(page_tickets)
             except Exception as cb_err:
                 print(f"[JIRA SYNC] Error in on_page_fetched callback: {cb_err}")
+
+        if max_results_limit and len(tickets) >= max_results_limit:
+            break
 
         next_page_token = data.get("nextPageToken")
         is_last = data.get("isLast", True)
@@ -469,6 +478,29 @@ def fetch_jira_tickets_from_api(jql: str = None, on_page_fetched = None) -> list
     # ─────────────────────────────────────────────────────────────────────────
 
     return tickets
+
+
+def fetch_closed_jira_tickets(team: str, assignee: str, limit: int = 100) -> list[dict]:
+    """
+    Busca tickets concluídos (Done) no Jira com filtros estritos obrigatórios de equipe e responsável.
+    Impede consultas irrestritas que sobrecarreguem o sistema.
+    """
+    clean_team = (team or "").strip()
+    clean_assignee = (assignee or "").strip()
+
+    if not clean_team or not clean_assignee:
+        raise ValueError("Equipa e Responsável são obrigatórios para consultar tickets concluídos.")
+
+    # Escapar aspas na query JQL
+    escaped_team = clean_team.replace('"', '\\"')
+    escaped_assignee = clean_assignee.replace('"', '\\"')
+
+    # statusCategory = Done garante tickets fechados/resolvidos/concluídos
+    status_clause = f'statusCategory = Done AND "Team" = "{escaped_team}" AND assignee = "{escaped_assignee}"'
+    jql = build_project_scope_jql(status_clause) + " ORDER BY updated DESC"
+
+    safe_limit = max(1, min(limit, 200))
+    return fetch_jira_tickets_from_api(jql=jql, max_results_limit=safe_limit)
 
 
 def assign_jira_ticket(key: str, assignee_name: str) -> bool:

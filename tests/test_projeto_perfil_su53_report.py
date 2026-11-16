@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+from functools import lru_cache
 from pathlib import Path
 
 import openpyxl
@@ -11,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = PROJECT_ROOT / "Processos" / "Projeto Autorizações" / "Pesquisa_Erros_SU53.py"
 
 
+@lru_cache(maxsize=1)
 def carregar_modulo_su53():
     spec = importlib.util.spec_from_file_location("pesquisa_su53_test", SCRIPT_PATH)
     modulo = importlib.util.module_from_spec(spec)
@@ -52,8 +54,9 @@ def test_filtra_hoje_na_instancia_da_falha_mais_recente():
     ]
 
 
-def test_agrupa_por_aplicacao_e_objeto_com_fallback_name():
+def test_agrupa_por_aplicacao_e_objeto_com_fallback_name(monkeypatch):
     mod = carregar_modulo_su53()
+    monkeypatch.setattr(mod, "obter_descricao_objeto_sap", lambda objeto: objeto)
     erros = [
         erro("23.10.2026 08:34:48", "app02", "M_EINK_FRG", "ME23N"),
         erro("23.10.2026 08:24:08", "app02", "B_BUP_DCPD", "FAGLB03"),

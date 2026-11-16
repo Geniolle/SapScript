@@ -408,7 +408,7 @@ def create_pfcg_role_rfc(
                     env,
                     normalized_role,
                     "ROLE_ALREADY_EXISTS",
-                    f"A função {normalized_role} passou a existir em {env} entre a pré-visualização e a confirmação.",
+                    f"A função {normalized_role} já existe no sistema {env}.",
                 )
         except Exception as exc:
             error_type, message = classify_rfc_error(exc)

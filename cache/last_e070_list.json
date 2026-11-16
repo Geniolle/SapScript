@@ -2,7 +2,7 @@
   "meta": {
     "system": "S4D",
     "user": "CSILVA",
-    "generated_at": "2026-09-08 16:02:45"
+    "generated_at": "2026-10-21 11:40:57"
   },
   "items": [
     {
@@ -22,23 +22,18 @@
     },
     {
       "idx": 4,
-      "TRKORR": "S4DK953658",
-      "AS4TEXT": "Implementação da nota 2784858"
+      "TRKORR": "S4DK953729",
+      "AS4TEXT": "OBYC - Nova regra de modificação GBB>ZAX>1000"
     },
     {
       "idx": 5,
-      "TRKORR": "S4DK953662",
-      "AS4TEXT": "Arvore DMEEX nova"
+      "TRKORR": "S4DK953899",
+      "AS4TEXT": "IZ-59608 - Cadeias de pesquisa"
     },
     {
       "idx": 6,
-      "TRKORR": "S4DK953664",
-      "AS4TEXT": "Meio de pagamento S versão 9"
-    },
-    {
-      "idx": 7,
-      "TRKORR": "S4DK953706",
-      "AS4TEXT": "Teste criação request web"
+      "TRKORR": "S4DK953901",
+      "AS4TEXT": "Ajuste ao formato XML_CT_V9 SEPA campo PmtInfId"
     }
   ]
 }

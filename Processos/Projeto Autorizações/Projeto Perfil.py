@@ -36,7 +36,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Garantir codificação UTF-8 no Windows
+# Garantir codificação UTF-8 no Windowsç
 if sys.platform.startswith("win"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -866,14 +866,15 @@ def pesquisar_funcao(dados: ProjetoPerfilData, termo: str) -> List[Dict[str, Any
 def pesquisar_por_tcode(dados: ProjetoPerfilData, tcode: str) -> List[Dict[str, Any]]:
     """
     Pesquisa quais funções (simples e compostas) contêm uma determinada transação SAP.
+    A correspondência é sempre estrita/exata (tcode_norm == tc).
     """
     tcode_norm = normalizar_texto(tcode)
     if not tcode_norm:
         return []
 
     resultados = []
-    # Busca nas transações conhecidas
-    tcodes_encontrados = [tc for tc in dados.tcode_para_roles if tcode_norm in tc]
+    # Busca estrita e exata nas transações conhecidas
+    tcodes_encontrados = [tc for tc in dados.tcode_para_roles if tcode_norm == tc]
 
     for tc in tcodes_encontrados:
         roles_diretas = dados.tcode_para_roles[tc]
@@ -1898,9 +1899,16 @@ def sincronizar_matrizes_departamentais_proposta_ativa(dados: ProjetoPerfilData,
     df_prop = pd.read_excel(excel_file, sheet_name="Proposta")
     tcode_to_roles = defaultdict(list)
     current_role = None
+    blank_streak = 0
     for _, row in df_prop.iterrows():
         f_val = str(row["FUNÇÃO"]).strip() if pd.notna(row["FUNÇÃO"]) else ""
         d_val = str(row["DESCRIÇÃO"]).strip() if pd.notna(row["DESCRIÇÃO"]) else ""
+        if not f_val:
+            blank_streak += 1
+            if blank_streak >= 2:
+                current_role = None
+            continue
+        blank_streak = 0
         if f_val.startswith("Z_") and d_val and "TRANSACAO NAO EXISTE" not in d_val.upper():
             current_role = f_val
         elif f_val and current_role:
@@ -2367,10 +2375,17 @@ def auditar_matrizes_departamentais_vs_proposta(
     proposta_tcodes_mapeados: Set[str] = set()
     proposta_tcode_descs: Dict[str, str] = {}
     current_role = None
+    blank_streak = 0
 
     for _, row in df_prop.iterrows():
         f_val = str(row["FUNÇÃO"]).strip() if pd.notna(row["FUNÇÃO"]) else ""
         d_val = str(row["DESCRIÇÃO"]).strip() if pd.notna(row["DESCRIÇÃO"]) else ""
+        if not f_val:
+            blank_streak += 1
+            if blank_streak >= 2:
+                current_role = None
+            continue
+        blank_streak = 0
         if f_val.startswith("Z_") and d_val and "TRANSACAO NAO EXISTE" not in d_val.upper():
             current_role = f_val
         elif f_val and current_role and "TRANSACAO NAO EXISTE" not in d_val.upper():
@@ -2712,7 +2727,7 @@ def executar_atualizacao_integrada_excel(
     tcodes_ignoradas_por_sem_mapeamento: Set[str] = set()
 
     if not res_auditoria["tem_pendencias"]:
-        print_status_success("  ✓ [1/8] Matrizes Departamentais × Proposta: todas as TCODEs utilizadas possuem mapeamento válido.")
+        print_status_success("  ✓ [1/8] Todas as transações departamentais estão atribuídas a uma função individual.")
     else:
         n_deps_pend = res_auditoria["deps_com_pendencias_count"]
         n_tcodes_pend = res_auditoria["total_tcodes_sem_mapeamento"]
@@ -2790,17 +2805,24 @@ def executar_atualizacao_integrada_excel(
                     tcodes_a_marcar.append((idx + 2, role_atual, f_val))
 
     if tcodes_a_marcar:
-        print_status_error(f"  ✗ [2/8] Proposta × SAP TSTC: {len(tcodes_a_marcar)} transação(ões) descontinuada(s) detetada(s) para marcação.")
+        print_status_error(f"  ✗ [2/8] Foram detetadas {len(tcodes_a_marcar)} transações que não existem na versão atual do SAP.")
     else:
-        print_status_success(f"  ✓ [2/8] Proposta × SAP TSTC: Catálogo com {len(todos_tcodes)} TCODEs 100% validado no SAP PRD (TSTC).")
+        print_status_success(f"  ✓ [2/8] As transações solicitadas existem na versão atual do SAP ({len(todos_tcodes)} TCODEs validadas).")
 
     # Mapeamento TCODE -> roles (desconsiderando TCODEs descontinuados)
     tcodes_descartados_set = {tc for _, _, tc in tcodes_a_marcar}
     tcode_to_roles = defaultdict(list)
     current_role = None
+    blank_streak = 0
     for _, row in df_prop.iterrows():
         f_val = str(row["FUNÇÃO"]).strip() if pd.notna(row["FUNÇÃO"]) else ""
         d_val = str(row["DESCRIÇÃO"]).strip() if pd.notna(row["DESCRIÇÃO"]) else ""
+        if not f_val:
+            blank_streak += 1
+            if blank_streak >= 2:
+                current_role = None
+            continue
+        blank_streak = 0
         if f_val.startswith("Z_") and d_val and "TRANSACAO NAO EXISTE" not in d_val.upper():
             current_role = f_val
         elif f_val and current_role and "TRANSACAO NAO EXISTE" not in d_val.upper() and f_val.upper() not in tcodes_descartados_set:
@@ -2941,7 +2963,7 @@ def executar_atualizacao_integrada_excel(
             print_status_info("  ℹ [3/8] Proposta Ativa: atualização recusada; etapas seguintes mantidas.")
     else:
         print_status_success(
-            f"  ✓ [3/8] Proposta Ativa: utilizadores dos departamentos em CONTROLO reconciliados "
+            f"  ✓ [3/8] Todos os utilizadores departamentais possuem as funções necessárias atribuídas na Proposta Ativa "
             f"({total_users_avaliados}/{total_users_avaliados} utilizadores)."
         )
 
@@ -2997,6 +3019,9 @@ def executar_atualizacao_integrada_excel(
                         inicio = int(f_d) if f_d.isdigit() else 0
                         fim = int(t_d) if t_d.isdigit() else 99991231
                         if inicio <= hoje_int <= fim and role and un in roles_por_user_finais:
+                            # Ignorar prefixos organizacionais ZORG_BP_* na incorporação do Catálogo Vivo
+                            if role.startswith("ZORG_BP_"):
+                                continue
                             row_num, c_role, roles_atuais = roles_por_user_finais[un]
                             if role != c_role and role not in dados.roles_compostas:
                                 if not dados.is_excluida(role) and role in catalogo_oficial_set:
@@ -3011,7 +3036,7 @@ def executar_atualizacao_integrada_excel(
     if total_vivas > 0:
         print_status_warning(f"  ⚠️ [4/8] Catálogo Vivo: {total_vivas} função(ões) viva(s) do catálogo em PRD a incorporar ({len(funcoes_vivas_a_adicionar)} utilizadores).")
     else:
-        print_status_success("  ✓ [4/8] Catálogo Vivo: Incorporar funções válidas necessárias (0 pendentes).")
+        print_status_success("  ✓ [4/8] Todas as funções ativas dos utilizadores no SAP PRD estão integradas na Proposta Ativa (0 pendentes).")
 
     # -------------------------------------------------------------
     # ETAPA [5/8]: RECONCILIAÇÃO PFCG_AUTHORITY (Dry Run)
@@ -3085,9 +3110,31 @@ def executar_atualizacao_integrada_excel(
     df_comp = pd.read_excel(excel_file, sheet_name="PFCG_COMPOSTA")
     composta_roles_esperadas = defaultdict(set)
     composta_textos = {}
+
+    # 1. Carregar das roles finais dos utilizadores reconciliados
     for _, (l_idx, comp_nome, r_set) in roles_por_user_finais.items():
         if comp_nome and str(comp_nome).strip().upper() not in ("NAN", "NONE", "-"):
             composta_roles_esperadas[str(comp_nome).strip().upper()].update(r_set)
+
+    # 2. Carregar de todos os utilizadores na Proposta Ativa (garantindo que departamentos novos/em transição
+    #    também alimentam a estrutura PFCG_COMPOSTA independentemente do CONTROLO)
+    try:
+        col_comp_gen = [c for c in df_ativa.columns if "COMPOSITE" in str(c).upper()][0]
+        col_fi_start = encontrar_coluna_funcoes_individuais_df(df_ativa)
+        for _, r_at in df_ativa.iterrows():
+            c_val_at = str(r_at.get(col_comp_gen, "")).strip() if pd.notna(r_at.get(col_comp_gen)) else ""
+            if not c_val_at or c_val_at.lower() in ("nan", "none", "-"):
+                continue
+            c_norm_at = c_val_at.upper()
+            for c_i in range(col_fi_start, len(r_at)):
+                v_at = r_at.iloc[c_i]
+                if pd.notna(v_at):
+                    v_str_at = str(v_at).strip().upper()
+                    if v_str_at and v_str_at.startswith("Z") and not v_str_at.startswith("ZORG_BP_") and v_str_at != c_norm_at:
+                        composta_roles_esperadas[c_norm_at].add(v_str_at)
+    except Exception as e_comp_gen:
+        if debug_ativo:
+            print(f"  [AVISO] Leitura abrangente Proposta Ativa para PFCG_COMPOSTA: {e_comp_gen}")
 
     pares_existentes = set()
     linhas_obsoletas_comp = []
@@ -3817,9 +3864,9 @@ def validar_utilizadores_prd(dados: ProjetoPerfilData, departamento: str = "Purc
             # Funções adicionais atribuídas diretamente fora do plano esperado
             adicionais_brutas = sorted(atv_diretas - esp)
 
-            # Filtro da folha EXCLUÇÃO: proteger padrões técnicos e legados (ex: ZMM_APROVA_PEDC_COD_*, Z_MY_HOME, SAP_*)
-            desconsideradas = sorted([r for r in adicionais_brutas if dados.is_excluida(r)])
-            adicionais_reais = sorted([r for r in adicionais_brutas if not dados.is_excluida(r)])
+            # Filtro da folha EXCLUÇÃO: proteger padrões técnicos e legados (ex: ZMM_APROVA_PEDC_COD_*, Z_MY_HOME, SAP_*, ZORG_BP_*)
+            desconsideradas = sorted([r for r in adicionais_brutas if dados.is_excluida(r) or r.startswith("ZORG_BP_")])
+            adicionais_reais = sorted([r for r in adicionais_brutas if not (dados.is_excluida(r) or r.startswith("ZORG_BP_"))])
 
             # Validação relacional: Quais das adicionais reais constam no catálogo criado?
             adicionais_no_catalogo = sorted([
@@ -6769,11 +6816,12 @@ def sincronizar_departamento_prd_qad_rfc(
                     # 2.4 READBACK obrigatório no próprio ambiente pós-gravação
                     try:
                         det_rb = conn.call("BAPI_USER_GET_DETAIL", USERNAME=u)
-                        diretas_rb = {r["AGR_NAME"] for r in det_rb.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C" and not dados.is_excluida(r["AGR_NAME"])}
-                        if diretas_rb == expected_roles:
-                            print(f"     ✓ [READBACK {env} OK] Diretas 100% conferidas no {env} ({len(diretas_rb)}/{len(expected_roles)})")
+                        diretas_rb = {r["AGR_NAME"] for r in det_rb.get("ACTIVITYGROUPS", []) if r.get("ORG_FLAG") != "C"}
+                        roles_esperadas_totais = expected_roles.union(set(preservadas.keys()))
+                        if diretas_rb == roles_esperadas_totais:
+                            print(f"     ✓ [READBACK {env} OK] Diretas 100% conferidas no {env} ({len(diretas_rb)}/{len(roles_esperadas_totais)})")
                         else:
-                            print(f"     [AVISO READBACK {env}] Divergência no {env}: Gravadas={len(diretas_rb)} vs Esperadas={len(expected_roles)}")
+                            print(f"     [AVISO READBACK {env}] Divergência no {env}: Gravadas={len(diretas_rb)} vs Esperadas={len(roles_esperadas_totais)}")
                             env_info["readback_ok"] = False
                     except Exception as e_rb:
                         print(f"     [AVISO READBACK {env}] Falha ao auditar readback: {e_rb}")
@@ -8006,19 +8054,11 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
 
     imprimir_cabecalho_compacto(caminho)
 
-    # =========================================================================
-    # TAREFA 1 DO PROGRAMA: Atualização e Sincronização Integrada do Excel
-    # =========================================================================
-    # Executada imediatamente no arranque para assegurar consistência total das folhas:
-    #   Etapa 1: Proposta (Validação de TCODEs obsoletos na TSTC do PRD via RFC)
-    #   Etapa 2: Matrizes Departamentais -> Proposta Ativa (Atribuições oficiais)
-    #   Etapa 3: SAP PRD -> Proposta Ativa (Incorporação de funções ativas do catálogo)
-    #   Etapa 4: Proposta Ativa -> PFCG_COMPOSTA (Alinhamento de membros das composite roles)
-    #   Etapa 5: Auditoria de Sincronização Departamental & CUA (Discrepâncias e pendências)
-    dados = executar_atualizacao_integrada_excel(caminho)
+    # Carrega dados do Excel em modo direto/rápido (sem executar sincronização inicial automática)
+    dados = carregar_projeto_perfil(caminho)
 
     # =========================================================================
-    # MENU PRINCIPAL APÓS ATUALIZAÇÃO DO FICHEIRO
+    # MENU PRINCIPAL APÓS CARREGAMENTO DO FICHEIRO
     # =========================================================================
     while True:
         print("\n" + "=" * 78)
@@ -8030,9 +8070,10 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
         print("  [4] Pesquisa       - Pesquisar Transação do Projeto e Atribuir a Utilizador")
         print("  [5] Corrigir       - Corrigir Sincronização Posterior (Utilizadores Pendentes)")
         print("  [6] SU53           - Diagnóstico SU53 via RFC e Atribuição de Funções")
+        print("  [7] Sincronizar    - Sincronização e Consolidação Integrada do Excel (8 Etapas)")
         print("  [0] Sair")
         print("-" * 78)
-        op = input("Selecione uma opção [1-6, 0]: ").strip().upper()
+        op = input("Selecione uma opção [1-7, 0]: ").strip().upper()
 
         if op == "1" or op in ("EXECUCAO", "EXECUÇÃO"):
             print("\n" + "=" * 78)
@@ -8088,12 +8129,22 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
             else:
                 print(f"[ERRO] Script não encontrado: {script_su53}")
 
+        elif op == "7" or op in ("SINCRONIZAR", "SINCRONIZACAO", "SINCRONIZAÇÃO", "CONSOLIDAR"):
+            print("\n" + "=" * 78)
+            print("  [OPÇÃO 7] SINCRONIZAÇÃO E CONSOLIDAÇÃO INTEGRADA DO EXCEL (8 ETAPAS)")
+            print("=" * 78)
+            conf = input("Deseja executar a sincronização e consolidação das 8 etapas agora? [S/N] [S]: ").strip().upper()
+            if conf in ("", "S", "SIM", "Y", "YES", "1"):
+                dados = executar_atualizacao_integrada_excel(caminho)
+            else:
+                print("Operação cancelada pelo utilizador.")
+
         elif op in ("0", "S", "SAIR", "Q", "QUIT", ""):
             print("\nEncerrando. Até logo!")
             break
 
         else:
-            print("[AVISO] Opção inválida. Por favor escolha 1, 2, 3, 4, 5, 6 ou 0.")
+            print("[AVISO] Opção inválida. Por favor escolha 1, 2, 3, 4, 5, 6, 7 ou 0.")
 
 
 # =====================================================================

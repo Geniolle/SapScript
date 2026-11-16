@@ -178,10 +178,49 @@ def converter_utc_para_local(ts_dec: Any) -> str:
 # 1. CONSULTA RFC DO BUFFER DE ERROS SU53
 # =====================================================================
 
-def consultar_erros_su53_rfc(usuario: str, target_env: str = "PRD", silencioso: bool = False) -> List[Dict[str, Any]]:
+def is_erro_comunicacao_vpn(erro: Exception) -> bool:
+    """Verifica se o erro é tipicamente de falha de comunicação/rede/VPN."""
+    msg = str(erro).upper()
+    indicadores = (
+        "RFC_COMMUNICATION_FAILURE",
+        "NOT REACHED",
+        "WSAETIMEDOUT",
+        "CONNECTION TIMED OUT",
+        "TIMED OUT",
+        "PARTNER NOT REACHED",
+        "COMMUNICATION_FAILURE",
+        "WSAECONNREFUSED",
+        "WSAEHOSTUNREACH",
+        "NI (NETWORK INTERFACE)",
+    )
+    return any(ind in msg for ind in indicadores)
+
+
+def testar_conexao_rfc_ambiente(target_env: str = "PRD") -> Tuple[bool, Optional[str]]:
+    """Testa de forma rápida a conectividade RFC com o ambiente SAP (verifica se a VPN está ativa)."""
+    try:
+        load_project_env(find_project_root())
+        params = build_connection_params_for(target_env)
+        conn = Connection(**params)
+        try:
+            conn.call("RFC_PING")
+        finally:
+            conn.close()
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def consultar_erros_su53_rfc(
+    usuario: str,
+    target_env: str = "PRD",
+    silencioso: bool = False,
+    apenas_dia_atual: bool = True
+) -> List[Dict[str, Any]]:
     """
-    Consulta todas as falhas de autorização registadas no buffer da SU53
+    Consulta as falhas de autorização registadas no buffer da SU53
     (SUSR_USER_SU53_READ) para o utilizador indicado em todos os servidores aplicacionais.
+    Por padrão (apenas_dia_atual=True), filtra estritamente as ocorrências do dia de hoje.
     """
     load_project_env(find_project_root())
     params = build_connection_params_for(target_env)
@@ -202,11 +241,17 @@ def consultar_erros_su53_rfc(usuario: str, target_env: str = "PRD", silencioso: 
 
     entries = res.get("ET_USR07_EXT", [])
     erros = []
+    hoje_local_str = datetime.now().astimezone().strftime("%d.%m.%Y")
+
     for e in entries:
         rc = int(e.get("RC", 0))
         if rc > 0:  # Apenas verificações falhadas
             ts_dec = e.get("TIMESTAMP", 0)
             dt_formatada = converter_utc_para_local(ts_dec)
+
+            # Filtrar estritamente para o dia de hoje se ativo
+            if apenas_dia_atual and not str(dt_formatada).startswith(hoje_local_str):
+                continue
 
             campos_valores = []
             for i in range(1, 10):
@@ -348,9 +393,21 @@ def obter_autorizacoes_ativas_usuario_rfc(usuario: str, target_env: str = "PRD")
         params = build_connection_params_for(target_env)
         conn = Connection(**params)
         
-        # 1. Obter roles ativas
+        # 1. Obter roles estritamente ativas (respeitando data de validade de hoje)
+        hoje_sap = datetime.now().strftime("%Y%m%d")
         res_u = conn.call("BAPI_USER_GET_DETAIL", USERNAME=usuario.strip().upper())
-        direct_roles = {r["AGR_NAME"].strip() for r in res_u.get("ACTIVITYGROUPS", [])}
+        direct_roles = set()
+        for r in res_u.get("ACTIVITYGROUPS", []):
+            agr = r.get("AGR_NAME", "").strip()
+            from_dat = str(r.get("FROM_DAT", "")).replace("-", "").strip()
+            to_dat = str(r.get("TO_DAT", "")).replace("-", "").strip()
+            if not agr:
+                continue
+            if from_dat and from_dat > hoje_sap:
+                continue
+            if to_dat and to_dat < hoje_sap:
+                continue
+            direct_roles.add(agr)
         
         res_agrs = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_AGRS", DELIMITER="|", FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "CHILD_AGR"}])
         comp_children = defaultdict(set)
@@ -408,33 +465,58 @@ def verificar_falha_ja_resolvida_rfc(
             campos = erro["campos_relevantes"]
 
         options = [{"TEXT": f"OBJECT = '{objeto}' AND DELETED = ' '"}]
-        res = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_1251", DELIMITER="|", FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "FIELD"}, {"FIELDNAME": "LOW"}], OPTIONS=options)
+        res = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_1251", DELIMITER="|", FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "AUTH"}, {"FIELDNAME": "FIELD"}, {"FIELDNAME": "LOW"}], OPTIONS=options)
+
+        # Ler também níveis organizacionais (AGR_1252) para as roles do utilizador
+        res_1252 = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_1252", DELIMITER="|", FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "VARBL"}, {"FIELDNAME": "LOW"}, {"FIELDNAME": "HIGH"}])
         conn.close()
 
-        role_auths = defaultdict(lambda: defaultdict(set))
+        # role_org_levels[role][varbl] = [(low, high), ...]
+        role_org_levels = defaultdict(lambda: defaultdict(list))
+        for l in res_1252.get("DATA", []):
+            parts = l["WA"].split("|")
+            agr = parts[0].strip()
+            if agr in all_roles:
+                varbl = parts[1].strip().upper() if len(parts) > 1 else ""
+                low = parts[2].strip().upper() if len(parts) > 2 else ""
+                high = parts[3].strip().upper() if len(parts) > 3 else ""
+                if varbl and low:
+                    role_org_levels[agr][varbl].append((low, high))
+
+        # Agrupar por role e por autorizacao individual (AUTH)
+        # auth_map[role][auth][campo] = set(valores)
+        role_auth_instances = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
         for l in res.get("DATA", []):
             parts = l["WA"].split("|")
             agr = parts[0].strip()
             if agr in all_roles:
-                fld = parts[1].strip().upper()
-                val = parts[2].strip().upper()
-                role_auths[agr][fld].add(val)
+                auth_id = parts[1].strip().upper() if len(parts) > 1 else ""
+                fld = parts[2].strip().upper() if len(parts) > 2 else ""
+                val = parts[3].strip().upper() if len(parts) > 3 else ""
+                if fld:
+                    role_auth_instances[agr][auth_id][fld].add(val)
 
-        for agr, fld_map in role_auths.items():
-            cobre_tudo = True
-            campos_validos = 0
-            for f_req, v_req in campos:
-                f_norm = str(f_req).strip().upper()
-                v_norm = str(v_req).strip().upper()
-                if not f_norm or f_norm in ("DUMMYFIELD", "TCD"):
-                    continue
-                campos_validos += 1
-                vals_role = fld_map.get(f_norm, set())
-                if not ("*" in vals_role or v_norm in vals_role):
-                    cobre_tudo = False
-                    break
-            if cobre_tudo and campos_validos > 0:
-                return True, agr
+        for agr, auths_dict in role_auth_instances.items():
+            org_map_role = role_org_levels.get(agr, {})
+            for auth_id, fld_map in auths_dict.items():
+                cobre_tudo = True
+                campos_validos = 0
+                for f_req, v_req in campos:
+                    f_norm = str(f_req).strip().upper()
+                    v_norm = str(v_req).strip().upper()
+                    if not f_norm or f_norm in ("DUMMYFIELD", "TCD"):
+                        continue
+                    campos_validos += 1
+                    vals_role = fld_map.get(f_norm, set())
+                    # Se o campo não existir com valor ou não cobrir o valor pedido, esta autorização não cobre
+                    if not vals_role:
+                        cobre_tudo = False
+                        break
+                    if not any(valor_autorizacao_cobre(vr, v_norm, org_values=org_map_role.get(vr)) for vr in vals_role):
+                        cobre_tudo = False
+                        break
+                if cobre_tudo and campos_validos > 0:
+                    return True, agr
 
         return False, ""
     except Exception:
@@ -514,25 +596,37 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
             if tc and tc not in transacoes_map:
                 transacoes_map[tc] = e
         else:
-            aplicacao = (e.get("tcode_app") or e.get("nome_servico") or "").strip().upper()
-            tcode_ctx = (e.get("tcode_falha") or "").strip().upper()
-            objetos_map[(aplicacao, tcode_ctx, obj)].append(e)
+            # Agrupar puramente pelo nome do objeto de autorização para evitar instâncias duplicadas na PFCG
+            objetos_map[obj].append(e)
 
     lista_transacoes = list(transacoes_map.values())
 
     lista_objetos = []
-    for (aplicacao, tcode_ctx, obj_name), ocorrencias in objetos_map.items():
+    for obj_name, ocorrencias in objetos_map.items():
         mais_recente = ocorrencias[0]
-        # Consolidar campos testados distintos
+        # Consolidar campos testados distintos e aplicações de contexto
         campos_relevantes = []
+        aplicacoes_ctx = []
+        tcodes_ctx = []
         for o in ocorrencias:
+            app_o = (o.get("tcode_app") or o.get("nome_servico") or "").strip().upper()
+            tc_o = (o.get("tcode_falha") or "").strip().upper()
+            if app_o and app_o not in aplicacoes_ctx:
+                aplicacoes_ctx.append(app_o)
+            if tc_o and tc_o not in tcodes_ctx:
+                tcodes_ctx.append(tc_o)
             for f, v in o["campos"]:
                 if f and f != "dummyfield" and (f, v) not in campos_relevantes:
                     campos_relevantes.append((f, v))
 
+        app_principal = aplicacoes_ctx[0] if aplicacoes_ctx else (mais_recente.get("tcode_app") or "")
+        tc_principal = tcodes_ctx[0] if tcodes_ctx else (mais_recente.get("tcode_falha") or "")
+
         lista_objetos.append({
-            "aplicacao": aplicacao,
-            "tcode_falha": tcode_ctx,
+            "aplicacao": app_principal,
+            "aplicacoes_todas": aplicacoes_ctx,
+            "tcode_falha": tc_principal,
+            "tcodes_todos": tcodes_ctx,
             "objeto": obj_name,
             "descricao": obter_descricao_objeto_sap(obj_name),
             "rc_mais_recente": mais_recente["rc"],
@@ -541,7 +635,7 @@ def agrupar_erros_para_analise(erros: List[Dict[str, Any]]) -> Tuple[List[Dict[s
             "linha": mais_recente["linha"],
             "campos_relevantes": campos_relevantes,
             "total_ocorrencias": len(ocorrencias),
-            "resolvido": any(o.get("resolvido", False) for o in ocorrencias),
+            "resolvido": all(o.get("resolvido", False) for o in ocorrencias),
             "role_resolvido": next((o.get("role_resolvido") for o in ocorrencias if o.get("role_resolvido")), "")
         })
 
@@ -562,12 +656,20 @@ def enriquecer_objeto_com_proposta(
     app_valida = aplicacao and not any(k in aplicacao for k in ("SESSION", "B726", "IDOC")) and len(aplicacao) <= 20
     resultado["nome_aplicacao"] = obter_descricao_transacao_sap(aplicacao) if app_valida else ""
 
-    # Buscar funções candidatas tanto pela transação de contexto (ex: LT03) como pela aplicação de origem (ex: VT01N)
+    # Buscar funções candidatas tanto pelas transações de contexto como pelas aplicações de origem
     alvos_pesquisa = []
-    if app_valida:
-        alvos_pesquisa.append(aplicacao)
-    if tcode_falha and tcode_falha not in alvos_pesquisa:
-        alvos_pesquisa.append(tcode_falha)
+    candidatos_raw = (resultado.get("aplicacoes_todas") or []) + (resultado.get("tcodes_todos") or [])
+    if not candidatos_raw:
+        if app_valida:
+            candidatos_raw.append(aplicacao)
+        if tcode_falha:
+            candidatos_raw.append(tcode_falha)
+
+    for item in candidatos_raw:
+        item_str = str(item or "").strip().upper()
+        if item_str and not any(k in item_str for k in ("SESSION", "B726", "IDOC")) and len(item_str) <= 20:
+            if item_str not in alvos_pesquisa:
+                alvos_pesquisa.append(item_str)
 
     funcoes_proposta = []
     funcoes_outras = []
@@ -784,6 +886,11 @@ def preparar_atualizacao_objeto(obj_info: Dict[str, Any]) -> Optional[Dict[str, 
         if valor_norm not in valores:
             valores.append(valor_norm)
     campos = {campo: ",".join(valores) for campo, valores in valores_por_campo.items()}
+
+    # Suplemento de campos obrigatórios do SAP para objetos conhecidos que não vêm na SU53
+    if objeto == "S_ALV_LAYR" and "LOG_GROUP" not in campos:
+        campos["LOG_GROUP"] = "*"
+
     if not objeto or not roles or not campos:
         return None
     return {"objeto": objeto, "roles": roles, "campos": campos}
@@ -794,12 +901,32 @@ def classificar_modo_objeto(registos: List[Dict[str, Any]]) -> str:
     return "ALTERAR"
 
 
-def valor_autorizacao_cobre(valor_existente: str, valor_pedido: str) -> bool:
-    """Reconhece autorização total ou variável organizacional como cobertura de qualquer valor específico."""
+def valor_autorizacao_cobre(valor_existente: str, valor_pedido: str, org_values: Optional[List[Tuple[str, str]]] = None) -> bool:
+    """
+    Verifica se o valor configurado na role cobre o valor exigido pela SU53.
+    Se o valor for uma variável organizacional (ex.: $WERKS, $BUKRS), valida
+    se a variável tem valores configurados na AGR_1252 que cubram o pedido.
+    """
     existente = str(valor_existente or "").strip().upper()
     pedido = str(valor_pedido or "").strip().upper()
-    if existente in ("*", "$WERKS", "$BUKRS", "$EKORG", "$VKORG", "$VTWEG", "$SPART", "$KOKRS", "$PRCTR"):
+    if existente == "*":
         return True
+    if existente.startswith("$"):
+        # Se tiver valores de nível organizacional resolvidos na AGR_1252 para esta role
+        if org_values is not None:
+            for low, high in org_values:
+                low_u = str(low or "").strip().upper()
+                high_u = str(high or "").strip().upper()
+                if low_u == "*":
+                    return True
+                if high_u:
+                    if low_u <= pedido <= high_u:
+                        return True
+                elif low_u == pedido:
+                    return True
+            return False
+        # Fallback se não foram passados org_values: não assumir cobertura cega
+        return False
     return existente == pedido
 
 
@@ -853,11 +980,11 @@ def _obter_modos_objeto_rfc(plano: Dict[str, Any], target_env: str) -> Dict[str,
 
 
 def _validar_objeto_funcoes_rfc(plano: Dict[str, Any], target_env: str) -> List[str]:
-    """Relê AGR_1251 e devolve roles sem todos os valores ativos solicitados."""
+    """Relê AGR_1251 (e níveis organizacionais AGR_1252) e devolve roles sem todos os valores ativos solicitados."""
     load_project_env(find_project_root())
     conn = Connection(**build_connection_params_for(target_env))
     try:
-        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_1251",))
+        guard = make_write_guard(("RFC_PING", "RFC_READ_TABLE"), ("AGR_1251", "AGR_1252"))
         falhas = []
         esperados = [(campo, valor) for campo, valores in plano["campos"].items() for valor in valores.split(",")]
         for role in plano["roles"]:
@@ -872,9 +999,26 @@ def _validar_objeto_funcoes_rfc(plano: Dict[str, Any], target_env: str) -> List[
                 ],
                 rowcount=0,
             )
+            # Ler níveis organizacionais para esta role se houver campos como $WERKS, etc.
+            linhas_org = read_table(
+                conn,
+                guard,
+                table_name="AGR_1252",
+                fields=["VARBL", "LOW", "HIGH"],
+                options=[{"TEXT": f"AGR_NAME = '{role}'"}],
+                rowcount=0,
+            )
+            org_levels = defaultdict(list)
+            for ro in linhas_org:
+                if len(ro) >= 2 and ro[0].strip() and ro[1].strip():
+                    v_var = ro[0].strip().upper()
+                    v_low = ro[1].strip().upper()
+                    v_high = ro[2].strip().upper() if len(ro) > 2 else ""
+                    org_levels[v_var].append((v_low, v_high))
+
             ativos = [(r[0].strip().upper(), r[1].strip().upper()) for r in linhas if len(r) > 2 and r[2].strip() != "X"]
             if any(
-                not any(campo_ativo == campo and valor_autorizacao_cobre(valor_ativo, valor) for campo_ativo, valor_ativo in ativos)
+                not any(campo_ativo == campo and valor_autorizacao_cobre(valor_ativo, valor, org_values=org_levels.get(valor_ativo)) for campo_ativo, valor_ativo in ativos)
                 for campo, valor in esperados
             ):
                 falhas.append(role)
@@ -904,9 +1048,36 @@ def executar_atualizacao_objeto_rfc(
     try:
         for role in plano["roles"]:
             print(f"  -> Processando role: {CLR_Y}{role}{CLR_RST}")
+
+            # 1. Ler valores e autorizações já existentes na role para este objeto (AGR_1251)
+            # de modo a consolidar numa única instância e evitar criar múltiplas autorizações separadas.
+            valores_consolidados = {campo: set(str(v).split(",")) for campo, v in plano["campos"].items()}
+            try:
+                res_existentes = conn.call(
+                    "RFC_READ_TABLE",
+                    QUERY_TABLE="AGR_1251",
+                    DELIMITER="|",
+                    FIELDS=[{"FIELDNAME": "FIELD"}, {"FIELDNAME": "LOW"}, {"FIELDNAME": "DELETED"}],
+                    OPTIONS=[
+                        {"TEXT": f"AGR_NAME = '{role}' AND OBJECT = '{nome_objeto}'"}
+                    ]
+                )
+                for row_ex in res_existentes.get("DATA", []):
+                    pts = row_ex["WA"].split("|")
+                    if len(pts) >= 2:
+                        fld_ex = pts[0].strip().upper()
+                        low_ex = pts[1].strip().upper()
+                        del_ex = pts[2].strip().upper() if len(pts) > 2 else ""
+                        if del_ex != "X" and fld_ex and low_ex:
+                            if fld_ex not in valores_consolidados:
+                                valores_consolidados[fld_ex] = set()
+                            valores_consolidados[fld_ex].add(low_ex)
+            except Exception:
+                pass
+
             manual_auths = []
-            for campo, valores_str in plano["campos"].items():
-                for v in str(valores_str).split(","):
+            for campo, vals_set in valores_consolidados.items():
+                for v in sorted(list(vals_set)):
                     v_clean = v.strip().upper()
                     if v_clean:
                         manual_auths.append({
@@ -1180,7 +1351,30 @@ def pesquisar_departamento_su53(
     """Consulta SU53 sequencialmente com barra de progresso compacta e resumo executivo."""
     resultado = {"com_erros": [], "sem_erros": [], "falhas_rfc": []}
     total_users = len(utilizadores)
-    print(f"\n{CLR_C}>>> A consultar SU53 de {total_users} utilizadores em {departamento} [{target_env}]...{CLR_RST}")
+
+    # 1. Pré-teste de conectividade RFC antes de percorrer utilizadores (Fail-Fast se VPN desligada)
+    print(f"\n{CLR_C}>>> A verificar conectividade RFC com o SAP {target_env}...{CLR_RST}", end=" ")
+    conectado, err_conexao = testar_conexao_rfc_ambiente(target_env)
+    if not conectado:
+        print(f"{CLR_R}[FALHA]{CLR_RST}")
+        print("\n" + "=" * 95)
+        print(f"  {CLR_R}⚠️  FALHA DE COMUNICAÇÃO RFC COM O SAP {target_env} (VPN DESCONECTADA!){CLR_RST}")
+        print("=" * 95)
+        print(f"  {CLR_Y}Não foi possível alcançar o servidor SAP ({target_env}).{CLR_RST}")
+        print(f"  {CLR_W}Causa:{CLR_RST} A ligação VPN corporativa (ex: FortiClient/GlobalProtect) está desligada.")
+        print(f"  {CLR_W}Diagnóstico:{CLR_RST} {err_conexao}")
+        print("-" * 95)
+        print(f"  {CLR_C}Por favor, ligue a VPN corporativa e tente novamente.{CLR_RST}")
+        print("=" * 95 + "\n")
+        resultado["falhas_rfc"].append({
+            "usuario": "TODOS",
+            "nome": f"Departamento {departamento}",
+            "erro": f"VPN Desconectada / Falha de comunicação RFC: {err_conexao}"
+        })
+        return resultado
+
+    print(f"{CLR_G}[OK]{CLR_RST}")
+    print(f"{CLR_C}>>> A consultar SU53 de {total_users} utilizadores em {departamento} [{target_env}]...{CLR_RST}")
 
     largura_barra = 28
     for indice, pessoa in enumerate(utilizadores, 1):
@@ -1197,6 +1391,19 @@ def pesquisar_departamento_su53(
         try:
             erros = consultar_erros_su53_rfc(usuario, target_env=target_env, silencioso=True)
         except Exception as exc:
+            # Se for queda de rede / timeout de VPN durante o loop, interrompe imediatamente!
+            if is_erro_comunicacao_vpn(exc):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                print("\n" + "=" * 95)
+                print(f"  {CLR_R}⚠️  A CONEXÃO RFC CAIU DURANTE A CONSULTA (VPN DESCONECTADA!){CLR_RST}")
+                print("=" * 95)
+                print(f"  {CLR_Y}Falha ao contactar o servidor SAP no utilizador {usuario}.{CLR_RST}")
+                print(f"  {CLR_W}A interromper a consulta dos restantes {total_users - indice} utilizadores.{CLR_RST}")
+                print(f"  {CLR_C}Por favor, ligue a VPN corporativa e tente novamente.{CLR_RST}")
+                print("=" * 95 + "\n")
+                resultado["falhas_rfc"].append({"usuario": usuario, "nome": nome, "erro": str(exc)})
+                break
             resultado["falhas_rfc"].append({"usuario": usuario, "nome": nome, "erro": str(exc)})
             continue
 
@@ -1351,9 +1558,17 @@ def carregar_catalogo_completo_excel(caminho_excel: str) -> Dict[str, Any]:
             cur_role = None
             cur_desc = ""
             cur_row = None
+            blank_streak = 0
             for r_idx, r in enumerate(ws_p.iter_rows(values_only=True), 1):
                 c1 = str(r[0] or "").strip()
                 c2 = str(r[1] or "").strip() if len(r) > 1 else ""
+
+                if not c1:
+                    blank_streak += 1
+                    if blank_streak >= 2:
+                        cur_role = None
+                    continue
+                blank_streak = 0
 
                 if c1.startswith("Z_") and c2:
                     cur_role = c1.upper()

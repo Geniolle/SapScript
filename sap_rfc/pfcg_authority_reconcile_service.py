@@ -323,12 +323,12 @@ def reconciliar_pfcg_authority_com_catalogos(
 
         if not tem_pendencia:
             from sap_rfc.status_logger import print_status_success
-            print_status_success(f"  ✓ [5/8] PFCG_AUTHORITY: {linhas_totais} linhas | {c_count}C | {s_count}S | CREATE {cr_exist}/{cr_total} | COMPOSTA {cp_exist}/{cp_total} | conflitos {conflitos}")
+            print_status_success(f"  ✓ [5/8] As funções e relações técnicas de objetos de autorização estão estruturadas e sem conflitos (CREATE: {cr_exist}/{cr_total} | COMPOSTA: {cp_exist}/{cp_total}).")
         else:
             from sap_rfc.status_logger import print_status_warning
             txt_cr = f"{cr_exist}/{cr_total} (+{cr_novas})" if cr_novas > 0 else f"{cr_exist}/{cr_total}"
             txt_cp = f"{cp_exist}/{cp_total} (+{cp_novas})" if cp_novas > 0 else f"{cp_exist}/{cp_total}"
-            print_status_warning(f"  ⚠️ [5/8] PFCG_AUTHORITY: {linhas_totais} linhas | {c_count}C | {s_count}S | CREATE {txt_cr} | COMPOSTA {txt_cp} | conflitos {conflitos}")
+            print_status_warning(f"  ⚠️ [5/8] Relações técnicas de objetos de autorização com pendências (CREATE: {txt_cr} | COMPOSTA: {txt_cp} | conflitos: {conflitos}).")
 
             if cr_novas > 0:
                 print("  CREATE ausentes:")

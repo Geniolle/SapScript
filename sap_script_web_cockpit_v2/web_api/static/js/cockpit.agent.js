@@ -46,6 +46,9 @@
     const ASI_CUA_RM_SUB_INPUT = 'cua_rm_sub';
     const ASI_USER_PASSWORD_CHANGE_USER_INPUT = 'user_password_change_user';
     const ASI_USER_UNLOCK_USER_INPUT = 'user_unlock_user';
+    const ASI_USER_SEARCH_INPUT_NAME = 'user_search_input_name';
+    const ASI_USER_SEARCH_INPUT_EMAIL = 'user_search_input_email';
+    const ASI_USER_SEARCH_INPUT_DIRECT = 'user_search_input_direct';
     const ASI_PROJETO_PERFIL_UTILIZADOR_INPUT = 'projeto_perfil_utilizador_input';
     const ASI_PROJETO_PERFIL_PESQUISA_TCODE_INPUT = 'projeto_perfil_pesquisa_tcode_input';
     const ASI_PROJETO_PERFIL_PESQUISA_USER_INPUT = 'projeto_perfil_pesquisa_user_input';
@@ -1665,6 +1668,15 @@
         }
         if (asiConversationState.awaitingInput === ASI_OBYC_ANALYSIS_FILTERS_INPUT) {
             return ASI_OBYC_ANALYSIS_FILTERS_PLACEHOLDER;
+        }
+        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT_NAME) {
+            return 'Ex.: Clayton Silva ou Silva';
+        }
+        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT_EMAIL) {
+            return 'Ex.: clayton.silva@salsajeans.com';
+        }
+        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT_DIRECT || asiConversationState.awaitingInput === ASI_USER_PASSWORD_CHANGE_USER_INPUT) {
+            return 'Ex.: CLOPES ou S80001977';
         }
         return ASI_DEFAULT_PLACEHOLDER;
     }
@@ -4001,16 +4013,30 @@
         const users = Array.isArray(result.users) ? result.users : [];
         const count = Number(result.count != null ? result.count : users.length);
         const heading = count > 0
-            ? `✓ ${count} utilizador(es) com "${q}" em ${sys}.`
-            : `Nenhum utilizador com "${q}" em ${sys}.`;
+            ? `✓ ${count} utilizador(es) encontrado(s) para "${q}" em ${sys}.`
+            : `Nenhum utilizador encontrado para "${q}" em ${sys}.`;
         const body = users.length
-            ? users.map((u) => `
-                <tr>
-                    <td>${escapeHtml(u.full_name || '-')}</td>
-                    <td style="font-family:monospace;">${escapeHtml(u.username || '')}</td>
-                </tr>
-            `).join('')
-            : `<tr><td colspan="2" class="asi-pfcg-list-empty">Sem resultados.</td></tr>`;
+            ? users.map((u) => {
+                const bname = escapeHtml(u.username || '');
+                const fullName = escapeHtml(u.full_name || '-');
+                const email = escapeHtml(u.email || '');
+                const emailHtml = email ? `<div style="font-size:0.75rem;color:var(--text-secondary);">${email}</div>` : '';
+                return `
+                    <tr>
+                        <td>
+                            <div><strong>${fullName}</strong></div>
+                            ${emailHtml}
+                        </td>
+                        <td style="font-family:monospace;font-weight:600;">${bname}</td>
+                        <td style="text-align:right;">
+                            <button type="button" class="btn btn-sm btn-primary asi-btn-pick-user" data-username="${bname}" style="padding:4px 10px;font-size:0.75rem;">
+                                Selecionar
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('')
+            : `<tr><td colspan="3" class="asi-pfcg-list-empty">Sem resultados.</td></tr>`;
         return `
             <div class="asi-pfcg-result-card">
                 <div class="asi-pfcg-result-heading-row">
@@ -4020,7 +4046,7 @@
                     <div class="asi-pfcg-list-wrap">
                         <div class="asi-pfcg-list-scroll">
                             <table class="asi-pfcg-list-table">
-                                <thead><tr><th>Nome completo</th><th>User SAP</th></tr></thead>
+                                <thead><tr><th>Colaborador</th><th>User SAP</th><th>Ação</th></tr></thead>
                                 <tbody>${body}</tbody>
                             </table>
                         </div>
@@ -4032,7 +4058,7 @@
         `;
     }
 
-    async function asiPollUserSearch(jobId, query, messageId) {
+    async function asiPollUserSearch(jobId, query, messageId, searchType = 'name') {
         const startedAt = Date.now();
         asiStopPfcgPolling();
         asiPfcgPollingTimer = setInterval(async () => {
@@ -4103,10 +4129,11 @@
         }, ASI_PFCG_POLL_INTERVAL_MS);
     }
 
-    async function asiStartUserSearch(query) {
+    async function asiStartUserSearch(query, searchType = 'name') {
         if (!(await asiEnsureWorkerOnlineOrWarn())) return;
         const { input } = asiGetElements();
-        const processingText = `A pesquisar utilizadores com "${query}" em SAP ${asiPfcgSystem}...`;
+        const typeLabel = searchType === 'email' ? 'email' : searchType === 'username' ? 'user SAP' : 'nome';
+        const processingText = `A pesquisar utilizadores por ${typeLabel} "${query}" em SAP ${asiPfcgSystem}...`;
         const processingMessage = asiCreateMessage('assistant', processingText, {
             html: asiBuildPfcgGenericProcessingHtml(processingText),
             isProcessing: true
@@ -4118,13 +4145,13 @@
             const response = await fetch('/api/salsa-it-agent/user/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ query, system: asiPfcgSystem })
+                body: JSON.stringify({ query, search_type: searchType, system: asiPfcgSystem })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error((data && data.detail) || `Erro HTTP ${response.status}`);
             const jobId = data && typeof data.job_id === 'string' ? data.job_id.trim() : '';
             if (!jobId) throw new Error('Resposta do backend sem job_id.');
-            await asiPollUserSearch(jobId, query, processingMessage.id);
+            await asiPollUserSearch(jobId, query, processingMessage.id, searchType);
         } catch (error) {
             asiUpdateMessage(processingMessage.id, {
                 text: 'Não foi possível iniciar a pesquisa de utilizadores.',
@@ -4134,6 +4161,61 @@
             asiResetPfcgInteraction();
             if (input) input.focus();
         }
+    }
+
+    function asiPresentUserSearchOptions(targetActionId, customTitle = null) {
+        asiConversationState = {
+            ...asiConversationState,
+            userSearchTargetAction: targetActionId || 'user-individual-password',
+            awaitingInput: '',
+            isBusy: false
+        };
+        const title = customTitle || 'Como deseja pesquisar o utilizador?';
+        asiAppendMessage(asiCreateMessage('assistant', title, {
+            breadcrumb: asiBuildQuickActionBreadcrumb('cua-add-individual', [asiPfcgSystem, 'Pesquisar utilizador']),
+            actions: [
+                { id: 'user-search-by-username', label: 'User SAP', icon: 'authorization' },
+                { id: 'user-search-by-name', label: 'Nome do colaborador', icon: 'user-plus' },
+                { id: 'user-search-by-email', label: 'Email', icon: 'settings' }
+            ],
+            actionLevel: 3,
+            parentActionId: 'cua-add-individual',
+            selectionGroupKey: 'user-search-mode'
+        }));
+        asiUpdateComposerState();
+    }
+
+    async function asiExecuteUserTargetAction(actionId, username) {
+        const u = String(username || '').toUpperCase().trim();
+        if (!u) return;
+
+        if (actionId === 'user-individual-password') {
+            await asiStartUserPasswordChange(u);
+            return;
+        }
+
+        if (actionId === 'user-individual-unlock') {
+            await asiStartUserUnlock(u);
+            return;
+        }
+
+        if (actionId === 'user-individual-personal-data' || actionId === 'user-analyze-personal') {
+            await asiStartUserData(u, 'personal');
+            return;
+        }
+
+        if (actionId === 'user-individual-functions' || actionId === 'user-analyze-roles') {
+            await asiStartPfcgUserRoles(u);
+            return;
+        }
+
+        if (actionId === 'user-individual-profile' || actionId === 'projeto-perfil-utilizador') {
+            await asiStartProjetoPerfilJob('utilizador', `Auditoria de Utilizador: ${u}`, { username: u });
+            return;
+        }
+
+        // Fallback default: alterar senha
+        await asiStartUserPasswordChange(u);
     }
 
     function asiBuildPfcgRoleSearchResultHtml(result, options = {}) {
@@ -10386,16 +10468,41 @@
             return;
         }
 
-        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT) {
+        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT_NAME || asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT) {
             const query = rawMessage.replace(/["'%_\\]/g, '').trim();
             if (query.length < 2) {
                 asiAppendMessage(asiCreateMessage('assistant', 'Indique pelo menos 2 caracteres do nome.'));
-                asiConversationState = { ...asiConversationState, awaitingInput: ASI_USER_SEARCH_INPUT, isBusy: false };
+                asiConversationState = { ...asiConversationState, isBusy: false };
                 asiUpdateComposerState();
                 input.focus();
                 return;
             }
-            await asiStartUserSearch(query);
+            await asiStartUserSearch(query, 'name');
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT_EMAIL) {
+            const query = rawMessage.replace(/['"\\]/g, '').trim();
+            if (query.length < 3 || query.indexOf('@') === -1) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Indique um email válido (ex.: nome@salsajeans.com).'));
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState();
+                input.focus();
+                return;
+            }
+            await asiStartUserSearch(query, 'email');
+            return;
+        }
+
+        if (asiConversationState.awaitingInput === ASI_USER_SEARCH_INPUT_DIRECT) {
+            const u = rawMessage.toUpperCase().trim();
+            if (!ASI_PFCG_USER_PATTERN.test(u)) {
+                asiAppendMessage(asiCreateMessage('assistant', 'Utilizador inválido. Letras, números, "_", "." ou "-" (máx. 12).'));
+                asiConversationState = { ...asiConversationState, isBusy: false };
+                asiUpdateComposerState(); input.focus(); return;
+            }
+            const targetAction = asiConversationState.userSearchTargetAction || 'user-individual-password';
+            await asiExecuteUserTargetAction(targetAction, u);
             return;
         }
 
@@ -12698,6 +12805,7 @@
 
     // --- JIRA View and Synchronization Logic ---
     let jiraTickets = [];
+    let jiraClosedTickets = [];
     let jiraSortColumn = null;
     let jiraSortAscending = true;
     let activeKpiCardFilter = null;
@@ -12729,6 +12837,9 @@
     }
 
     function resetJiraFilters(rerender = false) {
+        const stateSelect = document.getElementById('jira-filter-state');
+        if (stateSelect) stateSelect.value = 'open';
+
         const jiraFilters = [
             'jira-filter-team',
             'jira-filter-stream',
@@ -13552,6 +13663,12 @@
         const tbody = document.getElementById('jira-tickets-table-body');
         if (!tbody) return;
 
+        // Se o filtro de estado for "closed", não carregamos da rota padrão de abertos
+        const stateVal = document.getElementById('jira-filter-state')?.value || 'open';
+        if (stateVal === 'closed') {
+            return;
+        }
+
         // Only show loading spinner on first load; silent mode keeps existing rows visible
         if (!silent) {
             tbody.innerHTML = `
@@ -13588,6 +13705,85 @@
                         </td>
                     </tr>
                 `;
+            }
+        }
+    }
+
+    async function handleJiraStateFilterChange() {
+        const stateSelect = document.getElementById('jira-filter-state');
+        const stateVal = stateSelect?.value || 'open';
+        const teamVal = (document.getElementById('jira-filter-team')?.value || '').trim();
+        const assigneeVal = (document.getElementById('jira-filter-assignee')?.value || '').trim();
+        const tbody = document.getElementById('jira-tickets-table-body');
+
+        if (stateVal === 'closed') {
+            // Regra de segurança: Equipa e Responsável devem estar definidos
+            if (!teamVal || teamVal.toLowerCase() === 'todas as equipas' ||
+                !assigneeVal || assigneeVal.toLowerCase() === 'todos os responsáveis' || assigneeVal.toLowerCase() === 'todos os responsaveis') {
+                
+                jiraClosedTickets = [];
+                if (tbody) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="14" style="padding: 48px 24px; text-align: center; color: var(--text-secondary);">
+                                <div style="font-size: 32px; margin-bottom: 12px;">🛡️</div>
+                                <h3 style="font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">Filtros Obrigatórios para Tickets Concluídos</h3>
+                                <p style="font-size: 13px; max-width: 520px; margin: 0 auto; line-height: 1.5;">
+                                    Para evitar descarregar muitos dados antigos do Jira, selecione obrigatoriamente uma <strong>Equipa específica</strong> (diferente de "Todas as equipas") e um <strong>Responsável específico</strong> (diferente de "Todos os responsáveis").
+                                </p>
+                            </td>
+                        </tr>
+                    `;
+                }
+                updateJiraKpis([]);
+                return;
+            }
+
+            // Critérios satisfeitos: buscar tickets concluídos do Jira
+            if (tbody) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="14" style="padding: 40px; text-align: center; color: var(--text-secondary);">
+                            <div style="font-size: 24px; animation: pulse-opacity 1.5s infinite; display: inline-block;">⏳</div>
+                            <p style="margin-top: 8px;">A pesquisar tickets concluídos no Jira para <strong>${escapeHtml(teamVal)}</strong> / <strong>${escapeHtml(assigneeVal)}</strong>...</p>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            try {
+                const params = new URLSearchParams({
+                    team: teamVal,
+                    assignee: assigneeVal,
+                    limit: '100'
+                });
+                const res = await fetch(`/api/jira/tickets/closed?${params.toString()}`);
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || `Erro HTTP ${res.status}`);
+                }
+                const data = await res.json();
+                jiraClosedTickets = data.tickets || [];
+                filterAndRenderJiraTickets();
+                showToast(`Encontrados ${jiraClosedTickets.length} tickets concluídos.`, 'info');
+            } catch (err) {
+                if (tbody) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="14" style="padding: 40px; text-align: center; color: var(--danger);">
+                                ❌ Erro ao consultar tickets concluídos: ${escapeHtml(err.message)}
+                            </td>
+                        </tr>
+                    `;
+                }
+                showToast(`Erro ao pesquisar concluídos: ${err.message}`, 'error');
+            }
+        } else {
+            // Voltou para Em aberto
+            jiraClosedTickets = [];
+            filterAndRenderJiraTickets();
+            if (jiraTickets.length === 0) {
+                await loadJiraTickets();
             }
         }
     }
@@ -13648,11 +13844,16 @@
         const valKey = (document.getElementById('jira-filter-key')?.value || '').toLowerCase().trim();
         const query = (document.getElementById('jira-search-input')?.value || '').toLowerCase().trim();
 
+        const valState = document.getElementById('jira-filter-state')?.value || 'open';
         const CLOSED_STATUSES = new Set(['done', 'closed', 'concluído', 'resolvido', 'fechado', 'fechada', 'cancelled']);
 
-        const filtered = jiraTickets.filter(t => {
-            // Excluir sempre tickets fechados/concluídos da fila activa
-            if (CLOSED_STATUSES.has(normalizeValueLower(t.status))) return false;
+        const sourceTickets = (valState === 'closed') ? jiraClosedTickets : jiraTickets;
+
+        const filtered = sourceTickets.filter(t => {
+            if (valState === 'open') {
+                // Excluir sempre tickets fechados/concluídos da fila activa
+                if (CLOSED_STATUSES.has(normalizeValueLower(t.status))) return false;
+            }
 
             if (valTeam && normalizeValueLower(t.team) !== normalizeValueLower(valTeam)) return false;
             if (valStream && normalizeValueLower(t.stream) !== normalizeValueLower(valStream)) return false;
@@ -14077,6 +14278,11 @@
             searchInput.addEventListener('input', filterAndRenderJiraTickets);
         }
 
+        const stateFilter = document.getElementById('jira-filter-state');
+        if (stateFilter) {
+            stateFilter.addEventListener('change', handleJiraStateFilterChange);
+        }
+
         const jiraFilters = [
             'jira-filter-team',
             'jira-filter-stream',
@@ -14091,7 +14297,14 @@
         jiraFilters.forEach(id => {
             const el = document.getElementById(id);
             if (el) {
-                el.addEventListener('change', filterAndRenderJiraTickets);
+                el.addEventListener('change', () => {
+                    const currentState = document.getElementById('jira-filter-state')?.value || 'open';
+                    if (currentState === 'closed' && (id === 'jira-filter-team' || id === 'jira-filter-assignee')) {
+                        handleJiraStateFilterChange();
+                    } else {
+                        filterAndRenderJiraTickets();
+                    }
+                });
             }
         });
 
@@ -14103,6 +14316,10 @@
         const btnClearFilters = document.getElementById('btn-clear-jira-filters');
         if (btnClearFilters) {
             btnClearFilters.addEventListener('click', () => {
+                const stateSelect = document.getElementById('jira-filter-state');
+                if (stateSelect) stateSelect.value = 'open';
+                jiraClosedTickets = [];
+
                 jiraFilters.forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.value = '';

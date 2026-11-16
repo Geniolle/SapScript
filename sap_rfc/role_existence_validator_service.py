@@ -62,6 +62,7 @@ STATUS_SINGLE_UNKNOWN_AMBIENTE = "UNKNOWN_AMBIENTE"
 # Status oficiais específicos para Funções Compostas (COMPOSITE)
 STATUS_COMPOSITE_OK = "COMPOSITE_OK"
 STATUS_COMPOSITE_AUSENTE = "COMPOSITE_AUSENTE"
+STATUS_COMPOSITE_INCOMPLETA = "COMPOSITE_INCOMPLETA"
 STATUS_COMPOSITE_TIPO_DIVERGENTE = "COMPOSITE_TIPO_DIVERGENTE"
 STATUS_COMPOSITE_ERRO_LEITURA = "ERRO_LEITURA"
 STATUS_COMPOSITE_UNKNOWN_AMBIENTE = "UNKNOWN_AMBIENTE"
@@ -1344,26 +1345,99 @@ def executar_etapa_validacao_funcoes_compostas(
             "detalhes": {c: {"status": STATUS_COMPOSITE_UNKNOWN_AMBIENTE, "tipo_sap": "UNKNOWN"} for c in composites_esperadas}
         }
 
+    debug = os.environ.get("SAP_DEBUG", "").strip() in ("1", "true", "TRUE", "True")
+
     corretas = []
     ausentes = []
+    incompletas = []
     divergentes = []
     detalhes = {}
+
+    # Consultar filhas das roles existentes em AGR_AGRS para garantir integridade total
+    from collections import defaultdict
+    filhas_sap_por_comp: Dict[str, Set[str]] = defaultdict(set)
+    existentes_list = [c for c in composites_esperadas if sap_info.get(c, {}).get("existe") and sap_info.get(c, {}).get("tipo_sap") == "COMPOSITE"]
+
+    if existentes_list:
+        try:
+            from sap_rfc._rfc_common import make_read_only_guard, read_table, make_option_in
+            guard_agrs = make_read_only_guard(["AGR_AGRS"])
+            params_agrs = build_connection_params_for(environment)
+            from pyrfc import Connection
+            with Connection(**params_agrs) as conn_agrs:
+                for i in range(0, len(existentes_list), 20):
+                    chk_c = existentes_list[i:i+20]
+                    opts_c = make_option_in("AGR_NAME", chk_c)
+                    rows_agrs = read_table(conn_agrs, guard_agrs, table_name="AGR_AGRS", fields=["AGR_NAME", "CHILD_AGR"], options=opts_c, rowcount=0)
+                    for r_agr in rows_agrs:
+                        if len(r_agr) >= 2:
+                            filhas_sap_por_comp[r_agr[0].strip().upper()].add(r_agr[1].strip().upper())
+        except Exception as e_agrs:
+            if debug:
+                print(f"  [AVISO] Não foi possível consultar filhas em AGR_AGRS: {e_agrs}")
+
+    # Mapeamento de filhas esperadas do projeto (lendo Proposta Ativa e PFCG_COMPOSTA)
+    filhas_esperadas_por_comp: Dict[str, Set[str]] = defaultdict(set)
+    try:
+        import openpyxl
+        wb_chk = openpyxl.load_workbook(caminho_excel, data_only=True)
+        if "Proposta Ativa" in wb_chk.sheetnames:
+            ws_at = wb_chk["Proposta Ativa"]
+            col_comp_idx = 8
+            for c_i in range(1, ws_at.max_column + 1):
+                if "COMPOSITE" in str(ws_at.cell(row=1, column=c_i).value or "").upper():
+                    col_comp_idx = c_i
+                    break
+            for r_i in range(2, ws_at.max_row + 1):
+                c_val = ws_at.cell(row=r_i, column=col_comp_idx).value
+                if c_val and str(c_val).strip():
+                    c_norm = str(c_val).strip().upper()
+                    for col_s in range(col_comp_idx + 2, ws_at.max_column + 1):
+                        s_val = ws_at.cell(row=r_i, column=col_s).value
+                        if s_val and str(s_val).strip() and not str(s_val).strip().startswith("ZORG_BP_"):
+                            s_norm = str(s_val).strip().upper()
+                            if s_norm.startswith("Z") and s_norm != c_norm:
+                                filhas_esperadas_por_comp[c_norm].add(s_norm)
+        if "PFCG_COMPOSTA" in wb_chk.sheetnames:
+            ws_cp = wb_chk["PFCG_COMPOSTA"]
+            for r_i in range(2, ws_cp.max_row + 1):
+                c_val = ws_cp.cell(row=r_i, column=2).value
+                s_val = ws_cp.cell(row=r_i, column=4).value
+                if c_val and s_val:
+                    filhas_esperadas_por_comp[str(c_val).strip().upper()].add(str(s_val).strip().upper())
+        wb_chk.close()
+    except Exception as e_esp:
+        if debug:
+            print(f"  [AVISO] Leitura de filhas esperadas no Excel: {e_esp}")
 
     for c in composites_esperadas:
         inf = sap_info.get(c, {"existe": False, "tipo_sap": "INEXISTENTE", "erro": None})
         if not inf["existe"]:
             ausentes.append(c)
-            detalhes[c] = {"status": STATUS_COMPOSITE_AUSENTE, "tipo_sap": "INEXISTENTE"}
+            detalhes[c] = {"status": STATUS_COMPOSITE_AUSENTE, "tipo_sap": "INEXISTENTE", "filhas_faltam": list(filhas_esperadas_por_comp.get(c, set()))}
         elif inf["tipo_sap"] != "COMPOSITE":
             divergentes.append({
                 "role": c,
                 "esperado": "COMPOSITE",
                 "tipo_sap": inf["tipo_sap"]
             })
-            detalhes[c] = {"status": STATUS_COMPOSITE_TIPO_DIVERGENTE, "tipo_sap": inf["tipo_sap"]}
+            detalhes[c] = {"status": STATUS_COMPOSITE_TIPO_DIVERGENTE, "tipo_sap": inf["tipo_sap"], "filhas_faltam": []}
         else:
-            corretas.append(c)
-            detalhes[c] = {"status": STATUS_COMPOSITE_OK, "tipo_sap": "COMPOSITE"}
+            # Composta existe fisicamente: validar se tem as filhas atribuídas
+            filhas_esp = filhas_esperadas_por_comp.get(c, set())
+            filhas_sap = filhas_sap_por_comp.get(c, set())
+            faltam_filhas = filhas_esp - filhas_sap
+            if faltam_filhas:
+                incompletas.append({
+                    "role": c,
+                    "filhas_faltam": sorted(list(faltam_filhas)),
+                    "total_esperadas": len(filhas_esp),
+                    "total_no_sap": len(filhas_sap)
+                })
+                detalhes[c] = {"status": STATUS_COMPOSITE_INCOMPLETA, "tipo_sap": "COMPOSITE", "filhas_faltam": sorted(list(faltam_filhas))}
+            else:
+                corretas.append(c)
+                detalhes[c] = {"status": STATUS_COMPOSITE_OK, "tipo_sap": "COMPOSITE", "filhas_faltam": []}
 
     debug = os.environ.get("SAP_DEBUG", "").strip() in ("1", "true", "TRUE", "True")
 
@@ -1372,30 +1446,107 @@ def executar_etapa_validacao_funcoes_compostas(
         print("  [7/8] VALIDAÇÃO DAS FUNÇÕES COMPOSTAS (DEBUG)")
         print("=" * 78)
         print(f"  Composite Roles esperadas : {total_composites}")
-        print(f"  Corretas no SAP {environment}        : {len(corretas)}")
+        print(f"  Corretas e Completas no SAP {environment} : {len(corretas)}")
+        print(f"  Incompletas (sem filhas)   : {len(incompletas)}")
         print(f"  Ausentes                   : {len(ausentes)}")
         print(f"  Tipo divergente            : {len(divergentes)}")
         print("=" * 78)
 
-    tem_problema = (len(ausentes) > 0 or len(divergentes) > 0)
+    tem_problema = (len(ausentes) > 0 or len(divergentes) > 0 or len(incompletas) > 0)
     if not tem_problema:
         from sap_rfc.status_logger import print_status_success
-        print_status_success(f"  ✓ [7/8] Funções Compostas: {len(corretas)}/{total_composites} corretas | ausentes {len(ausentes)} | divergentes {len(divergentes)}")
+        print_status_success(f"  ✓ [7/8] Funções Compostas: {len(corretas)}/{total_composites} completas e com filhas atribuídas | ausentes 0 | incompletas 0 | divergentes 0")
     else:
         from sap_rfc.status_logger import print_status_warning
-        print_status_warning(f"  ⚠️ [7/8] Funções Compostas: {len(corretas)}/{total_composites} corretas | ausentes {len(ausentes)} | divergentes {len(divergentes)}")
+        print_status_warning(f"  ⚠️ [7/8] Funções Compostas: {len(corretas)}/{total_composites} completas | ausentes {len(ausentes)} | incompletas {len(incompletas)} | divergentes {len(divergentes)}")
         if ausentes:
-            print("  Ausentes:")
+            print("  Ausentes (não existem no SAP):")
             for a in ausentes:
                 print(f"    - {a}")
+        if incompletas:
+            print("  Incompletas (existem no SAP mas faltam funções filhas atribuídas):")
+            for inc in incompletas[:15]:
+                filhas_str = ", ".join(inc["filhas_faltam"])
+                print(f"    - {inc['role']} ({len(inc['filhas_faltam'])} filhas em falta: {filhas_str})")
+            if len(incompletas) > 15:
+                print(f"    ... e mais {len(incompletas) - 15} funções compostas incompletas.")
         if divergentes:
             print("  Tipo divergente:")
             for d in divergentes:
                 print(f"    - {d['role']} | Esperado={d['esperado']} | SAP={d['tipo_sap']}")
 
     corrigidas_count = 0
+    criadas_count = 0
+    filhas_atribuidas_count = 0
+
+    if ausentes:
+        resp_c = "S" if assumir_sim else input(
+            f"\nDeseja criar agora as {len(ausentes)} funções compostas ausentes no SAP {environment}? (S/N) [Padrão: N]: "
+        ).strip().upper()
+        if resp_c in ("S", "SIM", "Y", "YES"):
+            for a in ausentes:
+                res_cr = criar_composite_role_com_readback(a, environment=environment)
+                print(f"  {res_cr['mensagem']}")
+                if res_cr.get("ok"):
+                    criadas_count += 1
+                    # Se tiver filhas esperadas, passar para a lista de incompletas
+                    f_esp = filhas_esperadas_por_comp.get(a, set())
+                    if f_esp:
+                        incompletas.append({
+                            "role": a,
+                            "filhas_faltam": sorted(list(f_esp)),
+                            "total_esperadas": len(f_esp),
+                            "total_no_sap": 0
+                        })
+                    else:
+                        corretas.append(a)
+                    detalhes[a] = {"status": STATUS_COMPOSITE_INCOMPLETA if f_esp else STATUS_COMPOSITE_OK, "tipo_sap": "COMPOSITE"}
+        else:
+            print(f"  ℹ Nenhuma função composta criada no SAP {environment}. Relações e CUA_ADICIONAR permanecem pendentes.")
+
+    # Atribuição de filhas às compostas que estão incompletas
+    if incompletas:
+        total_filhas_faltam = sum(len(inc["filhas_faltam"]) for inc in incompletas)
+        resp_filhas = "S" if assumir_sim else input(
+            f"\nDeseja atribuir agora as {total_filhas_faltam} funções simples às {len(incompletas)} Composite Roles no SAP {environment}? (S/N): "
+        ).strip().upper()
+        if resp_filhas in ("S", "SIM", "Y", "YES"):
+            from sap_rfc._rfc_common import make_write_guard
+            guard_wr = make_write_guard(
+                allowed_functions=("PRGN_RFC_ADD_AGRS_TO_COLL_AGR", "PRGN_GEN_PROFILES_FOR_ROLES"),
+                allowed_tables=("AGR_AGRS", "AGR_TEXTS")
+            )
+            try:
+                conn_wr = Connection(**build_connection_params_for(environment))
+                for inc in incompletas:
+                    c_role = inc["role"]
+                    singles_payload = [{"AGR_NAME": s, "TEXT": ""} for s in inc["filhas_faltam"]]
+                    try:
+                        res_add = conn_wr.call(
+                            "PRGN_RFC_ADD_AGRS_TO_COLL_AGR",
+                            ACTIVITY_GROUP=c_role,
+                            ACTIVITY_GROUPS=singles_payload,
+                            NO_DIALOG="X"
+                        )
+                        conn_wr.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": c_role}], IV_USERCOMPARE="X")
+                        filhas_atribuidas_count += len(inc["filhas_faltam"])
+                        corretas.append(c_role)
+                        detalhes[c_role] = {"status": STATUS_COMPOSITE_OK, "tipo_sap": "COMPOSITE", "filhas_faltam": []}
+                        print(f"  ✓ Composite Role {c_role}: {len(inc['filhas_faltam'])} funções filhas atribuídas e perfis gerados no SAP {environment}.")
+                    except Exception as e_add:
+                        print(f"  ✗ Erro ao associar filhas a {c_role}: {e_add}")
+                conn_wr.close()
+            except Exception as e_wr_conn:
+                print(f"  ✗ Falha ao conectar para atribuição de filhas: {e_wr_conn}")
+        else:
+            print(f"  ℹ Atribuição de filhas ignorada pelo utilizador. As funções compostas permanecem incompletas no SAP {environment}.")
+
+    # Recalcular pendências restantes
+    ausentes_restantes = [a for a in ausentes if a not in corretas]
+    incompletas_restantes = [inc["role"] for inc in incompletas if inc["role"] not in corretas]
+
     if divergentes:
-        resp = "S" if assumir_sim else input(f"Deseja corrigir agora as {len(divergentes)} Composite Roles com tipo incorreto? (S/N) [Padrão: N]: ").strip().upper()
+        resp = "S" if assumir_sim else input(f"\nDeseja corrigir agora as {len(divergentes)} Composite Roles com tipo incorreto? (S/N) [Padrão: N]: ").strip().upper()
         if resp in ("S", "SIM", "Y", "YES"):
             for d in divergentes:
                 r_nome = d["role"]
@@ -1413,15 +1564,19 @@ def executar_etapa_validacao_funcoes_compostas(
 
     return {
         "ok": True,
-        "status": STATUS_COMPOSITE_OK if not ausentes and not divs_restantes else STATUS_COMPOSITE_TIPO_DIVERGENTE,
+        "status": STATUS_COMPOSITE_OK if not ausentes_restantes and not divs_restantes and not incompletas_restantes else STATUS_COMPOSITE_TIPO_DIVERGENTE,
         "ambiente": environment,
         "total_esperadas": total_composites,
         "corretas": len(corretas),
-        "ausentes": len(ausentes),
+        "ausentes": len(ausentes_restantes),
+        "incompletas": len(incompletas_restantes),
         "tipos_divergentes": len(divs_restantes),
+        "criadas_count": criadas_count,
+        "filhas_atribuidas_count": filhas_atribuidas_count,
         "corrigidas_count": corrigidas_count,
         "lista_divergentes": divs_restantes,
-        "lista_ausentes": ausentes,
+        "lista_ausentes": ausentes_restantes,
+        "lista_incompletas": incompletas_restantes,
         "detalhes": detalhes
     }
 

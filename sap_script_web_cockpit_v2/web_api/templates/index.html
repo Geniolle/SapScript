@@ -1432,6 +1432,11 @@
               <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;">Filtros</span>
             </div>
 
+            <select id="jira-filter-state" class="premium-select filter-select" style="flex: 1; min-width: 130px; max-width: 160px; font-weight: 600; background: rgba(37, 99, 235, 0.08); border-color: rgba(37, 99, 235, 0.35); color: var(--primary);">
+              <option value="open" selected>Em aberto</option>
+              <option value="closed">Concluído</option>
+            </select>
+
             <select id="jira-filter-team" class="premium-select filter-select" style="flex: 1; min-width: 135px; max-width: 180px;">
               <option value="">Todas as equipas</option>
               <option value="Helpdesk">Helpdesk</option>
@@ -2163,7 +2168,7 @@
     };
   </script>
   <script src="/static/js/cockpit.core.js?v=p5j"></script>
-  <script src="/static/js/cockpit.agent.js?v=salsa_v9"></script>
+  <script src="/static/js/cockpit.agent.js?v=salsa_v10"></script>
 
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">

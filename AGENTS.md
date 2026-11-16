@@ -12,6 +12,18 @@ Quando o utilizador disser **"Perfeito"** como confirmação de que o trabalho a
 
 Não interpretar a palavra dentro de uma citação, exemplo ou pergunta como ordem de publicação. A regra aplica-se quando ela for usada pelo utilizador como aprovação/encerramento do trabalho.
 
+## Credenciais e Acesso SAP
+
+As credenciais e conexões SAP para todos os ambientes estão configuradas no ficheiro .env deste projeto (SapScript/.env):
+- SAP_PRD_*: Produção
+- SAP_CUA_*: Central User Administration
+- SAP_QAD_*: Qualidade / Testes
+- SAP_DEV_*: Desenvolvimento
+- SAP_R3_*: R/3
+- SAP_BW_*: Business Warehouse (suporte SNC/Load Balancing)
+
+Em qualquer pedido para aceder ao SAP em qualquer mandante/ambiente, usar diretamente as credenciais do .env sem perguntar ao utilizador onde estão localizadas as credenciais.
+
 ## Segurança SAP
 
 As validações SAP devem ser feitas em modo somente leitura. Nunca alterar funções, atribuições, utilizadores ou outros dados SAP sem um pedido explícito e específico do utilizador.

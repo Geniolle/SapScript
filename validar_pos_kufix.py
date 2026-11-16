@@ -7,21 +7,35 @@ extrai as POs da 1ª coluna e valida via RFC na tabela EKKO:
 - Eventuais POs não encontradas ou eliminadas
 """
 
+import ctypes
 import io
+import msvcrt
 import os
 import re
 import sys
-import msvcrt
-import ctypes
 import threading
-from ctypes import wintypes
-from pathlib import Path
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
-import openpyxl
+
+def _project_venv_python(script_path: Path, executable: Path) -> Path | None:
+    venv_python = script_path.resolve().parent / ".venv" / "Scripts" / "python.exe"
+    if venv_python.is_file() and executable.resolve() != venv_python.resolve():
+        return venv_python
+    return None
+
+
+if __name__ == "__main__":
+    _venv_python = _project_venv_python(Path(__file__), Path(sys.executable))
+    if _venv_python:
+        os.execv(str(_venv_python), [str(_venv_python), str(Path(__file__).resolve()), *sys.argv[1:]])
+
 # Configuração Tkinter para interface gráfica
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
+
+import openpyxl
 
 from sap_rfc._rfc_common import (
     build_connection_params,
@@ -29,7 +43,6 @@ from sap_rfc._rfc_common import (
     load_project_env,
     make_write_guard,
 )
-
 
 WRITE_FUNCTIONS = (
     "RFC_READ_TABLE",
@@ -73,8 +86,37 @@ def read_excel_bytes_shared(filepath: str) -> bytes:
         return fp.read()
 
 
+def normalize_exchange_rate(value) -> str:
+    """Converte a notação SAP indireta (/1,12670) para o valor RFC (-1.12670)."""
+    text = str(value or "").strip().replace(" ", "")
+    if not text:
+        raise ValueError("taxa de câmbio em branco")
+    indirect = text.startswith("/")
+    if indirect:
+        text = text[1:]
+    if text.endswith("-"):
+        text = f"-{text[:-1]}"
+    text = text.replace(",", ".")
+    try:
+        rate = Decimal(text)
+    except InvalidOperation as exc:
+        raise ValueError(f"taxa de câmbio inválida: {value}") from exc
+    if not rate:
+        raise ValueError("taxa de câmbio não pode ser zero")
+    if indirect:
+        rate = -abs(rate)
+    return format(rate, "f")
+
+
+def exchange_rates_match(left, right) -> bool:
+    try:
+        return Decimal(normalize_exchange_rate(left)) == Decimal(normalize_exchange_rate(right))
+    except ValueError:
+        return False
+
+
 def extract_pos_from_excel(filepath: str) -> list[dict]:
-    """Extrai as POs da primeira coluna do ficheiro Excel."""
+    """Extrai as POs da coluna A e as taxas da coluna B, ignorando o cabeçalho."""
     file_bytes = read_excel_bytes_shared(filepath)
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True)
     sheet = wb.active
@@ -82,29 +124,42 @@ def extract_pos_from_excel(filepath: str) -> list[dict]:
     extracted = []
     seen = set()
 
-    for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+    for row_idx, row in enumerate(sheet.iter_rows(min_row=2, max_col=2, values_only=True), start=2):
         if not row or not row[0]:
             continue
         val = str(row[0]).strip()
+        raw_exchange_rate = row[1] if len(row) > 1 else None
         # Procura por padrão de número de pedido (ex.: 10 dígitos ou numérico)
         digits = re.sub(r"\D", "", val)
         if len(digits) == 10 and digits.startswith(("4", "5", "6", "7", "8", "9", "0")):
             po_num = digits
+            try:
+                exchange_rate = normalize_exchange_rate(raw_exchange_rate)
+            except ValueError as exc:
+                raise ValueError(f"Linha {row_idx}, PO {po_num}: {exc}") from exc
             is_dup = po_num in seen
             seen.add(po_num)
             extracted.append({
                 "row": row_idx,
                 "ebeln": po_num,
+                "exchange_rate": exchange_rate,
+                "raw_exchange_rate": str(raw_exchange_rate).strip(),
                 "is_duplicate": is_dup,
                 "raw_val": val,
             })
         elif val.isdigit() and len(val) >= 5:
             po_num = val.zfill(10)
+            try:
+                exchange_rate = normalize_exchange_rate(raw_exchange_rate)
+            except ValueError as exc:
+                raise ValueError(f"Linha {row_idx}, PO {po_num}: {exc}") from exc
             is_dup = po_num in seen
             seen.add(po_num)
             extracted.append({
                 "row": row_idx,
                 "ebeln": po_num,
+                "exchange_rate": exchange_rate,
+                "raw_exchange_rate": str(raw_exchange_rate).strip(),
                 "is_duplicate": is_dup,
                 "raw_val": val,
             })
@@ -162,9 +217,9 @@ def validate_bapi_po_change_metadata(conn) -> None:
         type_description = (parameter or {}).get("type_description")
         actual_type = getattr(type_description, "name", None)
         fields = {field["name"] for field in type_description.fields} if type_description else set()
-        if actual_type != type_name or "EX_RATE_FX" not in fields:
+        if actual_type != type_name or not {"EXCH_RATE", "EX_RATE_FX"}.issubset(fields):
             raise RuntimeError(
-                f"Assinatura RFC insegura: {parameter_name} não corresponde a {type_name}.EX_RATE_FX."
+                f"Assinatura RFC insegura: {parameter_name} não expõe {type_name}.EXCH_RATE/EX_RATE_FX."
             )
 
 
@@ -180,36 +235,37 @@ def format_return_messages(messages: list[dict]) -> str:
 
 
 def process_kufix_updates(
-    pos_list: list[str],
+    po_rates: dict[str, str],
     progress_callback=None,
     connection_factory=connect_sap_prd,
     metadata_validator=validate_bapi_po_change_metadata,
 ) -> dict[str, dict]:
-    """Marca KUFIX de forma idempotente, PO a PO, com transação isolada."""
+    """Atualiza WKURS e KUFIX de forma idempotente, PO a PO, com transação isolada."""
     conn = connection_factory()
-    unique_pos = list(dict.fromkeys(pos_list))
+    unique_pos = list(po_rates)
     results = {}
     try:
         metadata_validator(conn)
         total = len(unique_pos)
         for index, ebeln in enumerate(unique_pos, start=1):
             before = {}
+            target_wkurs = normalize_exchange_rate(po_rates[ebeln])
             try:
                 before = read_po_from_sap(conn, ebeln)
-                base = {**before, "kufix_before": before.get("kufix", ""), "kufix_after": before.get("kufix", ""), "sap_message": ""}
+                base = {**before, "target_wkurs": target_wkurs, "kufix_before": before.get("kufix", ""), "kufix_after": before.get("kufix", ""), "sap_message": ""}
                 if not before.get("found"):
                     results[ebeln] = {**base, "result": "Não encontrado"}
                 elif before.get("loekz"):
                     results[ebeln] = {**base, "result": "Ignorado", "sap_message": f"PO eliminada ({before['loekz']})"}
-                elif before.get("kufix") == "X":
-                    results[ebeln] = {**base, "result": "Já estava marcado"}
+                elif before.get("kufix") == "X" and exchange_rates_match(before.get("wkurs"), target_wkurs):
+                    results[ebeln] = {**base, "result": "Já estava atualizado"}
                 else:
                     WRITE_GUARD.assert_function_allowed("BAPI_PO_CHANGE")
                     response = conn.call(
                         "BAPI_PO_CHANGE",
                         PURCHASEORDER=ebeln,
-                        POHEADER={"EX_RATE_FX": "X"},
-                        POHEADERX={"EX_RATE_FX": "X"},
+                        POHEADER={"EXCH_RATE": target_wkurs, "EX_RATE_FX": "X"},
+                        POHEADERX={"EXCH_RATE": "X", "EX_RATE_FX": "X"},
                     )
                     messages = response.get("RETURN", []) or []
                     message_text = format_return_messages(messages)
@@ -222,8 +278,8 @@ def process_kufix_updates(
                         conn.call("BAPI_TRANSACTION_COMMIT", WAIT="X")
                         after = read_po_from_sap(conn, ebeln)
                         updated = {**base, **after, "kufix_before": before.get("kufix", ""), "kufix_after": after.get("kufix", ""), "sap_message": message_text}
-                        if after.get("found") and after.get("kufix") == "X":
-                            results[ebeln] = {**updated, "result": "Marcado com sucesso"}
+                        if after.get("found") and after.get("kufix") == "X" and exchange_rates_match(after.get("wkurs"), target_wkurs):
+                            results[ebeln] = {**updated, "result": "Taxa atualizada com sucesso"}
                         else:
                             results[ebeln] = {**updated, "result": "Erro de validação pós-commit"}
             except Exception as exc:
@@ -313,7 +369,7 @@ class POValidatorApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Validador de Taxa Fixa (KUFIX) - SAP PRD")
-        self.root.geometry("960x680")
+        self.root.geometry("1060x680")
         self.root.minsize(800, 500)
         self.root.attributes("-topmost", True)
 
@@ -374,8 +430,8 @@ class POValidatorApp:
         cards_frame.pack(fill="x", padx=15)
 
         self.card_total = self._create_card(cards_frame, "Total no Ficheiro", "0", "#2563EB", 0)
-        self.card_unmarked = self._create_card(cards_frame, "SAP: Desmarcadas (A Marcar)", "0", "#D97706", 1)
-        self.card_marked = self._create_card(cards_frame, "SAP: Já Marcadas ('X')", "0", "#059669", 2)
+        self.card_unmarked = self._create_card(cards_frame, "POs a atualizar", "0", "#D97706", 1)
+        self.card_marked = self._create_card(cards_frame, "POs já atualizadas", "0", "#059669", 2)
         self.card_errors = self._create_card(cards_frame, "Não Encontradas / Inválidas", "0", "#DC2626", 3)
 
         # Progress bar
@@ -389,14 +445,15 @@ class POValidatorApp:
         tree_frame = tk.Frame(self.root)
         tree_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
-        columns = ("pos", "ebeln", "bukrs", "waers", "wkurs", "kufix_before", "kufix_after", "result", "message")
+        columns = ("pos", "ebeln", "bukrs", "waers", "target_wkurs", "wkurs", "kufix_before", "kufix_after", "result", "message")
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=12)
 
         self.tree.heading("pos", text="# Linha")
         self.tree.heading("ebeln", text="Nº Pedido (PO)")
         self.tree.heading("bukrs", text="Empresa")
         self.tree.heading("waers", text="Moeda")
-        self.tree.heading("wkurs", text="Taxa Câmbio")
+        self.tree.heading("target_wkurs", text="Taxa Excel")
+        self.tree.heading("wkurs", text="Taxa SAP")
         self.tree.heading("kufix_before", text="KUFIX antes")
         self.tree.heading("kufix_after", text="KUFIX depois")
         self.tree.heading("result", text="Resultado")
@@ -406,7 +463,8 @@ class POValidatorApp:
         self.tree.column("ebeln", width=120, anchor="center")
         self.tree.column("bukrs", width=70, anchor="center")
         self.tree.column("waers", width=70, anchor="center")
-        self.tree.column("wkurs", width=110, anchor="center")
+        self.tree.column("target_wkurs", width=100, anchor="center")
+        self.tree.column("wkurs", width=100, anchor="center")
         self.tree.column("kufix_before", width=85, anchor="center")
         self.tree.column("kufix_after", width=85, anchor="center")
         self.tree.column("result", width=190, anchor="w")
@@ -442,7 +500,7 @@ class POValidatorApp:
 
         self.btn_mark = tk.Button(
             bottom_frame,
-            text="Marcar KUFIX no SAP",
+            text="Atualizar taxa e KUFIX no SAP",
             font=("Segoe UI", 9, "bold"),
             bg="#DC2626",
             fg="white",
@@ -492,7 +550,7 @@ class POValidatorApp:
 
         path = filedialog.askopenfilename(
             parent=self.root,
-            title="Selecione o ficheiro Excel com as POs na 1ª Coluna",
+            title="Selecione o Excel com POs na coluna A e taxas na coluna B",
             initialdir=initial_dir,
             filetypes=[("Ficheiros Excel", "*.xlsx;*.xls"), ("Todos os ficheiros", "*.*")],
         )
@@ -507,7 +565,7 @@ class POValidatorApp:
     def process_file_and_validate(self):
         self.btn_mark.config(state="disabled")
         self.execution_data = {}
-        self.status_lbl.config(text="A extrair pedidos da 1ª coluna do ficheiro Excel...")
+        self.status_lbl.config(text="A extrair pedidos da coluna A e taxas da coluna B...")
         self.root.update()
 
         try:
@@ -521,7 +579,7 @@ class POValidatorApp:
         self.card_total.config(text=f"{len(unique_pos)} ({total_rows} lin)")
 
         if not unique_pos:
-            messagebox.showwarning("Nenhum pedido encontrado", "Não foi encontrada nenhuma PO válida na primeira coluna do ficheiro.")
+            messagebox.showwarning("Nenhum pedido encontrado", "Não foi encontrada nenhuma PO válida na coluna A do ficheiro.")
             return
 
         self.status_lbl.config(text=f"A validar {len(unique_pos)} pedidos via RFC em SAP PRD...")
@@ -541,12 +599,17 @@ class POValidatorApp:
 
         self._populate_results()
 
-    def _eligible_pos(self) -> list[str]:
-        return sorted({
-            ebeln
-            for ebeln, info in self.sap_data.items()
-            if info.get("found") and not info.get("loekz") and info.get("kufix") != "X"
-        })
+    def _po_rates(self) -> dict[str, str]:
+        return {item["ebeln"]: item["exchange_rate"] for item in self.pos_data}
+
+    def _eligible_updates(self) -> dict[str, str]:
+        return {
+            ebeln: rate
+            for ebeln, rate in self._po_rates().items()
+            if (info := self.sap_data.get(ebeln, {})).get("found")
+            and not info.get("loekz")
+            and (info.get("kufix") != "X" or not exchange_rates_match(info.get("wkurs"), rate))
+        }
 
     def _populate_results(self):
         # Limpar tabela
@@ -564,6 +627,7 @@ class POValidatorApp:
 
         for item in self.pos_data:
             ebeln = item["ebeln"]
+            target_wkurs = item["raw_exchange_rate"]
             sap_info = self.sap_data.get(ebeln, {})
 
             execution = self.execution_data.get(ebeln)
@@ -575,7 +639,7 @@ class POValidatorApp:
                 bukrs = execution.get("bukrs", sap_info.get("bukrs", "-")) or "-"
                 waers = execution.get("waers", sap_info.get("waers", "-")) or "-"
                 wkurs = execution.get("wkurs", sap_info.get("wkurs", "-")) or "-"
-                if result in {"Marcado com sucesso", "Já estava marcado"}:
+                if result in {"Taxa atualizada com sucesso", "Já estava atualizado"}:
                     tag = "marked"
                 elif result == "Ignorado":
                     tag = "error"
@@ -607,8 +671,8 @@ class POValidatorApp:
                 message = status
                 kufix_before = kufix_val
                 kufix_after = kufix_val
-            elif sap_info.get("kufix") == "X":
-                status = "Já Marcada no SAP (Fixada)"
+            elif sap_info.get("kufix") == "X" and exchange_rates_match(sap_info.get("wkurs"), item["exchange_rate"]):
+                status = "Taxa e KUFIX já atualizados"
                 action = "Ignorar (Já OK)"
                 tag = "marked"
                 marked_count += 1
@@ -616,20 +680,20 @@ class POValidatorApp:
                 bukrs = sap_info.get("bukrs")
                 waers = sap_info.get("waers")
                 wkurs = sap_info.get("wkurs")
-                result = "Já estava marcado"
+                result = "Já estava atualizado"
                 message = ""
                 kufix_before = kufix_val
                 kufix_after = kufix_val
             else:
-                status = "Desmarcada no SAP"
-                action = "A Marcar"
+                status = "Taxa ou KUFIX divergente"
+                action = "A Atualizar"
                 tag = "unmarked"
                 unmarked_count += 1
                 kufix_val = " "
                 bukrs = sap_info.get("bukrs")
                 waers = sap_info.get("waers")
                 wkurs = sap_info.get("wkurs")
-                result = "A Marcar"
+                result = "A Atualizar"
                 message = ""
                 kufix_before = kufix_val
                 kufix_after = kufix_val
@@ -642,6 +706,7 @@ class POValidatorApp:
                     ebeln,
                     bukrs,
                     waers,
+                    target_wkurs,
                     wkurs,
                     f"'{kufix_before}'",
                     f"'{kufix_after}'",
@@ -653,11 +718,14 @@ class POValidatorApp:
 
         # Atualizar Cards
         unique_infos = list(self.sap_data.values())
-        unmarked_count = sum(
-            1 for info in unique_infos if info.get("found") and not info.get("loekz") and info.get("kufix") != "X"
-        )
+        unmarked_count = len(self._eligible_updates())
         marked_count = sum(
-            1 for info in unique_infos if info.get("found") and not info.get("loekz") and info.get("kufix") == "X"
+            1
+            for ebeln, rate in self._po_rates().items()
+            if (info := self.sap_data.get(ebeln, {})).get("found")
+            and not info.get("loekz")
+            and info.get("kufix") == "X"
+            and exchange_rates_match(info.get("wkurs"), rate)
         )
         error_count = sum(1 for info in unique_infos if not info.get("found") or info.get("loekz"))
         self.card_unmarked.config(text=str(unmarked_count))
@@ -665,10 +733,10 @@ class POValidatorApp:
         self.card_errors.config(text=str(error_count))
 
         self.status_lbl.config(
-            text=f"Validação concluída: {unmarked_count} desmarcadas (a marcar), {marked_count} já marcadas, {error_count} com aviso/erro."
+            text=f"Validação concluída: {unmarked_count} a atualizar, {marked_count} já atualizadas, {error_count} com aviso/erro."
         )
         self.progress_var.set(100)
-        self.btn_mark.config(state="normal" if self._eligible_pos() else "disabled")
+        self.btn_mark.config(state="normal" if self._eligible_updates() else "disabled")
 
     def _confirm_prd_change(self, count: int) -> bool:
         dialog = tk.Toplevel(self.root)
@@ -680,7 +748,7 @@ class POValidatorApp:
         text = (
             "ATENÇÃO — SAP PRD\n\n"
             f"Serão atualizadas {count} POs no ambiente PRD.\n\n"
-            "A alteração marcará exclusivamente o indicador de fixação da taxa de câmbio (KUFIX).\n\n"
+            "A alteração gravará a taxa da coluna B e marcará o indicador de fixação (KUFIX).\n\n"
             "Deseja continuar?"
         )
         tk.Label(dialog, text=text, justify="left", padx=24, pady=20, font=("Segoe UI", 10)).pack()
@@ -706,7 +774,7 @@ class POValidatorApp:
         return answer["confirmed"]
 
     def confirm_and_mark_kufix(self):
-        eligible = self._eligible_pos()
+        eligible = self._eligible_updates()
         if not eligible or not self._confirm_prd_change(len(eligible)):
             return
         self.btn_mark.config(state="disabled")
@@ -738,13 +806,13 @@ class POValidatorApp:
                 "kufix": result.get("kufix_after", result.get("kufix", "")),
             }
         self._populate_results()
-        successes = sum(1 for item in results.values() if item.get("result") == "Marcado com sucesso")
+        successes = sum(1 for item in results.values() if item.get("result") == "Taxa atualizada com sucesso")
         errors = sum(1 for item in results.values() if item.get("result") in {"Erro SAP", "Erro de validação pós-commit"})
-        messagebox.showinfo("Processamento concluído", f"Marcadas com sucesso: {successes}\nErros: {errors}")
+        messagebox.showinfo("Processamento concluído", f"Taxas atualizadas com sucesso: {successes}\nErros: {errors}")
 
     def _fail_kufix_update(self, exc: Exception):
         self.status_lbl.config(text="Processamento interrompido antes ou durante a ligação RFC.")
-        self.btn_mark.config(state="normal" if self._eligible_pos() else "disabled")
+        self.btn_mark.config(state="normal" if self._eligible_updates() else "disabled")
         messagebox.showerror("Erro RFC SAP", str(exc))
 
     def export_report(self):
@@ -777,7 +845,8 @@ class POValidatorApp:
             "Nº Pedido (PO)",
             "Empresa",
             "Moeda",
-            "Taxa Câmbio (WKURS)",
+            "Taxa Excel",
+            "Taxa SAP (WKURS)",
             "KUFIX antes",
             "KUFIX depois",
             "Resultado",

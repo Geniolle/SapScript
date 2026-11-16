@@ -82,7 +82,18 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from web_api.store import append_job_log, cancel_job, claim_next_job, complete_job, create_job, get_job, init_db, list_jobs, archive_job, unarchive_job, delete_job, update_job_params, reap_orphan_running_jobs, save_jira_tickets_to_db, list_jira_tickets, update_jira_ticket_assignee, update_jira_ticket_type_db, update_jira_ticket_status_db, update_jira_ticket_supplier_db, log_auto_trigger_entry, list_auto_trigger_log, has_active_job_for_ticket, clear_auto_trigger_log, delete_auto_trigger_log_entry, get_latest_sap_agent_analysis, save_jira_ticket_batch_only, create_agent_rule, list_agent_rules, update_agent_rule, delete_agent_rule, get_agent_rules_for_ticket, get_transacao_by_processo
-from web_api.jira_client import fetch_jira_tickets_from_api, assign_jira_ticket, update_jira_ticket_type, get_jira_issue_transitions, transition_jira_issue, update_jira_ticket_supplier, fetch_ticket_details, add_jira_comment, clean_excel_leading_spaces
+from web_api.jira_client import (
+    fetch_jira_tickets_from_api,
+    fetch_closed_jira_tickets,
+    assign_jira_ticket,
+    update_jira_ticket_type,
+    get_jira_issue_transitions,
+    transition_jira_issue,
+    update_jira_ticket_supplier,
+    fetch_ticket_details,
+    add_jira_comment,
+    clean_excel_leading_spaces,
+)
 from web_api.common import _json_no_store
 from web_api.pfcg_common import (
     PFCG_EXCEL_SELECTIONS,
@@ -565,6 +576,31 @@ def api_list_jira_tickets(limit: int = 50, exclude_closed: bool = True) -> dict[
         return {"tickets": list_jira_tickets(limit=limit, exclude_closed=exclude_closed)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/jira/tickets/closed")
+async def api_fetch_closed_jira_tickets(team: str, assignee: str, limit: int = 50) -> dict[str, Any]:
+    clean_team = (team or "").strip()
+    clean_assignee = (assignee or "").strip()
+
+    if not clean_team or clean_team.lower() == "todas as equipas":
+        raise HTTPException(
+            status_code=400,
+            detail="Filtro de Equipa obrigatório para consultar tickets concluídos."
+        )
+    if not clean_assignee or clean_assignee.lower() in ("todos os responsáveis", "todos os responsaveis"):
+        raise HTTPException(
+            status_code=400,
+            detail="Filtro de Responsável obrigatório para consultar tickets concluídos."
+        )
+
+    try:
+        tickets = await asyncio.to_thread(fetch_closed_jira_tickets, clean_team, clean_assignee, limit)
+        return {"tickets": tickets, "count": len(tickets)}
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar tickets concluídos no Jira: {str(exc)}")
 
 
 @app.post("/api/jira/sync")
@@ -1053,6 +1089,7 @@ class SalsaItUserDataRequest(BaseModel):
 
 class SalsaItUserSearchRequest(BaseModel):
     query: str
+    search_type: str = "name"
     system: str = "PRD"
 
 
@@ -1589,16 +1626,26 @@ def api_salsa_it_user_data_job(job_id: str) -> JSONResponse:
 @app.post("/api/salsa-it-agent/user/search")
 def api_salsa_it_user_search(payload: SalsaItUserSearchRequest) -> JSONResponse:
     query = str(payload.query or "").strip()
-    if len(query) < 2:
-        raise HTTPException(status_code=400, detail="Indique pelo menos 2 caracteres do nome a pesquisar.")
+    search_type = str(payload.search_type or "name").strip().lower()
+    if search_type not in ("name", "email", "username"):
+        search_type = "name"
+    if search_type == "email":
+        if len(query) < 3 or "@" not in query:
+            raise HTTPException(status_code=400, detail="Indique um email válido para pesquisar (mínimo 3 caracteres, incluindo '@').")
+    elif search_type == "username":
+        if not query:
+            raise HTTPException(status_code=400, detail="Indique o utilizador SAP a pesquisar.")
+    else:
+        if len(query) < 2:
+            raise HTTPException(status_code=400, detail="Indique pelo menos 2 caracteres do nome a pesquisar.")
     system = _validate_pfcg_system_or_400(payload.system)
 
     try:
-        job = create_job("user_search", {"query": query, "system": system})
+        job = create_job("user_search", {"query": query, "search_type": search_type, "system": system})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return _json_no_store({"job_id": job["id"], "state": job["state"], "query": query})
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "query": query, "search_type": search_type})
 
 
 @app.get("/api/salsa-it-agent/user/search/{job_id}")
@@ -1632,11 +1679,16 @@ def api_salsa_it_user_search_job(job_id: str) -> JSONResponse:
         "ok": bool(result.get("ok")),
         "status": str(result.get("status") or ""),
         "query": str(result.get("query") or ""),
+        "search_type": str(result.get("search_type") or "name"),
         "count": result.get("count"),
         "system": result.get("system"),
         "client": result.get("client"),
         "users": [
-            {"username": str(u.get("username") or ""), "full_name": str(u.get("full_name") or "")}
+            {
+                "username": str(u.get("username") or ""),
+                "full_name": str(u.get("full_name") or ""),
+                "email": str(u.get("email") or ""),
+            }
             for u in raw_users
             if isinstance(u, dict)
         ],

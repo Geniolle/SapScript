@@ -666,7 +666,8 @@ def test_etapa_composite_role_correta(mock_dados_projeto):
 
 def test_etapa_composite_role_ausente(mock_dados_projeto):
     """Cenário 9: Composite ausente no SAP PRD."""
-    with patch("sap_rfc.role_existence_validator_service.verificar_existencia_e_tipo_sap") as mock_chk:
+    with patch("sap_rfc.role_existence_validator_service.verificar_existencia_e_tipo_sap") as mock_chk, \
+         patch("builtins.input", return_value="N"):
         mock_chk.return_value = {
             "Z_COMP_1": {"existe": False, "tipo_sap": "INEXISTENTE", "erro": None},
             "Z_COMP_2": {"existe": True, "tipo_sap": "COMPOSITE", "erro": None},
@@ -825,7 +826,7 @@ def test_formato_log_etapas_5_e_6_compacto_e_com_problema(capsys, mock_dados_pro
         }
         executar_etapa_validacao_funcoes_compostas("dummy.xlsx", dados=mock_dados_projeto)
         out_7_ok = capsys.readouterr().out
-        assert "✓ [7/8] Funções Compostas: 2/2 corretas | ausentes 0 | divergentes 0" in out_7_ok
+        assert "✓ [7/8] Funções Compostas: 2/2 completas e com filhas atribuídas | ausentes 0 | incompletas 0 | divergentes 0" in out_7_ok
 
     # 2. Com problemas -> ⚠️ e listagem de ausentes / divergentes
     with patch("sap_rfc.role_existence_validator_service.verificar_existencia_e_tipo_sap") as mock_chk:
@@ -853,8 +854,8 @@ def test_formato_log_etapas_5_e_6_compacto_e_com_problema(capsys, mock_dados_pro
         }
         executar_etapa_validacao_funcoes_compostas("dummy.xlsx", dados=mock_dados_projeto, assumir_sim=True)
         out_7_err = capsys.readouterr().out
-        assert "⚠️ [7/8] Funções Compostas: 0/2 corretas | ausentes 1 | divergentes 1" in out_7_err
-        assert "Ausentes:" in out_7_err
+        assert "⚠️ [7/8] Funções Compostas: 0/2 completas | ausentes 1 | incompletas 0 | divergentes 1" in out_7_err
+        assert "Ausentes (não existem no SAP):" in out_7_err
         assert "- Z_COMP_1" in out_7_err
         assert "Tipo divergente:" in out_7_err
         assert "- Z_COMP_2 | Esperado=COMPOSITE | SAP=SINGLE" in out_7_err

@@ -186,20 +186,36 @@ def test_falha_no_backup_aborta_escrita(temp_excel_cenarios):
         assert res["excel_write"] == 0
 
 
-def test_business_partner_classificadas_como_composite_em_authority():
+def test_business_partner_classificadas_como_composite_em_authority(tmp_path):
     """Cenário 17 e 18: Z_BR_BUSINESS_PARTNER, Z_BR_BUSINESS_PARTNER_GL, Z_BR_TYPE_BP_GERAL reconhecidas como Composite."""
-    excel_real = "S4H_Perfis de autorização_v1.xlsx"
-    analise = analisar_reconciliacao_pfcg_authority(excel_real)
+    excel_teste = tmp_path / "business_partner_authority.xlsx"
+    roles_bp = ["Z_BR_BUSINESS_PARTNER", "Z_BR_BUSINESS_PARTNER_GL", "Z_BR_TYPE_BP_GERAL"]
+    wb = openpyxl.Workbook()
+    ws_cr = wb.active
+    ws_cr.title = "PFCG_CREATE"
+    ws_cr.append(["ID", "AGR_NAME", "TEXT", "TCODE"])
+    ws_cr.append([1, "Z_BP_CHILD", "BP Child", "BP"])
+    ws_cp = wb.create_sheet("PFCG_COMPOSTA")
+    ws_cp.append(["ID", "AGR_NAME_COMPOSTA", "TEXT", "AGR_NAME"])
+    ws_au = wb.create_sheet("PFCG_AUTHORITY")
+    ws_au.append(["ID", "AGR_NAME_COMPOSTA", "TEXT", "AGR_NAME", "TEXT"])
+    for index, role in enumerate(roles_bp, start=1):
+        ws_cp.append([index, role, role, "Z_BP_CHILD"])
+        ws_au.append([index, role, role, "Z_BP_CHILD", "BP Child"])
+    wb.save(excel_teste)
+    wb.close()
+
+    analise = analisar_reconciliacao_pfcg_authority(str(excel_teste))
     bp_info = analise["business_partner_classificacao"]
 
-    for bp in ["Z_BR_BUSINESS_PARTNER", "Z_BR_BUSINESS_PARTNER_GL", "Z_BR_TYPE_BP_GERAL"]:
+    for bp in roles_bp:
         assert bp_info[bp]["origem"] == "PFCG_AUTHORITY"
         assert bp_info[bp]["coluna"] == "AGR_NAME_COMPOSTA"
         assert bp_info[bp]["tipo_esperado_resultante"] == "COMPOSITE"
 
     # E na extração de roles do projeto, aparecem em COMPOSITE e NÃO em SINGLE
-    roles_proj = extrair_roles_necessarias_projeto(excel_real)
-    for bp in ["Z_BR_BUSINESS_PARTNER", "Z_BR_BUSINESS_PARTNER_GL", "Z_BR_TYPE_BP_GERAL"]:
+    roles_proj = extrair_roles_necessarias_projeto(str(excel_teste))
+    for bp in roles_bp:
         assert bp in roles_proj["COMPOSITE"]
         assert bp not in roles_proj["SINGLE"]
 
@@ -232,7 +248,7 @@ def test_formato_log_reconciliacao_compacto_e_com_pendencia(capsys, tmp_path):
     # 1. Sem pendências -> 1 linha
     reconciliar_pfcg_authority_com_catalogos(str(p), dry_run=True, imprimir_log=True)
     captured = capsys.readouterr().out
-    assert "[5/8] PFCG_AUTHORITY: 1 linhas | 1C | 1S | CREATE 1/1 | COMPOSTA 1/1 | conflitos 0" in captured
+    assert "[5/8] As funções e relações técnicas de objetos de autorização estão estruturadas e sem conflitos (CREATE: 1/1 | COMPOSTA: 1/1)." in captured
     assert "✓" in captured
     assert "CREATE ausentes:" not in captured
     assert "COMPOSTA ausente:" not in captured
@@ -246,7 +262,7 @@ def test_formato_log_reconciliacao_compacto_e_com_pendencia(capsys, tmp_path):
 
     reconciliar_pfcg_authority_com_catalogos(str(p), dry_run=True, imprimir_log=True)
     captured_pend = capsys.readouterr().out
-    assert "[5/8] PFCG_AUTHORITY:" in captured_pend
+    assert "[5/8] Relações técnicas de objetos de autorização com pendências" in captured_pend
     assert "⚠️" in captured_pend
     assert "CREATE ausentes:" in captured_pend
     assert "- Z_ROLE_S3" in captured_pend

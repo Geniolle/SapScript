@@ -1649,22 +1649,26 @@ def _run_user_data(params: dict[str, Any]) -> tuple[str, str]:
 
 
 def _run_user_search(params: dict[str, Any]) -> tuple[str, str]:
-    """Read-only via bridge RFC isolada: pesquisa utilizadores por nome."""
+    """Read-only via bridge RFC isolada: pesquisa utilizadores por nome, email ou username."""
     _prepare_project_imports()
     project_dir = _get_project_dir()
     raw_query = str(params.get("query") or "").strip()
+    search_type = str(params.get("search_type") or "name").strip().lower()
+    if search_type not in ("name", "email", "username"):
+        search_type = "name"
 
     try:
         from sap_rfc.user_search_service import sanitize_query
-        query = sanitize_query(raw_query)
+        query = sanitize_query(raw_query, search_type=search_type)
     except ValueError as exc:
         payload = {
             "ok": False, "status": "ERRO", "query": raw_query,
+            "search_type": search_type,
             "error_type": "INVALID_INPUT", "message": str(exc), "system": "PRD",
             "client": os.getenv("SAP_PRD_CLIENT", "").strip() or None,
         }
         return json.dumps(payload, ensure_ascii=False), (
-            f"Pesquisa de utilizador rejeitada antes da bridge RFC.\nQuery: {raw_query}\nMotivo: {exc}"
+            f"Pesquisa de utilizador rejeitada antes da bridge RFC.\nQuery: {raw_query}\nTipo: {search_type}\nMotivo: {exc}"
         )
     except Exception as exc:
         raise SapExecutionError(f"Nao foi possivel importar a validacao de pesquisa: {exc}") from exc
@@ -1675,7 +1679,7 @@ def _run_user_search(params: dict[str, Any]) -> tuple[str, str]:
 
     env = _build_rfc_bridge_env(project_dir)
     env["PFCG_TARGET_ENV"] = str(params.get("system") or "PRD").strip().upper() or "PRD"
-    command = [str(rfc_python), "-m", "sap_rfc.user_search_cli", "--query", query]
+    command = [str(rfc_python), "-m", "sap_rfc.user_search_cli", "--query", query, "--type", search_type]
 
     try:
         run = subprocess.run(
