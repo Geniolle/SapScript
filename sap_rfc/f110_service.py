@@ -438,8 +438,12 @@ def _build_f110_selection_params(
     if account_number:
         if operation_type == OPERATION_PAGAMENTO:
             params.append(_rsparam("SEL_KRED", "S", account_number))
+            # No log adicional: colocar o fornecedor em Contas pretendidas (de/até)
+            params.append(_rsparam("SEL_KREP", "S", low=account_number, high=account_number, option="BT"))
         else:
             params.append(_rsparam("SEL_DEBI", "S", account_number))
+            # No log adicional: colocar o cliente em Contas pretendidas (de/até)
+            params.append(_rsparam("SEL_DEBP", "S", low=account_number, high=account_number, option="BT"))
     logger.info(
         "F110 selection params built: run_id=%s document_number=%s company_code=%s payment_method=%s account_number=%s fields=%s",
         run_id,
