@@ -333,6 +333,47 @@ def filtrar_erros_atuais(
     return [e for e in erros_hoje if e.get("servidor", "") == instancia_atual]
 
 
+def obter_campos_obrigatorios_objeto_sap(objeto: str, conn: Optional[Any] = None) -> List[str]:
+    """Obtém a lista de campos obrigatórios que definem o objeto na tabela TOBJ."""
+    fechar_conn = False
+    campos = []
+    try:
+        if conn is None:
+            load_project_env(find_project_root())
+            conn = Connection(**build_connection_params_for("PRD"))
+            fechar_conn = True
+
+        res = conn.call(
+            "RFC_READ_TABLE",
+            QUERY_TABLE="TOBJ",
+            DELIMITER="|",
+            OPTIONS=[{"TEXT": f"OBJCT = '{objeto.strip().upper()}'"}],
+            FIELDS=[
+                {"FIELDNAME": "FIEL1"}, {"FIELDNAME": "FIEL2"},
+                {"FIELDNAME": "FIEL3"}, {"FIELDNAME": "FIEL4"},
+                {"FIELDNAME": "FIEL5"}, {"FIELDNAME": "FIEL6"},
+                {"FIELDNAME": "FIEL7"}, {"FIELDNAME": "FIEL8"},
+                {"FIELDNAME": "FIEL9"}, {"FIELDNAME": "FIE10"}
+            ],
+            ROWCOUNT=1
+        )
+        for r in res.get("DATA", []):
+            parts = r["WA"].split("|")
+            for f in parts:
+                f_clean = f.strip().upper()
+                if f_clean and f_clean not in campos:
+                    campos.append(f_clean)
+    except Exception:
+        pass
+    finally:
+        if fechar_conn and conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return campos
+
+
 def obter_descricao_objeto_sap(objeto: str) -> str:
     """Obtém a descrição técnica do objeto de autorização na tabela TOBJT."""
     try:
@@ -1075,6 +1116,12 @@ def executar_atualizacao_objeto_rfc(
             except Exception:
                 pass
 
+            # Preencher campos obrigatórios do objeto definidos na TOBJ que não tenham sido informados pela SU53 com '*'
+            campos_obrigatorios_tobj = obter_campos_obrigatorios_objeto_sap(nome_objeto, conn=conn)
+            for f_req in campos_obrigatorios_tobj:
+                if f_req not in valores_consolidados or not valores_consolidados[f_req]:
+                    valores_consolidados[f_req] = {"*"}
+
             manual_auths = []
             for campo, vals_set in valores_consolidados.items():
                 for v in sorted(list(vals_set)):
@@ -1097,16 +1144,32 @@ def executar_atualizacao_objeto_rfc(
                     ACTIVITY_GROUP=role,
                     GENERATE_PROFILE="X",
                     NO_DIALOG="X",
-                    REBUILD_AUTH_DATA="",
+                    REBUILD_AUTH_DATA="X",
                     MANUAL_AUTHS=manual_auths
                 )
             except Exception as e_auto:
-                # OPEN_AUTHS é tolerado se houver outros campos abertos na role
-                pass
+                # Se falhar com REBUILD_AUTH_DATA='X', tenta fallback sem rebuild
+                try:
+                    conn.call(
+                        "PRGN_AUTO_GENERATE_PROFILE_NEW",
+                        ACTIVITY_GROUP=role,
+                        GENERATE_PROFILE="X",
+                        NO_DIALOG="X",
+                        REBUILD_AUTH_DATA="",
+                        MANUAL_AUTHS=manual_auths
+                    )
+                except Exception:
+                    pass
 
-            # Gerar perfil e ajustar utilizadores
+            # Gerar perfil e ajustar utilizadores (User Comparison / Ajustar Utilizadores)
             try:
-                conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IV_USERCOMPARE="X", IT_ROLES=[{"AGR_NAME": role}])
+                res_gen = conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IV_USERCOMPARE="X", IT_ROLES=[{"AGR_NAME": role}])
+                erros_gen = [r for r in res_gen.get("ET_RETURN", []) if str(r.get("TYPE", "")).upper() in ("E", "A")]
+                if erros_gen:
+                    msg_eg = "; ".join([str(e.get("MESSAGE", "")) for e in erros_gen])
+                    print(f"     {CLR_Y}[AVISO geração/ajuste]: {msg_eg}{CLR_RST}")
+                else:
+                    print(f"     {CLR_G}[OK] Perfil gerado e utilizadores ajustados com sucesso (User Comparison OK){CLR_RST}")
             except Exception as e_gen:
                 print(f"     {CLR_Y}[AVISO geração]: {e_gen}{CLR_RST}")
 
@@ -1116,15 +1179,8 @@ def executar_atualizacao_objeto_rfc(
                 led = str(st.get("LED_COLOR") or "").strip().upper()
                 msg = str(st.get("MESSAGE_TEXT") or "").strip()
                 if led != "GREEN":
-                    # Tentativa de consolidação e regeneração de perfil em background
+                    # Segunda tentativa: auto-gerar perfil com os dados manuais persistidos e forçar geração
                     try:
-                        conn.call(
-                            "PRGN_AUTO_GENERATE_PROFILE_NEW",
-                            ACTIVITY_GROUP=role,
-                            GENERATE_PROFILE="X",
-                            NO_DIALOG="X",
-                            REBUILD_AUTH_DATA="X"
-                        )
                         conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IV_USERCOMPARE="X", IT_ROLES=[{"AGR_NAME": role}])
                         st = conn.call("PRGN_CHECK_PROFILE_STATUS_RFC", ACTIVITY_GROUP=role, TRANSACTIONS_CHANGED="")
                         led = str(st.get("LED_COLOR") or "").strip().upper()
@@ -1246,13 +1302,6 @@ def executar_todos_objetos_autorizacao(
 
     if not objetos_elegiveis:
         print(f"{CLR_Y}[AVISO] Todos os objetos selecionados são proibidos de atualização automática.{CLR_RST}")
-        return {"sucessos": 0, "falhas": 0}
-
-    confirmacao = input(
-        f"Confirma a atualização sequencial dos {len(objetos_elegiveis)} objetos permitidos no SAP {env}? [S/N] [N]: "
-    ).strip().upper()
-    if confirmacao not in ("S", "SIM", "Y", "YES", "1"):
-        print("Operação cancelada; nenhum objeto foi processado.")
         return {"sucessos": 0, "falhas": 0}
 
     sucessos = 0
@@ -1657,15 +1706,195 @@ def obter_catalogo_roles_validas_excel(caminho_excel: str) -> set:
     return cat.get("roles_validas", set())
 
 
+def pesquisar_funcoes_por_familia_sap(
+    tcode: str,
+    caminho_excel: str,
+    target_env: str = "PRD"
+) -> List[Dict[str, Any]]:
+    """
+    Quando uma transação não consta no catálogo da Proposta, investiga no SAP
+    o seu Pacote (DEVCLASS) e Componente de Aplicação (TADIR/TDEVC/TSTC).
+    Em seguida, procura transações irmãs desse mesmo pacote/componente que
+    estejam mapeadas no catálogo da folha 'Proposta' e retorna as Single Roles
+    correspondentes como sugestões qualificadas de família funcional.
+    """
+    tc_norm = tcode.strip().upper()
+    if not tc_norm:
+        return []
+
+    try:
+        load_project_env(find_project_root())
+        env_norm = "QAD" if str(target_env).upper() in ("QAD", "QAS") else "PRD"
+        conn = Connection(**build_connection_params_for(env_norm))
+    except Exception:
+        return []
+
+    try:
+        # 1. Identificar pacote (DEVCLASS) via TADIR
+        devclass = ""
+        res_tadir = conn.call(
+            "RFC_READ_TABLE",
+            QUERY_TABLE="TADIR",
+            DELIMITER="|",
+            FIELDS=[{"FIELDNAME": "DEVCLASS"}],
+            OPTIONS=[{"TEXT": f"PGMID = 'R3TR' AND OBJECT = 'TRAN' AND OBJ_NAME = '{tc_norm}'"}],
+            ROWCOUNT=1
+        )
+        for l in res_tadir.get("DATA", []):
+            parts = l["WA"].split("|")
+            if parts and parts[0].strip():
+                devclass = parts[0].strip().upper()
+                break
+
+        # Fallback se não achou por TRAN: tentar pelo programa da transação em TSTC
+        if not devclass:
+            res_tstc = conn.call(
+                "RFC_READ_TABLE",
+                QUERY_TABLE="TSTC",
+                DELIMITER="|",
+                FIELDS=[{"FIELDNAME": "PGMNA"}],
+                OPTIONS=[{"TEXT": f"TCODE = '{tc_norm}'"}],
+                ROWCOUNT=1
+            )
+            pgmna = ""
+            for l in res_tstc.get("DATA", []):
+                pgmna = l["WA"].split("|")[0].strip().upper()
+                break
+            if pgmna:
+                res_tadir_pgm = conn.call(
+                    "RFC_READ_TABLE",
+                    QUERY_TABLE="TADIR",
+                    DELIMITER="|",
+                    FIELDS=[{"FIELDNAME": "DEVCLASS"}],
+                    OPTIONS=[{"TEXT": f"PGMID = 'R3TR' AND OBJECT = 'PROG' AND OBJ_NAME = '{pgmna}'"}],
+                    ROWCOUNT=1
+                )
+                for l in res_tadir_pgm.get("DATA", []):
+                    parts = l["WA"].split("|")
+                    if parts and parts[0].strip():
+                        devclass = parts[0].strip().upper()
+                        break
+
+        if not devclass:
+            conn.close()
+            return []
+
+        # 2. Identificar Componente de Aplicação via TDEVC
+        componente = ""
+        res_tdevc = conn.call(
+            "RFC_READ_TABLE",
+            QUERY_TABLE="TDEVC",
+            DELIMITER="|",
+            FIELDS=[{"FIELDNAME": "COMPONENT"}],
+            OPTIONS=[{"TEXT": f"DEVCLASS = '{devclass}'"}],
+            ROWCOUNT=1
+        )
+        for l in res_tdevc.get("DATA", []):
+            parts = l["WA"].split("|")
+            if parts and parts[0].strip():
+                componente = parts[0].strip().upper()
+                break
+
+        # 3. Recolher pacotes da mesma área
+        pacotes_alvo = [devclass]
+        if componente:
+            res_irm = conn.call(
+                "RFC_READ_TABLE",
+                QUERY_TABLE="TDEVC",
+                DELIMITER="|",
+                FIELDS=[{"FIELDNAME": "DEVCLASS"}],
+                OPTIONS=[{"TEXT": f"COMPONENT = '{componente}'"}],
+                ROWCOUNT=25
+            )
+            for l in res_irm.get("DATA", []):
+                p_nome = l["WA"].split("|")[0].strip().upper()
+                if p_nome and p_nome not in pacotes_alvo:
+                    pacotes_alvo.append(p_nome)
+
+        # 4. Recolher transações irmãs desses pacotes via TADIR
+        tcodes_familia = set()
+        for pct in pacotes_alvo[:15]:
+            try:
+                res_t = conn.call(
+                    "RFC_READ_TABLE",
+                    QUERY_TABLE="TADIR",
+                    DELIMITER="|",
+                    FIELDS=[{"FIELDNAME": "OBJ_NAME"}],
+                    OPTIONS=[{"TEXT": f"PGMID = 'R3TR' AND OBJECT = 'TRAN' AND DEVCLASS = '{pct}'"}],
+                    ROWCOUNT=50
+                )
+                for l in res_t.get("DATA", []):
+                    t_val = l["WA"].split("|")[0].strip().upper()
+                    if t_val and t_val != tc_norm:
+                        tcodes_familia.add(t_val)
+            except Exception:
+                continue
+
+        conn.close()
+
+        if not tcodes_familia:
+            return []
+
+        # 5. Cruzar as transações irmãs com o catálogo da folha 'Proposta'
+        cat = carregar_catalogo_completo_excel(caminho_excel)
+        proposta_roles = cat.get("proposta_roles", {})
+        pfcg_create_roles = cat.get("pfcg_create_roles", {})
+
+        sugestoes = []
+        roles_adicionadas = set()
+
+        for role, data in proposta_roles.items():
+            tcodes_role = data.get("tcodes", {})
+            intersecao = set(tcodes_role.keys()).intersection(tcodes_familia)
+            if intersecao and role not in roles_adicionadas:
+                roles_adicionadas.add(role)
+                t_ex = sorted(list(intersecao))
+                t_txt = ", ".join(t_ex[:3])
+                sugestoes.append({
+                    "role": role,
+                    "descricao": data.get("desc", ""),
+                    "fonte": f"Família SAP ({devclass} / Irmãs: {t_txt})",
+                    "candidata": True,
+                    "tcode_irma": t_ex[0]
+                })
+
+        # Complementar com PFCG_CREATE caso necessário
+        for role, data in pfcg_create_roles.items():
+            tcodes_role = data.get("tcodes", set())
+            intersecao = set(tcodes_role).intersection(tcodes_familia)
+            if intersecao and role not in roles_adicionadas:
+                roles_adicionadas.add(role)
+                t_ex = sorted(list(intersecao))
+                t_txt = ", ".join(t_ex[:3])
+                sugestoes.append({
+                    "role": role,
+                    "descricao": data.get("desc", ""),
+                    "fonte": f"Família SAP PFCG ({devclass} / Irmãs: {t_txt})",
+                    "candidata": True,
+                    "tcode_irma": t_ex[0]
+                })
+
+        return sugestoes
+
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return []
+
+
 def buscar_funcao_individual_para_transacao(
     caminho_excel: str,
     tcode: str,
-    usuario: Optional[str] = None
+    usuario: Optional[str] = None,
+    target_env: str = "PRD"
 ) -> List[Dict[str, Any]]:
     """
     Pesquisa a Função Individual (Single Role Z_...) correspondente à transação:
       1. Folha 'Proposta' (catálogo principal, mapeamento exato com cabeçalhos e linhas)
       2. Folha 'PFCG_CREATE' (apenas roles presentes no catálogo oficial do Excel)
+      3. Investigação Dinâmica no SAP por Família/Pacote (DEVCLASS/TADIR) se não estiver catalogada
     Restringe estritamente às Single Roles do projeto Excel.
     Nunca sugere roles legadas fora do Excel (ex: Z_CROSS_LOGISTIC_*).
     """
@@ -1700,6 +1929,12 @@ def buscar_funcao_individual_para_transacao(
                         "fonte": "Folha 'PFCG_CREATE'",
                         "candidata": False,
                     })
+
+    # 3. Investigação no SAP por Pacote / Família de Desenvolvimento (se não encontrado nas etapas 1 e 2)
+    if not funcoes_encontradas:
+        sugestoes_familia = pesquisar_funcoes_por_familia_sap(tc_norm, caminho_excel, target_env=target_env)
+        if sugestoes_familia:
+            funcoes_encontradas.extend(sugestoes_familia)
 
     return funcoes_encontradas
 
@@ -2403,14 +2638,14 @@ def executar_atribuicao_transacao(
                         single_role_escolhida = exatos[0]["role"]
 
             elif candidatos:
-                print(f"{CLR_Y}A transação '{tcode_escolhido}' não consta na folha 'Proposta'. Funções sugeridas:{CLR_RST}")
-                for idx, r_info in enumerate(candidatos[:3], 1):
-                    print(f"  [{idx}] {CLR_Y}{r_info['role']}{CLR_RST} - {r_info['descricao']} ({r_info['fonte']})")
+                print(f"\n{CLR_G}Funções sugeridas por Família de Desenvolvimento / Pacote SAP:{CLR_RST}")
+                for idx, r_info in enumerate(candidatos[:5], 1):
+                    print(f"  [{idx}] {CLR_Y}{r_info['role']}{CLR_RST} - {r_info['descricao']} [{r_info['fonte']}]")
                 print("  [M] Introduzir manualmente outro nome de Função Individual")
                 print("  [P] Pular esta transação e avançar para a próxima")
                 print("  [0] Sair sem efetuar alterações")
 
-                prompt_c = f"Pressione [ENTER] para aceitar '{CLR_Y}{candidatos[0]['role']}{CLR_RST}' ou escolha [1-{len(candidatos[:3])}, M, P, 0] [Padrão: 1]: "
+                prompt_c = f"Pressione [ENTER] para aceitar '{CLR_Y}{candidatos[0]['role']}{CLR_RST}' ou escolha [1-{len(candidatos[:5])}, M, P, 0] [Padrão: 1]: "
                 sel_c = input(prompt_c).strip().upper()
                 if sel_c in ("0", "SAIR", "EXIT", "Q", "QUIT"):
                     print("Operação cancelada pelo utilizador.")
@@ -2564,31 +2799,46 @@ def main():
                 print("\n" + "=" * 95)
                 print("  DEPARTAMENTOS DA SHEET CONTROLO")
                 print("=" * 95)
+                print("  [0] Todos os Departamentos")
                 for indice, item in enumerate(departamentos, 1):
                     print(
                         f"  [{indice}] {item['departamento']} | "
                         f"{item['utilizadores']} utilizador(es) | {item['status'] or 'Sem status'}"
                     )
                 try:
-                    escolha_dep = input(f"Selecione o departamento [1-{len(departamentos)}, 0] [Padrão: 1]: ").strip()
-                    if escolha_dep == "0":
-                        continue
-                    indice_dep = int(escolha_dep or "1") - 1
+                    escolha_dep = input(f"Selecione o departamento [1-{len(departamentos)}, 0] [Padrão: 0]: ").strip()
+                    if escolha_dep in ("0", "TODOS", "T", "ALL"):
+                        indice_dep = -1
+                    else:
+                        indice_dep = int(escolha_dep or "0") - 1
                 except (ValueError, KeyboardInterrupt, EOFError):
                     print("Operação cancelada: departamento inválido.")
                     continue
-                if not 0 <= indice_dep < len(departamentos):
+                if indice_dep != -1 and not 0 <= indice_dep < len(departamentos):
                     print("Operação cancelada: departamento fora do intervalo válido.")
                     continue
 
-                departamento_selecionado = departamentos[indice_dep]["departamento"]
-                utilizadores_departamento = listar_utilizadores_departamento(caminho_excel, departamento_selecionado)
-                if not utilizadores_departamento:
-                    print(f"{CLR_Y}[AVISO] Nenhum utilizador encontrado para {departamento_selecionado}.{CLR_RST}")
-                    continue
-                print(f"\nUtilizadores de {departamento_selecionado}:")
-                for pessoa in utilizadores_departamento:
-                    print(f"  - {pessoa['usuario']} | {pessoa['nome']}")
+                if indice_dep == -1:
+                    departamento_selecionado = "TODOS"
+                    utilizadores_departamento = []
+                    vistos_u = set()
+                    for dep_item in departamentos:
+                        u_list = listar_utilizadores_departamento(caminho_excel, dep_item["departamento"])
+                        for u in u_list:
+                            u_chave = u.get("usuario", "").strip().upper()
+                            if u_chave and u_chave not in vistos_u:
+                                vistos_u.add(u_chave)
+                                utilizadores_departamento.append(u)
+                    print(f"\nTotal de utilizadores nos departamentos selecionados: {len(utilizadores_departamento)}")
+                else:
+                    departamento_selecionado = departamentos[indice_dep]["departamento"]
+                    utilizadores_departamento = listar_utilizadores_departamento(caminho_excel, departamento_selecionado)
+                    if not utilizadores_departamento:
+                        print(f"{CLR_Y}[AVISO] Nenhum utilizador encontrado para {departamento_selecionado}.{CLR_RST}")
+                        continue
+                    print(f"\nUtilizadores de {departamento_selecionado}:")
+                    for pessoa in utilizadores_departamento:
+                        print(f"  - {pessoa['usuario']} | {pessoa['nome']}")
                 usuario = ""
             else:
                 default_user = "ITSALSA" if any("ITSALSA" in str(a).upper() for a in sys.argv) else "CSILVA"

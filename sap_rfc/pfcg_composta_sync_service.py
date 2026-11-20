@@ -85,6 +85,10 @@ def obter_pendencias_pfcg_composta(caminho_excel: str) -> List[Dict[str, Any]]:
             single_name = str(r[COL_AGR_NAME - 1]).strip().upper() if r[COL_AGR_NAME - 1] else ""
 
             if comp_name and single_name:
+                # REGRA ESTRITA DE NEGÓCIO: Somente roles SAP válidas (começam por Z_ e sem nomes de departamento)
+                if not comp_name.startswith("Z") or not single_name.startswith("Z") or " " in comp_name or len(comp_name) > 30:
+                    continue
+
                 categoria = "NOVO_LOTE" if isinstance(id_val, (int, float)) and 742 <= id_val <= 849 else "PENDENCIA_HISTORICA"
                 pendencias.append({
                     "row_idx": row_idx,

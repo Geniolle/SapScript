@@ -242,11 +242,21 @@ def verificar_existencia_e_tipo_sap(
     if not roles:
         return {}
 
-    roles_unicas = sorted({str(r).strip().upper() for r in roles if r and str(r).strip()})
+    # Filtrar apenas nomes válidos para o SAP: máximo 30 caracteres (AGR_DEFINE-AGR_NAME)
+    roles_unicas_todas = sorted({str(r).strip().upper() for r in roles if r and str(r).strip()})
+    roles_unicas = [r for r in roles_unicas_todas if len(r) <= 30]
+    roles_invalidas_tamanho = [r for r in roles_unicas_todas if len(r) > 30]
+
     resultado: Dict[str, Dict[str, Any]] = {
         r: {"existe": False, "tipo_sap": "INEXISTENTE", "erro": None}
         for r in roles_unicas
     }
+    for r_inv in roles_invalidas_tamanho:
+        resultado[r_inv] = {
+            "existe": False,
+            "tipo_sap": "INEXISTENTE",
+            "erro": f"Nome da role excede 30 caracteres ({len(r_inv)} chars) suportados pelo SAP"
+        }
 
     conn = connection
     deve_fechar = False
@@ -815,39 +825,41 @@ def exibir_relatorio_validacao_roles(relatorio: Dict[str, Any]) -> None:
         print(f"    Single em falta          : {info.get('singles_faltantes', 0)}")
         print(f"    Tipo divergente          : {len(info.get('tipos_divergentes', []))}")
 
-    print("-" * 78)
-    print(f"Resultado Global: {relatorio.get('resultado_global', 'UNKNOWN')}")
-    print("-" * 78)
-    print("Roles em falta:")
+    # Exibir detalhe de roles em falta apenas se realmente houver alguma em falta ou divergente
+    tem_pendencias = any(
+        (info.get("composites_faltantes", 0) > 0 or
+         info.get("singles_faltantes", 0) > 0 or
+         len(info.get("tipos_divergentes", [])) > 0)
+        for info in relatorio.get("ambientes", {}).values()
+        if info.get("validado")
+    )
 
-    for env, info in relatorio.get("ambientes", {}).items():
-        print(f"\n{env}")
-        if not info.get("validado"):
-            print("  (Ambiente indisponível — estado das roles: UNKNOWN / NÃO VALIDADO)")
-            continue
+    if tem_pendencias:
+        print("-" * 78)
+        print("Roles em falta:")
 
-        comps = info.get("composite_em_falta") or []
-        singles = info.get("single_em_falta") or []
+        for env, info in relatorio.get("ambientes", {}).items():
+            if not info.get("validado"):
+                continue
 
-        print("  COMPOSITE:")
-        if comps:
-            for c in comps:
-                print(f"    - {c}")
-        else:
-            print("    (nenhuma em falta)")
+            comps = info.get("composite_em_falta") or []
+            singles = info.get("single_em_falta") or []
+            divs = info.get("tipos_divergentes") or []
 
-        print("  SINGLE:")
-        if singles:
-            for s in singles:
-                print(f"    - {s}")
-        else:
-            print("    (nenhuma em falta)")
-
-        divs = info.get("tipos_divergentes") or []
-        if divs:
-            print("  TIPOS DIVERGENTES (Bloqueados):")
-            for d in divs:
-                print(f"    ! {d['role']}: Esperado={d['tipo_esperado']} vs SAP={d['tipo_sap']}")
+            if comps or singles or divs:
+                print(f"\n{env}")
+                if comps:
+                    print("  COMPOSITE:")
+                    for c in comps:
+                        print(f"    - {c}")
+                if singles:
+                    print("  SINGLE:")
+                    for s in singles:
+                        print(f"    - {s}")
+                if divs:
+                    print("  TIPOS DIVERGENTES (Bloqueados):")
+                    for d in divs:
+                        print(f"    ! {d['role']}: Esperado={d['tipo_esperado']} vs SAP={d['tipo_sap']}")
 
     print("=" * 78)
 

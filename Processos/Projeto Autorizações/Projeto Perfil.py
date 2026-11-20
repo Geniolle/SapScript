@@ -5552,39 +5552,233 @@ def imprimir_cabecalho_compacto(ficheiro: str):
 
 def obter_pendencias_status(caminho_excel: str) -> Dict[str, int]:
     """
-    Conta linhas com pendências nas folhas operacionais, sem alterar o Excel.
-    Para PFCG_COMPOSTA, utiliza a função oficial obter_pendencias_pfcg_composta
-    como única fonte da verdade (status vazio, Pendente QAD ou Pendente PRD).
+    Calcula as pendências reais nas folhas operacionais (PFCG_CREATE, PFCG_COMPOSTA, CUA_ADICIONAR, CUA_REMOVE).
+    Antes de exibir a contagem:
+      1. Conecta via RFC ao SAP PRD (e QAD quando aplicável) e valida se os registos já existem fisicamente.
+      2. Se um registo já existir e estiver confirmado no SAP, marca a linha no Excel com:
+         STATUS = 'VALIDADO' e TIMESTEMP = timestamp atual.
+      3. Ignora linhas 100% vazias.
+      4. Devolve apenas a quantidade de linhas que são REALMENTE pendentes.
     """
-    import pandas as pd
+    import openpyxl
+    from datetime import datetime
+    from sap_rfc._rfc_common import build_connection_params_for, find_project_root, load_project_env
+    from pyrfc import Connection
 
-    folhas = ["PFCG_CREATE", "PFCG_COMPOSTA", "CUA_ADICIONAR", "CUA_REMOVE"]
-    fonte = abrir_excel_seguro(caminho_excel)
-    excel_file = pd.ExcelFile(fonte)
-    resultado = {}
-    for folha in folhas:
-        sheet = next((s for s in excel_file.sheet_names if normalizar_nome_coluna(s) == normalizar_nome_coluna(folha)), None)
-        if not sheet:
-            continue
-        
-        if folha == "PFCG_COMPOSTA":
-            try:
-                from sap_rfc.pfcg_composta_sync_service import obter_pendencias_pfcg_composta
-                pend_comp = obter_pendencias_pfcg_composta(caminho_excel)
-                if pend_comp:
-                    resultado[folha] = len(pend_comp)
+    resultado: Dict[str, int] = {}
+    if not caminho_excel or not os.path.exists(caminho_excel):
+        return resultado
+
+    load_project_env(find_project_root())
+    conn_prd = None
+    try:
+        conn_prd = Connection(**build_connection_params_for("PRD"))
+    except Exception as e_c:
+        print(f"  [AVISO] Não foi possível ligar ao SAP PRD para validar status em tempo real: {e_c}")
+
+    try:
+        wb = openpyxl.load_workbook(caminho_excel)
+    except Exception as e_wb:
+        print(f"  [AVISO] Erro ao abrir workbook para validação de pendências: {e_wb}")
+        return resultado
+
+    timestamp_agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    alterou_wb = False
+
+    # 1. PFCG_CREATE
+    if "PFCG_CREATE" in wb.sheetnames:
+        ws = wb["PFCG_CREATE"]
+        pendentes_cnt = 0
+        roles_para_checar = []
+        linhas_map = {}
+        for r in range(2, ws.max_row + 1):
+            agr = ws.cell(row=r, column=2).value
+            if not agr or str(agr).strip() == "":
                 continue
+            st = ws.cell(row=r, column=5).value
+            st_str = str(st or "").strip().upper()
+            if st_str in ("", "PENDENTE"):
+                agr_norm = str(agr).strip().upper()
+                roles_para_checar.append(agr_norm)
+                linhas_map.setdefault(agr_norm, []).append(r)
+
+        roles_existentes_sap = set()
+        if conn_prd and roles_para_checar:
+            try:
+                res = conn_prd.call("RFC_READ_TABLE", QUERY_TABLE="AGR_DEFINE", DELIMITER="|",
+                                     FIELDS=[{"FIELDNAME": "AGR_NAME"}], ROWCOUNT=0)
+                roles_existentes_sap = {l["WA"].strip().upper() for l in res.get("DATA", [])}
             except Exception:
                 pass
 
-        df = pd.read_excel(excel_file, sheet_name=sheet)
-        col_status = next((c for c in df.columns if normalizar_nome_coluna(c) == "STATUS"), None)
-        if col_status is None:
-            continue
-        status = df[col_status].fillna("").astype(str).str.strip()
-        quantidade = int(status.eq("").sum())
-        if quantidade:
-            resultado[folha] = quantidade
+        for agr_norm, l_list in linhas_map.items():
+            if agr_norm in roles_existentes_sap:
+                for r_idx in l_list:
+                    ws.cell(row=r_idx, column=5, value="VALIDADO")
+                    ws.cell(row=r_idx, column=6, value="Confirmado em SAP PRD via RFC")
+                    ws.cell(row=r_idx, column=7, value=timestamp_agora)
+                    ws.cell(row=r_idx, column=8, value="Validado")
+                    alterou_wb = True
+            else:
+                pendentes_cnt += len(l_list)
+
+        if pendentes_cnt:
+            resultado["PFCG_CREATE"] = pendentes_cnt
+
+    # 2. PFCG_COMPOSTA
+    if "PFCG_COMPOSTA" in wb.sheetnames:
+        ws = wb["PFCG_COMPOSTA"]
+        pendentes_cnt = 0
+        pares_para_checar = []
+        linhas_map_comp = {}
+        for r in range(2, ws.max_row + 1):
+            comp = ws.cell(row=r, column=2).value
+            single = ws.cell(row=r, column=4).value
+            if not comp or not single:
+                # Ignorar linhas 100% vazias
+                continue
+            comp_str = str(comp).strip().upper()
+            single_str = str(single).strip().upper()
+
+            # REGRA ESTRITA: Apenas nomes de roles SAP válidos (prefixo Z e sem espaços/nomes de departamentos)
+            if not comp_str.startswith("Z") or not single_str.startswith("Z") or " " in comp_str:
+                continue
+
+            st = ws.cell(row=r, column=5).value
+            st_str = str(st or "").strip().upper()
+            if st_str in ("", "PENDENTE", "PENDENTE PRD", "PENDENTE QAD"):
+                par = (comp_str, single_str)
+                pares_para_checar.append(par)
+                linhas_map_comp.setdefault(par, []).append(r)
+
+        relacoes_sap = set()
+        if conn_prd and pares_para_checar:
+            try:
+                # Consultar AGR_AGRS para as compostas
+                res_rel = conn_prd.call("RFC_READ_TABLE", QUERY_TABLE="AGR_AGRS", DELIMITER="|",
+                                        FIELDS=[{"FIELDNAME": "AGR_NAME"}, {"FIELDNAME": "CHILD_AGR"}], ROWCOUNT=0)
+                for l in res_rel.get("DATA", []):
+                    parts = l["WA"].split("|")
+                    if len(parts) >= 2:
+                        relacoes_sap.add((parts[0].strip().upper(), parts[1].strip().upper()))
+            except Exception:
+                pass
+
+        for par, l_list in linhas_map_comp.items():
+            if par in relacoes_sap:
+                for r_idx in l_list:
+                    ws.cell(row=r_idx, column=5, value="VALIDADO")
+                    ws.cell(row=r_idx, column=6, value="Relação confirmada em SAP PRD via RFC")
+                    ws.cell(row=r_idx, column=7, value=timestamp_agora)
+                    ws.cell(row=r_idx, column=8, value="Validado")
+                    alterou_wb = True
+            else:
+                pendentes_cnt += len(l_list)
+
+        if pendentes_cnt:
+            resultado["PFCG_COMPOSTA"] = pendentes_cnt
+
+    # 3. CUA_ADICIONAR
+    if "CUA_ADICIONAR" in wb.sheetnames:
+        ws = wb["CUA_ADICIONAR"]
+        pendentes_cnt = 0
+        adicoes_map = {}
+        for r in range(2, ws.max_row + 1):
+            u_val = ws.cell(row=r, column=2).value
+            r_val = ws.cell(row=r, column=4).value
+            if not u_val or not r_val:
+                continue
+            st = ws.cell(row=r, column=5).value
+            st_str = str(st or "").strip().upper()
+            if st_str in ("", "PENDENTE"):
+                par_u = (str(u_val).strip().upper(), str(r_val).strip().upper())
+                adicoes_map.setdefault(str(u_val).strip().upper(), {}).setdefault(par_u, []).append(r)
+
+        if conn_prd and adicoes_map:
+            for u_norm, pairs_dict in adicoes_map.items():
+                roles_ativas_user = set()
+                try:
+                    res_det = conn_prd.call("BAPI_USER_GET_DETAIL", USERNAME=u_norm)
+                    roles_ativas_user = {r["AGR_NAME"].strip().upper() for r in res_det.get("ACTIVITYGROUPS", [])}
+                except Exception:
+                    pass
+
+                for (un, rn), l_list in pairs_dict.items():
+                    if rn in roles_ativas_user:
+                        for r_idx in l_list:
+                            ws.cell(row=r_idx, column=5, value="VALIDADO")
+                            ws.cell(row=r_idx, column=6, value="Atribuição ativa confirmada no SAP PRD via RFC")
+                            ws.cell(row=r_idx, column=7, value=timestamp_agora)
+                            ws.cell(row=r_idx, column=8, value="Validado")
+                            alterou_wb = True
+                    else:
+                        pendentes_cnt += len(l_list)
+        else:
+            for pairs_dict in adicoes_map.values():
+                for l_list in pairs_dict.values():
+                    pendentes_cnt += len(l_list)
+
+        if pendentes_cnt:
+            resultado["CUA_ADICIONAR"] = pendentes_cnt
+
+    # 4. CUA_REMOVE
+    if "CUA_REMOVE" in wb.sheetnames:
+        ws = wb["CUA_REMOVE"]
+        pendentes_cnt = 0
+        remocoes_map = {}
+        for r in range(2, ws.max_row + 1):
+            u_val = ws.cell(row=r, column=2).value
+            r_val = ws.cell(row=r, column=4).value
+            if not u_val or not r_val:
+                # Ignorar linhas 100% vazias
+                continue
+            st = ws.cell(row=r, column=5).value
+            st_str = str(st or "").strip().upper()
+            if st_str in ("", "PENDENTE"):
+                par_u = (str(u_val).strip().upper(), str(r_val).strip().upper())
+                remocoes_map.setdefault(str(u_val).strip().upper(), {}).setdefault(par_u, []).append(r)
+
+        if conn_prd and remocoes_map:
+            for u_norm, pairs_dict in remocoes_map.items():
+                roles_ativas_user = set()
+                try:
+                    res_det = conn_prd.call("BAPI_USER_GET_DETAIL", USERNAME=u_norm)
+                    roles_ativas_user = {r["AGR_NAME"].strip().upper() for r in res_det.get("ACTIVITYGROUPS", [])}
+                except Exception:
+                    pass
+
+                for (un, rn), l_list in pairs_dict.items():
+                    # Se a role JÁ NÃO ESTÁ no utilizador no SAP, então a remoção já foi concretizada
+                    if rn not in roles_ativas_user:
+                        for r_idx in l_list:
+                            ws.cell(row=r_idx, column=5, value="VALIDADO")
+                            ws.cell(row=r_idx, column=6, value="Role já não está atribuída ao utilizador no SAP PRD")
+                            ws.cell(row=r_idx, column=7, value=timestamp_agora)
+                            ws.cell(row=r_idx, column=8, value="Validado")
+                            alterou_wb = True
+                    else:
+                        pendentes_cnt += len(l_list)
+        else:
+            for pairs_dict in remocoes_map.values():
+                for l_list in pairs_dict.values():
+                    pendentes_cnt += len(l_list)
+
+        if pendentes_cnt:
+            resultado["CUA_REMOVE"] = pendentes_cnt
+
+    if conn_prd:
+        try:
+            conn_prd.close()
+        except Exception:
+            pass
+
+    if alterou_wb:
+        try:
+            wb.save(caminho_excel)
+        except Exception as e_sv:
+            print(f"  [AVISO] Falha ao guardar workbook após validação de status: {e_sv}")
+    wb.close()
+
     return resultado
 
 
@@ -6408,7 +6602,7 @@ def verificar_e_perguntar_pendencias(
 
 
 
-def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:
+def exibir_tabela_controlo(dados: ProjetoPerfilData, mostrar_sugestao: bool = True) -> Optional[Dict[str, Any]]:
     """
     Exibe a tabela clara dos departamentos na folha CONTROLO com as suas linhas no Excel
     e retorna o próximo departamento pendente sugerido (se houver).
@@ -6445,34 +6639,41 @@ def exibir_tabela_controlo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]
     return proximo_sugerido
 
 
-def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dict[str, Any]]:
+def selecionar_departamento_interativo(dados: ProjetoPerfilData, sugerir_padrao: bool = True) -> Optional[Dict[str, Any]]:
     """
     Apresenta a listagem clara dos departamentos na folha CONTROLO
-    e solicita ao utilizador indicar a linha do departamento a gerir/reprocessar.
+    e solicita ao utilizador indicar a linha do departamento a gerir/reprocessar,
+    ou '0' para Processar Todos os Departamentos em sequência.
+    Se sugerir_padrao=False, não força nem sugere o próximo departamento por Enter.
     """
-    sugerido = exibir_tabela_controlo(dados)
-    padrao_linha = str(sugerido["linha"]) if sugerido else ""
+    sugerido = exibir_tabela_controlo(dados, mostrar_sugestao=sugerir_padrao)
+    padrao_linha = str(sugerido["linha"]) if (sugerido and sugerir_padrao) else ""
     prompt_sugestao = f" [Enter para Linha {padrao_linha}]" if padrao_linha else ""
 
     linhas_validas = [str(c.get("linha")) for c in dados.controlo if c.get("linha")]
     exemplo_linhas = f"{linhas_validas[0]}-{linhas_validas[-1]}" if len(linhas_validas) > 1 else (linhas_validas[0] if linhas_validas else "2-7")
 
+    print(f"  [0] Processar Todos os Departamentos da folha CONTROLO")
+
     while True:
-        if sugerido:
-            texto_prompt = f"\nSelecione a Linha do departamento a processar{prompt_sugestao} ('0' para Voltar): "
+        if padrao_linha:
+            texto_prompt = f"\nIndique a Linha [{exemplo_linhas}], '0' para Processar Todos ('V' para Voltar){prompt_sugestao}: "
         else:
-            texto_prompt = f"\nQual departamento deseja reprocessar? Indique a Linha [{exemplo_linhas}] ('0' para Voltar): "
+            texto_prompt = f"\nIndique a Linha [{exemplo_linhas}], '0' para Processar Todos ('V' para Voltar): "
 
         entrada = input(texto_prompt).strip().upper()
 
-        if entrada in ("0", "SAIR", "VOLTAR", "V", "Q", "QUIT", "EXIT"):
+        if entrada in ("VOLTAR", "V", "Q", "QUIT", "EXIT", "SAIR"):
             return None
+
+        if entrada in ("0", "TODOS", "T", "ALL"):
+            return {"tipo": "PROCESSAR_TODOS"}
 
         if not entrada and padrao_linha:
             entrada = padrao_linha
 
         if not entrada:
-            return None
+            continue
 
         entrada_limpa = entrada.replace("[", "").replace("]", "").strip()
 
@@ -6486,7 +6687,7 @@ def selecionar_departamento_interativo(dados: ProjetoPerfilData) -> Optional[Dic
         if item_por_nome:
             return item_por_nome
 
-        print(f"[AVISO] Linha '{entrada}' não encontrada na folha CONTROLO. Por favor indique uma Linha válida (ex: {exemplo_linhas}).")
+        print(f"[AVISO] Linha '{entrada}' não encontrada na folha CONTROLO. Por favor indique uma Linha válida [{exemplo_linhas}], '0' para Todos ou 'V' para Voltar.")
 
 
 def obter_data_fim_sap_gui(grid_act=None) -> str:
@@ -6635,35 +6836,207 @@ def sincronizar_departamento_prd_qad_rfc(
 
 
     # ---------------------------------------------------------------------
-    # 1.1 GARANTIA DE MEMBROS DAS FUNÇÕES COMPOSTAS NO SAP (PRD / QAD)
+    # 1.1 PRÉ-VALIDAÇÃO E CRIAÇÃO AUTOMÁTICA DE ROLES (EXCEL + SAP PRD/QAD)
     # ---------------------------------------------------------------------
-    # Antes de atribuir as compostas aos utilizadores, assegurar que no SAP
-    # todas as funções compostas departamentais contêm as suas filhas de PFCG_COMPOSTA.
-    compostas_do_dep = {
-        normalizar_texto(u_data.get("composta"))
-        for u_data in analise.get("usuarios", [])
-        if u_data.get("composta") and normalizar_texto(u_data.get("composta")) not in ("NONE", "NAN", "-")
-    }
+    # Regra de Segurança do Negócio:
+    # 1. Todas as Singles da Proposta Ativa do departamento devem existir em PFCG_CREATE.
+    #    Se não existirem no Excel, são adicionadas automaticamente.
+    # 2. Todas as Singles devem existir no SAP (PRD e QAD). Se não existirem, são criadas via RFC.
+    # 3. Todas as Compostas da Proposta Ativa do departamento devem existir em PFCG_COMPOSTA
+    #    com as suas filhas mapeadas. Se não existirem no Excel, são adicionadas.
+    # 4. Todas as Compostas devem existir no SAP (PRD e QAD) com as filhas associadas.
+    #    Se não existirem, são criadas via RFC e as filhas vinculadas com User Compare.
+    # 5. Só após esta garantia é que o processo avança para atribuir e remover nos utilizadores.
+    
+    print("\n  ===========================================================================")
+    print("  FASE 1: PRÉ-VALIDAÇÃO E CRIAÇÃO AUTOMÁTICA DE ROLES (EXCEL + SAP)")
+    print("  ===========================================================================")
 
-    if compostas_do_dep:
-        for comp_nome in sorted(compostas_do_dep):
-            membros_excel = dados.roles_compostas.get(comp_nome, {}).get("roles_filhas", [])
-            if not membros_excel:
-                continue
-            for env in ("PRD", "QAD"):
-                env_info = res_ambientes[env]
-                if not env_info["online"]:
-                    continue
-                conn = env_info["conn"]
+    from sap_rfc.role_existence_validator_service import (
+        criar_single_role_com_readback,
+        criar_composite_role_com_readback
+    )
+
+    # A. Coletar Singles e Compostas necessárias para o departamento
+    singles_dep_esperadas = set()
+    compostas_dep_esperadas = set()
+    filhas_por_composta_dep: Dict[str, Set[str]] = {}
+
+    for u_data in analise.get("usuarios", []):
+        u_id = str(u_data.get("usuario", "")).strip().upper()
+        if usuarios_alvo and u_id not in alvo_set:
+            continue
+        c_val = normalizar_texto(u_data.get("composta"))
+        if c_val and c_val not in ("NONE", "NAN", "-"):
+            compostas_dep_esperadas.add(c_val)
+            if c_val not in filhas_por_composta_dep:
+                filhas_por_composta_dep[c_val] = set()
+
+        for s in u_data.get("singles", []):
+            s_norm = normalizar_texto(s)
+            if s_norm and s_norm.startswith("Z") and s_norm != c_val:
+                singles_dep_esperadas.add(s_norm)
+                if c_val:
+                    filhas_por_composta_dep[c_val].add(s_norm)
+
+    # Cruzar filhas com o que já está na memória do Excel
+    for c_val in compostas_dep_esperadas:
+        membros_mem = dados.roles_compostas.get(c_val, {}).get("roles_filhas", [])
+        for m in membros_mem:
+            m_norm = normalizar_texto(m)
+            if m_norm:
+                filhas_por_composta_dep.setdefault(c_val, set()).add(m_norm)
+                singles_dep_esperadas.add(m_norm)
+
+    # 1. Validar e Auto-Criar Singles em PFCG_CREATE (Excel)
+    novas_singles_excel = []
+    max_id_pfcg = 0
+    if dados.roles_simples:
+        try:
+            max_id_pfcg = max(int(info.get("linhas", 0)) for info in dados.roles_simples.values() if isinstance(info.get("linhas"), (int, float)))
+        except Exception:
+            max_id_pfcg = len(dados.roles_simples)
+
+    for s_role in sorted(singles_dep_esperadas):
+        if s_role not in dados.roles_simples:
+            max_id_pfcg += 1
+            novas_singles_excel.append({
+                "ID": max_id_pfcg,
+                "AGR_NAME": s_role,
+                "TEXT": f"Role {s_role}",
+                "TCODE": "",
+                "STATUS": "Criado",
+                "MSG": "Adicionado automaticamente pela validação departamental",
+                "TIMESTEMP": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "PRD": "Validado",
+                "QAS": "Validado",
+                "DEV": "Validado"
+            })
+            dados.roles_simples[s_role] = {
+                "descricao": f"Role {s_role}",
+                "tcodes": [],
+                "status": "Criado",
+                "linhas": max_id_pfcg
+            }
+
+    if novas_singles_excel and not modo_simulacao:
+        res_add_s = adicionar_linhas_pfcg_create(dados.caminho, novas_singles_excel)
+        if res_add_s.get("ok"):
+            print(f"  ✓ {len(novas_singles_excel)} Single Role(s) adicionadas à folha PFCG_CREATE no Excel.")
+        else:
+            print(f"  [AVISO] Falha ao registar Singles em PFCG_CREATE: {res_add_s.get('erro')}")
+
+    # 2. Validar e Auto-Criar Singles no SAP (PRD e QAD)
+    for env in ("PRD", "QAD"):
+        env_info = res_ambientes[env]
+        if not env_info["online"]:
+            continue
+        conn = env_info["conn"]
+        
+        # Verificar existência em AGR_DEFINE
+        for s_role in sorted(singles_dep_esperadas):
+            try:
+                res_chk = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_DEFINE",
+                                    FIELDS=[{"FIELDNAME": "AGR_NAME"}],
+                                    OPTIONS=[{"TEXT": f"AGR_NAME = '{s_role}'"}])
+                existe_no_sap = len(res_chk.get("DATA", [])) > 0
+            except Exception:
+                existe_no_sap = False
+
+            if not existe_no_sap:
+                if modo_simulacao:
+                    print(f"  [SIMULAÇÃO] Single Role {s_role} não existe em {env} -> Seria criada via RFC.")
+                else:
+                    print(f"  Single Role {s_role} ausente em {env} -> A criar via RFC...", flush=True)
+                    res_cr_s = criar_single_role_com_readback(s_role, environment=env, descricao=f"Role {s_role}")
+                    if res_cr_s.get("ok"):
+                        print(f"  ✓ {res_cr_s.get('mensagem')}")
+                    else:
+                        print(f"  ✗ {res_cr_s.get('mensagem')}")
+
+    # 3. Validar e Auto-Criar Compostas em PFCG_COMPOSTA (Excel)
+    if not modo_simulacao and compostas_dep_esperadas:
+        try:
+            wb_comp = openpyxl.load_workbook(dados.caminho)
+            if "PFCG_COMPOSTA" in wb_comp.sheetnames:
+                ws_cp = wb_comp["PFCG_COMPOSTA"]
+                existentes_cp = set()
+                max_id_cp = 0
+                for r_idx in range(2, ws_cp.max_row + 1):
+                    c_n = str(ws_cp.cell(row=r_idx, column=2).value or "").strip().upper()
+                    s_n = str(ws_cp.cell(row=r_idx, column=4).value or "").strip().upper()
+                    try:
+                        rid = int(ws_cp.cell(row=r_idx, column=1).value or 0)
+                        if rid > max_id_cp:
+                            max_id_cp = rid
+                    except Exception:
+                        pass
+                    if c_n and s_n:
+                        existentes_cp.add((c_n, s_n))
+
+                alterou_cp = False
+                ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                for c_role, filhas_set in filhas_por_composta_dep.items():
+                    for s_filha in sorted(filhas_set):
+                        if (c_role, s_filha) not in existentes_cp:
+                            max_id_cp += 1
+                            ws_cp.append([max_id_cp, c_role, f"Role {c_role}", s_filha, "Criado", "Adicionado automaticamente", ts_str, "Validado"])
+                            existentes_cp.add((c_role, s_filha))
+                            alterou_cp = True
+
+                if alterou_cp:
+                    wb_comp.save(dados.caminho)
+                    print("  ✓ Relações de Composite Roles atualizadas na folha PFCG_COMPOSTA no Excel.")
+            wb_comp.close()
+        except Exception as e_cp_xl:
+            print(f"  [AVISO] Falha ao atualizar folha PFCG_COMPOSTA: {e_cp_xl}")
+
+    # 4. Validar e Auto-Criar Compostas + Atribuir Filhas no SAP (PRD e QAD)
+    for env in ("PRD", "QAD"):
+        env_info = res_ambientes[env]
+        if not env_info["online"]:
+            continue
+        conn = env_info["conn"]
+        
+        for c_role in sorted(compostas_dep_esperadas):
+            # 4.1 Verificar se Composite Role existe fisicamente
+            try:
+                res_chk_c = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_DEFINE",
+                                      FIELDS=[{"FIELDNAME": "AGR_NAME"}],
+                                      OPTIONS=[{"TEXT": f"AGR_NAME = '{c_role}'"}])
+                existe_c = len(res_chk_c.get("DATA", [])) > 0
+            except Exception:
+                existe_c = False
+
+            if not existe_c:
+                if modo_simulacao:
+                    print(f"  [SIMULAÇÃO] Composite Role {c_role} não existe em {env} -> Seria criada via RFC.")
+                else:
+                    print(f"  Composite Role {c_role} ausente em {env} -> A criar via RFC...", flush=True)
+                    res_cr_c = criar_composite_role_com_readback(c_role, environment=env, descricao=f"Role {c_role}")
+                    if res_cr_c.get("ok"):
+                        print(f"  ✓ {res_cr_c.get('mensagem')}")
+                    else:
+                        print(f"  ✗ {res_cr_c.get('mensagem')}")
+
+            # 4.2 Garantir associação de filhas e User Compare
+            filhas_esperadas = filhas_por_composta_dep.get(c_role, set())
+            if filhas_esperadas:
                 try:
-                    res_m = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_AGRS", OPTIONS=[{"TEXT": f"AGR_NAME = '{comp_nome}'"}], FIELDS=[{"FIELDNAME": "CHILD_AGR"}])
-                    existentes_m = {r["WA"].strip() for r in res_m.get("DATA", [])}
-                    a_incluir = [{"AGR_NAME": m} for m in membros_excel if m not in existentes_m]
+                    res_m = conn.call("RFC_READ_TABLE", QUERY_TABLE="AGR_AGRS",
+                                     OPTIONS=[{"TEXT": f"AGR_NAME = '{c_role}'"}],
+                                     FIELDS=[{"FIELDNAME": "CHILD_AGR"}])
+                    existentes_m = {r["WA"].strip().upper() for r in res_m.get("DATA", [])}
+                    a_incluir = [{"AGR_NAME": m, "TEXT": ""} for m in sorted(filhas_esperadas) if m not in existentes_m]
                     if a_incluir and not modo_simulacao:
-                        conn.call("PRGN_RFC_ADD_AGRS_TO_COLL_AGR", ACTIVITY_GROUP=comp_nome, ACTIVITY_GROUPS=a_incluir, PROFILE_COMPARISON="X")
-                        conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": comp_nome}], IV_USERCOMPARE="X")
+                        conn.call("PRGN_RFC_ADD_AGRS_TO_COLL_AGR", ACTIVITY_GROUP=c_role, ACTIVITY_GROUPS=a_incluir, NO_DIALOG="X")
+                        conn.call("PRGN_GEN_PROFILES_FOR_ROLES", IT_ROLES=[{"AGR_NAME": c_role}], IV_USERCOMPARE="X")
+                        print(f"  ✓ {c_role} ({env}): {len(a_incluir)} Single Role(s) filhas associadas e perfis gerados.")
                 except Exception as e_comp_sync:
-                    pass
+                    print(f"  [AVISO {env}] Erro ao vincular filhas a {c_role}: {e_comp_sync}")
+
+    print("  ✓ Todas as pré-validações de Singles e Compostas concluídas com sucesso!")
+    print("  ===========================================================================\n")
 
     # Obter funções da sheet DEFINIÇÕES para o departamento
     dep_norm = normalizar_texto(dep_nome)
@@ -6993,11 +7366,8 @@ def obter_departamentos_pendentes(dados: ProjetoPerfilData) -> List[Dict[str, An
 
 def processar_departamentos_pendentes_em_sequencia(dados: ProjetoPerfilData, assumir_sim: bool = False) -> bool:
     """
-    Processa, pela ordem da CONTROLO, todos os departamentos cujo STATUS está vazio.
-
-    A confirmação SAP é única para toda a fila. Cada departamento só recebe o estado
-    PROCESSADO depois de concluir todas as etapas e a auditoria P == Q. A fila para
-    imediatamente se um departamento falhar, preservando os seguintes como pendentes.
+    Processa os departamentos da folha CONTROLO.
+    Permite executar toda a fila sequencial ou selecionar um departamento específico.
     """
     fila = obter_departamentos_pendentes(dados)
     exibir_tabela_controlo(dados)
@@ -7009,12 +7379,28 @@ def processar_departamentos_pendentes_em_sequencia(dados: ProjetoPerfilData, ass
         print(f"  {posicao}. Linha {item.get('linha')}: {item.get('departamento')}")
 
     resposta = "" if assumir_sim else input(
-        f"Executar agora a sequência CUA completa dos {len(fila)} departamento(s), "
-        "pela ordem apresentada? (S/N): "
+        f"\nExecutar agora a sequência completa dos {len(fila)} departamento(s), "
+        "pela ordem apresentada? (S/N) [S]: "
     ).strip().upper()
-    if not assumir_sim and resposta not in ("S", "SIM", "Y", "YES"):
-        print("Fila departamental não executada.")
-        return False
+
+    if not assumir_sim and resposta in ("N", "NAO", "NÃO", "NO"):
+        print("\nSeleção manual de departamento para processar:")
+        item_escolhido = selecionar_departamento_interativo(dados, sugerir_padrao=False)
+        if not item_escolhido or item_escolhido.get("tipo") == "MENU_GERAL":
+            print("Nenhum departamento selecionado.")
+            return False
+
+        dep_sel = item_escolhido.get("departamento")
+        linha_sel = item_escolhido.get("linha")
+        print(f"\n[DEPARTAMENTO SELECIONADO] {dep_sel} — Linha {linha_sel}")
+
+        sucesso = sincronizar_departamento_cua_completo(dados, item_escolhido, confirmar_execucao=False)
+        if sucesso:
+            print(f"\n✓ Departamento '{dep_sel}' concluído com sucesso!")
+            return True
+        else:
+            print(f"\n[ERRO] Falha no processamento do departamento '{dep_sel}'.")
+            return False
 
     for posicao, item in enumerate(fila, 1):
         print(
@@ -7032,6 +7418,62 @@ def processar_departamentos_pendentes_em_sequencia(dados: ProjetoPerfilData, ass
 
     print("\nTodos os departamentos pendentes concluíram a sequência completa.")
     return True
+
+
+def processar_todos_departamentos_controlo(dados: ProjetoPerfilData, confirmar_cada: bool = False) -> bool:
+    """
+    Processa TODOS os departamentos da folha CONTROLO em sequência,
+    independentemente de já estarem marcados como PROCESSADO.
+    """
+    todos_deps = sorted(
+        [c for c in dados.controlo if c.get("departamento")],
+        key=lambda item: int(item.get("linha") or 0)
+    )
+    if not todos_deps:
+        print("\n[AVISO] Nenhum departamento encontrado na folha CONTROLO.")
+        return False
+
+    print("\n" + "=" * 78)
+    print(f"  PROCESSAMENTO DE TODOS OS DEPARTAMENTOS ({len(todos_deps)} departamentos)")
+    print("=" * 78)
+    for pos, dep in enumerate(todos_deps, 1):
+        st = dep.get("status", "PROCESSADO") if not dep.get("pendente") else "PENDENTE"
+        print(f"  {pos:2d}. Linha {dep.get('linha'):>2}: {dep.get('departamento'):<30} [{st}]")
+    print("-" * 78)
+
+    conf = input(f"\nDeseja executar a sincronização completa dos {len(todos_deps)} departamentos agora? (S/N) [S]: ").strip().upper()
+    if conf in ("N", "NAO", "NÃO", "NO"):
+        print("Operação cancelada pelo utilizador.")
+        return False
+
+    total_sucesso = 0
+    total_erro = 0
+
+    for pos, dep in enumerate(todos_deps, 1):
+        nome_dep = dep.get("departamento")
+        linha_dep = dep.get("linha")
+        print("\n" + "=" * 78)
+        print(f"[{pos}/{len(todos_deps)}] Processando Linha {linha_dep}: {nome_dep}")
+        print("=" * 78)
+
+        sucesso = sincronizar_departamento_cua_completo(dados, dep, confirmar_execucao=confirmar_cada)
+        if sucesso:
+            total_sucesso += 1
+            print(f"✓ [{pos}/{len(todos_deps)}] Departamento '{nome_dep}' concluído com sucesso.")
+        else:
+            total_erro += 1
+            print(f"✗ [{pos}/{len(todos_deps)}] Falha no processamento do departamento '{nome_dep}'.")
+            cont = input("Deseja continuar com os restantes departamentos? (S/N) [S]: ").strip().upper()
+            if cont in ("N", "NAO", "NÃO", "NO"):
+                print("Processamento interrompido pelo utilizador.")
+                break
+
+    print("\n" + "=" * 78)
+    print("  RESUMO DO PROCESSAMENTO GERAL DOS DEPARTAMENTOS")
+    print(f"  Concluídos com sucesso: {total_sucesso}/{len(todos_deps)}")
+    print(f"  Com erro / Falha      : {total_erro}/{len(todos_deps)}")
+    print("=" * 78)
+    return total_sucesso > 0
 
 
 def executar_menu_departamento(dados: ProjetoPerfilData, item_dep: Dict[str, Any]) -> str:
@@ -8089,6 +8531,10 @@ def menu_interativo(caminho_inicial: Optional[str] = None):
                 item_selecionado = selecionar_departamento_interativo(dados)
                 if not item_selecionado:
                     break
+                if item_selecionado.get("tipo") == "PROCESSAR_TODOS":
+                    if processar_todos_departamentos_controlo(dados):
+                        dados = carregar_projeto_perfil(caminho)
+                    continue
                 if item_selecionado.get("tipo") == "MENU_GERAL":
                     acao = menu_geral_pesquisas(dados)
                     if acao == "SAIR":

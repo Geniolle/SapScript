@@ -297,14 +297,56 @@ def _get_fi_default_context() -> dict[str, Any]:
         from sap_rfc.fi_config import get_fi_default_context
         return get_fi_default_context()
     except Exception:
+        def _env(name: str, default: str = "") -> str:
+            return str(os.getenv(name, default) or default).strip()
+
+        default_user = _env("SAP_FI_USERNAME", "")
         return {
-            "company_code": os.getenv("SAP_FI_COMPANY_CODE", "1000"),
-            "currency": os.getenv("SAP_FI_CURRENCY", "EUR"),
-            "amount": os.getenv("SAP_FI_AMOUNT", "1.00"),
-            "tax_code": os.getenv("SAP_FI_TAX_CODE", "V0"),
-            "doc_type_fornecedor": os.getenv("SAP_FI_DOC_TYPE_FORNECEDOR", "KR"),
-            "doc_type_cliente": os.getenv("SAP_FI_DOC_TYPE_CLIENTE", "DR"),
-            "doc_type_razao": os.getenv("SAP_FI_DOC_TYPE_RAZAO", "SA"),
+            "common": {
+                "company_code": _env("SAP_FI_COMPANY_CODE", "2010"),
+                "posting_date": _env("SAP_FI_POSTING_DATE"),
+                "document_date": _env("SAP_FI_DOCUMENT_DATE"),
+                "currency": _env("SAP_FI_CURRENCY", "EUR"),
+                "username": default_user,
+                "payment_method": _env("SAP_FI_FORM_PAGTO", _env("SAP_F110_PAYMENT_METHOD")),
+                "amount": _env("SAP_FI_AMOUNT", "1.00"),
+                "header_text": _env("SAP_FI_HEADER_TEXT", "RFC-TEST"),
+                "item_text": _env("SAP_FI_ITEM_TEXT", "RFC-TEST"),
+                "reference_prefix": _env("SAP_FI_REFERENCE_PREFIX", "RFC-TEST"),
+                "tax_code": _env("SAP_FI_TAX_CODE"),
+                "tax_amount": _env("SAP_FI_TAX_AMOUNT", "0.00"),
+                "tax_rate": _env("SAP_FI_TAX_RATE"),
+                "tax_gl_account": _env("SAP_FI_TAX_GL_ACCOUNT"),
+                "tax_direction": _env("SAP_FI_TAX_DIRECTION", "credit"),
+            },
+            "branches": {
+                "cliente": {
+                    "doc_type": _env("SAP_FI_DOC_TYPE_CLIENTE", "DR"),
+                    "account": _env("SAP_FI_CUSTOMER_ACCOUNT", "0010002949"),
+                    "counterparty": _env("SAP_FI_REVENUE_GL_ACCOUNT", "0012990100"),
+                    "username": default_user,
+                    "payment_method": _env(
+                        "SAP_FI_FORM_PAGTO_CLIENTE",
+                        _env("SAP_F110_PAYMENT_METHOD_CLIENTE", _env("SAP_FI_FORM_PAGTO", _env("SAP_F110_PAYMENT_METHOD", "Q"))),
+                    ),
+                },
+                "fornecedor": {
+                    "doc_type": _env("SAP_FI_DOC_TYPE_FORNECEDOR", "KR"),
+                    "account": _env("SAP_FI_VENDOR_ACCOUNT", "0010000040"),
+                    "counterparty": _env("SAP_FI_EXPENSE_GL_ACCOUNT", "0012010731"),
+                    "username": default_user,
+                    "payment_method": _env(
+                        "SAP_FI_FORM_PAGTO_FORNECEDOR",
+                        _env("SAP_F110_PAYMENT_METHOD_FORNECEDOR", _env("SAP_FI_FORM_PAGTO", _env("SAP_F110_PAYMENT_METHOD", "S"))),
+                    ),
+                },
+                "razao": {
+                    "doc_type": _env("SAP_FI_DOC_TYPE_RAZAO", "SA"),
+                    "debit_gl_account": _env("SAP_FI_DEBIT_GL_ACCOUNT", "0012010741"),
+                    "credit_gl_account": _env("SAP_FI_CREDIT_GL_ACCOUNT", "0012010741"),
+                    "username": default_user,
+                },
+            },
         }
 
 
