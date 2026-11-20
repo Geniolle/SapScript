@@ -1795,25 +1795,47 @@ def pesquisar_funcoes_por_familia_sap(
                 componente = parts[0].strip().upper()
                 break
 
-        # 3. Recolher pacotes da mesma área
+        # 3. Recolher pacotes da mesma área (TDEVC por componente e por prefixo de pacote)
         pacotes_alvo = [devclass]
         if componente:
-            res_irm = conn.call(
-                "RFC_READ_TABLE",
-                QUERY_TABLE="TDEVC",
-                DELIMITER="|",
-                FIELDS=[{"FIELDNAME": "DEVCLASS"}],
-                OPTIONS=[{"TEXT": f"COMPONENT = '{componente}'"}],
-                ROWCOUNT=25
-            )
-            for l in res_irm.get("DATA", []):
-                p_nome = l["WA"].split("|")[0].strip().upper()
-                if p_nome and p_nome not in pacotes_alvo:
-                    pacotes_alvo.append(p_nome)
+            try:
+                res_irm = conn.call(
+                    "RFC_READ_TABLE",
+                    QUERY_TABLE="TDEVC",
+                    DELIMITER="|",
+                    FIELDS=[{"FIELDNAME": "DEVCLASS"}],
+                    OPTIONS=[{"TEXT": f"COMPONENT = '{componente}'"}],
+                    ROWCOUNT=50
+                )
+                for l in res_irm.get("DATA", []):
+                    p_nome = l["WA"].split("|")[0].strip().upper()
+                    if p_nome and p_nome not in pacotes_alvo:
+                        pacotes_alvo.append(p_nome)
+            except Exception:
+                pass
+
+        # Adicionar pacotes com o mesmo prefixo de módulo (ex: CN*, CO*, ME*, etc.)
+        prefixo_pkg = devclass.split('_')[0] if '_' in devclass else devclass[:2]
+        if prefixo_pkg and len(prefixo_pkg) >= 2:
+            try:
+                res_pref = conn.call(
+                    "RFC_READ_TABLE",
+                    QUERY_TABLE="TDEVC",
+                    DELIMITER="|",
+                    FIELDS=[{"FIELDNAME": "DEVCLASS"}],
+                    OPTIONS=[{"TEXT": f"DEVCLASS LIKE '{prefixo_pkg}%'"}],
+                    ROWCOUNT=50
+                )
+                for l in res_pref.get("DATA", []):
+                    p_nome = l["WA"].split("|")[0].strip().upper()
+                    if p_nome and p_nome not in pacotes_alvo:
+                        pacotes_alvo.append(p_nome)
+            except Exception:
+                pass
 
         # 4. Recolher transações irmãs desses pacotes via TADIR
         tcodes_familia = set()
-        for pct in pacotes_alvo[:15]:
+        for pct in pacotes_alvo[:30]:
             try:
                 res_t = conn.call(
                     "RFC_READ_TABLE",
@@ -1821,7 +1843,7 @@ def pesquisar_funcoes_por_familia_sap(
                     DELIMITER="|",
                     FIELDS=[{"FIELDNAME": "OBJ_NAME"}],
                     OPTIONS=[{"TEXT": f"PGMID = 'R3TR' AND OBJECT = 'TRAN' AND DEVCLASS = '{pct}'"}],
-                    ROWCOUNT=50
+                    ROWCOUNT=100
                 )
                 for l in res_t.get("DATA", []):
                     t_val = l["WA"].split("|")[0].strip().upper()
@@ -1830,12 +1852,7 @@ def pesquisar_funcoes_por_familia_sap(
             except Exception:
                 continue
 
-        conn.close()
-
-        if not tcodes_familia:
-            return []
-
-        # 5. Cruzar as transações irmãs com o catálogo da folha 'Proposta'
+        # 5. Cruzar com catálogo do Excel (Proposta e PFCG_CREATE)
         cat = carregar_catalogo_completo_excel(caminho_excel)
         proposta_roles = cat.get("proposta_roles", {})
         pfcg_create_roles = cat.get("pfcg_create_roles", {})
@@ -1843,37 +1860,63 @@ def pesquisar_funcoes_por_familia_sap(
         sugestoes = []
         roles_adicionadas = set()
 
-        for role, data in proposta_roles.items():
-            tcodes_role = data.get("tcodes", {})
-            intersecao = set(tcodes_role.keys()).intersection(tcodes_familia)
-            if intersecao and role not in roles_adicionadas:
-                roles_adicionadas.add(role)
-                t_ex = sorted(list(intersecao))
-                t_txt = ", ".join(t_ex[:3])
-                sugestoes.append({
-                    "role": role,
-                    "descricao": data.get("desc", ""),
-                    "fonte": f"Família SAP ({devclass} / Irmãs: {t_txt})",
-                    "candidata": True,
-                    "tcode_irma": t_ex[0]
-                })
+        if tcodes_familia:
+            for role, data in proposta_roles.items():
+                tcodes_role = data.get("tcodes", {})
+                intersecao = set(tcodes_role.keys()).intersection(tcodes_familia)
+                if intersecao and role not in roles_adicionadas:
+                    roles_adicionadas.add(role)
+                    t_ex = sorted(list(intersecao))
+                    t_txt = ", ".join(t_ex[:3])
+                    sugestoes.append({
+                        "role": role,
+                        "descricao": data.get("desc", ""),
+                        "fonte": f"Pacote SAP ({devclass} / Irmãs: {t_txt})",
+                        "candidata": True,
+                        "tcode_irma": t_ex[0]
+                    })
 
-        # Complementar com PFCG_CREATE caso necessário
-        for role, data in pfcg_create_roles.items():
-            tcodes_role = data.get("tcodes", set())
-            intersecao = set(tcodes_role).intersection(tcodes_familia)
-            if intersecao and role not in roles_adicionadas:
-                roles_adicionadas.add(role)
-                t_ex = sorted(list(intersecao))
-                t_txt = ", ".join(t_ex[:3])
-                sugestoes.append({
-                    "role": role,
-                    "descricao": data.get("desc", ""),
-                    "fonte": f"Família SAP PFCG ({devclass} / Irmãs: {t_txt})",
-                    "candidata": True,
-                    "tcode_irma": t_ex[0]
-                })
+            for role, data in pfcg_create_roles.items():
+                tcodes_role = data.get("tcodes", set())
+                intersecao = set(tcodes_role).intersection(tcodes_familia)
+                if intersecao and role not in roles_adicionadas:
+                    roles_adicionadas.add(role)
+                    t_ex = sorted(list(intersecao))
+                    t_txt = ", ".join(t_ex[:3])
+                    sugestoes.append({
+                        "role": role,
+                        "descricao": data.get("desc", ""),
+                        "fonte": f"Pacote SAP PFCG ({devclass} / Irmãs: {t_txt})",
+                        "candidata": True,
+                        "tcode_irma": t_ex[0]
+                    })
 
+        # 6. Fallback Inteligente: Se não houve interseção direta pelos pacotes,
+        # verificar transações no catálogo que partilham o mesmo prefixo de transação (ex: CJ*, ME*, VA*, FB*)
+        if not sugestoes and len(tc_norm) >= 2:
+            prefixo_tc = tc_norm[:2]
+            # Mapear transações do catálogo com o mesmo prefixo
+            tcs_mesmo_prefixo = [t for t in proposta_roles.keys()] # roles
+            roles_por_prefixo_tcode = defaultdict(list)
+            for r_name, r_data in proposta_roles.items():
+                for t_cad in r_data.get("tcodes", {}).keys():
+                    if t_cad.startswith(prefixo_tc) and t_cad != tc_norm:
+                        roles_por_prefixo_tcode[r_name].append(t_cad)
+
+            for r_name, t_list in roles_por_prefixo_tcode.items():
+                if r_name not in roles_adicionadas:
+                    roles_adicionadas.add(r_name)
+                    r_desc = proposta_roles[r_name].get("desc", "")
+                    t_txt = ", ".join(sorted(t_list)[:3])
+                    sugestoes.append({
+                        "role": r_name,
+                        "descricao": r_desc,
+                        "fonte": f"Família Transação ({prefixo_tc}* / Ex: {t_txt})",
+                        "candidata": True,
+                        "tcode_irma": t_list[0]
+                    })
+
+        conn.close()
         return sugestoes
 
     except Exception:
