@@ -251,6 +251,17 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         self.assertEqual(res["operational_status"], "READY_FOR_REVIEW")
         self.assertEqual(res["missing_info"], [])
 
+    def test_salsa_create_user_button_copies_active_roles_then_previews_and_confirms(self) -> None:
+        html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")
+        js = (Path(__file__).resolve().parents[1] / "web_api" / "static" / "js" / "cockpit.agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="salsa-create-user-btn"', html)
+        self.assertIn('id="salsa-create-user-status"', html)
+        self.assertIn("createSalsaUserFromTicket", js)
+        self.assertIn("/api/salsa-it-agent/pfcg/user/roles", js)
+        self.assertIn("assignment_status === 'ATIVO'", js)
+        self.assertIn("/api/salsa-it-agent/user/create/rfc/preview", js)
+        self.assertIn("/api/salsa-it-agent/user/create/rfc/confirm", js)
+
     def test_salsa_reference_user_has_auto_existence_mark(self) -> None:
         html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")
         js = (Path(__file__).resolve().parents[1] / "web_api" / "static" / "js" / "cockpit.agent.js").read_text(encoding="utf-8")

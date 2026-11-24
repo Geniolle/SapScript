@@ -16373,6 +16373,132 @@
         }
     };
 
+    // Inicia um job e espera o resultado (mesmo padrão de polling usado nas outras consultas).
+    async function runSalsaJob(startUrl, body, pollUrl) {
+        const started = await fetch(startUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || 'Falha ao iniciar a operação.');
+            return data;
+        });
+        const deadline = Date.now() + 120000;
+        while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, ASI_PFCG_POLL_INTERVAL_MS));
+            const poll = await fetch(pollUrl(started.job_id), { headers: { 'Accept': 'application/json' } })
+                .then((r) => r.json().catch(() => ({})));
+            if (poll.state === 'pending' || poll.state === 'running') continue;
+            if (poll.state !== 'succeeded') throw new Error(poll.message || 'A operação falhou.');
+            return { jobId: started.job_id, result: poll.result || {} };
+        }
+        throw new Error('Tempo esgotado a aguardar o SAP.');
+    }
+
+    // Criação de utilizador: copia os roles ATIVOS do utilizador de referência, faz preview em cada
+    // ambiente e só depois de confirmação executa a criação (RFC BAPI_USER_CREATE1 via preview/confirm).
+    // Username SAP da referência: pesquisa por username e, se não encontrar, por primeiro/último nome.
+    async function findSalsaRefUserForCreate(value) {
+        const search = (type) => runSalsaJob(
+            '/api/salsa-it-agent/user/search',
+            { query: value, search_type: type, system: 'PRD' },
+            (id) => `/api/salsa-it-agent/user/search/${encodeURIComponent(id)}`
+        ).then((r) => r.result).catch(() => null);
+        const target = value.toUpperCase();
+        const byUser = await search('username');
+        const match = byUser && byUser.ok ? byUser.users.find((u) => String(u.username || '').toUpperCase() === target) : null;
+        if (match) return match.username;
+        const byName = await search('name');
+        if (byName && byName.ok && byName.users.length === 1) return byName.users[0].username;
+        return null;
+    }
+
+    window.createSalsaUserFromTicket = async function() {
+        const ticketKey = currentSalsaModalKey;
+        const status = document.getElementById('salsa-create-user-status');
+        const btn = document.getElementById('salsa-create-user-btn');
+        if (!ticketKey || !status || !btn) return;
+        const setStatus = (text, color) => { status.textContent = text; status.style.color = color || '#475569'; };
+
+        try {
+            const analysisData = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/analysis`)
+                .then((r) => r.json());
+            const ext = (analysisData.analysis || analysisData).extracted_data || {};
+            const envs = Array.isArray(ext.sap_environment) ? ext.sap_environment : [];
+            const missing = [];
+            if (!ext.sap_user_id) missing.push('Utilizador SAP');
+            if (!ext.reference_user) missing.push('Utilizador de Referência');
+            if (!ext.hr_first_name || !ext.hr_last_name) missing.push('Nome completo');
+            if (!ext.hr_email) missing.push('E-mail');
+            if (!ext.departamento) missing.push('Departamento');
+            if (!envs.length) missing.push('Ambiente(s)');
+            if (missing.length) {
+                setStatus('Falta preencher: ' + missing.join(', '), '#dc2626');
+                return;
+            }
+
+            btn.disabled = true;
+            setStatus('A pesquisar o utilizador de referência...');
+            const refUsername = await findSalsaRefUserForCreate(ext.reference_user);
+            if (!refUsername) throw new Error('Utilizador de referência não encontrado.');
+
+            setStatus('A ler os roles ativos de ' + refUsername + '...');
+            const rolesJob = await runSalsaJob(
+                '/api/salsa-it-agent/pfcg/user/roles',
+                { username: refUsername, system: 'PRD' },
+                (id) => `/api/salsa-it-agent/pfcg/user/roles/${encodeURIComponent(id)}`
+            );
+            if (!rolesJob.result.ok) throw new Error(rolesJob.result.message || 'Não foi possível ler os roles de referência.');
+            const roles = (rolesJob.result.roles || []).filter((r) => r.assignment_status === 'ATIVO').map((r) => r.role);
+
+            const previews = [];
+            for (const env of envs) {
+                setStatus(`Pré-visualização em ${env} (${roles.length} roles)...`);
+                const prev = await runSalsaJob(
+                    '/api/salsa-it-agent/user/create/rfc/preview',
+                    {
+                        system: env, username: ext.sap_user_id,
+                        first_name: ext.hr_first_name, last_name: ext.hr_last_name,
+                        email: ext.hr_email, department: ext.departamento,
+                        roles: roles, password: ''
+                    },
+                    (id) => `/api/salsa-it-agent/user/create/rfc/preview/${encodeURIComponent(id)}`
+                );
+                if (!prev.result.ok || prev.result.status !== 'PREVIEW_READY') {
+                    throw new Error(`Pré-visualização ${env}: ${prev.result.message || 'falhou'}`);
+                }
+                previews.push({ env: env, previewJobId: prev.jobId });
+            }
+
+            const ok = window.confirm(
+                `Criar ${ext.sap_user_id} em ${envs.join(', ')} com ${roles.length} roles ativos copiados de ${refUsername}?\n` +
+                'Senha inicial: SAP_PASSE_PASSWD (.env).'
+            );
+            if (!ok) {
+                setStatus('Criação cancelada.');
+                return;
+            }
+
+            const done = [];
+            for (const p of previews) {
+                setStatus(`A criar em ${p.env}...`);
+                const created = await runSalsaJob(
+                    '/api/salsa-it-agent/user/create/rfc/confirm',
+                    { preview_job_id: p.previewJobId },
+                    (id) => `/api/salsa-it-agent/user/create/rfc/confirm/${encodeURIComponent(id)}`
+                );
+                if (!created.result.ok) throw new Error(`Criação em ${p.env}: ${created.result.message || 'falhou'}`);
+                done.push(p.env);
+            }
+            setStatus(`Criado em ${done.join(', ')}.`, '#15803d');
+        } catch (err) {
+            setStatus(err.message || 'Falha na criação do utilizador.', '#dc2626');
+        } finally {
+            btn.disabled = false;
+        }
+    };
+
     window.closeSalsaDiagnosticModal = function() {
         const modal = document.getElementById('salsa-agent-diagnostic-modal');
         if (modal) modal.style.display = 'none';

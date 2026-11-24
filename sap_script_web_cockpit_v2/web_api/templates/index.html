@@ -2174,7 +2174,7 @@
     };
   </script>
   <script src="/static/js/cockpit.core.js?v=p5j"></script>
-  <script src="/static/js/cockpit.agent.js?v=salsa_v26"></script>
+  <script src="/static/js/cockpit.agent.js?v=salsa_v28"></script>
 
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">
@@ -2438,6 +2438,8 @@
       <div style="padding:14px 24px; border-top:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; background:#f8fafc;">
         <span style="font-size:11px; color:#94a3b8;">Agente Salsa IT • Fase 1 (Passivo)</span>
         <div style="display:flex; gap:10px;">
+          <span id="salsa-create-user-status" role="status" aria-live="polite" style="font-size:11px; color:#475569; align-self:center; max-width:320px;"></span>
+          <button type="button" id="salsa-create-user-btn" onclick="createSalsaUserFromTicket()" style="padding:8px 16px; font-size:0.82rem; font-weight:600; color:#ffffff; background:#4f46e5; border:none; border-radius:8px; cursor:pointer;">Criar utilizador</button>
           <button type="button" id="salsa-modal-reanalyze-btn" onclick="triggerSalsaManualReanalyze()" style="padding:8px 16px; font-size:0.82rem; font-weight:600; color:#4338ca; background:#e0e7ff; border:1px solid #c7d2fe; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
             🔄 Reanalisar Ticket
           </button>
