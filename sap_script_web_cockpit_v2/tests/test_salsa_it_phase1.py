@@ -54,6 +54,14 @@ class TestSalsaLevel1Classifier(unittest.TestCase):
         self.assertIn("QAD", res.extracted_data.sap_environment)
         self.assertIn("PRD", res.extracted_data.sap_environment)
 
+    def test_insufficient_information_keeps_ticket_description(self):
+        """IZ-60431: pedido sem classificação mantém a descrição do Jira guardada."""
+        description = "Olá Boa tarde,\nnão consigo entrar no meu SAP com as credenciais que acredito, sejam as corretas.\nobrigada"
+        res = self.classifier.analyze("IZ-60431", "Impossibilidade de aceder ao SAP", description, "CA Acessos")
+
+        self.assertEqual(res.classification, ClassificationCode.INSUFFICIENT_INFORMATION)
+        self.assertEqual(res.extracted_data.ticket_description, description)
+
     def test_iz_60365_spanish_access_keys_request_is_create_user(self):
         """IZ-60365: 'necesito las claves de acceso para sap' (pedido em espanhol) -> CREATE_USER"""
         summary = "USUARIO SAP FLAVIA DEPIETRI"

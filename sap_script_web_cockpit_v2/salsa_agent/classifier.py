@@ -313,6 +313,7 @@ class SalsaLevel1Classifier:
             requires_human_review=True,
             confidence=0.5,
             content_hash=content_hash,
+            extracted_data=extracted_entities,
         )
 
     def _detect_intent(
