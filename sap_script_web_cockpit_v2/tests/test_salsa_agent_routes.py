@@ -262,6 +262,41 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         self.assertIn("/api/salsa-it-agent/user/create/rfc/preview", js)
         self.assertIn("/api/salsa-it-agent/user/create/rfc/confirm", js)
 
+    def test_ticket_credentials_resolve_creates_job_without_password_in_payload(self) -> None:
+        resp = main.api_salsa_it_ticket_credentials_resolve(
+            "ic-60365", main.SalsaTicketCredentialsRequest(username="s81000753")
+        )
+        data = _body(resp)
+        self.assertIn("job_id", data)
+        job = store.get_job(data["job_id"])
+        self.assertEqual(job["task"], "ticket_credentials_resolve")
+        self.assertEqual(job["params"], {"ticket_key": "IC-60365", "username": "S81000753"})
+        self.assertNotIn("password", job["params"])
+
+    def test_salsa_client_log_appends_event_line(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"SALSA_LOG_DIR": tmp}):
+                resp = main.api_salsa_it_client_log(
+                    main.SalsaClientLogRequest(ticket="IZ-60365", event="confirm_cancelled", detail="ok=false")
+                )
+                self.assertEqual(_body(resp)["status"], "ok")
+            text = (Path(tmp) / "salsa_create_user.log").read_text(encoding="utf-8")
+        self.assertIn('"event": "confirm_cancelled"', text)
+        self.assertIn('"ticket": "IZ-60365"', text)
+
+    def test_salsa_client_log_get_returns_saved_text(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"SALSA_LOG_DIR": tmp}):
+                main.api_salsa_it_client_log(main.SalsaClientLogRequest(ticket="IZ-1", event="create_start"))
+                resp = main.api_salsa_it_client_log_download()
+                body = resp.body.decode("utf-8")
+        self.assertIn('"event": "create_start"', body)
+        self.assertIn("attachment", resp.headers.get("content-disposition", ""))
+
     def test_salsa_reference_user_has_auto_existence_mark(self) -> None:
         html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")
         js = (Path(__file__).resolve().parents[1] / "web_api" / "static" / "js" / "cockpit.agent.js").read_text(encoding="utf-8")

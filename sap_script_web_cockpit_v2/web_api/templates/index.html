@@ -2174,7 +2174,7 @@
     };
   </script>
   <script src="/static/js/cockpit.core.js?v=p5j"></script>
-  <script src="/static/js/cockpit.agent.js?v=salsa_v28"></script>
+  <script src="/static/js/cockpit.agent.js?v=salsa_v32"></script>
 
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">
@@ -2440,6 +2440,7 @@
         <div style="display:flex; gap:10px;">
           <span id="salsa-create-user-status" role="status" aria-live="polite" style="font-size:11px; color:#475569; align-self:center; max-width:320px;"></span>
           <button type="button" id="salsa-create-user-btn" onclick="createSalsaUserFromTicket()" style="padding:8px 16px; font-size:0.82rem; font-weight:600; color:#ffffff; background:#4f46e5; border:none; border-radius:8px; cursor:pointer;">Criar utilizador</button>
+          <a id="salsa-create-log-btn" href="/api/salsa-it-agent/client-log" download="salsa_create_user.log" title="Guardar log da criação de utilizador" aria-label="Guardar log da criação de utilizador" style="display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; color:#4f46e5; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; text-decoration:none;"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
           <button type="button" id="salsa-modal-reanalyze-btn" onclick="triggerSalsaManualReanalyze()" style="padding:8px 16px; font-size:0.82rem; font-weight:600; color:#4338ca; background:#e0e7ff; border:1px solid #c7d2fe; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
             🔄 Reanalisar Ticket
           </button>

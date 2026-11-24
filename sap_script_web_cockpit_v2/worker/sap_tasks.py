@@ -1969,6 +1969,53 @@ def _run_user_create_rfc(params: dict[str, Any]) -> tuple[str, str]:
     return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
 
 
+def build_initial_credentials_comment(username: str, password: str) -> str:
+    """Texto do comentário público com as credenciais iniciais (password vem do .env, nunca de parâmetros)."""
+    return (
+        "Olá, segue abaixo as credências criadas conforme a solicitação.\n\n"
+        f"User: {username}\n"
+        f"Password: {password}"
+    )
+
+
+def _run_ticket_credentials_resolve(params: dict[str, Any]) -> tuple[str, str]:
+    """Publica no Jira o comentário com as credenciais iniciais e marca o ticket como Resolved.
+    A password vem de SAP_PASSE_PASSWD (.env) e nunca é devolvida no resultado nem no log."""
+    _prepare_project_imports()
+    ticket_key = str(params.get("ticket_key") or "").strip().upper()
+    username = str(params.get("username") or "").strip().upper()
+    if not ticket_key or not username:
+        raise SapExecutionError("Ticket e utilizador são obrigatórios para publicar as credenciais.")
+
+    try:
+        from web_api.jira_client import add_jira_comment, get_jira_issue_transitions, transition_jira_issue
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o cliente Jira: {exc}") from exc
+
+    password = os.getenv("SAP_PASSE_PASSWD", "").strip()
+    if not password:
+        raise SapExecutionError("SAP_PASSE_PASSWD não configurado no .env do projeto.")
+
+    transitions = get_jira_issue_transitions(ticket_key)
+    resolved = next((t for t in transitions if "resolv" in str(t.get("name") or "").lower()), None)
+    if not resolved:
+        raise SapExecutionError(f"Transição para Resolved não disponível em {ticket_key}.")
+
+    if not add_jira_comment(ticket_key, build_initial_credentials_comment(username, password)):
+        raise SapExecutionError(f"Falha ao publicar o comentário em {ticket_key}.")
+    if not transition_jira_issue(ticket_key, str(resolved.get("id"))):
+        raise SapExecutionError(f"Falha ao alterar o status de {ticket_key} para Resolved.")
+
+    payload = {"ok": True, "status": "RESOLVED", "ticket_key": ticket_key, "username": username, "transition": resolved.get("name")}
+    log_lines = [
+        "Credenciais iniciais publicadas no Jira.",
+        f"Ticket: {ticket_key}",
+        f"Utilizador: {username}",
+        f"Transição: {resolved.get('name')}",
+    ]
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 def _run_user_change_password_rfc(params: dict[str, Any]) -> tuple[str, str]:
     """Alteração REAL de password de um utilizador SAP já existente via RFC
     (BAPI_USER_CHANGE). Aceita EXCLUSIVAMENTE environment/username vindos de
@@ -2727,6 +2774,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "pfcg_role_create_rfc": lambda job, params: _run_pfcg_role_create_rfc(params),
     "user_create_preview": lambda job, params: _run_user_create_preview(params),
     "user_create_rfc": lambda job, params: _run_user_create_rfc(params),
+    "ticket_credentials_resolve": lambda job, params: _run_ticket_credentials_resolve(params),
     "user_change_password_rfc": lambda job, params: _run_user_change_password_rfc(params),
     "user_unlock_rfc": lambda job, params: _run_user_unlock_rfc(params),
     "hr_lookup": lambda job, params: _run_hr_lookup(params),

@@ -3020,6 +3020,99 @@ def api_salsa_it_user_create_rfc_confirm_job(job_id: str) -> JSONResponse:
     return _json_no_store({"state": "succeeded", "result": safe_result})
 
 
+class SalsaTicketCredentialsRequest(BaseModel):
+    username: str
+
+
+@app.post("/api/salsa-it-agent/tickets/{ticket_key}/credentials/resolve")
+def api_salsa_it_ticket_credentials_resolve(ticket_key: str, payload: SalsaTicketCredentialsRequest) -> JSONResponse:
+    """Publica no Jira as credenciais iniciais e marca o ticket como Resolved (executado pelo worker, onde está o .env)."""
+    username = _validate_username_or_400(payload.username)
+    clean_key = ticket_key.strip().upper()
+    try:
+        job = create_job("ticket_credentials_resolve", {"ticket_key": clean_key, "username": username})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _json_no_store({"job_id": job["id"], "state": job["state"]})
+
+
+@app.get("/api/salsa-it-agent/tickets/credentials/resolve/{job_id}")
+def api_salsa_it_ticket_credentials_resolve_job(job_id: str) -> JSONResponse:
+    try:
+        job = get_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado.")
+    if job.get("task") != "ticket_credentials_resolve":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à publicação de credenciais.")
+
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return _json_no_store({"state": state})
+    if state != "succeeded":
+        return _json_no_store({"state": "failed", "message": "Falha ao publicar as credenciais no Jira."})
+
+    status_raw = str(job.get("status") or "").strip()
+    try:
+        result = json.loads(status_raw) if status_raw else None
+    except Exception:
+        result = None
+    if not isinstance(result, dict):
+        return _json_no_store({"state": "failed", "message": "Resposta inválida do worker."})
+    return _json_no_store({"state": "succeeded", "result": {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "message": str(result.get("message") or ""),
+    }})
+
+
+class SalsaClientLogRequest(BaseModel):
+    ticket: str = ""
+    event: str
+    detail: str = ""
+
+
+def _salsa_log_path() -> Path:
+    return Path(os.getenv("SALSA_LOG_DIR", "/data/logs")) / "salsa_create_user.log"
+
+
+@app.post("/api/salsa-it-agent/client-log")
+def api_salsa_it_client_log(payload: SalsaClientLogRequest) -> JSONResponse:
+    """Regista no ficheiro salsa_create_user.log as etapas e erros do fluxo de criação (sem passwords)."""
+    from datetime import datetime
+
+    line = json.dumps({
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "ticket": str(payload.ticket or "")[:20],
+        "event": str(payload.event or "")[:60],
+        "detail": str(payload.detail or "")[:2000],
+    }, ensure_ascii=False)
+    try:
+        path = _salsa_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError as exc:
+        print(f"[salsa-log] falha ao gravar log: {exc}", file=sys.stderr)
+    return _json_no_store({"status": "ok"})
+
+
+@app.get("/api/salsa-it-agent/client-log")
+def api_salsa_it_client_log_download():
+    """Devolve o log de criação de utilizador como ficheiro para transferir."""
+    from fastapi.responses import PlainTextResponse
+
+    path = _salsa_log_path()
+    if not path.exists():
+        return PlainTextResponse("Sem registos ainda.\n", media_type="text/plain; charset=utf-8")
+    return PlainTextResponse(
+        path.read_text(encoding="utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="salsa_create_user.log"'},
+    )
+
+
 @app.post("/api/salsa-it-agent/user/password/change")
 def api_salsa_it_user_password_change(payload: SalsaItUserPasswordChangeRfcRequest) -> JSONResponse:
     username = _validate_username_or_400(payload.username)

@@ -62,6 +62,7 @@ EXPECTED_TASKS = {
     "gl_account_create_by_model",
     "user_create_preview",
     "user_create_rfc",
+    "ticket_credentials_resolve",
     "user_change_password_rfc",
     "user_unlock_rfc",
     "hr_lookup",

@@ -16398,6 +16398,18 @@
 
     // Criação de utilizador: copia os roles ATIVOS do utilizador de referência, faz preview em cada
     // ambiente e só depois de confirmação executa a criação (RFC BAPI_USER_CREATE1 via preview/confirm).
+    // Regista etapas e erros do fluxo de criação no servidor (ficheiro salsa_create_user.log). Nunca bloqueia.
+    function logSalsaCreate(event, detail) {
+        try {
+            fetch('/api/salsa-it-agent/client-log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticket: currentSalsaModalKey || '', event: event, detail: String(detail || '') }),
+                keepalive: true
+            }).catch(() => {});
+        } catch (e) { /* o log nunca interrompe o fluxo */ }
+    }
+
     // Username SAP da referência: pesquisa por username e, se não encontrar, por primeiro/último nome.
     async function findSalsaRefUserForCreate(value) {
         const search = (type) => runSalsaJob(
@@ -16420,6 +16432,7 @@
         const btn = document.getElementById('salsa-create-user-btn');
         if (!ticketKey || !status || !btn) return;
         const setStatus = (text, color) => { status.textContent = text; status.style.color = color || '#475569'; };
+        logSalsaCreate('create_start', ticketKey);
 
         try {
             const analysisData = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/analysis`)
@@ -16434,6 +16447,7 @@
             if (!ext.departamento) missing.push('Departamento');
             if (!envs.length) missing.push('Ambiente(s)');
             if (missing.length) {
+                logSalsaCreate('validation_missing', missing.join(', '));
                 setStatus('Falta preencher: ' + missing.join(', '), '#dc2626');
                 return;
             }
@@ -16441,6 +16455,7 @@
             btn.disabled = true;
             setStatus('A pesquisar o utilizador de referência...');
             const refUsername = await findSalsaRefUserForCreate(ext.reference_user);
+            logSalsaCreate('reference_resolved', (ext.reference_user || '') + ' -> ' + (refUsername || 'nao encontrado'));
             if (!refUsername) throw new Error('Utilizador de referência não encontrado.');
 
             setStatus('A ler os roles ativos de ' + refUsername + '...');
@@ -16451,6 +16466,7 @@
             );
             if (!rolesJob.result.ok) throw new Error(rolesJob.result.message || 'Não foi possível ler os roles de referência.');
             const roles = (rolesJob.result.roles || []).filter((r) => r.assignment_status === 'ATIVO').map((r) => r.role);
+            logSalsaCreate('roles_copied', roles.length + ' roles ativos de ' + refUsername);
 
             const previews = [];
             for (const env of envs) {
@@ -16459,8 +16475,9 @@
                     '/api/salsa-it-agent/user/create/rfc/preview',
                     {
                         system: env, username: ext.sap_user_id,
-                        first_name: ext.hr_first_name, last_name: ext.hr_last_name,
-                        email: ext.hr_email, department: ext.departamento,
+                        first_name: ext.hr_first_name,
+                        last_name: String(ext.hr_last_name || '').trim().split(/\s+/).pop(),
+                        email: ext.hr_email, department: ext.departamento, function: ext.cargo || '',
                         roles: roles, password: ''
                     },
                     (id) => `/api/salsa-it-agent/user/create/rfc/preview/${encodeURIComponent(id)}`
@@ -16471,14 +16488,8 @@
                 previews.push({ env: env, previewJobId: prev.jobId });
             }
 
-            const ok = window.confirm(
-                `Criar ${ext.sap_user_id} em ${envs.join(', ')} com ${roles.length} roles ativos copiados de ${refUsername}?\n` +
-                'Senha inicial: SAP_PASSE_PASSWD (.env).'
-            );
-            if (!ok) {
-                setStatus('Criação cancelada.');
-                return;
-            }
+            // Sem pop-up: o clique em "Criar utilizador" já é a autorização; as pré-visualizações foram validadas acima.
+            logSalsaCreate('create_confirmed_by_click', `${ext.sap_user_id} em ${envs.join(', ')}`);
 
             const done = [];
             for (const p of previews) {
@@ -16491,8 +16502,21 @@
                 if (!created.result.ok) throw new Error(`Criação em ${p.env}: ${created.result.message || 'falhou'}`);
                 done.push(p.env);
             }
+            logSalsaCreate('create_ok', done.join(', '));
             setStatus(`Criado em ${done.join(', ')}.`, '#15803d');
+
+            // Credenciais iniciais no ticket (comentário público) e status Resolved.
+            setStatus('A publicar credenciais e marcar Resolved...');
+            const resolveJob = await runSalsaJob(
+                `/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/credentials/resolve`,
+                { username: ext.sap_user_id },
+                (id) => `/api/salsa-it-agent/tickets/credentials/resolve/${encodeURIComponent(id)}`
+            );
+            if (!resolveJob.result.ok) throw new Error(resolveJob.result.message || 'Falha ao publicar as credenciais.');
+            logSalsaCreate('resolve_ok', 'credenciais publicadas e ticket Resolved');
+            setStatus(`Criado em ${done.join(', ')}. Credenciais publicadas e ticket Resolved.`, '#15803d');
         } catch (err) {
+            logSalsaCreate('error', (err && err.message ? err.message : String(err)) + ' | ' + (err && err.stack ? err.stack.split('\n').slice(0, 3).join(' / ') : ''));
             setStatus(err.message || 'Falha na criação do utilizador.', '#dc2626');
         } finally {
             btn.disabled = false;
