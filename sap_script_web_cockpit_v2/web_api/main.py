@@ -947,6 +947,10 @@ class SalsaExtractedDataUpdateRequest(BaseModel):
     value: Optional[str] = None
 
 
+class SalsaHrDataUpdateRequest(BaseModel):
+    job_id: str
+
+
 @app.patch("/api/salsa-it-agent/tickets/{ticket_key}/extracted-data")
 def api_salsa_it_update_ticket_extracted_data(
     ticket_key: str, payload: SalsaExtractedDataUpdateRequest
@@ -955,11 +959,49 @@ def api_salsa_it_update_ticket_extracted_data(
     from web_api.store import update_salsa_ticket_extracted_field
 
     clean_key = ticket_key.strip().upper()
-    allowed_fields = {"sap_user_id", "reference_user"}
+    allowed_fields = {"sap_user_id", "reference_user", "cargo", "departamento"}
     if payload.field not in allowed_fields:
         raise HTTPException(status_code=400, detail=f"Campo '{payload.field}' não editável.")
 
     updated = update_salsa_ticket_extracted_field(clean_key, payload.field, payload.value)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Ticket não encontrado para atualização.")
+    return {"status": "success", "analysis": updated}
+
+
+@app.patch("/api/salsa-it-agent/tickets/{ticket_key}/hr-data")
+def api_salsa_it_update_ticket_hr_data(
+    ticket_key: str, payload: SalsaHrDataUpdateRequest
+) -> dict[str, Any]:
+    """Guarda no diagnóstico o resultado validado da consulta RH."""
+    from web_api.store import get_job, update_salsa_ticket_hr_data
+
+    job = get_job(payload.job_id.strip())
+    if not job:
+        raise HTTPException(status_code=404, detail="Consulta RH não encontrada.")
+    if job.get("task") != "hr_lookup":
+        raise HTTPException(status_code=400, detail="O job indicado não pertence à consulta de dados de RH.")
+    if job.get("state") != "succeeded":
+        raise HTTPException(status_code=409, detail="A consulta RH ainda não foi concluída com sucesso.")
+    try:
+        result = json.loads(str(job.get("status") or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        result = None
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        raise HTTPException(status_code=400, detail="A consulta RH não devolveu dados válidos.")
+
+    pernr = _validate_pernr_or_400(str(result.get("pernr") or ""))
+    job_pernr = _validate_pernr_or_400(str((job.get("params") or {}).get("pernr") or ""))
+    if pernr != job_pernr:
+        raise HTTPException(status_code=400, detail="O resultado RH não corresponde ao PERNR consultado.")
+    username = _validate_username_or_400(str(result.get("username") or ""))
+    updated = update_salsa_ticket_hr_data(ticket_key, {
+        "hr_pernr": pernr,
+        "sap_user_id": username,
+        "hr_first_name": str(result.get("first_name") or "").strip(),
+        "hr_last_name": str(result.get("last_name") or "").strip(),
+        "hr_email": str(result.get("email") or "").strip().lower(),
+    })
     if not updated:
         raise HTTPException(status_code=404, detail="Ticket não encontrado para atualização.")
     return {"status": "success", "analysis": updated}

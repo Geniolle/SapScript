@@ -431,6 +431,46 @@ def save_salsa_ticket_analysis(analysis: dict[str, Any]) -> None:
             )
 
 
+CREATE_USER_REQUIRED_FIELDS = (
+    ("hr_pernr", "Nº colaborador RH"),
+    ("sap_user_id", "Utilizador SAP"),
+    ("reference_user", "Utilizador de Referência"),
+    ("cargo", "Cargo"),
+    ("departamento", "Departamento"),
+    ("sap_environment", "Ambiente(s)"),
+)
+
+
+def _sync_create_user_state(conn, clean_key: str) -> None:
+    """Recalcula estado operacional e informação em falta de um CREATE_USER a partir dos campos obrigatórios.
+
+    Usa a ligação já aberta pela atualização (sem nova ligação, dentro do mesmo bloqueio).
+    """
+    row = conn.execute(
+        "SELECT * FROM salsa_it_ticket_analysis WHERE ticket_key = ?",
+        (clean_key,),
+    ).fetchone()
+    if not row or row["classification"] != "CREATE_USER":
+        return
+    extracted = json.loads(row["extracted_data_json"] or "{}")
+    missing = [label for field, label in CREATE_USER_REQUIRED_FIELDS if not extracted.get(field)]
+    conn.execute(
+        """
+        UPDATE salsa_it_ticket_analysis SET
+            operational_status = ?,
+            identified_dependency = ?,
+            missing_info_json = ?
+        WHERE ticket_key = ?
+        """,
+        (
+            "MISSING_INFORMATION" if missing else "READY_FOR_REVIEW",
+            "dados do utilizador ausentes" if missing else None,
+            json.dumps(missing, ensure_ascii=False),
+            clean_key,
+        ),
+    )
+
+
 def update_salsa_ticket_environment(ticket_key: str, environments: list[str]) -> Optional[dict[str, Any]]:
     """
     Updates the sap_environment list in extracted_data_json for a ticket analysis.
@@ -503,6 +543,7 @@ def update_salsa_ticket_environment(ticket_key: str, environments: list[str]) ->
                 clean_key,
             ),
         )
+        _sync_create_user_state(conn, clean_key)
         conn.commit()
 
     return get_salsa_ticket_analysis(clean_key)
@@ -581,6 +622,55 @@ def update_salsa_ticket_extracted_field(ticket_key: str, field_name: str, value:
                 clean_key,
             ),
         )
+        _sync_create_user_state(conn, clean_key)
+        conn.commit()
+
+    return get_salsa_ticket_analysis(clean_key)
+
+
+def update_salsa_ticket_hr_data(ticket_key: str, hr_data: dict[str, str]) -> Optional[dict[str, Any]]:
+    """Persist a validated HR lookup result in the ticket analysis."""
+    clean_key = ticket_key.strip().upper()
+    now = utc_now()
+
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM salsa_it_ticket_analysis WHERE ticket_key = ?",
+            (clean_key,),
+        ).fetchone()
+        if not row:
+            return None
+
+        extracted_data = json.loads(row["extracted_data_json"] or "{}")
+        extracted_data.update({key: str(value or "").strip() for key, value in hr_data.items()})
+        raw_missing = json.loads(row["missing_info_json"] or "[]")
+        new_missing = [
+            item for item in raw_missing
+            if not (
+                ("utilizador" in item.lower() or "user" in item.lower() or "id sap" in item.lower() or "identificação" in item.lower())
+                and "referência" not in item.lower()
+                and "referencia" not in item.lower()
+            )
+        ]
+        extracted_data["missing_information"] = list(new_missing)
+
+        conn.execute(
+            """
+            UPDATE salsa_it_ticket_analysis SET
+                extracted_data_json = ?,
+                missing_info_json = ?,
+                updated_at = ?
+            WHERE ticket_key = ?
+            """,
+            (
+                json.dumps(extracted_data, ensure_ascii=False),
+                json.dumps(new_missing, ensure_ascii=False),
+                now,
+                clean_key,
+            ),
+        )
+        _sync_create_user_state(conn, clean_key)
         conn.commit()
 
     return get_salsa_ticket_analysis(clean_key)

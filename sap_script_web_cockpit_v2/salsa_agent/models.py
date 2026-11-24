@@ -54,6 +54,7 @@ class ExtractedEntities:
     request_reason: Optional[str] = None
     requested_operation: Optional[str] = None
     missing_information: List[str] = field(default_factory=list)
+    ticket_description: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -72,6 +73,7 @@ class ExtractedEntities:
             request_reason=data.get("request_reason"),
             requested_operation=data.get("requested_operation"),
             missing_information=list(data.get("missing_information") or []),
+            ticket_description=data.get("ticket_description"),
         )
 
 

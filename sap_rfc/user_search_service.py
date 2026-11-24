@@ -69,17 +69,34 @@ def _error_result(query: str, error_type: str, message: str, *, details: str | N
     return payload
 
 
-def _like_options_name(query: str) -> list[dict[str, str]]:
+def _case_variants(value: str) -> list[str]:
     variants: list[str] = []
-    for v in (query, query.upper(), query.title()):
+    for v in (value, value.upper(), value.title()):
         if v not in variants:
             variants.append(v)
-    fields = ("NAME_LAST", "NAME_TEXT")
+    return variants
+
+
+def _exact_options_name(query: str) -> list[dict[str, str]]:
+    """Primeiro e último nome com igualdade exata em ADRP (evita LIKE '%...%', que varre a tabela inteira).
+
+    Um único termo pesquisa apenas pelo último nome.
+    """
+    parts = query.split()
+    last = parts[-1]
+    first = parts[0] if len(parts) > 1 else None
     rows: list[dict[str, str]] = []
-    for field in fields:
-        for v in variants:
-            prefix = "OR " if rows else ""
-            rows.append({"TEXT": f"{prefix}{field} LIKE '%{v}%'"})
+    seen: set[str] = set()
+    for last_v in _case_variants(last):
+        for first_v in (_case_variants(first) if first else [None]):
+            clause = (
+                f"NAME_LAST = '{last_v}'" if first_v is None
+                else f"NAME_FIRST = '{first_v}' AND NAME_LAST = '{last_v}'"
+            )
+            if clause in seen:
+                continue
+            seen.add(clause)
+            rows.append({"TEXT": f"{'OR ' if rows else ''}{clause}"})
     return rows
 
 
@@ -260,7 +277,7 @@ def search_users(query: str, search_type: str = "name") -> dict[str, Any]:
                 person_rows = read_table(
                     connection, guard, table_name="ADRP",
                     fields=["PERSNUMBER", "NAME_FIRST", "NAME_LAST", "NAME_TEXT"],
-                    options=_like_options_name(norm_query), rowcount=_MAX_RESULTS * 3,
+                    options=_exact_options_name(norm_query), rowcount=_MAX_RESULTS * 3,
                 )
             except Exception as exc:
                 if is_authorization_error(exc):

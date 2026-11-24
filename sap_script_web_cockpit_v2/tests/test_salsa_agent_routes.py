@@ -30,6 +30,7 @@ for _p in (str(_COCKPIT_DIR), str(_REPO_ROOT)):
         sys.path.insert(0, _p)
 
 import tempfile
+from html.parser import HTMLParser
 
 # DATA_DIR tem de estar definido antes de importar web_api.store (le no import).
 _TMPDIR = tempfile.mkdtemp(prefix="salsa_agent_routes_")
@@ -42,6 +43,17 @@ from fastapi import HTTPException  # noqa: E402
 
 def _body(response) -> dict:
     return json.loads(bytes(response.body).decode("utf-8"))
+
+
+class _ElementIdParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.elements: dict[str, tuple[str, dict[str, str | None]]] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if values.get("id"):
+            self.elements[str(values["id"])] = (tag, values)
 
 
 class SalsaAgentRoutesTest(unittest.TestCase):
@@ -67,6 +79,205 @@ class SalsaAgentRoutesTest(unittest.TestCase):
     def _complete_job(self, job_id: str, state: str, status: str, log: str) -> None:
         self._mark_running(job_id)
         store.complete_job(job_id, state, status, log)
+
+    def test_ticket_hr_data_route_persists_validated_result(self) -> None:
+        store.save_salsa_ticket_analysis({
+            "ticket_key": "IZ-60365",
+            "classification": "CREATE_USER",
+            "level": "LEVEL_1",
+            "status": "REVISION_REQUIRED",
+            "intent": "Criar user",
+            "justification": "Pedido de criação",
+            "content_hash": "hash_route_hr",
+            "extracted_data": {"sap_user_id": None},
+            "missing_info": ["Utilizador SAP a atuar ou criar"],
+            "suggested_next_action": "Validar dados",
+            "requires_human_review": True,
+            "confidence": 0.85,
+            "rules_version": "1.1.0",
+        })
+
+        job = store.create_job("hr_lookup", {"pernr": "81000753"})
+        self._complete_job(job["id"], "succeeded", json.dumps({
+            "ok": True,
+            "status": "OK",
+            "pernr": "81000753",
+            "username": "S81000753",
+            "first_name": "Flávia",
+            "last_name": "Depietri",
+            "email": "Flavia.Depietri@SALSAJEANS.com",
+            "system": "PRD",
+        }), "")
+
+        result = main.api_salsa_it_update_ticket_hr_data(
+            "IZ-60365", main.SalsaHrDataUpdateRequest(job_id=job["id"])
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["analysis"]["extracted_data"]["hr_pernr"], "81000753")
+        self.assertEqual(result["analysis"]["extracted_data"]["sap_user_id"], "S81000753")
+        # E-mail guardado sempre em minusculas.
+        self.assertEqual(result["analysis"]["extracted_data"]["hr_email"], "flavia.depietri@salsajeans.com")
+
+    def test_hr_lookup_route_rejects_non_numeric_or_long_pernr(self) -> None:
+        for invalid in ("81000753X", "123456789"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(HTTPException) as ctx:
+                    main.api_salsa_it_user_create_hr_lookup(main.SalsaItHrLookupRequest(pernr=invalid))
+                self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_ticket_hr_data_route_rejects_unrelated_job(self) -> None:
+        job = store.create_job("user_search", {"query": "Flávia"})
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_update_ticket_hr_data(
+                "IZ-60365",
+                main.SalsaHrDataUpdateRequest(job_id=job["id"]),
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_salsa_modal_exposes_accessible_hr_search_button(self) -> None:
+        parser = _ElementIdParser()
+        parser.feed((Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8"))
+
+        tag, attrs = parser.elements["salsa-modal-search-hr"]
+        self.assertEqual(tag, "button")
+        self.assertEqual(attrs["type"], "button")
+        self.assertEqual(attrs["aria-label"], "Pesquisar colaborador no RH")
+        self.assertNotIn("salsa-modal-input-user", parser.elements)
+        _, pernr_attrs = parser.elements["salsa-modal-input-hr-pernr"]
+        self.assertNotIn("maxlength", pernr_attrs)
+        _, result_attrs = parser.elements["salsa-modal-hr-result"]
+        self.assertEqual(result_attrs["aria-live"], "polite")
+
+    def test_salsa_diagnostic_grid_user_card_spans_first_row(self) -> None:
+        parser = _ElementIdParser()
+        parser.feed((Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8"))
+
+        expected = [
+            "salsa-card-user",
+            "salsa-card-requester",
+            "salsa-card-operational-status",
+            "salsa-card-dependency",
+        ]
+        actual = [element_id for element_id in parser.elements if element_id in expected]
+        self.assertEqual(actual, expected)
+        _, grid_attrs = parser.elements["salsa-modal-diagnostic-grid"]
+        self.assertIn("repeat(4", grid_attrs["style"])
+        # Cartao SAP ocupa a linha inteira (sozinho na primeira linha).
+        _, user_attrs = parser.elements["salsa-card-user"]
+        self.assertIn("grid-column:1/-1", user_attrs["style"].replace(" ", ""))
+
+    def test_salsa_hr_result_shows_labelled_collaborator_fields(self) -> None:
+        js = (Path(__file__).resolve().parents[1] / "web_api" / "static" / "js" / "cockpit.agent.js").read_text(encoding="utf-8")
+        for label in ["'Nome completo'", "'E-mail'", "'Utilizador SAP'", "'Cargo'", "'Departamento'"]:
+            self.assertIn(label, js)
+
+    def test_salsa_classification_is_select_with_operation_options(self) -> None:
+        html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")
+        parser = _ElementIdParser()
+        parser.feed(html)
+        tag, attrs = parser.elements["salsa-modal-classification-code"]
+        self.assertEqual(tag, "select")
+        for code in ["CREATE_USER", "UNLOCK_USER", "RESET_PASSWORD", "OTHER_ACCESS"]:
+            self.assertIn(f'value="{code}"', html)
+
+    def test_salsa_sap_user_exists_mark_uses_read_only_user_search(self) -> None:
+        js = (Path(__file__).resolve().parents[1] / "web_api" / "static" / "js" / "cockpit.agent.js").read_text(encoding="utf-8")
+        self.assertIn("salsa-sap-user-mark", js)
+        self.assertIn("/api/salsa-it-agent/user/search", js)
+        self.assertIn("runSalsaUserSearch(username, 'username')", js)
+        self.assertIn("'✓'", js)
+        self.assertIn("'✗'", js)
+
+    def test_salsa_cargo_departamento_are_editable_fields(self) -> None:
+        store.save_salsa_ticket_analysis({
+            "ticket_key": "IZ-70001",
+            "classification": "CREATE_USER",
+            "level": "LEVEL_1",
+            "status": "REVISION_REQUIRED",
+            "intent": "Criar user",
+            "justification": "Pedido de criação",
+            "content_hash": "hash_cargo_dep",
+            "extracted_data": {"sap_user_id": None},
+            "missing_info": [],
+            "suggested_next_action": "Validar dados",
+            "requires_human_review": True,
+            "confidence": 0.85,
+            "rules_version": "1.1.0",
+        })
+        for field, value in (("cargo", "Analista Financeiro"), ("departamento", "Finanças")):
+            result = main.api_salsa_it_update_ticket_extracted_data(
+                "IZ-70001", main.SalsaExtractedDataUpdateRequest(field=field, value=value)
+            )
+            self.assertEqual(result["analysis"]["extracted_data"][field], value)
+
+    def test_user_search_name_uses_exact_first_and_last_name(self) -> None:
+        import sys as _sys
+        project_root = str(Path(__file__).resolve().parents[2])
+        if project_root not in _sys.path:
+            _sys.path.insert(0, project_root)
+        from sap_rfc.user_search_service import _exact_options_name
+
+        rows = [r["TEXT"] for r in _exact_options_name("Adrian Gutierrez")]
+        self.assertTrue(any("NAME_FIRST = 'Adrian' AND NAME_LAST = 'Gutierrez'" in r for r in rows))
+        self.assertFalse(any("LIKE" in r for r in rows))
+        self.assertTrue(all(len(r) <= 72 for r in rows))
+
+    def test_create_user_operational_status_follows_required_fields(self) -> None:
+        store.save_salsa_ticket_analysis({
+            "ticket_key": "IZ-70002",
+            "classification": "CREATE_USER",
+            "level": "LEVEL_1",
+            "status": "REVISION_REQUIRED",
+            "intent": "Criar user",
+            "justification": "Pedido de criação",
+            "content_hash": "hash_op_status",
+            "extracted_data": {},
+            "missing_info": [],
+            "suggested_next_action": "Validar dados",
+            "requires_human_review": True,
+            "confidence": 0.85,
+            "rules_version": "1.1.0",
+        })
+        res = store.update_salsa_ticket_extracted_field("IZ-70002", "cargo", "Analista")
+        self.assertEqual(res["operational_status"], "MISSING_INFORMATION")
+        store.update_salsa_ticket_hr_data("IZ-70002", {
+            "hr_pernr": "81000753", "sap_user_id": "S81000753",
+            "hr_email": "flavia.depietri@salsajeans.com", "hr_first_name": "Flavia", "hr_last_name": "Depietri",
+        })
+        store.update_salsa_ticket_extracted_field("IZ-70002", "reference_user", "CSILVA")
+        store.update_salsa_ticket_extracted_field("IZ-70002", "departamento", "Finanças")
+        res = store.update_salsa_ticket_environment("IZ-70002", ["PRD"])
+        self.assertEqual(res["operational_status"], "READY_FOR_REVIEW")
+        self.assertEqual(res["missing_info"], [])
+
+    def test_salsa_reference_user_has_auto_existence_mark(self) -> None:
+        html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")
+        js = (Path(__file__).resolve().parents[1] / "web_api" / "static" / "js" / "cockpit.agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="salsa-ref-user-mark"', html)
+        self.assertIn("updateSalsaRefUserMark", js)
+        self.assertIn("Utilizador de referência existe", js)
+        self.assertIn("Utilizador de referência não existe", js)
+        # Pesquisa por username e, se falhar, por nome; mais de um resultado -> mensagem.
+        self.assertIn("resolveSalsaReferenceUser", js)
+        self.assertIn("runSalsaUserSearch(value, 'name')", js)
+        self.assertIn("Não é possível encontrar", js)
+        # Mostra o user SAP encontrado ao lado do visto.
+        self.assertIn("fullName", js)
+
+    def test_salsa_user_hr_controls_share_one_row(self) -> None:
+        html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")
+        start = html.index('id="salsa-card-user"')
+        end = html.index('id="salsa-modal-hr-result"', start)
+        block = html[start:end]
+        # Ambiente(s), lupa, Nº colaborador RH e Utilizador de Referência ficam numa unica linha flex.
+        self.assertRegex(block, r'<div style="display:flex; gap:6px; align-items:flex-end; justify-content:flex-start;">\s*<button[^>]*id="salsa-modal-search-hr"')
+        # Ordem: lupa, Nº colaborador RH, Utilizador de Referência, Ambiente(s).
+        self.assertLess(block.index('id="salsa-modal-search-hr"'), block.index('id="salsa-modal-input-hr-pernr"'))
+        self.assertLess(block.index('id="salsa-modal-input-hr-pernr"'), block.index('id="salsa-modal-input-ref-user"'))
+        self.assertLess(block.index('id="salsa-modal-input-ref-user"'), block.index('id="salsa-env-cb-prd"'))
+        self.assertNotIn("salsa-modal-input-user", block)
+        self.assertNotIn("margin-top:7px", block)
 
     # ---- POST: criacao de job -------------------------------------------------
 

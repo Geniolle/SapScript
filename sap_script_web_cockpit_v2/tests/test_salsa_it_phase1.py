@@ -54,6 +54,16 @@ class TestSalsaLevel1Classifier(unittest.TestCase):
         self.assertIn("QAD", res.extracted_data.sap_environment)
         self.assertIn("PRD", res.extracted_data.sap_environment)
 
+    def test_iz_60365_spanish_access_keys_request_is_create_user(self):
+        """IZ-60365: 'necesito las claves de acceso para sap' (pedido em espanhol) -> CREATE_USER"""
+        summary = "USUARIO SAP FLAVIA DEPIETRI"
+        description = "hola\nnecesito las claves de acceso para sap\ngracias!"
+        res = self.classifier.analyze("IZ-60365", summary, description, "CA Acessos")
+
+        self.assertEqual(res.classification, ClassificationCode.CREATE_USER)
+        # Descricao original do Jira fica guardada para mostrar no modal.
+        self.assertEqual(res.extracted_data.ticket_description, description)
+
     def test_iz_59227_create_user(self):
         """IZ-59227: Exact text 'Podem pf criar-me um user para SAP? Precisava das mesmas permissões que a Marta Santiago.' -> CREATE_USER"""
         summary = "Acessos SAP"
@@ -351,6 +361,90 @@ class TestSalsaPersistenceAndOrchestrator(unittest.TestCase):
         self.assertIsNotNone(res2)
         self.assertEqual(res2["extracted_data"]["reference_user"], "Marta Santiago")
         self.assertNotIn("Utilizador de referência para cópia", res2["missing_info"])
+
+    def test_update_salsa_ticket_hr_data_persists_readback(self):
+        """Missing HR persistence must not lose collaborator data when the modal reopens."""
+        from web_api.store import (
+            get_salsa_ticket_analysis,
+            save_salsa_ticket_analysis,
+            update_salsa_ticket_hr_data,
+        )
+
+        save_salsa_ticket_analysis({
+            "ticket_key": "IZ-301",
+            "classification": "CREATE_USER",
+            "level": "LEVEL_1",
+            "status": "REVISION_REQUIRED",
+            "intent": "Criar user",
+            "justification": "Pedido de criação",
+            "content_hash": "hash_hr_1",
+            "extracted_data": {"sap_user_id": None},
+            "missing_info": ["Utilizador SAP a atuar ou criar"],
+            "suggested_next_action": "Validar dados",
+            "requires_human_review": True,
+            "confidence": 0.85,
+            "rules_version": "1.1.0",
+        })
+
+        updated = update_salsa_ticket_hr_data("IZ-301", {
+            "hr_pernr": "81000753",
+            "sap_user_id": "S81000753",
+            "hr_first_name": "Flávia",
+            "hr_last_name": "Depietri",
+            "hr_email": "flavia.depietri@salsajeans.com",
+        })
+
+        self.assertIsNotNone(updated)
+        persisted = get_salsa_ticket_analysis("IZ-301")
+        self.assertEqual(persisted["extracted_data"]["hr_pernr"], "81000753")
+        self.assertEqual(persisted["extracted_data"]["sap_user_id"], "S81000753")
+        self.assertEqual(persisted["extracted_data"]["hr_first_name"], "Flávia")
+        self.assertEqual(persisted["extracted_data"]["hr_last_name"], "Depietri")
+        self.assertEqual(persisted["extracted_data"]["hr_email"], "flavia.depietri@salsajeans.com")
+        self.assertNotIn("Utilizador SAP a atuar ou criar", persisted["missing_info"])
+
+    def test_update_salsa_ticket_hr_data_locks_before_read(self):
+        """Concurrent JSON edits must not occur between the HR read and write."""
+        from web_api import store
+
+        store.save_salsa_ticket_analysis({
+            "ticket_key": "IZ-302",
+            "classification": "CREATE_USER",
+            "level": "LEVEL_1",
+            "status": "REVISION_REQUIRED",
+            "intent": "Criar user",
+            "justification": "Pedido de criação",
+            "content_hash": "hash_hr_lock",
+            "extracted_data": {"reference_user": "S80000001"},
+            "missing_info": [],
+            "requires_human_review": True,
+            "rules_version": "1.1.0",
+        })
+        real_connection = store.get_connection()
+        statements: list[str] = []
+
+        class TracedConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return real_connection.__exit__(*args)
+
+            def execute(self, sql, params=()):
+                statements.append(" ".join(str(sql).split()).upper())
+                return real_connection.execute(sql, params)
+
+            def commit(self):
+                return real_connection.commit()
+
+        readback_connection = store.get_connection()
+        with patch("web_api.store.get_connection", side_effect=[TracedConnection(), readback_connection]):
+            store.update_salsa_ticket_hr_data("IZ-302", {
+                "hr_pernr": "81000753",
+                "sap_user_id": "S81000753",
+            })
+
+        self.assertEqual(statements[0], "BEGIN IMMEDIATE")
 
 
     def test_eligibility_criteria(self):

@@ -80,6 +80,8 @@ class SalsaLevel1Classifier:
         r"\bsolicito\s+acesso\s+sap\s+para\s+novo\b",
         r"\bcreate\s+(?:new\s+)?user\b",
         r"\bcreate\s+sap\s+account\b",
+        r"\bnecesit[oa]\s+(?:las?\s+|el\s+|un\s+|una\s+)?(?:claves?|credenciales|usuario|user|cuenta)\s+(?:de\s+acceso\s+)?(?:para\s+)?sap\b",
+        r"\bcrear\s+(?:un\s+|una\s+)?(?:usuario|user|cuenta)\s+(?:de\s+)?sap\b",
         r"\b(?:utilizar|atribuir)\s+por\s+c[oó]pia\s+(?:das\s+)?(?:autoriza[çc][oõ]es|transa[çc][oõ]es|perfis)\b",
         r"\bmesmas\s+(?:transa[çc][oõ]es|autoriza[çc][oõ]es|permiss[oõ]es)\s+em\s+sap\b",
     ]
@@ -222,6 +224,7 @@ class SalsaLevel1Classifier:
             detected_operations.append((ClassificationCode.RESET_PASSWORD, reset_evidences))
 
         extracted_entities = self.extractor.extract(clean_desc, clean_sum, requester=requester, comments_text=clean_comments)
+        extracted_entities.ticket_description = clean_desc or None
 
         # Multi-operation detection -> AMBIGUOUS
         if len(detected_operations) > 1:

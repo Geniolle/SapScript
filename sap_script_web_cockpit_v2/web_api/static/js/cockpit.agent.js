@@ -16459,6 +16459,101 @@
         }
     };
 
+    function normalizeSalsaHrPernr(value) {
+        const pernr = String(value || '').trim();
+        return /^\d{1,8}$/.test(pernr) ? pernr : '';
+    }
+
+    function isSalsaModalRequestCurrent(ticketKey) {
+        return Boolean(ticketKey) && currentSalsaModalKey === ticketKey;
+    }
+
+    async function fetchSalsaWithDeadline(url, options, deadline) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error('A consulta RH excedeu o tempo limite.');
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), remaining);
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                throw new Error('A consulta RH excedeu o tempo limite.');
+            }
+            throw error;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function searchSalsaHrData() {
+        if (!currentSalsaModalKey) return;
+        const input = document.getElementById('salsa-modal-input-hr-pernr');
+        const button = document.getElementById('salsa-modal-search-hr');
+        const resultBox = document.getElementById('salsa-modal-hr-result');
+        const pernr = normalizeSalsaHrPernr(input && input.value);
+        if (!pernr) {
+            alert('Indique um número de colaborador com até 8 dígitos.');
+            if (input) input.focus();
+            return;
+        }
+
+        const ticketKey = currentSalsaModalKey;
+        const deadline = Date.now() + ASI_PFCG_POLL_TIMEOUT_MS;
+        if (button) button.disabled = true;
+        if (resultBox) {
+            resultBox.style.display = 'block';
+            resultBox.style.color = '#475569';
+            resultBox.textContent = 'A pesquisar dados no RH (PRD)...';
+        }
+
+        try {
+            const startResponse = await fetchSalsaWithDeadline('/api/salsa-it-agent/user/create/hr-lookup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ pernr })
+            }, deadline);
+            const startData = await startResponse.json().catch(() => ({}));
+            if (!startResponse.ok || !startData.job_id) {
+                throw new Error(startData.detail || 'Não foi possível iniciar a consulta RH.');
+            }
+
+            while (Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, ASI_PFCG_POLL_INTERVAL_MS));
+                const pollResponse = await fetchSalsaWithDeadline(`/api/salsa-it-agent/user/create/hr-lookup/${encodeURIComponent(startData.job_id)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                }, deadline);
+                const pollData = await pollResponse.json().catch(() => ({}));
+                if (!pollResponse.ok) throw new Error(pollData.detail || 'Falha ao consultar o estado do RH.');
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state === 'failed') throw new Error(pollData.message || 'A consulta RH falhou.');
+
+                const hr = pollData.result || {};
+                if (!hr.ok) throw new Error(hr.message || `Colaborador ${pernr} não encontrado no RH.`);
+                const saveResponse = await fetchSalsaWithDeadline(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/hr-data`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ job_id: startData.job_id })
+                }, deadline);
+                const saved = await saveResponse.json().catch(() => ({}));
+                if (!saveResponse.ok || !saved.analysis) {
+                    throw new Error(saved.detail || 'Não foi possível guardar os dados RH no ticket.');
+                }
+                if (isSalsaModalRequestCurrent(ticketKey)) renderSalsaModalData(saved.analysis);
+                return;
+            }
+            throw new Error('A consulta RH excedeu o tempo limite.');
+        } catch (error) {
+            if (resultBox && isSalsaModalRequestCurrent(ticketKey)) {
+                resultBox.style.display = 'block';
+                resultBox.style.color = '#dc2626';
+                resultBox.textContent = error.message || 'Não foi possível consultar o RH.';
+            }
+        } finally {
+            if (button && isSalsaModalRequestCurrent(ticketKey)) button.disabled = false;
+        }
+    }
+
     function renderSalsaModalData(analysis) {
         const elLoading = document.getElementById('salsa-modal-loading');
         const elContent = document.getElementById('salsa-modal-content');
@@ -16483,8 +16578,11 @@
 
         // Classification & Intent
         document.getElementById('salsa-modal-intent').textContent = analysis.intent || '-';
-        document.getElementById('salsa-modal-justification').textContent = analysis.justification || '-';
-        document.getElementById('salsa-modal-classification-code').textContent = analysis.classification || '-';
+        const justEl = document.getElementById('salsa-modal-justification');
+        const ticketDescription = (analysis.extracted_data && analysis.extracted_data.ticket_description) || '';
+        justEl.textContent = (ticketDescription ? ticketDescription.replace(/\s+/g, ' ').trim() : analysis.justification) || '-';
+        const classificationSelect = document.getElementById('salsa-modal-classification-code');
+        if (classificationSelect && analysis.classification) classificationSelect.value = analysis.classification;
 
         // Notice banner semantics
         const noticeText = document.getElementById('salsa-modal-notice-text');
@@ -16499,6 +16597,7 @@
         // Extracted data
         const ext = analysis.extracted_data || {};
         const inputUser = document.getElementById('salsa-modal-input-user');
+        const inputHrPernr = document.getElementById('salsa-modal-input-hr-pernr');
         const inputRefUser = document.getElementById('salsa-modal-input-ref-user');
         const elValUser = document.getElementById('salsa-modal-val-user');
         const elValRefUser = document.getElementById('salsa-modal-val-ref-user');
@@ -16511,13 +16610,170 @@
         if (inputUser && document.activeElement !== inputUser) {
             inputUser.value = ext.sap_user_id || '';
         }
+        if (inputHrPernr && document.activeElement !== inputHrPernr) {
+            inputHrPernr.value = ext.hr_pernr || '';
+        }
         if (inputRefUser && document.activeElement !== inputRefUser) {
             inputRefUser.value = ext.reference_user || ext.user_name || '';
         }
+        updateSalsaRefUserMark(ext.reference_user || '');
 
         if (elValUser) elValUser.textContent = ext.sap_user_id || 'Não identificado';
         if (elValRefUser) elValRefUser.textContent = ext.reference_user || (ext.user_name ? `${ext.user_name} (Nome)` : 'Não identificado');
         if (elValRequester) elValRequester.textContent = ext.requester || 'Não identificado';
+
+        const hrResult = document.getElementById('salsa-modal-hr-result');
+        if (hrResult) {
+            const hrItems = [
+                ['Nome completo', [ext.hr_first_name, ext.hr_last_name].filter(Boolean).join(' ')],
+                ['E-mail', (ext.hr_email || '').toLowerCase()],
+                ['Utilizador SAP', ext.sap_user_id],
+            ].filter(([, value]) => value);
+            hrResult.replaceChildren();
+            hrItems.forEach(([label, value]) => {
+                const item = document.createElement('div');
+                const labelEl = document.createElement('span');
+                labelEl.style.cssText = 'display:block; font-size:10px; color:#64748b; font-weight:600;';
+                labelEl.textContent = label;
+                const valueEl = document.createElement('span');
+                valueEl.style.cssText = 'display:flex; align-items:center; height:24px; font-size:11px; font-weight:700; color:#1e293b; word-break:break-all;';
+                valueEl.textContent = value;
+                if (label === 'Utilizador SAP') {
+                    const mark = document.createElement('span');
+                    mark.id = 'salsa-sap-user-mark';
+                    mark.dataset.username = value;
+                    mark.style.cssText = 'margin-left:6px; font-size:13px; font-weight:800;';
+                    valueEl.appendChild(mark);
+                }
+                item.append(labelEl, valueEl);
+                hrResult.appendChild(item);
+            });
+            [
+                ['Cargo', 'salsa-modal-input-cargo', 'cargo', ext.cargo],
+                ['Departamento', 'salsa-modal-input-departamento', 'departamento', ext.departamento],
+            ].forEach(([label, id, field, value]) => {
+                const item = document.createElement('div');
+                const labelEl = document.createElement('label');
+                labelEl.htmlFor = id;
+                labelEl.style.cssText = 'display:block; margin-bottom:0; font-size:10px; color:#64748b; font-weight:600;';
+                labelEl.textContent = label;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = id;
+                input.value = value || '';
+                input.placeholder = 'Não identificado';
+                input.style.cssText = 'margin-top:0; width:100%; height:24px; box-sizing:border-box; padding:0 6px; font-size:11px; font-weight:700; color:#1e293b; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; outline:none;';
+                input.onfocus = () => { input.style.borderColor = '#6366f1'; };
+                input.onchange = () => saveSalsaExtractedField(field, input.value);
+                input.onblur = () => saveSalsaExtractedField(field, input.value);
+                input.onkeydown = (event) => { if (event.key === 'Enter') input.blur(); };
+                item.append(labelEl, input);
+                hrResult.appendChild(item);
+            });
+            hrResult.style.display = 'grid';
+            hrResult.style.gridTemplateColumns = 'repeat(5, minmax(0, 1fr))';
+            hrResult.style.alignItems = 'start';
+            hrResult.style.gap = '8px';
+            hrResult.style.color = '#475569';
+            if (ext.sap_user_id) updateSalsaSapUserMark(ext.sap_user_id);
+        }
+
+        async function runSalsaUserSearch(query, searchType) {
+            const started = await fetch('/api/salsa-it-agent/user/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ query: query, search_type: searchType, system: 'PRD' })
+            }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+            if (!started || !started.job_id) return null;
+            const deadline = Date.now() + ASI_PFCG_POLL_TIMEOUT_MS;
+            while (Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, ASI_PFCG_POLL_INTERVAL_MS));
+                const poll = await fetch(`/api/salsa-it-agent/user/search/${encodeURIComponent(started.job_id)}`, {
+                    headers: { 'Accept': 'application/json' }
+                }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+                if (!poll) return null;
+                if (poll.state === 'pending' || poll.state === 'running') continue;
+                if (poll.state !== 'succeeded' || !poll.result) return null;
+                return poll.result;
+            }
+            return null;
+        }
+
+        async function checkSalsaSapUserExists(username) {
+            const result = await runSalsaUserSearch(username, 'username');
+            if (!result || !result.ok) return null;
+            const target = username.toUpperCase();
+            return result.users.some((u) => String(u.username || '').toUpperCase() === target);
+        }
+
+        // Pesquisa a referência por username SAP; se não encontrar, tenta pelo nome.
+        async function resolveSalsaReferenceUser(value) {
+            // Timeout ou erro na pesquisa conta como "não encontrado" (✗).
+            const byUser = (await runSalsaUserSearch(value, 'username')) || { ok: false, users: [] };
+            const target = value.toUpperCase();
+            const matchUser = byUser.ok ? byUser.users.find((u) => String(u.username || '').toUpperCase() === target) : null;
+            if (matchUser) {
+                return { state: 'found', username: target, fullName: matchUser.full_name || '' };
+            }
+            const byName = (await runSalsaUserSearch(value, 'name')) || { ok: false, users: [] };
+            if (!byName.ok) return { state: 'none' };
+            if (byName.users.length === 1) {
+                return { state: 'found', username: byName.users[0].username, fullName: byName.users[0].full_name || '' };
+            }
+            if (byName.users.length > 1) return { state: 'multiple' };
+            return { state: 'none' };
+        }
+
+        async function updateSalsaRefUserMark(value) {
+            const mark = document.getElementById('salsa-ref-user-mark');
+            if (!mark) return;
+            mark.dataset.username = value;
+            if (!value) {
+                mark.textContent = '';
+                return;
+            }
+            mark.textContent = '…';
+            mark.style.color = '#64748b';
+            mark.title = 'A verificar utilizador de referência...';
+            const resolved = await resolveSalsaReferenceUser(value);
+            if (mark.dataset.username !== value) return;
+            if (resolved.state === 'found') {
+                mark.textContent = `✓ ${resolved.username}${resolved.fullName ? ' · ' + resolved.fullName : ''}`;
+                mark.style.color = '#15803d';
+                mark.title = `Utilizador de referência existe: ${resolved.username}`;
+            } else if (resolved.state === 'multiple') {
+                mark.textContent = 'Não é possível encontrar';
+                mark.style.color = '#dc2626';
+                mark.title = 'Mais de um utilizador encontrado pelo nome';
+            } else if (resolved.state === 'none') {
+                mark.textContent = '✗';
+                mark.style.color = '#dc2626';
+                mark.title = 'Utilizador de referência não existe';
+            } else {
+                mark.textContent = '';
+            }
+        }
+        async function updateSalsaSapUserMark(username) {
+            const mark = document.getElementById('salsa-sap-user-mark');
+            if (!mark) return;
+            mark.textContent = '…';
+            mark.style.color = '#64748b';
+            mark.title = 'A verificar utilizador SAP...';
+            const exists = await checkSalsaSapUserExists(username);
+            const current = document.getElementById('salsa-sap-user-mark');
+            if (!current || current.dataset.username !== username) return;
+            if (exists === true) {
+                current.textContent = '✓';
+                current.style.color = '#15803d';
+                current.title = 'Utilizador SAP existe';
+            } else if (exists === false) {
+                current.textContent = '✗';
+                current.style.color = '#dc2626';
+                current.title = 'Utilizador SAP não existe';
+            } else {
+                current.textContent = '';
+            }
+        }
 
 
         // Sync environments & checkboxes
