@@ -35,7 +35,7 @@ from .models import (
 ELIGIBLE_PROJECT_DEFAULT = "IZ"
 ELIGIBLE_ASSIGNEE_DEFAULT = "Clayton Lopes"
 ELIGIBLE_ASSIGNEE_ID_DEFAULT = "601a7387332cbe007015180a"
-ELIGIBLE_PROCESS_DEFAULT = "CA Acessos"
+ELIGIBLE_PROCESS_DEFAULT = "CA Acessos,FI Extracto Cadeias de Pesquisa"
 CLOSED_STATUSES = {"done", "closed", "concluído", "resolvido", "fechado", "fechada", "cancelled"}
 
 
@@ -52,6 +52,7 @@ class SalsaAgentOrchestrator:
             "project": os.getenv("SALSA_AGENT_PROJECT", ELIGIBLE_PROJECT_DEFAULT).strip(),
             "assignee": os.getenv("SALSA_AGENT_ASSIGNEE", ELIGIBLE_ASSIGNEE_DEFAULT).strip(),
             "assignee_id": os.getenv("SALSA_AGENT_ASSIGNEE_ID", ELIGIBLE_ASSIGNEE_ID_DEFAULT).strip(),
+            # Lista separada por vírgulas: SALSA_AGENT_PROCESS="CA Acessos,FI Extracto Cadeias de Pesquisa"
             "process": os.getenv("SALSA_AGENT_PROCESS", ELIGIBLE_PROCESS_DEFAULT).strip(),
         }
 
@@ -87,12 +88,13 @@ class SalsaAgentOrchestrator:
         # 3. Process / Category check
         process = str(ticket.get("process") or ticket.get("categoria_sap") or "").strip()
         # Customfield value or presented name
-        is_ca_acessos = (
-            cfg["process"].lower() in process.lower()
+        allowed_processes = [p.strip().lower() for p in cfg["process"].split(",") if p.strip()]
+        is_eligible_process = (
+            any(p in process.lower() for p in allowed_processes)
             or "ca acessos" in process.lower()
             or process == "28790"
         )
-        if not is_ca_acessos:
+        if not is_eligible_process:
             return False, f"Categoria/Processo ({process}) não corresponde a {cfg['process']}"
 
         # 4. Status check

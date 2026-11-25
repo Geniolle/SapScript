@@ -7,6 +7,30 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-11-25 — Lista de tickets: badge "Agente IA" não aparecia em processos elegíveis novos
+
+### Sintoma
+Ticket de "FI Extracto Cadeias de Pesquisa" (IZ-60476), com responsável Clayton Lopes, não mostrava o badge
+Agente IA, mesmo com o backend a aceitar o processo.
+
+### Causa raiz
+A regra do badge estava duplicada no frontend (`cockpit.agent.js`): só aceitava "acessos" ou 28790.
+Ao acrescentar um processo no backend (`SALSA_AGENT_PROCESS`) o frontend não acompanhou.
+
+### Correção
+A lista de processos elegíveis do frontend passou a ter os mesmos valores por defeito do backend
+(`ELIGIBLE_PROCESS_DEFAULT` em `salsa_agent/orchestrator.py`). Mudar o processo no `.env` exige
+atualizar também o JS.
+
+### Como prevenir
+- Ao mudar regras de elegibilidade, procurar a mesma regra no frontend (`grep -n "acessos" cockpit.agent.js`).
+
+### Ficheiros
+- `sap_script_web_cockpit_v2/web_api/static/js/cockpit.agent.js`
+- `sap_script_web_cockpit_v2/salsa_agent/orchestrator.py`
+
+---
+
 ## 2026-11-25 — Cockpit web: `/api/jobs` em redirect infinito (ERR_TOO_MANY_REDIRECTS) e página deixa de responder
 
 ### Sintoma

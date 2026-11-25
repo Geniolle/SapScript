@@ -14026,7 +14026,10 @@
             // Check eligibility for Agente Salsa IT:
             // Project IZ, Clayton Lopes as assignee, Process 'CA Acessos', not closed
             const isClaytonAssignee = (t.assignee || '').toLowerCase().includes('clayton');
-            const isCaAcessos = (t.process || '').toLowerCase().includes('acessos') || (t.process || '').trim() === '28790';
+            // Processos elegíveis: mesmos valores por defeito que SALSA_AGENT_PROCESS no backend.
+            const salsaEligibleProcesses = ['ca acessos', 'fi extracto cadeias de pesquisa'];
+            const processLower = (t.process || '').toLowerCase().trim();
+            const isCaAcessos = salsaEligibleProcesses.some(p => processLower.includes(p)) || processLower.includes('acessos') || processLower === '28790';
             const isIzProject = (ticketKey.startsWith('IZ-') || (t.project || '').toUpperCase().includes('IZ'));
             const isEligibleSalsaAgent = isClaytonAssignee && isCaAcessos && isIzProject;
 
@@ -16722,6 +16725,54 @@
         }
     }
 
+    // "adrian.gutierrez@salsajeans.com" -> "Adrian Gutierrez"
+    function nameFromSalsaEmail(email) {
+        const local = String(email || '').split('@')[0] || '';
+        return local
+            .split(/[._\-]+/)
+            .filter(Boolean)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+            .join(' ');
+    }
+
+    const salsaRequesterSapCache = new Map();
+
+    // Pesquisa read-only do solicitante por nome no RH; só mostra o utilizador SAP com resultado único.
+    async function resolveSalsaRequesterSapUser(ticketKey, name, sapEl) {
+        if (!sapEl || !name || name.trim().split(/\s+/).length < 2) return;
+        if (salsaRequesterSapCache.has(name)) {
+            sapEl.textContent = salsaRequesterSapCache.get(name);
+            return;
+        }
+        const deadline = Date.now() + ASI_PFCG_POLL_TIMEOUT_MS;
+        try {
+            const startResponse = await fetchSalsaWithDeadline('/api/salsa-it-agent/user/create/hr-lookup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ name })
+            }, deadline);
+            const startData = await startResponse.json().catch(() => ({}));
+            if (!startResponse.ok || !startData.job_id) return;
+            while (Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, ASI_PFCG_POLL_INTERVAL_MS));
+                const pollResponse = await fetchSalsaWithDeadline(`/api/salsa-it-agent/user/create/hr-lookup/${encodeURIComponent(startData.job_id)}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                }, deadline);
+                const pollData = await pollResponse.json().catch(() => ({}));
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state !== 'succeeded') return;
+                const hr = pollData.result || {};
+                const username = hr.ok && hr.username ? String(hr.username) : '';
+                salsaRequesterSapCache.set(name, username);
+                if (username && isSalsaModalRequestCurrent(ticketKey) && sapEl.isConnected) sapEl.textContent = username;
+                return;
+            }
+        } catch (error) {
+            // Sem utilizador SAP mostrado; o nome continua visível.
+        }
+    }
+
     async function searchSalsaHrData() {
         if (!currentSalsaModalKey) return;
         const input = document.getElementById('salsa-modal-input-hr-pernr');
@@ -16796,6 +16847,22 @@
         }
     }
 
+    // CA Acessos: só CREATE_USER, UNLOCK_USER e RESET_PASSWORD. A classificação atual fica sempre visível.
+    function applySalsaClassificationOptions(current) {
+        const select = document.getElementById('salsa-modal-classification-code');
+        if (!select) return;
+        if (!window.salsaClassificationMasterOptions) {
+            window.salsaClassificationMasterOptions = Array.from(select.options).map(o => ({ value: o.value, text: o.textContent }));
+        }
+        const ticket = jiraTickets.find(t => t.key === currentSalsaModalKey);
+        const processLower = String((ticket && ticket.process) || '').toLowerCase().trim();
+        const restricted = processLower.includes('acessos') || processLower === '28790';
+        const allowed = ['CREATE_USER', 'UNLOCK_USER', 'RESET_PASSWORD'];
+        const options = window.salsaClassificationMasterOptions.filter(o => !restricted || allowed.includes(o.value) || o.value === current);
+        select.innerHTML = options.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.text)}</option>`).join('');
+        if (current) select.value = current;
+    }
+
     function renderSalsaModalData(analysis) {
         const elLoading = document.getElementById('salsa-modal-loading');
         const elContent = document.getElementById('salsa-modal-content');
@@ -16823,8 +16890,7 @@
         const justEl = document.getElementById('salsa-modal-justification');
         const ticketDescription = (analysis.extracted_data && analysis.extracted_data.ticket_description) || '';
         justEl.textContent = (ticketDescription ? ticketDescription.replace(/\s+/g, ' ').trim() : analysis.justification) || '-';
-        const classificationSelect = document.getElementById('salsa-modal-classification-code');
-        if (classificationSelect && analysis.classification) classificationSelect.value = analysis.classification;
+        applySalsaClassificationOptions(analysis.classification);
 
         // Notice banner semantics
         const noticeText = document.getElementById('salsa-modal-notice-text');
@@ -16863,14 +16929,23 @@
         if (elValUser) elValUser.textContent = ext.sap_user_id || 'Não identificado';
         if (elValRefUser) elValRefUser.textContent = ext.reference_user || (ext.user_name ? `${ext.user_name} (Nome)` : 'Não identificado');
         if (elValRequester) {
-            // Mostra o utilizador SAP só quando o solicitante do Jira é a mesma pessoa validada no RH.
+            // Nome do solicitante (derivado do e-mail quando o Jira não mostra o nome) e, abaixo, o utilizador SAP.
             const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            const requesterRaw = String(ext.requester || '').trim();
+            const requesterName = requesterRaw.includes('@') ? nameFromSalsaEmail(requesterRaw) : requesterRaw;
             const hrFullName = norm(`${ext.hr_first_name || ''} ${ext.hr_last_name || ''}`);
-            const requesterName = ext.requester || '';
-            const sameHrPerson = hrFullName && norm(requesterName) === hrFullName && ext.sap_user_id;
-            elValRequester.textContent = requesterName
-                ? (sameHrPerson ? `${requesterName} (${ext.sap_user_id})` : requesterName)
-                : 'Não identificado';
+            const sameHrPerson = Boolean(hrFullName && norm(requesterName) === hrFullName && ext.sap_user_id);
+            if (!requesterName) {
+                elValRequester.textContent = 'Não identificado';
+            } else {
+                elValRequester.innerHTML = `<div>${escapeHtml(requesterName)}</div><div id="salsa-requester-sap" style="font-size:0.78rem; color:#64748b; font-weight:600; font-family:monospace; margin-top:2px;"></div>`;
+                const sapEl = document.getElementById('salsa-requester-sap');
+                if (sameHrPerson) {
+                    sapEl.textContent = ext.sap_user_id;
+                } else {
+                    resolveSalsaRequesterSapUser(currentSalsaModalKey, requesterName, sapEl);
+                }
+            }
         }
 
         const hrResult = document.getElementById('salsa-modal-hr-result');

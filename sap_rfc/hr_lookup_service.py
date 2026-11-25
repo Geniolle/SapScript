@@ -174,23 +174,23 @@ def _case_variants(value: str) -> list[str]:
 def _exact_options_name_hr(query: str) -> list[dict[str, str]]:
     """Primeiro e último nome com igualdade exata em PA0002 (evita LIKE '%...%', lento em RFC_READ_TABLE).
 
-    Um único termo pesquisa apenas pelo apelido (NACHN).
+    Um único termo pesquisa em VORNA (nome) ou NACHN (apelido), com igualdade exata.
     """
     parts = query.split()
     last = parts[-1]
     first = parts[0] if len(parts) > 1 else None
+    clauses: list[str] = []
+    if first is None:
+        for v in _case_variants(last):
+            clauses.append(f"NACHN = '{v}'")
+            clauses.append(f"VORNA = '{v}'")
+    else:
+        for last_v in _case_variants(last):
+            for first_v in _case_variants(first):
+                clauses.append(f"VORNA = '{first_v}' AND NACHN = '{last_v}'")
     rows: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for last_v in _case_variants(last):
-        for first_v in (_case_variants(first) if first else [None]):
-            clause = (
-                f"NACHN = '{last_v}'" if first_v is None
-                else f"VORNA = '{first_v}' AND NACHN = '{last_v}'"
-            )
-            if clause in seen:
-                continue
-            seen.add(clause)
-            rows.append({"TEXT": f"{'OR ' if rows else ''}{clause}"})
+    for clause in dict.fromkeys(clauses):
+        rows.append({"TEXT": f"{'OR ' if rows else ''}{clause}"})
     return rows
 
 
