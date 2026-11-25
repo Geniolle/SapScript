@@ -291,6 +291,12 @@ def lookup_hr_data_rfc(pernr: str) -> dict[str, Any]:
     return _run_bridge_cli("sap_rfc.hr_lookup_cli", args)
 
 
+def lookup_hr_by_name_rfc(name: str) -> dict[str, Any]:
+    """Bridge de leitura (read-only) para `sap_rfc.hr_lookup_service.lookup_hr_by_name` (PA0002, PRD)."""
+    args = ["--name", str(name or "").strip()]
+    return _run_bridge_cli("sap_rfc.hr_lookup_cli", args)
+
+
 def search_transport_requests_rfc(environment: str) -> dict[str, Any]:
     """Bridge de leitura para `sap_rfc.pfcg_transport_service.search_open_transport_requests`.
 

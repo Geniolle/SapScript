@@ -54,10 +54,17 @@ class TestSalsaLevel1Classifier(unittest.TestCase):
         self.assertIn("QAD", res.extracted_data.sap_environment)
         self.assertIn("PRD", res.extracted_data.sap_environment)
 
-    def test_insufficient_information_keeps_ticket_description(self):
-        """IZ-60431: pedido sem classificação mantém a descrição do Jira guardada."""
+    def test_iz_60431_login_failure_with_credentials_is_reset_password(self):
+        """IZ-60431: não consegue entrar no SAP com as credenciais -> RESET_PASSWORD."""
         description = "Olá Boa tarde,\nnão consigo entrar no meu SAP com as credenciais que acredito, sejam as corretas.\nobrigada"
         res = self.classifier.analyze("IZ-60431", "Impossibilidade de aceder ao SAP", description, "CA Acessos")
+
+        self.assertEqual(res.classification, ClassificationCode.RESET_PASSWORD)
+
+    def test_insufficient_information_keeps_ticket_description(self):
+        """IZ-60431: pedido sem classificação mantém a descrição do Jira guardada."""
+        description = "Olá Boa tarde,\nprecisava de ajuda com um assunto no sistema.\nobrigada"
+        res = self.classifier.analyze("IZ-60431", "Assunto", description, "CA Acessos")
 
         self.assertEqual(res.classification, ClassificationCode.INSUFFICIENT_INFORMATION)
         self.assertEqual(res.extracted_data.ticket_description, description)
@@ -233,6 +240,64 @@ class TestSalsaAIProvider(unittest.TestCase):
 
         self.assertEqual(res.status, AnalysisStatus.ERROR)
         self.assertEqual(res.classification, ClassificationCode.AMBIGUOUS)
+
+    def test_gemini_provider_parses_json_response_without_network(self):
+        """GeminiAIProvider parses generateContent JSON; urlopen is mocked (no network)."""
+        import io
+        import json as _json
+        from unittest import mock
+
+        from salsa_agent.ai_provider import GeminiAIProvider
+
+        gemini_text = _json.dumps({
+            "classification": "RESET_PASSWORD",
+            "intent": "Reset de password",
+            "justification": "Pedido de credenciais",
+            "evidences": ["não consigo entrar"],
+            "missing_info": [],
+            "suggested_next_action": "Validar utilizador",
+            "confidence": 0.8,
+        })
+        body = _json.dumps({"candidates": [{"content": {"parts": [{"text": gemini_text}]}}]}).encode("utf-8")
+        provider = GeminiAIProvider("test-key", model="gemini-test")
+        dummy_l1 = SalsaLevel1Classifier().analyze("IZ-1", "Acesso", "Não consigo entrar no SAP", "CA Acessos")
+
+        with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(body)) as urlopen:
+            res = provider.analyze_ticket("IZ-1", "Acesso", "Não consigo entrar no SAP", "CA Acessos", dummy_l1)
+
+        request = urlopen.call_args[0][0]
+        self.assertEqual(request.get_header("X-goog-api-key"), "test-key")
+        self.assertNotIn("test-key", request.full_url)
+        self.assertEqual(res.status, AnalysisStatus.LEVEL_2_COMPLETED)
+        self.assertEqual(res.classification, ClassificationCode.RESET_PASSWORD)
+        self.assertTrue(res.requires_human_review)
+        self.assertEqual(res.ai_model_version, "gemini-test")
+
+    def test_gemini_provider_network_error_returns_error_status(self):
+        """Network failure becomes ERROR result, never an exception."""
+        import urllib.error
+        from unittest import mock
+
+        from salsa_agent.ai_provider import GeminiAIProvider
+
+        provider = GeminiAIProvider("test-key")
+        dummy_l1 = SalsaLevel1Classifier().analyze("IZ-1", "Acesso", "Não consigo entrar", "CA Acessos")
+
+        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
+            res = provider.analyze_ticket("IZ-1", "Acesso", "Não consigo entrar", "CA Acessos", dummy_l1)
+
+        self.assertEqual(res.status, AnalysisStatus.ERROR)
+        self.assertTrue(res.requires_human_review)
+
+    def test_factory_gemini_without_key_falls_back_to_disabled(self):
+        """SALSA_AI_PROVIDER=gemini without GEMINI_API_KEY stays disabled."""
+        from unittest import mock
+
+        from salsa_agent.ai_provider import get_ai_provider
+
+        env = {"SALSA_AI_ENABLED": "true", "SALSA_AI_PROVIDER": "gemini", "GEMINI_API_KEY": ""}
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertIsInstance(get_ai_provider(), DisabledAIProvider)
 
 
 class TestSalsaPersistenceAndOrchestrator(unittest.TestCase):

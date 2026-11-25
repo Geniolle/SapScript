@@ -57,10 +57,22 @@ def _validate_pernr_or_400(pernr: str) -> str:
     value = str(pernr or "").strip()
     if not value:
         raise HTTPException(status_code=400, detail="Indique o número de colaborador (PERNR).")
-    digits = re.sub(r"\D", "", value)
-    if not digits:
-        raise HTTPException(status_code=400, detail="PERNR inválido: use apenas dígitos numéricos.")
-    return digits.zfill(8)
+    if not re.fullmatch(r"[0-9]{1,8}", value):
+        raise HTTPException(status_code=400, detail="PERNR inválido: use entre 1 e 8 dígitos numéricos.")
+    return value.zfill(8)
+
+
+_HR_NAME_RE = re.compile(r"^[A-Za-zÀ-ÿ' \-]{2,60}$")
+
+
+def _validate_hr_name_or_400(name: str) -> str:
+    value = " ".join(str(name or "").split())
+    if not _HR_NAME_RE.match(value):
+        raise HTTPException(
+            status_code=400,
+            detail="Nome inválido: use letras, espaços, hífen ou apóstrofo (2 a 60 caracteres).",
+        )
+    return value
 
 
 def _safe_hr_lookup_failed_message() -> str:

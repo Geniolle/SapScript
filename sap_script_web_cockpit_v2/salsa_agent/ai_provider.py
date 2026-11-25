@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
+import urllib.request
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
@@ -174,6 +176,117 @@ class MockAIProvider(BaseAIProvider):
         )
 
 
+class GeminiAIProvider(BaseAIProvider):
+    """
+    Google Gemini via REST generateContent (sem dependências novas).
+    Dados enviados: categoria, resumo e descrição do ticket. Nunca comentários nem credenciais.
+    Resultado sempre com requires_human_review=True.
+    """
+
+    ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash", timeout: int = 60):
+        self._api_key = api_key
+        self._model = model
+        self._timeout = timeout
+
+    def is_configured(self) -> bool:
+        return bool(self._api_key)
+
+    def _build_prompt(
+        self, summary: str, description: str, category: str, level_1_result: AnalysisResult
+    ) -> str:
+        allowed = ", ".join(c.value for c in ClassificationCode)
+        return (
+            "Analisa este pedido de IT SAP e responde apenas com JSON com as chaves: "
+            f"classification (um de: {allowed}), intent, justification, evidences (lista), "
+            "missing_info (lista), suggested_next_action, confidence (número de 0 a 1). "
+            "Não inventes dados. Se faltar informação, usa INSUFFICIENT_INFORMATION.\n\n"
+            f"Categoria: {category}\n"
+            f"Resumo: {summary}\n"
+            f"Descrição: {description}\n"
+            f"Classificação do Nível 1: {level_1_result.classification.value}"
+        )
+
+    def analyze_ticket(
+        self,
+        ticket_key: str,
+        summary: str,
+        description: str,
+        category: str,
+        level_1_result: AnalysisResult,
+    ) -> AnalysisResult:
+        def _fail(message: str) -> AnalysisResult:
+            return AnalysisResult(
+                ticket_key=ticket_key,
+                classification=level_1_result.classification,
+                level=AnalysisLevel.LEVEL_2,
+                status=AnalysisStatus.ERROR,
+                intent="Falha no fornecedor de IA",
+                justification=message,
+                error_message=message,
+                requires_human_review=True,
+                content_hash=level_1_result.content_hash,
+            )
+
+        body = {
+            "contents": [
+                {"parts": [{"text": self._build_prompt(summary, description, category, level_1_result)}]}
+            ],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+        }
+        request = urllib.request.Request(
+            self.ENDPOINT.format(model=self._model),
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-goog-api-key": self._api_key},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self._timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            text = payload["candidates"][0]["content"]["parts"][0]["text"]
+            out = json.loads(text)
+        except urllib.error.HTTPError as exc:
+            return _fail(f"Gemini devolveu HTTP {exc.code}")
+        except OSError:
+            return _fail("Gemini indisponível: falha de rede ou timeout")
+        except (KeyError, IndexError, TypeError, ValueError):
+            return _fail("Resposta do Gemini fora do formato esperado")
+
+        if not isinstance(out, dict):
+            return _fail("Resposta do Gemini fora do formato esperado")
+
+        try:
+            classification = ClassificationCode(out.get("classification"))
+        except ValueError:
+            classification = ClassificationCode.AMBIGUOUS
+
+        try:
+            confidence = min(max(float(out.get("confidence", 0.5)), 0.0), 1.0)
+        except (TypeError, ValueError):
+            confidence = 0.5
+
+        def _str_list(value: Any) -> list[str]:
+            return [str(item) for item in value] if isinstance(value, list) else []
+
+        return AnalysisResult(
+            ticket_key=ticket_key,
+            classification=classification,
+            level=AnalysisLevel.LEVEL_2,
+            status=AnalysisStatus.LEVEL_2_COMPLETED,
+            intent=str(out.get("intent") or "Análise de IA concluída"),
+            justification=str(out.get("justification") or ""),
+            evidences=_str_list(out.get("evidences")),
+            extracted_data=level_1_result.extracted_data,
+            missing_info=_str_list(out.get("missing_info")),
+            suggested_next_action=str(out.get("suggested_next_action") or "Revisar proposta."),
+            requires_human_review=True,
+            confidence=confidence,
+            ai_model_version=self._model,
+            content_hash=level_1_result.content_hash,
+        )
+
+
 def get_ai_provider() -> BaseAIProvider:
     """
     Factory function for the active AI Provider.
@@ -188,6 +301,12 @@ def get_ai_provider() -> BaseAIProvider:
     # If mock provider is requested
     if provider_type == "mock":
         return MockAIProvider()
+
+    if provider_type == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if api_key:
+            return GeminiAIProvider(api_key, model=os.getenv("SALSA_GEMINI_MODEL", "gemini-2.5-flash"))
+        return DisabledAIProvider()
 
     # For safety in Phase 1, any other unconfigured provider falls back to DisabledAIProvider
     return DisabledAIProvider()

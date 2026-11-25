@@ -3,6 +3,7 @@ import dataclasses
 import importlib
 import json
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -118,6 +119,7 @@ from web_api.user_create_common import (
     _validate_user_create_system_or_400,
     _validate_username_or_400,
     _validate_pernr_or_400,
+    _validate_hr_name_or_400,
     _safe_user_create_failed_message,
     _safe_user_password_change_failed_message,
     _safe_user_unlock_failed_message,
@@ -991,8 +993,8 @@ def api_salsa_it_update_ticket_hr_data(
         raise HTTPException(status_code=400, detail="A consulta RH não devolveu dados válidos.")
 
     pernr = _validate_pernr_or_400(str(result.get("pernr") or ""))
-    job_pernr = _validate_pernr_or_400(str((job.get("params") or {}).get("pernr") or ""))
-    if pernr != job_pernr:
+    job_pernr_raw = str((job.get("params") or {}).get("pernr") or "")
+    if job_pernr_raw and pernr != _validate_pernr_or_400(job_pernr_raw):
         raise HTTPException(status_code=400, detail="O resultado RH não corresponde ao PERNR consultado.")
     username = _validate_username_or_400(str(result.get("username") or ""))
     updated = update_salsa_ticket_hr_data(ticket_key, {
@@ -1099,7 +1101,8 @@ class SalsaItUserCreateRfcConfirmRequest(BaseModel):
 
 
 class SalsaItHrLookupRequest(BaseModel):
-    pernr: str
+    pernr: Optional[str] = None
+    name: Optional[str] = None
 
 
 class SalsaItUserPasswordChangeRfcRequest(BaseModel):
@@ -3217,12 +3220,20 @@ def api_salsa_it_user_unlock_job(job_id: str) -> JSONResponse:
 
 @app.post("/api/salsa-it-agent/user/create/hr-lookup")
 def api_salsa_it_user_create_hr_lookup(payload: SalsaItHrLookupRequest) -> JSONResponse:
-    pernr = _validate_pernr_or_400(payload.pernr)
+    # "S5887" (utilizador SAP) é convertido para PERNR 5887; texto é pesquisa por nome.
+    raw_pernr = str(payload.pernr or "").strip()
+    sap_user_match = re.fullmatch(r"[Ss]([0-9]{1,8})", raw_pernr)
+    if sap_user_match:
+        raw_pernr = sap_user_match.group(1)
+    if raw_pernr or not str(payload.name or "").strip():
+        params = {"pernr": _validate_pernr_or_400(raw_pernr)}
+    else:
+        params = {"name": _validate_hr_name_or_400(payload.name)}
     try:
-        job = create_job("hr_lookup", {"pernr": pernr})
+        job = create_job("hr_lookup", params)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return _json_no_store({"job_id": job["id"], "state": job["state"], "pernr": pernr})
+    return _json_no_store({"job_id": job["id"], "state": job["state"], "pernr": params.get("pernr")})
 
 
 @app.get("/api/salsa-it-agent/user/create/hr-lookup/{job_id}")

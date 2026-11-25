@@ -126,6 +126,30 @@ class SalsaAgentRoutesTest(unittest.TestCase):
                     main.api_salsa_it_user_create_hr_lookup(main.SalsaItHrLookupRequest(pernr=invalid))
                 self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_hr_lookup_route_accepts_sap_user_prefix_as_pernr(self) -> None:
+        response = main.api_salsa_it_user_create_hr_lookup(main.SalsaItHrLookupRequest(pernr="S5887"))
+        job = store.get_job(json.loads(response.body)["job_id"])
+        self.assertEqual(job["params"], {"pernr": "00005887"})
+
+    def test_hr_lookup_route_accepts_name_and_creates_name_job(self) -> None:
+        response = main.api_salsa_it_user_create_hr_lookup(
+            main.SalsaItHrLookupRequest(pernr="", name="  Susana   Pinheiro ")
+        )
+        job = store.get_job(json.loads(response.body)["job_id"])
+        self.assertEqual(job["params"], {"name": "Susana Pinheiro"})
+
+    def test_hr_lookup_route_rejects_invalid_name(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            main.api_salsa_it_user_create_hr_lookup(main.SalsaItHrLookupRequest(name="Susana123"))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_hr_name_options_use_exact_first_and_last_name(self) -> None:
+        from sap_rfc.hr_lookup_service import _exact_options_name_hr
+
+        texts = [row["TEXT"] for row in _exact_options_name_hr("Susana Pinheiro")]
+        self.assertIn("VORNA = 'Susana' AND NACHN = 'Pinheiro'", texts[0])
+        self.assertTrue(all("LIKE" not in t for t in texts))
+
     def test_ticket_hr_data_route_rejects_unrelated_job(self) -> None:
         job = store.create_job("user_search", {"query": "Flávia"})
         with self.assertRaises(HTTPException) as ctx:
@@ -296,6 +320,16 @@ class SalsaAgentRoutesTest(unittest.TestCase):
                 body = resp.body.decode("utf-8")
         self.assertIn('"event": "create_start"', body)
         self.assertIn("attachment", resp.headers.get("content-disposition", ""))
+
+    def test_salsa_reset_password_locks_reference_cargo_departamento(self) -> None:
+        html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")
+        js = (Path(__file__).resolve().parents[1] / "web_api" / "static" / "js" / "cockpit.agent.js").read_text(encoding="utf-8")
+        self.assertIn("applySalsaReadOnlyForClassification", js)
+        self.assertIn("'RESET_PASSWORD'", js)
+        self.assertIn('onchange="applySalsaReadOnlyForClassification(this.value)"', html)
+        # Reset: ativa com RH preenchido, utilizador SAP validado e pelo menos um ambiente; usa o job de alteração de password.
+        self.assertIn("resetSalsaPasswordFromTicket", js)
+        self.assertIn("/api/salsa-it-agent/user/password/change", js)
 
     def test_salsa_reference_user_has_auto_existence_mark(self) -> None:
         html = (Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8")

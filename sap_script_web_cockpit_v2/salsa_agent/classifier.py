@@ -107,6 +107,10 @@ class SalsaLevel1Classifier:
         r"\baltera[çc][aã]o\s+de\s+password\b",
         r"\bnova\s+password\b",
         r"\bpassword\s+reset\b",
+        # Pedidos de acesso com credenciais que já não funcionam (texto normalizado: sem acentos).
+        r"\b(?:nao|no)\s+consigo\s+(?:entrar|aceder|acessar|fazer\s+login|iniciar\s+sessao)\b.*\b(?:sap|credenciais|password|senha)\b",
+        r"\bcredenciais\b.*\b(?:corretas|erradas|incorretas|invalidas|nao\s+funcionam)\b",
+        r"\b(?:password|senha|palavra[- ]passe)\s+(?:errada|incorreta|invalida|expirou|expirada)\b",
     ]
 
     def analyze(

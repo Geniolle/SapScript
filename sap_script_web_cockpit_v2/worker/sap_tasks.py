@@ -1841,20 +1841,21 @@ def _run_hr_lookup(params: dict[str, Any]) -> tuple[str, str]:
     _prepare_project_imports()
     project_dir = _get_project_dir()
     pernr = str(params.get("pernr") or "").strip()
+    name = str(params.get("name") or "").strip()
 
     try:
-        from pfcg.pfcg_create_rfc_service import lookup_hr_data_rfc
+        from pfcg.pfcg_create_rfc_service import lookup_hr_by_name_rfc, lookup_hr_data_rfc
     except Exception as exc:
         raise SapExecutionError(f"Não foi possível importar o serviço de dados de RH: {exc}") from exc
 
     try:
-        payload = lookup_hr_data_rfc(pernr)
+        payload = lookup_hr_by_name_rfc(name) if name else lookup_hr_data_rfc(pernr)
     except Exception as exc:
         raise SapExecutionError(f"Bridge de dados de RH (RFC) falhou: {exc}") from exc
 
     log_lines = [
         "Consulta de dados de RH (PA0002/PA0105) via subprocesso isolado, sempre contra PRD.",
-        f"PERNR: {pernr}",
+        f"Nome: {name}" if name else f"PERNR: {pernr}",
         f"Python RFC: {project_dir / RFC_VENV_RELATIVE_PYTHON}",
         f"Status: {payload.get('status', '-')}",
     ]

@@ -49,6 +49,9 @@ REQUIRED_GLOBALS = [
     "asiInitChat",
     "asiHandleQuickActionSelection",
     "asiSendMessage",
+    "normalizeSalsaHrQuery",
+    "searchSalsaHrData",
+    "isSalsaModalRequestCurrent",
 ]
 
 _NODE_PRELUDE = textwrap.dedent(
@@ -164,6 +167,19 @@ def run_node(parts: list[tuple[str, str]]) -> subprocess.CompletedProcess[str]:
     checks = "\n".join(
         f"results.{g} = (typeof globalThis.{g} === 'function');" for g in REQUIRED_GLOBALS
     )
+    behavior_checks = """
+        if (typeof globalThis.normalizeSalsaHrQuery === 'function') {
+            const q = globalThis.normalizeSalsaHrQuery;
+            results.hrPernrValid = q(' 81000753 ').body.pernr === '81000753';
+            results.hrSapUserPrefix = q('S5887').body.pernr === '5887';
+            results.hrNameQuery = q('Susana Pinheiro').body.name === 'Susana Pinheiro';
+            results.hrPernrRejectsLetters = q('81000753X') === null;
+            results.hrPernrRejectsLong = q('123456789') === null;
+            globalThis.currentSalsaModalKey = 'IZ-B';
+            results.hrRequestRejectsOtherTicket = globalThis.isSalsaModalRequestCurrent('IZ-A') === false;
+            results.hrRequestAcceptsCurrentTicket = globalThis.isSalsaModalRequestCurrent('IZ-B') === true;
+        }
+    """
     files_json = _json.dumps(
         [{"label": label, "src": _hoist_top_level_lexicals(src)} for label, src in parts]
     )
@@ -181,7 +197,7 @@ def run_node(parts: list[tuple[str, str]]) -> subprocess.CompletedProcess[str]:
             }}
         }}
         const results = {{}};
-        try {{ {checks} }} catch (e) {{ results.__checkError = e && e.message; }}
+        try {{ {checks} {behavior_checks} }} catch (e) {{ results.__checkError = e && e.message; }}
         if (failure) console.log('LOADFAIL:' + JSON.stringify(failure));
         if (__uncaught) console.log('UNCAUGHT:', __uncaught.constructor.name, '-', __uncaught.message);
         console.log('RESULTS:' + JSON.stringify(results));
@@ -254,6 +270,9 @@ def check() -> list[str]:
         for g in REQUIRED_GLOBALS:
             if not results.get(g):
                 errors.append(f"Funcao global critica em falta apos avaliacao: {g}")
+        for behavior in ("hrPernrValid", "hrSapUserPrefix", "hrNameQuery", "hrPernrRejectsLetters", "hrPernrRejectsLong", "hrRequestRejectsOtherTicket", "hrRequestAcceptsCurrentTicket"):
+            if not results.get(behavior):
+                errors.append(f"Contrato JavaScript falhou: {behavior}")
 
     return errors
 

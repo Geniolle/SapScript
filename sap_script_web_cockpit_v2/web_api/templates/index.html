@@ -2174,7 +2174,7 @@
     };
   </script>
   <script src="/static/js/cockpit.core.js?v=p5j"></script>
-  <script src="/static/js/cockpit.agent.js?v=salsa_v32"></script>
+  <script src="/static/js/cockpit.agent.js?v=salsa_v40"></script>
 
   <!-- ══ Modal: Criar/Editar Regra de Contexto ══ -->
   <div id="def-rule-modal" style="display:none; position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px);">
@@ -2320,7 +2320,7 @@
             </div>
             <div style="text-align:right; flex-shrink:0;">
               <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Classificação</span>
-              <select id="salsa-modal-classification-code" aria-label="Classificação" style="margin-top:2px; width:200px; font-size:0.85rem; font-weight:800; color:#4f46e5; font-family:monospace; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; padding:3px 6px; outline:none; cursor:pointer;">
+              <select id="salsa-modal-classification-code" aria-label="Classificação" onchange="applySalsaReadOnlyForClassification(this.value)" style="margin-top:2px; width:200px; font-size:0.85rem; font-weight:800; color:#4f46e5; font-family:monospace; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; padding:3px 6px; outline:none; cursor:pointer;">
                 <option value="CREATE_USER">CREATE_USER</option>
                 <option value="UNLOCK_USER">UNLOCK_USER</option>
                 <option value="RESET_PASSWORD">RESET_PASSWORD</option>
@@ -2351,7 +2351,7 @@
                 </button>
                 <div style="flex:0 0 auto;">
                 <label for="salsa-modal-input-hr-pernr" style="font-size:11px; color:#64748b; font-weight:600;">Nº colaborador RH</label>
-                <input type="text" id="salsa-modal-input-hr-pernr" inputmode="numeric" placeholder="Ex.: 81000753" style="margin-top:4px; width:300px; box-sizing:border-box; padding:4px 8px; font-weight:700; font-size:0.74rem; color:#1e293b; font-family:monospace; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; outline:none; transition:border-color 0.15s;" onfocus="this.style.borderColor='#6366f1'">
+                <input type="text" id="salsa-modal-input-hr-pernr" placeholder="Ex.: 5887, S5887 ou nome" style="margin-top:4px; width:300px; box-sizing:border-box; padding:4px 8px; font-weight:700; font-size:0.74rem; color:#1e293b; font-family:monospace; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; outline:none; transition:border-color 0.15s;" onfocus="this.style.borderColor='#6366f1'">
                 </div>
                 <div style="display:flex; flex-direction:column; min-width:0; margin-left:26px;">
                 <div style="display:flex; align-items:center; gap:6px;"><label for="salsa-modal-input-ref-user" style="font-size:11px; color:#64748b; font-weight:600;">Utilizador de Referência</label><span id="salsa-ref-user-mark" style="font-size:13px; font-weight:800;"></span></div>

@@ -12832,6 +12832,8 @@
     let jiraClosedTickets = [];
     let jiraSortColumn = null;
     let jiraSortAscending = true;
+    // Equipa por defeito (Core Systems) aplicada uma vez por carregamento da página.
+    let jiraTeamDefaultApplied = false;
     let activeKpiCardFilter = null;
 
     const TEAM_MEMBERS = {
@@ -13601,6 +13603,13 @@
     });
 
     function populateAllDropdownsFaceted(allTickets) {
+        if (!jiraTeamDefaultApplied) {
+            jiraTeamDefaultApplied = true;
+            const teamSel = document.getElementById('jira-filter-team');
+            if (teamSel && Array.from(teamSel.options).some(o => o.value === 'Core Systems')) {
+                teamSel.value = 'Core Systems';
+            }
+        }
         const fields = {
             'jira-filter-team': { key: 'team', defaultText: 'Todas as equipas', isStatic: true },
             'jira-filter-stream': { key: 'stream', defaultText: 'Todos os streams', isStatic: true },
@@ -13921,6 +13930,20 @@
 
             return true;
         });
+
+        if (!jiraSortColumn) {
+            // Ordenação por defeito: sem responsável primeiro, depois criados mais recentemente primeiro.
+            const isUnassignedTicket = t => !t.assignee || String(t.assignee).trim() === '' || String(t.assignee).trim().toLowerCase() === 'sem responsável';
+            const createdTs = t => {
+                const ts = Date.parse(String(t.created_at || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+                return Number.isNaN(ts) ? 0 : ts;
+            };
+            filtered.sort((a, b) =>
+                (Number(isUnassignedTicket(b)) - Number(isUnassignedTicket(a))) ||
+                (createdTs(b) - createdTs(a)) ||
+                String(b.key || '').localeCompare(String(a.key || ''), undefined, { numeric: true, sensitivity: 'base' })
+            );
+        }
 
         if (jiraSortColumn) {
             filtered.sort((a, b) => {
@@ -16398,6 +16421,65 @@
 
     // Criação de utilizador: copia os roles ATIVOS do utilizador de referência, faz preview em cada
     // ambiente e só depois de confirmação executa a criação (RFC BAPI_USER_CREATE1 via preview/confirm).
+    // RESET_PASSWORD não precisa de referência, cargo nem departamento: bloqueia esses campos (fundo cinza claro).
+    window.applySalsaReadOnlyForClassification = function(code) {
+        const readOnly = code === 'RESET_PASSWORD';
+        ['salsa-modal-input-ref-user', 'salsa-modal-input-cargo', 'salsa-modal-input-departamento'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.disabled = readOnly;
+            el.style.background = readOnly ? '#f1f5f9' : '#ffffff';
+            el.style.cursor = readOnly ? 'not-allowed' : '';
+            el.title = readOnly ? 'Não necessário para reset de password' : '';
+        });
+        // O botão de criação não executa reset: enquanto o fluxo de reset não existe, fica desativado.
+        const createBtn = document.getElementById('salsa-create-user-btn');
+        if (createBtn) {
+            createBtn.textContent = readOnly ? 'Reset Password' : 'Criar utilizador';
+            // Reset: RH preenchido + utilizador SAP validado (✓) + pelo menos um ambiente marcado.
+            const samValid = (document.getElementById('salsa-sap-user-mark')?.textContent || '').startsWith('✓');
+            const hasEnv = ['salsa-env-cb-prd', 'salsa-env-cb-qad', 'salsa-env-cb-dev'].some((id) => document.getElementById(id)?.checked);
+            const hasRh = (document.getElementById('salsa-modal-input-hr-pernr')?.value || '').trim() !== '';
+            createBtn.disabled = readOnly ? !(samValid && hasEnv && hasRh) : false;
+            createBtn.onclick = readOnly ? () => window.resetSalsaPasswordFromTicket() : () => window.createSalsaUserFromTicket();
+            createBtn.style.opacity = createBtn.disabled ? '0.5' : '';
+            createBtn.style.cursor = createBtn.disabled ? 'not-allowed' : 'pointer';
+        }
+    };
+
+    // Reset de password: redefine a password inicial (SAP_PASSE_PASSWD) em cada ambiente marcado.
+    window.resetSalsaPasswordFromTicket = async function() {
+        const ticketKey = currentSalsaModalKey;
+        const status = document.getElementById('salsa-create-user-status');
+        if (!ticketKey || !status) return;
+        const setStatus = (text, color) => { status.textContent = text; status.style.color = color || '#475569'; };
+        logSalsaCreate('reset_start', ticketKey);
+        try {
+            const analysisData = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/analysis`).then((r) => r.json());
+            const ext = (analysisData.analysis || analysisData).extracted_data || {};
+            const envs = Array.isArray(ext.sap_environment) ? ext.sap_environment : [];
+            if (!ext.sap_user_id || !envs.length) throw new Error('Falta o utilizador SAP validado ou um ambiente marcado.');
+            const done = [];
+            for (const env of envs) {
+                setStatus(`A redefinir password em ${env}...`);
+                const res = await runSalsaJob(
+                    '/api/salsa-it-agent/user/password/change',
+                    { system: env, username: ext.sap_user_id },
+                    (id) => `/api/salsa-it-agent/user/password/change/${encodeURIComponent(id)}`
+                );
+                if (!res.result.ok) throw new Error(`Reset em ${env}: ${res.result.message || 'falhou'}`);
+                done.push(env);
+            }
+            logSalsaCreate('reset_ok', `${ext.sap_user_id} em ${done.join(', ')}`);
+            setStatus(`Password redefinida em ${done.join(', ')}.`, '#15803d');
+        } catch (err) {
+            logSalsaCreate('reset_error', err.message || String(err));
+            setStatus(err.message || 'Falha no reset de password.', '#dc2626');
+        } finally {
+            window.applySalsaReadOnlyForClassification('RESET_PASSWORD');
+        }
+    };
+
     // Regista etapas e erros do fluxo de criação no servidor (ficheiro salsa_create_user.log). Nunca bloqueia.
     function logSalsaCreate(event, detail) {
         try {
@@ -16609,9 +16691,14 @@
         }
     };
 
-    function normalizeSalsaHrPernr(value) {
-        const pernr = String(value || '').trim();
-        return /^\d{1,8}$/.test(pernr) ? pernr : '';
+    // "S5887" = utilizador SAP (PERNR 5887); só dígitos = PERNR; letras = pesquisa por nome.
+    function normalizeSalsaHrQuery(value) {
+        const text = String(value || '').trim();
+        const sapUser = text.match(/^[Ss](\d{1,8})$/);
+        if (sapUser) return { body: { pernr: sapUser[1] }, label: text.toUpperCase() };
+        if (/^\d{1,8}$/.test(text)) return { body: { pernr: text }, label: text };
+        if (/^[A-Za-zÀ-ÿ' -]{2,60}$/.test(text)) return { body: { name: text }, label: text };
+        return null;
     }
 
     function isSalsaModalRequestCurrent(ticketKey) {
@@ -16640,9 +16727,14 @@
         const input = document.getElementById('salsa-modal-input-hr-pernr');
         const button = document.getElementById('salsa-modal-search-hr');
         const resultBox = document.getElementById('salsa-modal-hr-result');
-        const pernr = normalizeSalsaHrPernr(input && input.value);
-        if (!pernr) {
-            alert('Indique um número de colaborador com até 8 dígitos.');
+        const query = normalizeSalsaHrQuery(input && input.value);
+        if (!query) {
+            // Mensagem no próprio modal (alert() pode ser bloqueado na app e a pesquisa parecer não reagir).
+            if (resultBox) {
+                resultBox.style.display = 'block';
+                resultBox.style.color = '#dc2626';
+                resultBox.textContent = 'Indique o nº de colaborador (ex.: 5887 ou S5887) ou o nome e apelido.';
+            }
             if (input) input.focus();
             return;
         }
@@ -16660,7 +16752,7 @@
             const startResponse = await fetchSalsaWithDeadline('/api/salsa-it-agent/user/create/hr-lookup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ pernr })
+                body: JSON.stringify(query.body)
             }, deadline);
             const startData = await startResponse.json().catch(() => ({}));
             if (!startResponse.ok || !startData.job_id) {
@@ -16679,7 +16771,7 @@
                 if (pollData.state === 'failed') throw new Error(pollData.message || 'A consulta RH falhou.');
 
                 const hr = pollData.result || {};
-                if (!hr.ok) throw new Error(hr.message || `Colaborador ${pernr} não encontrado no RH.`);
+                if (!hr.ok) throw new Error(hr.message || `Colaborador ${query.label} não encontrado no RH.`);
                 const saveResponse = await fetchSalsaWithDeadline(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/hr-data`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -16770,7 +16862,16 @@
 
         if (elValUser) elValUser.textContent = ext.sap_user_id || 'Não identificado';
         if (elValRefUser) elValRefUser.textContent = ext.reference_user || (ext.user_name ? `${ext.user_name} (Nome)` : 'Não identificado');
-        if (elValRequester) elValRequester.textContent = ext.requester || 'Não identificado';
+        if (elValRequester) {
+            // Mostra o utilizador SAP só quando o solicitante do Jira é a mesma pessoa validada no RH.
+            const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            const hrFullName = norm(`${ext.hr_first_name || ''} ${ext.hr_last_name || ''}`);
+            const requesterName = ext.requester || '';
+            const sameHrPerson = hrFullName && norm(requesterName) === hrFullName && ext.sap_user_id;
+            elValRequester.textContent = requesterName
+                ? (sameHrPerson ? `${requesterName} (${ext.sap_user_id})` : requesterName)
+                : 'Não identificado';
+        }
 
         const hrResult = document.getElementById('salsa-modal-hr-result');
         if (hrResult) {
@@ -16823,6 +16924,9 @@
             hrResult.style.display = 'grid';
             hrResult.style.gridTemplateColumns = 'repeat(5, minmax(0, 1fr))';
             hrResult.style.alignItems = 'start';
+            window.applySalsaReadOnlyForClassification(analysis.classification);
+            // Os checkboxes de ambiente são preenchidos mais abaixo no render: reaplica depois.
+            setTimeout(() => window.applySalsaReadOnlyForClassification(analysis.classification), 0);
             hrResult.style.gap = '8px';
             hrResult.style.color = '#475569';
             if (ext.sap_user_id) updateSalsaSapUserMark(ext.sap_user_id);
@@ -16916,10 +17020,12 @@
                 current.textContent = '✓';
                 current.style.color = '#15803d';
                 current.title = 'Utilizador SAP existe';
+                window.applySalsaReadOnlyForClassification(document.getElementById('salsa-modal-classification-code')?.value);
             } else if (exists === false) {
                 current.textContent = '✗';
                 current.style.color = '#dc2626';
                 current.title = 'Utilizador SAP não existe';
+                window.applySalsaReadOnlyForClassification(document.getElementById('salsa-modal-classification-code')?.value);
             } else {
                 current.textContent = '';
             }

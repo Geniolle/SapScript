@@ -7,6 +7,71 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-11-25 — Cockpit web: `/api/jobs` em redirect infinito (ERR_TOO_MANY_REDIRECTS) e página deixa de responder
+
+### Sintoma
+- Browser mostra `ERR_TOO_MANY_REDIRECTS` ao carregar o cockpit no servidor; scripts da página
+  deixam de responder (`javascript_tool` expira).
+- Logs do container: `GET /api/jobs/?limit=50` → 307 → `/api/jobs?limit=50` → 301 → `/api/jobs/?limit=50` em loop.
+
+### Causa raiz
+O nginx só tinha `location /api/jobs/` (com barra final). Um pedido a `/api/jobs` é redirecionado
+pelo nginx para `/api/jobs/` (301), e o FastAPI redireciona `/api/jobs/` para `/api/jobs` (307).
+
+### Correção
+Adicionar `location = /api/jobs` (match exato, sem redirect) antes de `location /api/jobs/`,
+com os mesmos `proxy_pass`/headers. `nginx -t` antes do reload.
+Backup da config em `/home/ubuntu/default.bak-jobs-20261125-152547`. Nunca deixar um
+`.bak` dentro de `/etc/nginx/sites-enabled/` (o nginx carrega-o e dá `duplicate default server`).
+
+### Como diagnosticar (da próxima vez)
+1. `curl -s -D - -o /dev/null "http://<ip>/api/jobs?limit=50" | grep -i "^HTTP\|^location"`.
+   301 para `/api/jobs/` ou 307 de volta confirma o loop.
+2. `docker logs --since 5m sap-script-web | grep 307` para ver o padrão no backend.
+
+### Como prevenir
+- Para endpoints sem barra final, usar `location =` (exato) no nginx sempre que existir
+  `location .../` com barra.
+- Testar com `curl -D -` depois de cada alteração no nginx.
+
+### Ficheiros
+- `/etc/nginx/sites-enabled/default` (servidor, fora do repositório)
+
+---
+
+## 2026-11-25 — Agente Salsa IT: pesquisa RH só aceitava PERNR numérico
+
+### Sintoma
+Campo "Nº colaborador RH" rejeitava `S5887` (utilizador SAP) e `Susana Pinheiro` (nome).
+
+### Causa raiz
+`normalizeSalsaHrPernr` (JS) e `SalsaItHrLookupRequest` / `_validate_pernr_or_400` (API) só
+aceitavam dígitos. O RFC de RH (`lookup_hr_data`) só procurava por PERNR.
+
+### Correção
+- JS: `normalizeSalsaHrQuery` — `S<dígitos>` → PERNR; dígitos → PERNR; letras → `{name}`.
+- API: `pernr` e `name` opcionais; `S<dígitos>` convertido para PERNR; nome validado por
+  `_validate_hr_name_or_400`.
+- Worker/RFC: `lookup_hr_by_name` pesquisa PA0002 por `VORNA`/`NACHN` com igualdade exata
+  (variantes de capitalização, sem `LIKE`). Um resultado segue para `lookup_hr_data`; vários
+  devolvem `VARIAS_CORRESPONDENCIAS` com a lista de PERNR.
+- Job de nome: no `PATCH .../hr-data` a verificação de PERNR só corre quando o job tem `pernr`.
+
+### Como diagnosticar (da próxima vez)
+- Teste RFC isolado: `.venv-rfc\Scripts\python.exe -m sap_rfc.hr_lookup_cli --name "Nome Apelido"`.
+- Teste de ponta a ponta: `POST /api/salsa-it-agent/user/create/hr-lookup` e polling do job.
+
+### Como prevenir
+- `tests/js_smoke.py` tem o contrato `normalizeSalsaHrQuery`; qualquer renomeação de função
+  exige atualizar `REQUIRED_GLOBALS` e o bloco `behavior_checks`.
+
+### Ficheiros
+- `sap_rfc/hr_lookup_service.py`, `sap_rfc/hr_lookup_cli.py`, `pfcg/pfcg_create_rfc_service.py`
+- `sap_script_web_cockpit_v2/worker/sap_tasks.py`, `web_api/main.py`, `web_api/user_create_common.py`
+- `sap_script_web_cockpit_v2/web_api/static/js/cockpit.agent.js`, `web_api/templates/index.html`
+
+---
+
 ## 2026-10-21 — SAP Cockpit: pede ENTER para abrir sessão manualmente quando existe sessão de outro sistema
 
 ### Sintoma
