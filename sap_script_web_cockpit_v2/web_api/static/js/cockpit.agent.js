@@ -16389,6 +16389,11 @@
 
             // Load history
             loadSalsaModalHistory(ticketKey);
+            // FI Extracto Cadeias de Pesquisa: enriquecer a Intenção com o resumo do anexo xlsx.
+            const ticketForAttachment = jiraTickets.find(t => t.key === ticketKey);
+            if (String((ticketForAttachment && ticketForAttachment.process) || '').toLowerCase().includes('cadeias de pesquisa')) {
+                refreshSalsaCadeiaAttachmentAnalysis(ticketKey);
+            }
         } catch (err) {
             if (elLoading) elLoading.style.display = 'none';
             if (elContent) elContent.style.display = 'flex';
@@ -16773,6 +16778,79 @@
         }
     }
 
+    function isSalsaCadeiaTicket(ticketKey) {
+        const t = jiraTickets.find(x => x.key === ticketKey);
+        return String((t && t.process) || '').toLowerCase().includes('cadeias de pesquisa');
+    }
+
+    // Bloco do anexo (xlsx) no lugar do cartão de utilizador; só para FI Extracto Cadeias de Pesquisa.
+    function renderSalsaAttachmentCard(analysis) {
+        const userCard = document.getElementById('salsa-card-user');
+        if (!userCard || !userCard.parentNode) return;
+        let card = document.getElementById('salsa-card-attachment');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'salsa-card-attachment';
+            card.style.cssText = 'grid-column:1 / -1; padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px;';
+            userCard.parentNode.insertBefore(card, userCard);
+        }
+        const summary = (analysis && analysis.extracted_data && analysis.extracted_data.attachment_summary) || null;
+        const files = ((summary && summary.files) || []).filter(f => !f.error);
+        if (!isSalsaCadeiaTicket(currentSalsaModalKey) || files.length === 0) {
+            card.style.display = 'none';
+            card.innerHTML = '';
+            return;
+        }
+        const list = (distinct, key) => ((distinct && distinct[key]) || []).map(v => escapeHtml(v)).join(', ') || '-';
+        const rows = files.map(f => {
+            const d = f.distinct || {};
+            return `<div style="margin-top:8px; font-size:0.82rem; color:#1e293b; line-height:1.5;">
+                <div><strong>Ficheiro:</strong> ${escapeHtml(f.file || '')} (folha ${escapeHtml(f.sheet || '')})</div>
+                <div><strong>Cadeia:</strong> ${list(d, 'NOME CADEIA DE PESQUISA')}</div>
+                <div><strong>Empresa:</strong> ${list(d, 'EMPRESA')} &nbsp; <strong>Banco:</strong> ${list(d, 'BANCO')}</div>
+                <div><strong>Regras:</strong> ${Number(f.rules || 0)}</div>
+            </div>`;
+        }).join('');
+        card.style.display = '';
+        card.innerHTML = `<div style="font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em;">Anexo do ticket (xlsx)</div>${rows}`;
+    }
+
+    // Pede o resumo do anexo ao worker (pasta temporária do utilizador) e reanalisa o ticket com esse contexto.
+    async function refreshSalsaCadeiaAttachmentAnalysis(ticketKey) {
+        const deadline = Date.now() + 120000;
+        try {
+            const startRes = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/attachment-summary`, {
+                method: 'POST', headers: { 'Accept': 'application/json' }
+            });
+            const startData = await startRes.json().catch(() => ({}));
+            if (!startRes.ok || !startData.job_id) return;
+            let jobId = startData.job_id;
+            while (Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                if (!isSalsaModalRequestCurrent(ticketKey)) return;
+                const pollRes = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/attachment-summary/${encodeURIComponent(jobId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const pollData = await pollRes.json().catch(() => ({}));
+                if (pollData.state === 'pending' || pollData.state === 'running') continue;
+                if (pollData.state !== 'succeeded') return;
+                const res = await fetch(`/api/salsa-it-agent/tickets/${encodeURIComponent(ticketKey)}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force_reanalyze: true, attachment_job_id: jobId })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.analysis && isSalsaModalRequestCurrent(ticketKey)) {
+                    renderSalsaModalData(data.analysis);
+                    loadSalsaModalHistory(ticketKey);
+                }
+                return;
+            }
+        } catch (error) {
+            // Sem resumo do anexo: a análise continua sem este contexto.
+        }
+    }
+
     async function searchSalsaHrData() {
         if (!currentSalsaModalKey) return;
         const input = document.getElementById('salsa-modal-input-hr-pernr');
@@ -16847,18 +16925,30 @@
         }
     }
 
-    // CA Acessos: só CREATE_USER, UNLOCK_USER e RESET_PASSWORD. A classificação atual fica sempre visível.
+    // CA Acessos: só CREATE_USER, UNLOCK_USER e RESET_PASSWORD. FI Extracto Cadeias de Pesquisa: só as 4 de cadeia. A classificação atual fica sempre visível.
     function applySalsaClassificationOptions(current) {
         const select = document.getElementById('salsa-modal-classification-code');
         if (!select) return;
+        // FI Extracto Cadeias de Pesquisa: o cartão de dados de utilizador RH/referência não se aplica.
+        const ticketForCard = jiraTickets.find(t => t.key === currentSalsaModalKey);
+        const isCadeiaCard = String((ticketForCard && ticketForCard.process) || '').toLowerCase().includes('cadeias de pesquisa');
+        const userCard = document.getElementById('salsa-card-user');
+        if (userCard) userCard.style.display = isCadeiaCard ? 'none' : '';
         if (!window.salsaClassificationMasterOptions) {
             window.salsaClassificationMasterOptions = Array.from(select.options).map(o => ({ value: o.value, text: o.textContent }));
         }
         const ticket = jiraTickets.find(t => t.key === currentSalsaModalKey);
         const processLower = String((ticket && ticket.process) || '').toLowerCase().trim();
+        const isCadeiaPesquisa = processLower.includes('cadeias de pesquisa');
         const restricted = processLower.includes('acessos') || processLower === '28790';
         const allowed = ['CREATE_USER', 'UNLOCK_USER', 'RESET_PASSWORD'];
-        const options = window.salsaClassificationMasterOptions.filter(o => !restricted || allowed.includes(o.value) || o.value === current);
+        const allowedCadeia = ['CRIAR_CADEIA_PESQUISA', 'ALTERAR_CADEIA_PESQUISA', 'ERRO_CADEIA_PESQUISA', 'SEM_CONTEXTO'];
+        const options = window.salsaClassificationMasterOptions.filter(o => {
+            if (o.value === current) return true;
+            if (isCadeiaPesquisa) return allowedCadeia.includes(o.value);
+            if (restricted) return allowed.includes(o.value);
+            return !allowedCadeia.includes(o.value);
+        });
         select.innerHTML = options.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.text)}</option>`).join('');
         if (current) select.value = current;
     }
@@ -16889,8 +16979,12 @@
         document.getElementById('salsa-modal-intent').textContent = analysis.intent || '-';
         const justEl = document.getElementById('salsa-modal-justification');
         const ticketDescription = (analysis.extracted_data && analysis.extracted_data.ticket_description) || '';
-        justEl.textContent = (ticketDescription ? ticketDescription.replace(/\s+/g, ' ').trim() : analysis.justification) || '-';
+        // Se a Intenção já inclui a descrição, a linha de baixo mostra a justificação (sem repetir o texto).
+        const cleanDescription = ticketDescription.replace(/\s+/g, ' ').trim();
+        const descriptionInIntent = cleanDescription && String(analysis.intent || '').includes(cleanDescription.slice(0, 40));
+        justEl.textContent = (cleanDescription && !descriptionInIntent ? cleanDescription : analysis.justification) || '-';
         applySalsaClassificationOptions(analysis.classification);
+        renderSalsaAttachmentCard(analysis);
 
         // Notice banner semantics
         const noticeText = document.getElementById('salsa-modal-notice-text');

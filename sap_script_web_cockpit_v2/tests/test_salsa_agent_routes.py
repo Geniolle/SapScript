@@ -177,14 +177,16 @@ class SalsaAgentRoutesTest(unittest.TestCase):
         parser = _ElementIdParser()
         parser.feed((Path(__file__).resolve().parents[1] / "web_api" / "templates" / "index.html").read_text(encoding="utf-8"))
 
-        expected = [
-            "salsa-card-user",
+        # Solicitante, Estado e Dependência ficam na linha de cartões no lugar do banner (antes da grelha).
+        expected_row = [
             "salsa-card-requester",
             "salsa-card-operational-status",
             "salsa-card-dependency",
         ]
-        actual = [element_id for element_id in parser.elements if element_id in expected]
-        self.assertEqual(actual, expected)
+        self.assertIn("salsa-modal-status-row", parser.elements)
+        actual = [element_id for element_id in parser.elements if element_id in expected_row]
+        self.assertEqual(actual, expected_row)
+        self.assertNotIn("salsa-modal-notice-banner", parser.elements)
         _, grid_attrs = parser.elements["salsa-modal-diagnostic-grid"]
         self.assertIn("repeat(4", grid_attrs["style"])
         # Cartao SAP ocupa a linha inteira (sozinho na primeira linha).

@@ -2757,6 +2757,68 @@ def _run_otpm_execute(params: dict[str, Any]) -> tuple[str, str]:
 
 # Dispatch das tasks simples: task -> callable(job, params) -> (status, log).
 # `sap_cockpit` fica FORA (streaming/threads/documentacao proprios em run_sap_task).
+def _summarize_cadeia_xlsx(path: str) -> dict[str, Any]:
+    """Resumo read-only de um xlsx de cadeias de pesquisa: cabeçalho, nº de regras e valores distintos das colunas-chave."""
+    import openpyxl
+
+    key_columns = ["NOME CADEIA DE PESQUISA", "EMPRESA", "BANCO", "STATUS"]
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        ws = wb.worksheets[0]
+        header: list[str] = []
+        rules = 0
+        distinct: dict[str, list[str]] = {name: [] for name in key_columns}
+        indexes: dict[str, int] = {}
+        for row in ws.iter_rows(values_only=True):
+            cells = ["" if c is None else str(c).strip() for c in row]
+            if not any(cells):
+                continue
+            if not header:
+                header = cells
+                indexes = {name: header.index(name) for name in key_columns if name in header}
+                continue
+            rules += 1
+            for name, idx in indexes.items():
+                value = cells[idx] if idx < len(cells) else ""
+                if value and value not in distinct[name]:
+                    distinct[name].append(value)
+        return {
+            "file": Path(path).name,
+            "sheet": ws.title,
+            "header": [h for h in header if h],
+            "rules": rules,
+            "distinct": {name: values[:20] for name, values in distinct.items() if values},
+        }
+    finally:
+        wb.close()
+
+
+def _run_ticket_attachment_summary(params: dict[str, Any]) -> tuple[str, str]:
+    """Descarrega os xlsx do ticket para a pasta temporaria do utilizador/salsa_it_attachments/<chave> e devolve o resumo (read-only no Jira)."""
+    ticket_key = str(params.get("ticket_key") or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]+-[0-9]+", ticket_key):
+        raise SapExecutionError("Chave de ticket inválida.")
+    base_dir = Path(os.environ.get("TEMP") or os.environ.get("TMP") or ".") / "salsa_it_attachments"
+    try:
+        from web_api.jira_client import download_ticket_attachments_to_dir
+    except Exception as exc:
+        raise SapExecutionError(f"Não foi possível importar o cliente Jira: {exc}") from exc
+    try:
+        files = download_ticket_attachments_to_dir(ticket_key, str(base_dir), str(base_dir), only_xlsx=True, overwrite=True)
+    except Exception as exc:
+        raise SapExecutionError(f"Falha ao descarregar anexos do ticket {ticket_key}: {exc}") from exc
+    local_files = [str(base_dir / ticket_key / Path(f).name) for f in files]
+    summaries = []
+    for local in local_files:
+        try:
+            summaries.append(_summarize_cadeia_xlsx(local))
+        except Exception as exc:
+            summaries.append({"file": Path(local).name, "error": str(exc)})
+    payload = {"ticket_key": ticket_key, "folder": str(base_dir / ticket_key), "files": summaries}
+    log_lines = [f"Anexos xlsx de {ticket_key}: {len(local_files)}", f"Pasta: {base_dir / ticket_key}"]
+    return json.dumps(payload, ensure_ascii=False), "\n".join(log_lines)
+
+
 TASK_HANDLERS: dict[str, "Any"] = {
     "sap_agent_analysis": lambda job, params: _run_sap_agent_analysis(params),
     "sap_cockpit_auto_trigger": lambda job, params: _run_sap_cockpit(params),
@@ -2779,6 +2841,7 @@ TASK_HANDLERS: dict[str, "Any"] = {
     "user_change_password_rfc": lambda job, params: _run_user_change_password_rfc(params),
     "user_unlock_rfc": lambda job, params: _run_user_unlock_rfc(params),
     "hr_lookup": lambda job, params: _run_hr_lookup(params),
+    "ticket_attachment_summary": lambda job, params: _run_ticket_attachment_summary(params),
     "pfcg_composta_create_preview": lambda job, params: _run_pfcg_composta_create_preview(params),
     "pfcg_composta_create": lambda job, params: _run_pfcg_composta_create(params),
     "pfcg_role_delete_preview": lambda job, params: _run_pfcg_role_delete_preview(params),

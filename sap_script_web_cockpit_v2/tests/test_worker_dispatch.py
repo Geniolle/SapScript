@@ -66,6 +66,7 @@ EXPECTED_TASKS = {
     "user_change_password_rfc",
     "user_unlock_rfc",
     "hr_lookup",
+    "ticket_attachment_summary",
     "projeto_perfil_execucao",
     "projeto_perfil_departamento",
     "projeto_perfil_utilizador",

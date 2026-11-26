@@ -881,6 +881,22 @@ async def api_salsa_it_ticket_eligibility(ticket_key: str) -> dict[str, Any]:
 
 class SalsaAnalyzeRequest(BaseModel):
     force_reanalyze: bool = False
+    attachment_job_id: Optional[str] = None
+
+
+def _salsa_attachment_summary_from_job(job_id: str, ticket_key: str) -> Optional[dict[str, Any]]:
+    """Resumo do anexo produzido pelo worker (job ticket_attachment_summary concluído para este ticket)."""
+    from web_api.store import get_job
+    job = get_job(str(job_id or "").strip())
+    if not job or job.get("task") != "ticket_attachment_summary" or job.get("state") != "succeeded":
+        return None
+    if str((job.get("params") or {}).get("ticket_key") or "").upper() != ticket_key:
+        return None
+    try:
+        data = json.loads(str(job.get("status") or ""))
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 @app.post("/api/salsa-it-agent/tickets/{ticket_key}/analyze")
@@ -890,13 +906,47 @@ async def api_salsa_it_analyze_ticket(ticket_key: str, payload: SalsaAnalyzeRequ
 
     clean_key = ticket_key.strip().upper()
     force = payload.force_reanalyze if payload else False
+    attachment_summary = None
+    if payload and payload.attachment_job_id:
+        attachment_summary = _salsa_attachment_summary_from_job(payload.attachment_job_id, clean_key)
     orchestrator = SalsaAgentOrchestrator()
 
     try:
-        result = await asyncio.to_thread(orchestrator.analyze_ticket_by_key, clean_key, force)
+        result = await asyncio.to_thread(orchestrator.analyze_ticket_by_key, clean_key, force, attachment_summary)
         return {"status": "success", "analysis": result.to_dict()}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Erro ao analisar ticket: {str(exc)}")
+
+
+@app.post("/api/salsa-it-agent/tickets/{ticket_key}/attachment-summary")
+def api_salsa_it_attachment_summary_start(ticket_key: str) -> dict[str, Any]:
+    """Pede ao worker o resumo dos xlsx do anexo do ticket (descarregados para a pasta temporária do utilizador)."""
+    clean_key = ticket_key.strip().upper()
+    if not re.fullmatch(r"[A-Z]+-[0-9]+", clean_key):
+        raise HTTPException(status_code=400, detail="Chave de ticket inválida.")
+    try:
+        job = create_job("ticket_attachment_summary", {"ticket_key": clean_key})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"job_id": job["id"], "state": job["state"], "ticket_key": clean_key}
+
+
+@app.get("/api/salsa-it-agent/tickets/{ticket_key}/attachment-summary/{job_id}")
+def api_salsa_it_attachment_summary_status(ticket_key: str, job_id: str) -> dict[str, Any]:
+    from web_api.store import get_job
+    clean_key = ticket_key.strip().upper()
+    job = get_job(job_id)
+    if not job or job.get("task") != "ticket_attachment_summary":
+        raise HTTPException(status_code=404, detail="Job de anexo não encontrado.")
+    state = str(job.get("state") or "pending")
+    if state in {"pending", "running"}:
+        return {"state": state}
+    if state != "succeeded":
+        return {"state": "failed", "message": "Não foi possível ler o anexo do ticket."}
+    summary = _salsa_attachment_summary_from_job(job_id, clean_key)
+    if summary is None:
+        return {"state": "failed", "message": "Resumo do anexo indisponível."}
+    return {"state": "succeeded", "job_id": job_id, "summary": summary}
 
 
 @app.get("/api/salsa-it-agent/tickets/{ticket_key}/analysis")

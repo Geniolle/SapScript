@@ -104,7 +104,9 @@ class SalsaAgentOrchestrator:
 
         return True, "Elegível para o Agente Salsa IT"
 
-    def analyze_ticket_by_key(self, ticket_key: str, force_reanalyze: bool = False) -> AnalysisResult:
+    def analyze_ticket_by_key(
+        self, ticket_key: str, force_reanalyze: bool = False, attachment_summary: Optional[dict] = None
+    ) -> AnalysisResult:
         """
         Fetches ticket details, checks eligibility and runs analysis with idempotency.
         """
@@ -205,6 +207,7 @@ class SalsaAgentOrchestrator:
             process_category=process_category,
             requester=requester or None,
             comments_text=combined_comments,
+            attachment_summary=attachment_summary,
         )
 
         final_result = l1_result

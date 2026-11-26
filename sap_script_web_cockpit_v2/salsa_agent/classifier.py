@@ -36,6 +36,46 @@ from .models import (
 RULES_VERSION = "1.1.0"
 
 
+def _intent_from_summary_and_description(summary: Optional[str], description: Optional[str], limit: int = 160) -> str:
+    """Intenção do pedido a partir do sumário e da descrição (sem o processo)."""
+    sum_clean = " ".join((summary or "").split())
+    desc_clean = " ".join((description or "").split())
+    if len(desc_clean) > limit:
+        desc_clean = desc_clean[:limit].rsplit(" ", 1)[0] + "…"
+    if sum_clean and desc_clean:
+        return f"{sum_clean}: {desc_clean}"
+    return sum_clean or desc_clean or "Informação insuficiente para determinar a operação"
+
+
+_CADEIA_PATTERNS = {
+    ClassificationCode.CRIAR_CADEIA_PESQUISA: re.compile(r"\b(criar|criem|crie|criacao|nova|novas|novo|novos|gerar|gerem|gere)\b"),
+    ClassificationCode.ALTERAR_CADEIA_PESQUISA: re.compile(r"\b(alterar|altere|alterem|alteracao|modificar|modifique|modifiquem|atualizar|atualize|atualizem|corrigir|corrijam|mudar|mude|mudem|ajustar|ajustem|ajuste)\b"),
+    ClassificationCode.ERRO_CADEIA_PESQUISA: re.compile(r"\b(erro|erros|falha|falhou|falhas|problema|problemas|bug|nao funciona|incorret[oa]s?)\b"),
+}
+
+
+def _normalize_plain(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).lower()
+
+
+def _with_attachment(entities: "ExtractedEntities", attachment_summary: Optional[dict]) -> "ExtractedEntities":
+    """Guarda o resumo do anexo (xlsx) nas entidades extraídas, para o modal mostrar um bloco próprio."""
+    entities.attachment_summary = attachment_summary or None
+    return entities
+
+
+def _classify_cadeia_pesquisa(text: str) -> Tuple[ClassificationCode, str]:
+    """Processo FI Extracto Cadeias de Pesquisa: só classifica com uma única categoria clara; senão SEM_CONTEXTO."""
+    normalized = _normalize_plain(text)
+    matches = [code for code, pattern in _CADEIA_PATTERNS.items() if pattern.search(normalized)]
+    if len(matches) == 1:
+        return matches[0], "Classificado pelo texto da Intenção (palavras-chave de " + matches[0].value + ")."
+    if not matches:
+        return ClassificationCode.SEM_CONTEXTO, "Sem palavras-chave de criação, alteração ou erro de cadeia de pesquisa."
+    return ClassificationCode.SEM_CONTEXTO, "Texto com mais de uma categoria (" + ", ".join(m.value for m in matches) + "); sem contexto claro."
+
+
 class SalsaLevel1Classifier:
     """Deterministic Level 1 classifier."""
 
@@ -121,6 +161,7 @@ class SalsaLevel1Classifier:
         process_category: str = "",
         requester: Optional[str] = None,
         comments_text: str = "",
+        attachment_summary: Optional[dict] = None,
     ) -> AnalysisResult:
         """Executes Level 1 deterministic analysis."""
         combined_text = f"{summary or ''}\n{description or ''}\n{comments_text or ''}".strip()
@@ -305,12 +346,29 @@ class SalsaLevel1Classifier:
                 content_hash=content_hash,
             )
 
+        if "cadeias de pesquisa" in _normalize_plain(process_category):
+            cadeia_code, cadeia_why = _classify_cadeia_pesquisa(combined_text)
+            return AnalysisResult(
+                ticket_key=ticket_key,
+                classification=cadeia_code,
+                level=AnalysisLevel.LEVEL_1,
+                status=AnalysisStatus.REVISION_REQUIRED,
+                intent=_intent_from_summary_and_description(summary, description),
+                justification=cadeia_why,
+                extracted_data=_with_attachment(extracted_entities, attachment_summary),
+                missing_info=[] if cadeia_code != ClassificationCode.SEM_CONTEXTO else ["Contexto do pedido de cadeia de pesquisa"],
+                suggested_next_action="Revisar a intenção e escolher a classificação manualmente.",
+                requires_human_review=True,
+                confidence=0.6 if cadeia_code != ClassificationCode.SEM_CONTEXTO else 0.4,
+                content_hash=content_hash,
+            )
+
         return AnalysisResult(
             ticket_key=ticket_key,
             classification=ClassificationCode.INSUFFICIENT_INFORMATION,
             level=AnalysisLevel.LEVEL_1,
             status=AnalysisStatus.REVISION_REQUIRED,
-            intent="Informação insuficiente para determinar a operação",
+            intent=_intent_from_summary_and_description(summary, description),
             justification="A descrição não apresenta detalhes suficientes para classificar uma ação de acessos SAP.",
             missing_info=["Detalhes da transação, erro ou utilizador pretendido"],
             suggested_next_action="Solicitar clarificação do pedido ao criador do ticket.",
