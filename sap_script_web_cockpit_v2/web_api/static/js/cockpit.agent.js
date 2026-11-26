@@ -16804,11 +16804,17 @@
         const list = (distinct, key) => ((distinct && distinct[key]) || []).map(v => escapeHtml(v)).join(', ') || '-';
         const rows = files.map(f => {
             const d = f.distinct || {};
+            const hiddenColumns = ['STATUS', 'MSG'];
+            const header = (f.header || []).filter(h => h && !hiddenColumns.includes(h));
+            const ruleRows = (f.rows || []);
+            const headCells = header.map(h => `<th style="text-align:left; padding:4px 6px; border-bottom:1px solid #e2e8f0; font-size:0.7rem; color:#64748b; white-space:nowrap;">${escapeHtml(h)}</th>`).join('');
+            const bodyRows = ruleRows.map(r => `<tr>${header.map(h => `<td style="padding:4px 6px; border-bottom:1px solid #f1f5f9; font-size:0.74rem; color:#1e293b; white-space:nowrap;">${escapeHtml(r[h] || '')}</td>`).join('')}</tr>`).join('');
             return `<div style="margin-top:8px; font-size:0.82rem; color:#1e293b; line-height:1.5;">
                 <div><strong>Ficheiro:</strong> ${escapeHtml(f.file || '')} (folha ${escapeHtml(f.sheet || '')})</div>
                 <div><strong>Cadeia:</strong> ${list(d, 'NOME CADEIA DE PESQUISA')}</div>
                 <div><strong>Empresa:</strong> ${list(d, 'EMPRESA')} &nbsp; <strong>Banco:</strong> ${list(d, 'BANCO')}</div>
                 <div><strong>Regras:</strong> ${Number(f.rules || 0)}</div>
+                ${ruleRows.length ? `<div style="margin-top:8px; overflow-x:auto;"><table style="border-collapse:collapse; width:100%;"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>` : ''}
             </div>`;
         }).join('');
         card.style.display = '';

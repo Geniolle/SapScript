@@ -2767,6 +2767,7 @@ def _summarize_cadeia_xlsx(path: str) -> dict[str, Any]:
         ws = wb.worksheets[0]
         header: list[str] = []
         rules = 0
+        rows: list[dict[str, str]] = []
         distinct: dict[str, list[str]] = {name: [] for name in key_columns}
         indexes: dict[str, int] = {}
         for row in ws.iter_rows(values_only=True):
@@ -2778,6 +2779,8 @@ def _summarize_cadeia_xlsx(path: str) -> dict[str, Any]:
                 indexes = {name: header.index(name) for name in key_columns if name in header}
                 continue
             rules += 1
+            if len(rows) < 200:
+                rows.append({h: cells[i] if i < len(cells) else "" for i, h in enumerate(header) if h})
             for name, idx in indexes.items():
                 value = cells[idx] if idx < len(cells) else ""
                 if value and value not in distinct[name]:
@@ -2788,6 +2791,7 @@ def _summarize_cadeia_xlsx(path: str) -> dict[str, Any]:
             "header": [h for h in header if h],
             "rules": rules,
             "distinct": {name: values[:20] for name, values in distinct.items() if values},
+            "rows": rows,
         }
     finally:
         wb.close()
