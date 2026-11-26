@@ -16791,7 +16791,7 @@
         if (!card) {
             card = document.createElement('div');
             card.id = 'salsa-card-attachment';
-            card.style.cssText = 'grid-column:1 / -1; padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px;';
+            card.style.cssText = 'grid-column:1 / -1; width:100%; box-sizing:border-box; padding:10px 14px; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px;';
             userCard.parentNode.insertBefore(card, userCard);
         }
         const summary = (analysis && analysis.extracted_data && analysis.extracted_data.attachment_summary) || null;
