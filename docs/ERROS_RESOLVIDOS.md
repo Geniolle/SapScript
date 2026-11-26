@@ -7,6 +7,28 @@ Ordenar do mais recente para o mais antigo.
 
 ---
 
+## 2026-11-26 — Lista de tickets: alterar Responsável só atualizava localmente (Jira devolvia 400)
+
+### Sintoma
+Ao escolher outro responsável na lista (IZ-60518, Filipe Galego), a app dizia "atualizado localmente" e o Jira não mudava.
+
+### Causa raiz
+`user/search` devolveu duas contas "Filipe Galego". `assign_jira_ticket` usava sempre o primeiro resultado
+(`712020:5161…`), que não é atribuível ao projeto IZ, e o `PUT .../issue/{key}/assignee` respondia `400 Bad Request`.
+A escrita local na BD acontece antes da sincronização, por isso a lista mostrava o novo responsável.
+
+### Correção
+Pesquisar em `user/assignable/search?project=<projeto do ticket>` e escolher apenas o nome exato.
+Diagnóstico read-only: comparar os `accountId` de `user/search` com `user/assignable/search`.
+
+### Como prevenir
+- Pendente: se a sincronização com o Jira falhar, reverter a alteração local (hoje fica dessincronizada).
+
+### Ficheiros
+- `sap_script_web_cockpit_v2/web_api/jira_client.py`
+
+---
+
 ## 2026-11-25 — Lista de tickets: badge "Agente IA" não aparecia em processos elegíveis novos
 
 ### Sintoma

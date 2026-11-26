@@ -12,6 +12,21 @@
   <meta name="theme-color" content="#0b0f1a">
   <link rel="stylesheet" href="/static/styles.css?v=10">
   <style>
+    /* Campos clicáveis: mão (pointer). Desativados ficam com cursor normal. */
+    select:not(:disabled),
+    button:not(:disabled),
+    a[href],
+    [role="button"],
+    .clickable,
+    .salsa-agent-btn,
+    .assignee-cell-select,
+    .premium-select {
+      cursor: pointer;
+    }
+    select:disabled,
+    button:disabled {
+      cursor: not-allowed;
+    }
     .custom-scroll::-webkit-scrollbar {
       width: 4px;
     }

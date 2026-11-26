@@ -526,20 +526,21 @@ def assign_jira_ticket(key: str, assignee_name: str) -> bool:
             res = _JIRA_SESSION.put(assign_url, auth=auth, headers=headers, json={"accountId": None}, timeout=15)
             return res.ok
 
-        # Search for assignee_name to find their accountId
-        search_url = f"{jira_base}/{jira_api_path}/user/search"
-        params = {"query": assignee_name, "maxResults": 1}
+        # Pesquisar entre os utilizadores atribuíveis ao projeto do ticket (nome exato).
+        # user/search pode devolver várias contas com o mesmo nome; a primeira pode não ser atribuível (400).
+        project_key = key.split("-")[0]
+        search_url = f"{jira_base}/{jira_api_path}/user/assignable/search"
+        params = {"project": project_key, "query": assignee_name, "maxResults": 50}
         res = _JIRA_SESSION.get(search_url, auth=auth, headers=headers, params=params, timeout=15)
         res.raise_for_status()
         users = res.json()
-        if not users:
-            print(f"User {assignee_name} not found in search.")
+        wanted = assignee_name.strip().lower()
+        exact = [u for u in users if str(u.get("displayName", "")).strip().lower() == wanted and u.get("accountId")]
+        if not exact:
+            print(f"User {assignee_name} not assignable to project {project_key}.")
             return False
 
-        account_id = users[0].get("accountId")
-        if not account_id:
-            print("No accountId found for user.")
-            return False
+        account_id = exact[0].get("accountId")
 
         # Assign issue
         assign_url = f"{jira_base}/{jira_api_path}/issue/{key}/assignee"
